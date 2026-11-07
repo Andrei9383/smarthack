@@ -15,6 +15,7 @@ import pytest
 from sentinel.contracts import WindAnomaly, is_error_code, parse_tag
 from sentinel.contracts.wind import SENSORS, TURBINE_META_COLUMNS
 from sentinel.model.wind.data import (
+    ACTIONABLE,
     CLASS_INDEX,
     CLASSES,
     fault_labels_table,
@@ -25,7 +26,7 @@ from sentinel.model.wind.data import (
     turbines_table,
     weather_table,
 )
-from sentinel.model.wind.features import clf_features, decide, neighbours_for
+from sentinel.model.wind.features import clf_features, curtail_ok, decide, neighbours_for
 from sentinel.model.wind.metrics import event_metrics
 from sentinel.model.wind.physics import CLASS_2500, air_density, density_normalise, shear_to_hub, v_norm_from
 from sentinel.model.wind.synth import SynthConfig, generate
@@ -175,6 +176,91 @@ def test_event_metrics_and_decide():
     th = {c: 0.5 for c in CLASSES[1:]}
     out = decide(probs, th)
     assert out[50, 0] == 0 and (out[60:70, 0] == 1).all()
+
+
+def _park_ctx(T, n, cap_frac=0.0, missing_cols=()):
+    """curtail_ok() on a minimal feature block: park_cap_frac_m4 + per-turbine missing power."""
+    names = ["park_cap_frac_m4", "missing"]
+    F = np.zeros((T, n, 2), np.float32)
+    F[..., 0] = cap_frac
+    F[:, list(missing_cols), 1] = 1.0
+    return curtail_ok(F, names)
+
+
+def _probs(T, n):
+    p = np.zeros((T, n, len(CLASSES)), np.float32)
+    p[..., 0] = 1.0
+    return p
+
+
+def test_park_capped_to_zero_is_curtailment_not_a_work_order():
+    """#99: a park-wide cap to 0 % leaves noisy near-zero power, so no common ceiling (park_cap_frac_m4 = 0).
+    The park consensus on p_curtailment still calls it curtailment: logged, no alert, no work order."""
+    T, n = 160, 70
+    ci = CLASS_INDEX["curtailment"]
+    probs = _probs(T, n)
+    probs[40:100, :, ci], probs[40:100, :, 0] = 0.999, 0.001
+    probs[40:100, :10, ci], probs[40:100, :10, 0] = 0.2, 0.8  # a few turbines the classifier is unsure about
+    ctx = _park_ctx(T, n, cap_frac=0.0, missing_cols=range(60, 70))  # 10 turbines not reporting
+    th = {c: 0.5 for c in CLASSES[1:]}
+    out = decide(probs, th, curtail_mask=ctx)
+    assert (out[40:100, 10:60] == ci).all()
+    assert (out[:, 60:] != ci).all()  # no power reading: no vote, not released (data_gap's job)
+    assert (out[:40] == 0).all() and (out[100:] == 0).all()
+    assert not np.isin(out, [CLASS_INDEX[c] for c in ACTIONABLE]).any()
+    truth = np.zeros((T, n), np.uint8)
+    truth[40:100] = ci
+    m = event_metrics(truth, out)
+    assert m["n_alerts"] == 0
+    # below the consensus share (and no ceiling) the veto still holds
+    weak = probs.copy()
+    weak[40:100, :35, ci], weak[40:100, :35, 0] = 0.2, 0.8
+    assert (decide(weak, th, curtail_mask=ctx) != ci).all()
+    # with a low tuned θ_curtailment, a turbine the classifier sees as iced keeps icing: only confident
+    # turbines vote, and only voting turbines are released from the veto
+    ii = CLASS_INDEX["icing"]
+    iced = probs.copy()
+    iced[40:100, 10:20, ci], iced[40:100, 10:20, ii], iced[40:100, 10:20, 0] = 0.3, 0.9, 0.0
+    out_i = decide(iced, dict(th, curtailment=0.15, icing=0.85), curtail_mask=ctx)
+    assert (out_i[40:100, 10:20] == ii).all() and (out_i[40:100, 20:60] == ci).all()
+    # a turbine overheating during the cap keeps its actionable class (the consensus never out-votes it)
+    oi = CLASS_INDEX["overheating"]
+    hot = probs.copy()
+    hot[40:100, 30, oi] = 0.95
+    out_h = decide(hot, th, curtail_mask=ctx)
+    assert (out_h[40:100, 30] == oi).all() and (out_h[40:100, 31:60] == ci).all()
+    # ... also when its run has short sub-threshold gaps the smoothing fills (the consensus never splits it)
+    gap = hot.copy()
+    gap[60:64, 30, oi] = 0.3
+    out_g = decide(gap, th, curtail_mask=ctx)
+    assert (out_g[40:100, 30] == oi).all()
+    # a park-wide cap at a common ceiling is still allowed by the ceiling test alone
+    assert (decide(weak, th, curtail_mask=_park_ctx(T, n, cap_frac=0.5))[40:100, 35:] == ci).all()
+
+
+def test_lone_low_turbine_is_never_hidden_as_curtailment():
+    """#99: one underperforming turbine in a normal park keeps its actionable class even when the classifier
+    leans to curtailment, also when its park is tuned together with a capped park (consensus is per park) and
+    in a 2-turbine park (one turbine is half the park, but never a consensus)."""
+    T = 160
+    ci, ui = CLASS_INDEX["curtailment"], CLASS_INDEX["underperformance"]
+    th = {c: 0.5 for c in CLASSES[1:]}
+    probs = _probs(T, 20)
+    probs[30:100, 3, ci], probs[30:100, 3, ui], probs[30:100, 3, 0] = 0.9, 0.6, 0.0
+    out = decide(probs, th, curtail_mask=_park_ctx(T, 20))
+    assert (out[30:100, 3] == ui).all() and (out != ci).all()
+    # concatenated with a park that IS capped at the same time (how train.py tunes on several parks)
+    capped = _probs(T, 30)
+    capped[30:100, :, ci], capped[30:100, :, 0] = 0.999, 0.001
+    both = np.concatenate([probs, capped], axis=1)
+    ctx = np.concatenate([_park_ctx(T, 20), _park_ctx(T, 30)], axis=1)
+    out2 = decide(both, th, curtail_mask=ctx)
+    assert (out2[30:100, 3] == ui).all() and (out2[:, :20] != ci).all()
+    assert (out2[30:100, 20:] == ci).all()
+    # tiny park: one of two turbines is 50 % but still a lone turbine
+    small = _probs(T, 2)
+    small[30:100, 0, ci], small[30:100, 0, ui], small[30:100, 0, 0] = 0.9, 0.6, 0.0
+    assert (decide(small, th, curtail_mask=_park_ctx(T, 2))[30:100, 0] == ui).all()
 
 
 def test_train_export_predict_end_to_end(tmp_path):
