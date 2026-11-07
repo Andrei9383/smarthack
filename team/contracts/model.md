@@ -48,6 +48,17 @@ Helpers: `p_fault` (= 1 − P(healthy)), `top_fault`, `interval_width()`. `Predi
 `train.py` writes ONNX weights + a calibration JSON (`{model, model_version, quantile offsets per horizon bucket,
 thresholds: {ood, width, member_std, p_fault}}`) as a release asset; #29 promotes the chosen ones into `models/`.
 
+**Judge priors (#147, judge-design §6.2).** A calibration JSON may carry an optional `priors` key: what that model
+version scored on its 2024 validation year, read by the Judge's trust ledger when there is no live record
+("no record → trust the model"). Shape: `{"version": 1, "split": "val-2024", "source_run", "source":
+"validation|report|default", "scores": {score_name: {bucket_key: {"prior": 0..1, "n": asset-days}}}}`. Score names
+follow §5.3 (`calibration`, `sharpness`, `alarm_precision`, `miss_score`, `hit`, `flag`); bucket keys are
+`sentinel/judge/buckets.py` (`kind|seen|battery|season|quality|ood`, every ancestor present, root `"*"`). The ledger
+uses the most specific covered key and falls back towards `"*"`. Ensemble members (`pvnet.s*`, `loadnet.s*`) share
+the ensemble's priors. Models without a calibration JSON (M6 `windnbm.priors.json`) and the substitutes / ledger-only
+models (M3, M7, M8) keep the same block in `models/judge_priors.json` under `models.<id>`. Written by
+`python -m sentinel.judge.priors --out DIR` (lab `eval` run); consumers must tolerate the key being absent.
+
 ## Mock
 `MockPredictor(kind)` with kind `pv | load | sitehealth | wind | zone`; same `(asset, t0)` → same output on every
 machine. PV follows RO solar geometry and a per-day cloud factor; load has morning + evening peaks (heat in winter
