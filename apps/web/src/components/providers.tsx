@@ -1,0 +1,22 @@
+"use client";
+
+import { Toaster } from "@sentinel-app/ui/components/sonner";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
+
+import { getQueryClient } from "@/utils/orpc";
+
+import { ThemeProvider } from "./theme-provider";
+
+export default function Providers({ children }: { children: React.ReactNode }) {
+  const queryClient = getQueryClient();
+
+  return (
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+      <QueryClientProvider client={queryClient}>
+        <NuqsAdapter>{children}</NuqsAdapter>
+      </QueryClientProvider>
+      <Toaster richColors />
+    </ThemeProvider>
+  );
+}
