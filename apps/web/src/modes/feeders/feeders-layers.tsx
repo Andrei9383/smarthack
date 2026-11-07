@@ -6,19 +6,25 @@ import { useMemo } from "react";
 import { usePolicy } from "@/demo/use-replay";
 
 import { useMapRightPadding } from "../use-map-right-padding";
+import {
+  FEEDER_CASING,
+  FEEDER_OK,
+  FEEDER_OVER,
+  FEEDER_UNKNOWN,
+  FEEDER_WARN,
+  LOW_TRUST_GAP,
+} from "./colors";
 import { useFeederList, useOverLimit } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
-const OK_COLOR = "#2dd4bf";
-const WARN_COLOR = "#f59e0b";
-const OVER_COLOR = "#ef4444";
-const LOW_TRUST_OVERLAY = "#fafafa";
 const PANEL_PADDING_PX = 452; // FeederPanel width + gutter; keeps Dobrogea clear of the panel.
 const LABEL_OFFSET_DEG = 0.42; // Feeders can share a line (#30); keep every label clickable.
 
-function colorFor(minutes: number) {
-  if (minutes === 0) return OK_COLOR;
-  return minutes <= 60 ? WARN_COLOR : OVER_COLOR;
+// No over-limit row yet (loading, or the feeder isn't in the run) reads as unknown, never as ok.
+function colorFor(minutes: number | undefined) {
+  if (minutes === undefined) return FEEDER_UNKNOWN;
+  if (minutes === 0) return FEEDER_OK;
+  return minutes <= 60 ? FEEDER_WARN : FEEDER_OVER;
 }
 
 function lineOf(geometryJson?: string | null): [number, number][] {
@@ -47,9 +53,9 @@ export function FeedersLayers() {
       const key = anchor.join();
       const duplicate = seen.get(key) ?? 0;
       seen.set(key, duplicate + 1);
-      const minutes =
-        overLimit?.find((row) => row.feederId === feeder.id && row.policy === policy)
-          ?.minutesOver ?? 0;
+      const minutes = overLimit?.find(
+        (row) => row.feederId === feeder.id && row.policy === policy,
+      )?.minutesOver;
       return [
         {
           id: feeder.id,
@@ -88,6 +94,17 @@ export function FeedersLayers() {
 
   return (
     <>
+      {/* White casing lifts the status colour off the light basemap's roads and borders. */}
+      <MapGeoJSON
+        id="feeders-casing"
+        data={collection}
+        fillPaint={false}
+        linePaint={{
+          "line-color": FEEDER_CASING,
+          "line-width": ["+", ["get", "width"], 3],
+          "line-opacity": 1,
+        }}
+      />
       <MapGeoJSON
         id="feeders"
         data={collection}
@@ -95,18 +112,18 @@ export function FeedersLayers() {
         linePaint={{
           "line-color": ["get", "color"],
           "line-width": ["get", "width"],
-          "line-opacity": 0.95,
+          "line-opacity": 1,
         }}
       />
-      {/* Low-trust LV sections: hatched overlay on the same line. */}
+      {/* Low-trust LV sections: white cuts across the same line, so it reads as hatched. */}
       <MapGeoJSON
         id="feeders-low-trust"
         data={lowTrust}
         fillPaint={false}
         linePaint={{
-          "line-color": LOW_TRUST_OVERLAY,
-          "line-width": 2,
-          "line-dasharray": [1, 2],
+          "line-color": LOW_TRUST_GAP,
+          "line-width": ["get", "width"],
+          "line-dasharray": [0.6, 1.2],
         }}
       />
       {items.map((item) => (
@@ -118,8 +135,8 @@ export function FeedersLayers() {
         >
           <MarkerContent>
             <span
-              className={`block -translate-y-3 cursor-pointer rounded border-2 bg-background/90 px-1 text-[11px] font-semibold text-foreground ${
-                item.id === selected ? "ring-2 ring-foreground" : ""
+              className={`block -translate-y-3 cursor-pointer rounded-full border-2 bg-card px-2 py-0.5 text-[11px] leading-none font-semibold text-foreground tabular-nums shadow-card ${
+                item.id === selected ? "ring-2 ring-foreground ring-offset-1 ring-offset-card" : ""
               } ${item.lowTrust ? "border-dashed" : ""}`}
               style={{ borderColor: item.color }}
               title={item.lowTrust ? `${item.id}: low GIS trust` : item.id}

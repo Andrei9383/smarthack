@@ -74,6 +74,16 @@ def windows_run(fn, args):
         fn(wx, lc, st, 0, 96, np.float32)
 
 
+ROLL_W = (4, 16, 96, 672, 2016)  # window sizes M6 clf_features uses
+
+
+def rolling_make(scale, rng):
+    """M6 clf_features for one park: 2 years of 15-min data x 70 turbines, 10 % NaN."""
+    x = rng.standard_normal((_sz(70176, scale, 2), _sz(70, scale)))
+    x[rng.random(x.shape) < 0.1] = np.nan
+    return (x,)
+
+
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description)
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
@@ -85,6 +95,8 @@ CASES = [
     ("window_gather", "windows", windows_make, windows_run,
      lambda a: (a[0], a[3][0, :256], a[5][0, :256], -HIST, HIST + 96, np.float32),
      f"{WIN_BATCHES} batches x {WIN_B} windows: 14 d hist + 24 h target, f16 -> f32, from 600 x 140160"),
+    ("rolling_mean", "rolling", rolling_make, lambda fn, a: [fn(a[0], w) for w in ROLL_W],
+     lambda a: (a[0][:5000], 672), f"70176 steps x 70 turbines, f64, 10% NaN, w in {ROLL_W} (M6 clf_features)"),
 ]
 
 

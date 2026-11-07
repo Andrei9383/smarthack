@@ -105,5 +105,16 @@ def window_gather(arr: Any, rows: Any, starts: Any, offset: int, length: int, dt
     return get("window_gather")(arr, rows, starts, offset, length, dtype, out)
 
 
+from sentinel.kernels.rolling import rolling_mean_py, rolling_mean_rust  # noqa: E402
+
+register("rolling_mean", rolling_mean_py, rolling_mean_rust)
+
+
+def rolling_mean(x: Any, w: int) -> np.ndarray:
+    """K4, dispatched causal NaN-aware rolling mean along axis 0; see ``rolling`` (the reference)."""
+    return get("rolling_mean")(x, w)
+
+
 __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
-           "names", "register", "rust_available", "window_gather", "window_gather_py"]
+           "names", "register", "rolling_mean", "rolling_mean_py", "rust_available", "window_gather",
+           "window_gather_py"]

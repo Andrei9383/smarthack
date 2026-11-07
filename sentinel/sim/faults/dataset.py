@@ -56,13 +56,17 @@ def inject_dataset(fleet_dir: Path, cfg: FaultConfig = FaultConfig(), out_dir: P
                 df = df.set_index("site_id").loc[ids].reset_index()  # batch order
                 parts.append(df)
                 lengths.append(len(df) // len(ids))
-            ts = pd.DatetimeIndex(np.concatenate([p.ts.to_numpy()[:n] for p, n in zip(parts, lengths)]))
+            # Via naive datetime64: to_numpy() on tz-aware ts boxes every row into a Timestamp object.
+            ts = pd.DatetimeIndex(
+                np.concatenate([p.ts.dt.tz_convert(None).to_numpy()[:n] for p, n in zip(parts, lengths)])
+            ).tz_localize("UTC")
             arrays = {c: np.concatenate([p[c].to_numpy().reshape(len(ids), n) for p, n in zip(parts, lengths)], 1)
                       .astype(np.int16 if c == "inv_status" else np.float64) for c in TELEMETRY_COLS}
             labels += inject_batch(ts, arrays, sb, cfg)
             o = 0
             for f, p, n in zip(files, parts, lengths):
-                cols = {"ts": pa.array(p.ts.to_numpy(), pa.timestamp("ns", tz="UTC")), "site_id": pa.array(p.site_id)}
+                ts_arrow = pa.Array.from_pandas(p.ts).cast(pa.timestamp("ns", tz="UTC"))
+                cols = {"ts": ts_arrow, "site_id": pa.array(p.site_id)}
                 for c in TELEMETRY_COLS:
                     v = arrays[c][:, o:o + n].ravel()
                     if c in ROUND:
@@ -96,6 +100,7 @@ def inject_dataset(fleet_dir: Path, cfg: FaultConfig = FaultConfig(), out_dir: P
     log(lab.groupby("fault").agg(episodes=("asset_id", "size"), sites=("asset_id", "nunique"),
                                  severity=("severity", "median")).to_string())
     log(f"LAB_METRIC faulty_site_day_share={stats['faulty_site_day_share']}")
+    log(f"LAB_METRIC inject_seconds={time.perf_counter() - t0:.1f}")
     log(f"wrote {out}")
     return out
 
