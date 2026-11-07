@@ -45,6 +45,12 @@ def _git_sha() -> Optional[str]:
         return None
 
 
+def _predictor_report(preds: dict[str, Any]) -> dict[str, Any]:
+    from .predictors import predictor_report
+
+    return predictor_report({k: v for k, v in preds.items() if k != "zone"})
+
+
 def write_topology(db: AuditDB, world: World) -> None:
     for fid, f in world.feeders.items():
         sites = [world.sites[s] for s in f.site_ids]
@@ -161,6 +167,8 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             "created_at": Ts(started), "finished_at": Ts(int(datetime.now(timezone.utc).timestamp())),
             "week_start": w.week_start,
             "notes": {"components": comps.sources, "fallbacks": comps.fallbacks, "component_errors": comps.errors,
+                      "predictors": _predictor_report(comps.predictors),
+                      **(w.replay_notes() if hasattr(w, "replay_notes") else {}),
                       "world": w.describe(), "resolve_hourly": resolve_hourly, "schema": db.schema_source,
                       "inputs_hash": __import__("sentinel.contracts", fromlist=["input_hash"]).input_hash(
                           res.day_hashes), "plan_status": res.plan_status,

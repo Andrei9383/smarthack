@@ -1,0 +1,463 @@
+{
+ "model": "loadnet",
+ "model_version": "loadnet-208-s3",
+ "data_label": "synthetic RO",
+ "mode": "nowcast",
+ "n_params": 206904,
+ "history": [
+  {
+   "epoch": 0,
+   "train_loss": 0.15339462605615456,
+   "val_pinball": 0.12771489737232056,
+   "val_nmae": 0.27234316027699074,
+   "sec": 2.0
+  },
+  {
+   "epoch": 1,
+   "train_loss": 0.11427707540492217,
+   "val_pinball": 0.11562867473851961,
+   "val_nmae": 0.2408259246443219,
+   "sec": 1.6
+  },
+  {
+   "epoch": 2,
+   "train_loss": 0.10584983912607034,
+   "val_pinball": 0.1102503964033464,
+   "val_nmae": 0.22725810397534746,
+   "sec": 1.6
+  },
+  {
+   "epoch": 3,
+   "train_loss": 0.10033377615114053,
+   "val_pinball": 0.10508826179679773,
+   "val_nmae": 0.21920840883999992,
+   "sec": 1.7
+  },
+  {
+   "epoch": 4,
+   "train_loss": 0.09590711228549481,
+   "val_pinball": 0.10195788272401236,
+   "val_nmae": 0.21059775309381804,
+   "sec": 1.6
+  },
+  {
+   "epoch": 5,
+   "train_loss": 0.09384951221446196,
+   "val_pinball": 0.10175286883119429,
+   "val_nmae": 0.21132467214935127,
+   "sec": 1.7
+  },
+  {
+   "epoch": 6,
+   "train_loss": 0.09345396359761556,
+   "val_pinball": 0.10065321857070969,
+   "val_nmae": 0.20820549326384566,
+   "sec": 1.6
+  },
+  {
+   "epoch": 7,
+   "train_loss": 0.09242101602256297,
+   "val_pinball": 0.10039554840949091,
+   "val_nmae": 0.20643648689899924,
+   "sec": 1.6
+  },
+  {
+   "epoch": 8,
+   "train_loss": 0.09169392640391985,
+   "val_pinball": 0.09959768188696598,
+   "val_nmae": 0.20504857973449447,
+   "sec": 1.6
+  },
+  {
+   "epoch": 9,
+   "train_loss": 0.0913065937658151,
+   "val_pinball": 0.09926764268096157,
+   "val_nmae": 0.20304327101354852,
+   "sec": 1.7
+  },
+  {
+   "epoch": 10,
+   "train_loss": 0.09097372812529404,
+   "val_pinball": 0.10080682354996581,
+   "val_nmae": 0.21022290051764914,
+   "sec": 1.6
+  },
+  {
+   "epoch": 11,
+   "train_loss": 0.09088511633376281,
+   "val_pinball": 0.09877189043322915,
+   "val_nmae": 0.2020771229236592,
+   "sec": 1.6
+  },
+  {
+   "epoch": 12,
+   "train_loss": 0.09038050157328446,
+   "val_pinball": 0.09884657622180751,
+   "val_nmae": 0.20319430333291288,
+   "sec": 1.6
+  },
+  {
+   "epoch": 13,
+   "train_loss": 0.09001893905301889,
+   "val_pinball": 0.0982970932979608,
+   "val_nmae": 0.19912589335269346,
+   "sec": 1.6
+  },
+  {
+   "epoch": 14,
+   "train_loss": 0.09029438585042954,
+   "val_pinball": 0.09839616249618698,
+   "val_nmae": 0.1997036960876749,
+   "sec": 1.6
+  },
+  {
+   "epoch": 15,
+   "train_loss": 0.08977066385249297,
+   "val_pinball": 0.09906277343827234,
+   "val_nmae": 0.20191953926572706,
+   "sec": 1.6
+  },
+  {
+   "epoch": 16,
+   "train_loss": 0.08998705166081587,
+   "val_pinball": 0.098753490520663,
+   "val_nmae": 0.20409710158807667,
+   "sec": 1.6
+  },
+  {
+   "epoch": 17,
+   "train_loss": 0.08977252013981342,
+   "val_pinball": 0.09915562744152938,
+   "val_nmae": 0.20275157615947498,
+   "sec": 1.6
+  },
+  {
+   "epoch": 18,
+   "train_loss": 0.0893754426886638,
+   "val_pinball": 0.09802146347315233,
+   "val_nmae": 0.19782461773661242,
+   "sec": 1.6
+  },
+  {
+   "epoch": 19,
+   "train_loss": 0.08945571591456732,
+   "val_pinball": 0.09835817920959888,
+   "val_nmae": 0.20200364290773462,
+   "sec": 1.6
+  },
+  {
+   "epoch": 20,
+   "train_loss": 0.0896068578461806,
+   "val_pinball": 0.09851441247381468,
+   "val_nmae": 0.19923104330213534,
+   "sec": 1.6
+  },
+  {
+   "epoch": 21,
+   "train_loss": 0.08894898931185405,
+   "val_pinball": 0.09780617747842907,
+   "val_nmae": 0.19742001157114156,
+   "sec": 1.6
+  },
+  {
+   "epoch": 22,
+   "train_loss": 0.08925575638810794,
+   "val_pinball": 0.09774430230986475,
+   "val_nmae": 0.19701366403010762,
+   "sec": 1.6
+  },
+  {
+   "epoch": 23,
+   "train_loss": 0.089228139569362,
+   "val_pinball": 0.09805886138900166,
+   "val_nmae": 0.1974538283830591,
+   "sec": 1.6
+  },
+  {
+   "epoch": 24,
+   "train_loss": 0.0888431853801012,
+   "val_pinball": 0.09837287032167642,
+   "val_nmae": 0.2008972751791215,
+   "sec": 1.6
+  },
+  {
+   "epoch": 25,
+   "train_loss": 0.08914137169718743,
+   "val_pinball": 0.09828238522211745,
+   "val_nmae": 0.19901793201563384,
+   "sec": 1.6
+  },
+  {
+   "epoch": 26,
+   "train_loss": 0.08921871634821098,
+   "val_pinball": 0.10005462477939699,
+   "val_nmae": 0.20511017919242586,
+   "sec": 1.6
+  },
+  {
+   "epoch": 27,
+   "train_loss": 0.08930964238941669,
+   "val_pinball": 0.09779679009660887,
+   "val_nmae": 0.1976247704313596,
+   "sec": 1.6
+  },
+  {
+   "epoch": 28,
+   "train_loss": 0.0887790086120367,
+   "val_pinball": 0.09800425732675419,
+   "val_nmae": 0.1987954757406031,
+   "sec": 1.6
+  },
+  {
+   "epoch": 29,
+   "train_loss": 0.08873647091289362,
+   "val_pinball": 0.09831556772282005,
+   "val_nmae": 0.1998793711503507,
+   "sec": 1.6
+  },
+  {
+   "epoch": 30,
+   "train_loss": 0.08882505968213081,
+   "val_pinball": 0.09782023917624408,
+   "val_nmae": 0.19692412353083988,
+   "sec": 1.6
+  },
+  {
+   "epoch": 31,
+   "train_loss": 0.08882425762712956,
+   "val_pinball": 0.09796325441150258,
+   "val_nmae": 0.198267690716178,
+   "sec": 1.6
+  },
+  {
+   "epoch": 32,
+   "train_loss": 0.08876650584240754,
+   "val_pinball": 0.09854119290577029,
+   "val_nmae": 0.2008943763705583,
+   "sec": 1.6
+  }
+ ],
+ "definitions": "Metrics (numpy / sklearn only). Definitions used in every LAB_METRIC and report of #14:\n\n- nMAE = sum|q50 - y| / sum(y) over the evaluated steps (energy-normalised; stricter than per-kWp nMAE).\n- pinball = mean over (q10, q50, q90) and steps of the pinball loss, divided by mean(y) (same scale as nMAE).\n- coverage_10_90 = share of steps with q10 <= y <= q90 (PV: daylight steps only; target 78-82 %).\n- PR-AUC = average precision; macro = mean over the fault classes present (one-vs-rest).\n- hours_to_detect = hours from the exact onset to the end of the first 24 h window flagged (threshold frozen\n  on validation); episodes not flagged within the search horizon count as missed.\n",
+ "test_groups": {
+  "seen_vs_unseen": {
+   "seen": {
+    "n_windows": 51100,
+    "nmae": 0.2033726331230056,
+    "pinball": 0.08054612833380027,
+    "coverage": 0.8023159246575342,
+    "persistence_yesterday_nmae": 0.3519783869801043,
+    "persistence_7d_mean_nmae": 0.34945637697578397,
+    "persistence_week_nmae": 0.426968487788291
+   },
+   "unseen": {
+    "n_windows": 21900,
+    "nmae": 0.2021761983577259,
+    "pinball": 0.07881056207746856,
+    "coverage": 0.802486206240487,
+    "persistence_yesterday_nmae": 0.3475158626687809,
+    "persistence_7d_mean_nmae": 0.34951829678645174,
+    "persistence_week_nmae": 0.4307373173314491
+   }
+  },
+  "season": {
+   "DJF": {
+    "n_windows": 18200,
+    "nmae": 0.1611520688661371,
+    "pinball": 0.06169765759112561,
+    "coverage": 0.8037437042124542,
+    "persistence_yesterday_nmae": 0.2683576499100298,
+    "persistence_7d_mean_nmae": 0.2679528529813096,
+    "persistence_week_nmae": 0.33535643349755745
+   },
+   "JJA": {
+    "n_windows": 18200,
+    "nmae": 0.2578177219081978,
+    "pinball": 0.10312653021457545,
+    "coverage": 0.806126945970696,
+    "persistence_yesterday_nmae": 0.4479666494128357,
+    "persistence_7d_mean_nmae": 0.4555768167649347,
+    "persistence_week_nmae": 0.5683566229505361
+   },
+   "MAM": {
+    "n_windows": 18400,
+    "nmae": 0.20862892263803023,
+    "pinball": 0.08318132529938976,
+    "coverage": 0.8037205615942029,
+    "persistence_yesterday_nmae": 0.3683312956898252,
+    "persistence_7d_mean_nmae": 0.36526153729634037,
+    "persistence_week_nmae": 0.4406324749866038
+   },
+   "SON": {
+    "n_windows": 18200,
+    "nmae": 0.2178134492393873,
+    "pinball": 0.08639316729783765,
+    "coverage": 0.7958619505494505,
+    "persistence_yesterday_nmae": 0.38126922883684156,
+    "persistence_7d_mean_nmae": 0.3740363868279531,
+    "persistence_week_nmae": 0.445739424419283
+   }
+  },
+  "archetype": {
+   "ac": {
+    "n_windows": 18615,
+    "nmae": 0.21471796205786414,
+    "pinball": 0.08812275902323356,
+    "coverage": 0.8048667069567553,
+    "persistence_yesterday_nmae": 0.389743306826515,
+    "persistence_7d_mean_nmae": 0.38615443830705953,
+    "persistence_week_nmae": 0.4742291599516704
+   },
+   "base": {
+    "n_windows": 28835,
+    "nmae": 0.23665565568280225,
+    "pinball": 0.10183952038134936,
+    "coverage": 0.7980983758164268,
+    "persistence_yesterday_nmae": 0.42187033303617305,
+    "persistence_7d_mean_nmae": 0.3900369603445879,
+    "persistence_week_nmae": 0.4306692112521459
+   },
+   "electric_heating": {
+    "n_windows": 7665,
+    "nmae": 0.12682799024436095,
+    "pinball": 0.0469536987628922,
+    "coverage": 0.8035755055446836,
+    "persistence_yesterday_nmae": 0.21300752939148807,
+    "persistence_7d_mean_nmae": 0.22903864233394503,
+    "persistence_week_nmae": 0.3173554447531889
+   },
+   "ev": {
+    "n_windows": 7300,
+    "nmae": 0.4477348069078956,
+    "pinball": 0.16560791904124247,
+    "coverage": 0.8273530251141552,
+    "persistence_yesterday_nmae": 0.7304323494299687,
+    "persistence_7d_mean_nmae": 0.6807848453407812,
+    "persistence_week_nmae": 0.7319075210756338
+   },
+   "heat_pump": {
+    "n_windows": 10585,
+    "nmae": 0.13604928156752674,
+    "pinball": 0.050017321148709395,
+    "coverage": 0.7914924814989766,
+    "persistence_yesterday_nmae": 0.23018456684945984,
+    "persistence_7d_mean_nmae": 0.261312637027336,
+    "persistence_week_nmae": 0.36804004186487677
+   }
+  },
+  "day_type": {
+   "weekend_or_holiday": {
+    "n_windows": 23400,
+    "nmae": 0.20191112336839728,
+    "pinball": 0.07946547716923685,
+    "coverage": 0.7901326566951566,
+    "persistence_yesterday_nmae": 0.3479552874371662,
+    "persistence_7d_mean_nmae": 0.3342983749387941,
+    "persistence_week_nmae": 0.41112477614680876
+   },
+   "workday": {
+    "n_windows": 49600,
+    "nmae": 0.20354218596760662,
+    "pinball": 0.08025157344727875,
+    "coverage": 0.8081388608870967,
+    "persistence_yesterday_nmae": 0.35186816907757335,
+    "persistence_7d_mean_nmae": 0.3573691481804707,
+    "persistence_week_nmae": 0.43706718032620534
+   }
+  }
+ },
+ "ood": {
+  "val_p50": 0.0,
+  "val_p99": 5.069651624039023,
+  "test_seen_p50": 0.0,
+  "test_unseen_p50": 0.26179819050371134,
+  "test_frac_over_3": 0.0433972602739726
+ },
+ "test_mean_width_norm": 0.41945526003837585,
+ "onnx": {
+  "path": "/var/lib/lab-gpu/work/runs/208/.lab-out/loadnet.s3.onnx",
+  "max_abs_diff": {
+   "q": 7.152557373046875e-07,
+   "emb": 4.76837158203125e-07
+  },
+  "parity_ok": true,
+  "opset": 17
+ },
+ "metrics": {
+  "t_data_s": 1.0582520961761475,
+  "mem_data_mb": 0.0,
+  "t_stats_s": 0.22815895080566406,
+  "mem_stats_mb": 0.0,
+  "n_params": 206904.0,
+  "t_train_s": 54.383479833602905,
+  "mem_train_mb": 74.8,
+  "epochs_run": 33.0,
+  "val_nmae": 0.19970235889053,
+  "val_pinball": 0.07909023416173648,
+  "val_coverage_raw": 0.7923622835497836,
+  "val_coverage_cal": 0.8026804653679653,
+  "val_pinball_cal": 0.07908419671648866,
+  "val_baseline_persistence_yesterday_nmae": 0.3476343216941822,
+  "val_baseline_persistence_7d_mean_nmae": 0.33790137081713467,
+  "val_baseline_persistence_week_nmae": 0.4081475209676992,
+  "test_nmae": 0.20298418840478016,
+  "test_pinball": 0.07998264458611366,
+  "test_coverage_raw": 0.7919821632420091,
+  "test_coverage_cal": 0.8023670091324201,
+  "test_pinball_cal": 0.07997518523859654,
+  "test_baseline_persistence_yesterday_nmae": 0.35052954576536327,
+  "test_baseline_persistence_7d_mean_nmae": 0.34947648038978146,
+  "test_baseline_persistence_week_nmae": 0.4281921081413736,
+  "coverage_10_90": 0.8023670091324201,
+  "baseline_persistence_yesterday_nmae": 0.35052954576536327,
+  "baseline_persistence_7d_mean_nmae": 0.34947648038978146,
+  "baseline_persistence_week_nmae": 0.4281921081413736,
+  "test_gain_vs_persistence_yesterday": 0.42092131503045027,
+  "test_nmae_seen": 0.2033726331230056,
+  "test_nmae_unseen": 0.2021761983577259,
+  "t_eval_s": 6.371172904968262,
+  "mem_eval_mb": 69.7,
+  "onnx_parity_ok": 1.0,
+  "t_export_s": 0.21022462844848633,
+  "mem_export_mb": 5.3
+ },
+ "calibration": {
+  "quantile_offsets": {
+   "buckets": [
+    [
+     0,
+     24
+    ],
+    [
+     24,
+     48
+    ],
+    [
+     48,
+     72
+    ],
+    [
+     72,
+     96
+    ]
+   ],
+   "q10": [
+    -0.0036177635192871094,
+    0.005056977272033691,
+    0.009006142616271973,
+    -0.0006719529628753662
+   ],
+   "q90": [
+    0.0060127973556518555,
+    0.00469052791595459,
+    0.0038073062896728516,
+    0.002349376678466797
+   ]
+  },
+  "thresholds": {
+   "ood": 3.0,
+   "width": 0.6132059693336487,
+   "member_std": null,
+   "p_fault": null
+  }
+ }
+}

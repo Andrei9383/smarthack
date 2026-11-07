@@ -484,7 +484,13 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
     preds = predictors or world.default_predictors()
     versions = sorted({getattr(p, "model_version", "?") for p in preds.values()})
     src["predictors"] = ("mock:" if all(str(v).startswith("mock") for v in versions) else "real:") + ",".join(versions)
-    src["wind_classifier"] = "fallback:builtin_rules (M6 stand-in)"
+    for k, p in sorted((k, p) for k, p in preds.items() if k != "zone"):  # zone: unused by the loop
+        v = str(getattr(p, "model_version", "?"))
+        src[f"predictor_{k}"] = ("fallback:mock " if v.startswith("mock") else "real:") + \
+            f"{getattr(p, 'model', k)}:{v}"
+    wind_real = not str(getattr(preds.get("wind"), "model_version", "mock")).startswith("mock")
+    src["wind_classifier"] = ("real:windnbm per-step classes" if wind_real
+                              else "fallback:builtin_rules (M6 stand-in)")
     src["wind_baseline"] = "fallback:builtin_windmon_rules (#24 stand-in)"
 
     def _try(slot: str, fn: Callable[[], Any]) -> Any:
@@ -666,6 +672,14 @@ def _digest(*arrays: Sequence[float]) -> str:
     return h.hexdigest()[:16]
 
 
+def _is_fallback(p: Prediction, comps: "Components") -> int:
+    """predictions.is_fallback: the envelope's own flag (real adapters), else whether its version is a mock."""
+    fb = (p.extra or {}).get("is_fallback")
+    if fb is not None:
+        return int(fb)
+    return int(str(p.model_version).startswith("mock") or "predictors" in comps.fallbacks)
+
+
 def _predict(pred: Any, asset: Mapping[str, Any], t0: str) -> Prediction:
     return pred.predict(asset, Window(t0=t0, horizon=DAY_STEPS))
 
@@ -743,7 +757,10 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         # ---------------------------------------------------------------- estimate
         pv_p = {s: _predict(preds["pv"], sites[s].row, t0) for s in sites}
         ld_p = {s: _predict(preds["load"], sites[s].row, t0) for s in sites}
+        if hasattr(preds["sitehealth"], "prefetch"):  # batch M4 over all sites (real models)
+            preds["sitehealth"].prefetch(list(sites), t0, 0)
         hl_p = {s: _predict(preds["sitehealth"], sites[s].row, t0) for s in sites}
+        reassess = set(getattr(preds["sitehealth"], "reassess_ticks", ()) or ())
         wd_p = {t: _predict(preds["wind"], world.turbines[t].row, t0) for t in world.turbines}
         day_inputs = {}
         for s in sites:
@@ -763,14 +780,14 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                                  "q10_kw": p.q10[k], "q50_kw": p.q50[k], "q90_kw": p.q90[k],
                                                  "ood_score": p.ood_score, "member_std": p.member_std,
                                                  "t0": created, "horizon_idx": k,
-                                                 "is_fallback": int("predictors" in comps.fallbacks)})
+                                                 "is_fallback": _is_fallback(p, comps)})
                 h = hl_p[s]
                 sink.add("predictions", {"run_id": run_id, "asset_id": s, "model": h.model,
                                          "model_version": h.model_version, "ts": Ts(day_ts), "q10_kw": h.q10[0],
                                          "q50_kw": h.q50[0], "q90_kw": h.q90[0], "fault_probs_json": h.fault_probs,
                                          "ood_score": h.ood_score, "member_std": h.member_std,
                                          "t0": created, "horizon_idx": 0,
-                                         "is_fallback": int("predictors" in comps.fallbacks)})
+                                         "is_fallback": _is_fallback(h, comps)})
             rows, acts = _safe_zone_demand(comps, world, d, ld_p, run_id, policy)
             sink.add_many("zone_demand", rows)
             for a in acts:
@@ -854,6 +871,21 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
             for s in sites:
                 if sday[s].telemetry_age_s[k] == 0:
                     pv_obs[s][k] = sday[s].pv_kw[k]
+            # -- intraday SiteHealth re-check (real M4 on the 24 h ending now): new fault evidence mid-day
+            if k in reassess:
+                if hasattr(preds["sitehealth"], "prefetch"):
+                    preds["sitehealth"].prefetch(list(sites), t0, k)
+                for s in sites:
+                    hl_p[s] = preds["sitehealth"].predict(sites[s].row, Window(t0=t0, horizon=DAY_STEPS,
+                                                                               meta={"tick": k}))
+                    if write_inputs:
+                        h = hl_p[s]
+                        sink.add("predictions", {"run_id": run_id, "asset_id": s, "model": h.model,
+                                                 "model_version": h.model_version, "ts": tsx, "q10_kw": h.q10[k],
+                                                 "q50_kw": h.q50[k], "q90_kw": h.q90[k],
+                                                 "fault_probs_json": h.fault_probs, "ood_score": h.ood_score,
+                                                 "member_std": h.member_std, "t0": tsx, "horizon_idx": k,
+                                                 "is_fallback": _is_fallback(h, comps)})
             # -- qualify every tick (sentinel): telemetry age + measured loss; triage
             if sentinel:
                 ages_min = {**{s: sday[s].telemetry_age_s[k] / 60 for s in sites},
@@ -1049,10 +1081,16 @@ def _wind_preds(world, wd_p, tday, k, tb_obs, under_run) -> dict[str, Prediction
         a = tday[t].act_pwt_kw[k]
         if a is not None:
             tb_obs[t][k] = a
-        cls, score, under_run[t] = _wind_rules(rated, a, base.q50[k], under_run.get(t, 0))
         p = copy.copy(base)
+        steps = (base.extra or {}).get("step_classes")
+        if steps is not None and a is not None:  # real M6: its class at this step
+            cls, score = steps[k], float(base.extra["step_scores"][k])
+            if cls == "normal":
+                score = 1.0 - score
+        else:
+            cls, score, under_run[t] = _wind_rules(rated, a, base.q50[k], under_run.get(t, 0))
+            p.model_version = f"{base.model_version}+rules"
         p.anomaly_class, p.anomaly_score = cls, score
-        p.model_version = f"{base.model_version}+rules"
         out[t] = p
     return out
 
