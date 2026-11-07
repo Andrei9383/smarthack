@@ -172,6 +172,25 @@ CASES = [
 ]
 
 
+# ---- exact medians (#136): WindNBM label-free normal selection, 121 turbines x 70,176 steps; residuals with ~20 % NaN
+MED_W = ((96, 12), (1344, 96), (192, 24))  # (window, min_periods) select_normal uses
+
+
+def median_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    T, N = _sz(70176, scale, 2), _sz(121, scale)
+    x = np.round(rng.standard_normal((T, N)) * 3, 2)  # rounded: ties, as in real telemetry
+    x[rng.random((T, N)) < 0.2] = np.nan
+    return x, rng.integers(0, 60, (T, N)), rng.random((T, N)) < 0.3
+
+
+CASES += [
+    ("rolling_median", "rolling_median", median_make, lambda fn, a: [fn(a[0], w, mp) for w, mp in MED_W],
+     lambda a: (a[0][:6000], 1344, 96), f"121 turbines x 70176 steps, f64, 20% NaN, centred, (w, min_periods) {MED_W}"),
+    ("binned_median_mad", "binned_median", median_make, lambda fn, a: [fn(a[1], a[0], a[2], 60, 30) for _ in range(4)],
+     lambda a: (a[1], a[0], a[2], 60, 30), "4 x per-turbine median + MAD in 60 wind bins, 121 x 70176, 30% kept"),
+]
+
+
 def _best(fn, repeat: int) -> float:
     ts = []
     for _ in range(repeat):

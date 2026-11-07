@@ -156,3 +156,24 @@ __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided"
            "load_features", "load_features_py", "names", "pv_features", "pv_features_py", "register", "rolling_mean",
            "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "site_features",
            "site_features_py", "window_gather", "window_gather_py"]
+
+
+# --------------------------------------------------------------------------- K7: exact medians (median.py, #136)
+from sentinel.kernels.median import (binned_median_mad_py, binned_median_mad_rust, rolling_median_py,  # noqa: E402
+                                     rolling_median_rust)
+
+register("rolling_median", rolling_median_py, rolling_median_rust)
+register("binned_median_mad", binned_median_mad_py, binned_median_mad_rust)
+
+
+def rolling_median(x: Any, window: int, min_periods: int) -> np.ndarray:
+    """Dispatched centred NaN/inf-skipping rolling median along axis 0; see ``median`` (reference = pandas)."""
+    return get("rolling_median")(x, window, min_periods)
+
+
+def binned_median_mad(b: Any, x: Any, ok: Any, n_bins: int, min_n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatched per-row, per-bin median + MAD of x[ok] grouped by b; see ``median.binned_median_mad_py``."""
+    return get("binned_median_mad")(b, x, ok, n_bins, min_n)
+
+
+__all__ += ["binned_median_mad", "binned_median_mad_py", "rolling_median", "rolling_median_py"]

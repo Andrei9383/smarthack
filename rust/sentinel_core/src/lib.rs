@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 
 mod cusum;
 mod features;
+mod median;
 mod rollout;
 mod rolling;
 mod scatter;
@@ -310,6 +311,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(site_features, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
+    m.add_function(wrap_pyfunction!(median::rolling_median, m)?)?;
+    m.add_function(wrap_pyfunction!(median::binned_median_mad, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }
