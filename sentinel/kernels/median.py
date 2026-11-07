@@ -84,11 +84,11 @@ def binned_median_mad_py(b: Any, x: Any, ok: Any, n_bins: int, min_n: int) -> tu
     b, x, ok, n_bins, min_n = _prep_bins(b, x, ok, n_bins, min_n)
     if (ok & ((b < 0) | (b >= n_bins))).any():
         raise ValueError(f"b must be in [0, {n_bins}) where ok")
-    b2, x2, ok2 = _as2d(b), _as2d(x), _as2d(ok)
-    med = np.full((n_bins, b2.shape[1]), np.nan)
-    mad = np.full((n_bins, b2.shape[1]), np.nan)
-    for j in range(b2.shape[1]):
-        med[:, j], mad[:, j] = _binned_1d(b2[:, j], x2[:, j], ok2[:, j], n_bins, min_n)
+    b2, x2, ok2 = (np.ascontiguousarray(_as2d(a).T) for a in (b, x, ok))  # one contiguous row per column
+    med = np.full((n_bins, b2.shape[0]), np.nan)
+    mad = np.full((n_bins, b2.shape[0]), np.nan)
+    for j in range(b2.shape[0]):
+        med[:, j], mad[:, j] = _binned_1d(b2[j], x2[j], ok2[j], n_bins, min_n)
     shape = (n_bins, *b.shape[1:])
     return med.reshape(shape), mad.reshape(shape)
 
