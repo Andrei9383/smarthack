@@ -7,9 +7,11 @@ use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2,
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+mod battery_resim;
 mod cusum;
 mod features;
 mod median;
+mod pvac;
 mod rollout;
 mod rolling;
 mod scatter;
@@ -313,6 +315,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
     m.add_function(wrap_pyfunction!(median::rolling_median, m)?)?;
     m.add_function(wrap_pyfunction!(median::binned_median_mad, m)?)?;
+    m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }

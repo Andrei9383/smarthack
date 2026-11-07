@@ -47,6 +47,11 @@ PRESETS: dict[str, list[str]] = {
     "pv_fc": ["--model", "pvnet", "--mode", "forecast", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20"],
     "load": ["--model", "loadnet", "--epochs", "100", "--lr", "1e-3", "--max-minutes", "20"],
     "sh": ["--model", "sitehealth", "--epochs", "200", "--patience", "15", "--max-minutes", "25"],
+    # #140 experiment: 2x batch, half the steps (same samples per epoch); the step is launch-bound, so ~2x samples/s
+    "pv_now_b512": ["--model", "pvnet", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20", "--batch", "512",
+                    "--steps-per-epoch", "150"],
+    # M6 as promoted on #99 (train#593/594): label-free normal selection, 40 epochs
+    "wind": ["--model", "windnbm", "--epochs", "40", "--normal-select", "label_free"],
 }
 
 

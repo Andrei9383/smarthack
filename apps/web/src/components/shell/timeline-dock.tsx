@@ -82,11 +82,11 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
     { value: "sentinel", label: "Sentinel" },
   ];
   return (
-    <div role="radiogroup" aria-label="Policy shown" data-tour="policy" className="relative flex rounded-[9px] bg-muted p-[3px]">
+    <div role="radiogroup" aria-label="Policy shown" data-tour="policy" className="relative flex rounded-md border border-border bg-surface-raised p-[3px]">
       <span
         aria-hidden
         className={cn(
-          "absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-[7px] bg-card shadow-raised transition-[left] duration-250 ease-out motion-reduce:transition-none",
+          "absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-sm bg-card shadow-raised transition-[left] duration-250 ease-out motion-reduce:transition-none",
           policy === "baseline" ? "left-[3px]" : "left-1/2",
         )}
       />
@@ -98,7 +98,7 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
           aria-checked={policy === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "relative z-[1] flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[7px] px-2 text-[13px] font-medium whitespace-nowrap transition-colors duration-200 min-[1440px]:px-3",
+            "relative z-[1] flex h-8 flex-1 items-center justify-center gap-1.5 rounded-sm px-2 text-[13px] font-medium whitespace-nowrap transition-colors duration-200 min-[1440px]:px-3",
             policy === option.value ? "text-foreground" : "text-text-secondary hover:text-foreground",
           )}
         >
@@ -244,7 +244,7 @@ function ActionLane({
                               onPick(group);
                             }}
                             className={cn(
-                              "grid w-full grid-cols-[38px_10px_1fr] items-start gap-x-2 px-3 py-1.5 text-left text-xs leading-snug transition-colors duration-150 hover:bg-sidebar focus-visible:bg-sidebar focus-visible:outline-none",
+                              "grid w-full grid-cols-[38px_10px_1fr] items-start gap-x-2 px-3 py-1.5 text-left text-xs leading-snug transition-colors duration-150 hover:bg-surface-raised focus-visible:bg-sidebar focus-visible:outline-none",
                               group.step > step && "text-text-secondary",
                             )}
                           >
@@ -357,7 +357,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
     <div
       data-tour="timeline"
       className={cn(
-        "flex items-center gap-2.5 rounded-xl bg-card/95 px-3 shadow-floating backdrop-blur-sm min-[1440px]:gap-4 min-[1440px]:px-4",
+        "flex items-center gap-2.5 rounded-xl bg-card px-3 shadow-floating min-[1440px]:gap-4 min-[1440px]:px-4",
         compact ? "py-2" : "pt-2.5 pb-2",
         className,
       )}
@@ -367,7 +367,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
         aria-label={playing ? "Pause the replay" : "Play the replay"}
         onClick={() => setPlaying((value) => !value)}
         className={cn(
-          "grid shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-150 hover:bg-brand-700 active:scale-95",
+          "grid shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-fast hover:bg-brand-700 active:scale-95",
           compact ? "size-9" : "size-10",
         )}
       >
@@ -491,7 +491,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
           <span
             aria-hidden
             className={cn(
-              "absolute top-0.5 -ml-2 size-4 rounded-full border-2 border-primary bg-card shadow-[0_1px_3px_rgb(13_13_13/0.18)] transition-transform duration-150 group-hover:scale-110 motion-reduce:transition-none",
+              "absolute top-0.5 -ml-2 size-4 rounded-full border-2 border-primary bg-card shadow-floating transition-transform duration-150 group-hover:scale-110 motion-reduce:transition-none",
               dragging && "scale-110",
             )}
             style={{ left: pct(step) }}

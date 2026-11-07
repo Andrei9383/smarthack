@@ -152,6 +152,18 @@ def site_features(raw: dict) -> tuple[np.ndarray, np.ndarray]:
     return get("site_features")(raw)
 
 
+# --------------------------------------------------------------------------- K8: pvlib AC batch (pvac.py, #133)
+from sentinel.kernels.pvac import pv_ac_batch_py, pv_ac_batch_rust  # noqa: E402
+
+register("pv_ac_batch", pv_ac_batch_py, pv_ac_batch_rust)
+
+
+def pv_ac_batch(kwp: Any, tilt: Any, azimuth: Any, inverter_kw: Any, ghi: Any, dni: Any, dhi: Any, temp: Any,
+                wind: Any, zenith: Any, sun_azimuth: Any) -> np.ndarray:
+    """Dispatched pvlib AC kW [n, T] for n sites under one weather series; reference = sentinel.model.physics."""
+    return get("pv_ac_batch")(kwp, tilt, azimuth, inverter_kw, ghi, dni, dhi, temp, wind, zenith, sun_azimuth)
+
+
 __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
            "load_features", "load_features_py", "names", "pv_features", "pv_features_py", "register", "rolling_mean",
            "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "site_features",
@@ -177,3 +189,19 @@ def binned_median_mad(b: Any, x: Any, ok: Any, n_bins: int, min_n: int) -> tuple
 
 
 __all__ += ["binned_median_mad", "binned_median_mad_py", "rolling_median", "rolling_median_py"]
+
+# --------------------------------------------------------------------------- K7: fault-injector battery resim (#134)
+from sentinel.kernels.battery_resim import battery_resim_py, battery_resim_rust  # noqa: E402
+
+register("battery_resim", battery_resim_py, battery_resim_rust)
+
+
+def battery_resim(surplus: Any, soc0: Any, batt0: Any, cf: Any, pf: Any, start: Any, e0: Any, cap: Any, pmax: Any,
+                  eta_c: Any, eta_d: Any, soc_min: Any, soc_max: Any, t0: int,
+                  dt_h: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatched; see ``battery_resim`` (reference = the loop of sim.faults.inject._resimulate_battery)."""
+    return get("battery_resim")(surplus, soc0, batt0, cf, pf, start, e0, cap, pmax, eta_c, eta_d, soc_min, soc_max,
+                                t0, dt_h)
+
+
+__all__ += ["battery_resim", "battery_resim_py"]
