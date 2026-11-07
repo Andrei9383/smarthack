@@ -18,7 +18,7 @@ golden-path screenshots stay stable.
     python3 demo/fixtures/make_fixtures.py --schema path/to/migration.sql --out /tmp/f.sqlite
 
 Columns follow team/contracts/app.md section 2 (#38 @ d362a39): every `ts` is TEXT ISO-8601 UTC
-('2025-06-02T00:00:00Z'), `day`/`date` are 'YYYY-MM-DD', and there is no `step` column.
+('2025-06-01T21:00:00Z'), `day`/`date` are 'YYYY-MM-DD', and there is no `step` column.
 
 The database is NOT committed: at full fidelity it is ~100+ MB (over GitHub's 100 MB limit and
 R18's 50 MB). Whatever needs it (the preview, a UI dev) runs this script; it takes ~5 s.
@@ -40,8 +40,11 @@ from datetime import datetime, timedelta, timezone
 
 # ----------------------------------------------------------------- shape of the week
 
-# Monday of a June week: far from both DST switches (R19 — the demo week must not contain one).
-WEEK_START = datetime(2025, 6, 2, 0, 0, tzinfo=timezone.utc)
+# 00:00 Europe/Bucharest on Mon 2 June 2025 (EEST, UTC+3), the same instant the UI's replay clock
+# starts at (apps/web/src/demo/replay.ts, WEEK_START_UTC). Far from both DST switches (R19), so local time is a
+# fixed +3 h all week and every "hour of day" below is Bucharest wall-clock time.
+WEEK_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
+LOCAL_OFFSET = timedelta(hours=3)
 DAYS = 7
 STEPS_PER_DAY = 96                      # 15-min grid
 STEP_MINUTES = 15
@@ -125,8 +128,8 @@ class Clock:
 
     @staticmethod
     def day_key(day_idx: int) -> str:
-        """`work_orders.day` / `reports.date`: 'YYYY-MM-DD' (app.md 2.5)."""
-        return (WEEK_START + timedelta(days=day_idx)).strftime("%Y-%m-%d")
+        """`work_orders.day` / `reports.date`: 'YYYY-MM-DD', the Bucharest day (app.md 2.5)."""
+        return (WEEK_START + LOCAL_OFFSET + timedelta(days=day_idx)).strftime("%Y-%m-%d")
 
 
 def step_times():
@@ -219,6 +222,9 @@ def build_fleet(rng: random.Random):
             "load_scale": rng.uniform(0.55, 1.45),
             "pv_scale": rng.uniform(0.92, 1.08),
         })
+        if sid == HERO_SITE and homes[-1]["batt_kwh"] is None:
+            # set without drawing, so every later random draw stays where it was
+            homes[-1].update(batt_kwh=10.0, batt_kw=5.0, reserve_pct=15.0)
         by_feeder[fid].append(sid)
 
     for pid, pname, county, locality, plat, plon, n, rated_mw, _yr in PARKS:
@@ -322,6 +328,24 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
 
     return {"pv": pv, "load": load, "baseline": run_policy("baseline"),
             "sentinel": run_policy("sentinel"), "fault_from": fault_from}
+
+
+def site_status(home: dict, fault_from: int | None, g: int, day_idx: int, sod: int):
+    """(status, headroom_factor, reason, telemetry_age_s) for a site at step g."""
+    sid = home["id"]
+    if sid == HERO_SITE and fault_from is not None and g >= fault_from:
+        return "derated", 0.58, "pv_fault", 60.0
+    if sid == OOD_SITE and day_idx >= 2:
+        return "human_review", 0.0, "ood", 60.0
+    if home["gis_trust"] == "low" and sod < 4:
+        return "excluded", 0.0, "stale_telemetry", 5400.0
+    return "eligible", 1.0, "ok", 60.0
+
+
+# Hours (Bucharest) in which the DSO buys flexibility: the midday export peak and the evening
+# import peak. Outside them nothing is committed, so nothing is realised either.
+SERVICE_HOURS = set(range(10, 15)) | set(range(18, 21))
+P10_FACTOR = 0.90           # P10 of the available power, relative to its expectation
 
 
 def fault_window(curves: dict) -> tuple[int, int, int]:
@@ -430,7 +454,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     # ---- runs ------------------------------------------------------------------
     put("runs", "id,kind,policy,label,week_start,git_sha,model_versions_json,created_at,"
         "finished_at,notes",
-        [(RUN_ID, "fixtures", None, LABEL, clock(WEEK_START), "fixtures-no-commit",
+        [(RUN_ID, "fixtures", None, LABEL, clock.day_key(0), "fixtures-no-commit",
           json.dumps({"note": "no models; hand-written fixtures"}),
           clock(WEEK_START), clock(week_end),
           "Mock replay week for UI development (card #30). Not a result.")])
@@ -466,6 +490,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     HAIRCUT = 0.15
     feeder_rows, curve_rows, commit_rows = [], [], []
     for fid, name, _substation, county, locality in FEEDERS:
+        sids = by_feeder[fid]
         base = [feeder_curve[fid]["baseline"][g] + rest[fid][g] for g in range(TOTAL_STEPS)]
         sent = [feeder_curve[fid]["sentinel"][g] + rest[fid][g] for g in range(TOTAL_STEPS)]
         peak_b, peak_s = max(base), max(sent)
@@ -475,7 +500,10 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
         else:
             limit = round(max(peak_b, peak_s) * 1.25, 1)
         low_trust = fid in ("F2", "F10")
+        # feeders in the same county fan out from the centre so they do not draw on top of each other
+        k = [f[0] for f in FEEDERS if f[3] == county].index(fid)
         lat0, lon0 = COUNTY_CENTRES[county]
+        lat0, lon0 = lat0 + 0.07 * k * (-1) ** k, lon0 + 0.16 * k
         geometry = {"type": "LineString",
                     "coordinates": [[round(lon0 - 0.05, 5), round(lat0 - 0.03, 5)],
                                     [round(lon0, 5), round(lat0, 5)],
@@ -492,18 +520,29 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                 slack = round(limit - exp_kw, 3)
                 curve_rows.append((RUN_ID, fid, pol, ts, exp_kw, imp_kw, limit, slack,
                                    1 if slack < 0 else 0))
-            # commitments: the four numbers, never conflated (§3.5)
-            nominal = round(max(0.0, base[g] - sent[g]) + 0.6 * limit * 0.25, 3)
-            headroom = 0.82
-            # after 1042 is derated on day 4, F7 can promise less
-            if fid == HERO_FEEDER and (day_idx > FAULT_DAY
-                                       or (day_idx == FAULT_DAY and sod >= 48)):
-                headroom = 0.71
-            available = round(nominal * headroom, 3)
-            committed = round(available * (1 - HAIRCUT), 3)   # (1-h) * Q10
-            realised = round(committed * rng.uniform(0.99, 1.14), 3)
-            commit_rows.append((RUN_ID, fid, ts, nominal, available, committed, realised,
-                                HAIRCUT, 1 if realised >= committed else 0))
+            # commitments: the four numbers, never conflated (§3.5).
+            # nominal   = every battery on the feeder at full power, no doubts
+            # available = after excluding / derating sites (status x headroom factor)
+            # committed = (1 - h) x P10 of available, only in the hours the DSO buys
+            # realised  = measured afterwards
+            nominal = available = 0.0
+            for sid in sids:
+                hm = home_by_id[sid]
+                if not hm["batt_kw"]:
+                    continue
+                nominal += hm["batt_kw"]
+                _st, hf, _r, _a = site_status(hm, series[sid]["fault_from"], g, day_idx, sod)
+                available += hm["batt_kw"] * hf
+            # a P10 commitment should be met ~90% of the time: ~1 hour-step in 10 falls short
+            draw = rng.uniform(0.985, 1.12)
+            if int(sod * DT_H) in SERVICE_HOURS:
+                committed = round(available * (1 - HAIRCUT) * P10_FACTOR, 3)
+                realised = round(committed * draw, 3)
+                hit = 1 if realised >= committed else 0
+            else:
+                committed, realised, hit = 0.0, None, None
+            commit_rows.append((RUN_ID, fid, ts, round(nominal, 3), round(available, 3),
+                                committed, realised, HAIRCUT, hit))
 
     put("feeders", "id,name,county,locality,limit_kw,g_max_kw,g_conservative_kw,tau,gis_trust,"
         "geometry_json", feeder_rows)
@@ -568,15 +607,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                           round(expected * spread * 0.4, 4), 0))
             steps.append((RUN_ID, sid, ts, pv[g], q10, q50, q90))
             # status: derated after the failure, OOD site in review, everyone else eligible
-            age = 60.0
-            if sid == HERO_SITE and fault_from is not None and g >= fault_from:
-                st, hf, reason = "derated", 0.58, "pv_fault"
-            elif sid == OOD_SITE and day_idx >= 2:
-                st, hf, reason = "human_review", 0.0, "ood"
-            elif h["gis_trust"] == "low" and sod < 4:
-                st, hf, reason, age = "excluded", 0.0, "stale_telemetry", 5400.0
-            else:
-                st, hf, reason = "eligible", 1.0, "ok"
+            st, hf, reason, age = site_status(h, fault_from, g, day_idx, sod)
             stats.append((RUN_ID, sid, ts, st, hf, reason, age))
             if h["batt_kwh"]:
                 sched.append((RUN_ID, sid, "sentinel", ts, s_batt[g], s_soc[g], reserve_kwh, 0,
@@ -812,7 +843,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     over_base = sum(1 for r in hero_base if r[8]) * STEP_MINUTES
     over_sent = sum(1 for r in hero_sent if r[8]) * STEP_MINUTES
     peak_base, peak_sent = max(r[4] for r in hero_base), max(r[4] for r in hero_sent)
-    hits = [r for r in commit_rows if r[1] == HERO_FEEDER]
+    hits = [r for r in commit_rows if r[1] == HERO_FEEDER and r[8] is not None]
     kpis = [
         (RUN_ID, "baseline", "minutes_over_limit", float(over_base), "min", LABEL),
         (RUN_ID, "sentinel", "minutes_over_limit", float(over_sent), "min", LABEL),
@@ -882,12 +913,20 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
           "derated after the failure")
 
     # 3. the derating costs F7 committed MW
-    before = q("select avg(committed_kw) from commitments where feeder_id=? and ts<?",
-               HERO_FEEDER, at(days=FAULT_DAY))[0][0]
-    after = q("select avg(committed_kw) from commitments where feeder_id=? and ts>?",
-              HERO_FEEDER, at(days=FAULT_DAY + 1))[0][0]
+    before = q("select avg(committed_kw) from commitments where feeder_id=? and ts<? "
+               "and committed_kw>0", HERO_FEEDER, at(days=FAULT_DAY))[0][0]
+    after = q("select avg(committed_kw) from commitments where feeder_id=? and ts>? "
+              "and committed_kw>0", HERO_FEEDER, at(days=FAULT_DAY + 1))[0][0]
     check("F7 commitment drops after the derating", after < before,
           f"{before:.1f} -> {after:.1f} kW")
+
+    over = q("select count(*) from commitments where committed_kw > available_kw + 1e-6 "
+             "or available_kw > nominal_kw + 1e-6")[0][0]
+    check("nominal >= available >= committed everywhere", over == 0, f"{over} violations")
+    fleet = q("select sum(battery_kw) from assets where asset_kind='prosumer'")[0][0]
+    peak = q("select max(s) from (select sum(nominal_kw) s from commitments group by ts)")[0][0]
+    check("nominal never exceeds the fleet's battery power", peak <= fleet + 1e-6,
+          f"{peak:.0f} <= {fleet:.0f} kW")
 
     # 4. one site in human review, and it produced no work order
     check("an OOD site is in review",

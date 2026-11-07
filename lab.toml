@@ -62,7 +62,7 @@ timeout = "30m"
 # to timing Python only. Kernel cards submit with: lab submit <card> --run check --run rustcheck
 [runs.rustcheck]
 setup   = "set -e; uv venv -q --python 3.12; uv pip install -q -r requirements.txt maturin pytest; sh rust/build.sh build"
-cmd     = "sh rust/build.sh status --require && .venv/bin/python -m pytest -q -rs tests/test_kernels.py && .venv/bin/python -m sentinel.kernels.bench"
+cmd     = "sh rust/build.sh status --require && .venv/bin/python -m pytest -q -rs tests/test_kernels*.py && .venv/bin/python -m sentinel.kernels.bench"
 needs   = "cpu"
 timeout = "30m"
 
