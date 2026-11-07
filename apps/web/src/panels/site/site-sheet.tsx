@@ -17,6 +17,7 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { Fold, Metric, MetricRow } from "@/panels/disclosure";
+import { VerdictCard } from "@/panels/judge/verdict-card";
 import { STEP_MINUTES, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { orpc } from "@/utils/orpc";
@@ -423,6 +424,8 @@ function SiteView({ assetId }: { assetId: string }) {
             </p>
           ) : null}
         </section>
+
+        <VerdictCard assetId={assetId} className="mt-4" />
 
         <Fold
           title="Fault and money at risk"

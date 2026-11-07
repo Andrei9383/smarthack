@@ -16,6 +16,7 @@ import { stepToTs, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
 import { orpc } from "@/utils/orpc";
+import { VerdictCard } from "@/panels/judge/verdict-card";
 
 import { BASELINE_SERIES, LIMIT_SERIES, SENTINEL_SERIES, SOC_SERIES } from "./colors";
 import {
@@ -382,6 +383,8 @@ export function FeederPanel() {
             />
           </div>
         </section>
+
+        {feederId ? <VerdictCard assetId={feederId} className="mt-2" /> : null}
 
         <div className="mt-2 border-t border-border pb-2">
           <NoticeRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
