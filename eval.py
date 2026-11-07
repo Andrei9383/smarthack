@@ -139,7 +139,7 @@ def load_weather(clean: Path, localities: set[str]) -> dict[str, pd.DataFrame]:
 def site_window(tel: dict, wx: pd.DataFrame, d: int, with_telemetry: bool) -> Window:
     s, e, h0 = d * H, (d + 1) * H, (d - HIST_DAYS) * H
     ts = tel["ts"]
-    w = wx.reindex(ts[s:e])
+    w = wx.reindex(ts[s:e]).ffill().bfill().fillna(0.0)  # gaps and missing channels (e.g. no snow) -> finite
     soc = np.nan_to_num(tel["soc"][s:e])
     meta = {"weather_channels": list(w.columns), "power_unit": "W"}
     if with_telemetry:
@@ -166,7 +166,7 @@ def score_forecasts(rep: Report, block: str, label: str, preds_by_model: dict, t
             m["coverage"] = M.coverage(q10, q90, truth / 1000.0, day)
             m["nwidth"] = M.nwidth(q10, q90, truth / 1000.0, day)
         ok = [p for p in preds if p]
-        rep.add(block, label, f"{name}_{kind}" if name in ("mock",) else name, m, n=len(ok),
+        rep.add(block, label, name if name in ("pvnet", "loadnet") else f"{name}_{kind}", m, n=len(ok),
                 model_version=ok[0].model_version if ok else "", note=f"{len(preds) - len(ok)} failed")
 
 
