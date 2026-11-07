@@ -42,6 +42,7 @@ def parse_args(argv=None):
     ap.add_argument("--width", type=int, default=48)
     ap.add_argument("--dropout", type=float, default=0.15)
     ap.add_argument("--gamma", type=float, default=2.0, help="focal loss gamma")
+    ap.add_argument("--stat-noise", type=float, default=0.3, help="noise on static features in training")
     ap.add_argument("--fault-frac", type=float, default=0.5, help="share of train windows drawn around fault episodes")
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--fa-budget", type=float, default=0.05, help="healthy-window false-alarm rate for thresholds")
@@ -112,11 +113,16 @@ def baseline_scores(raw, cus, starts, sites, factor):
     """Threshold rule and CUSUM scores for a batch of windows (higher = more likely faulty)."""
     pv = raw["pv"].astype(np.float32)
     exp = raw["pvlib"].astype(np.float32) * factor[sites][:, None]
-    day = exp > 0.05 * raw["kwp_recorded"][:, None]
+    kwp = raw["kwp_recorded"].astype(np.float32)
+    day = exp > 0.05 * kwp[:, None]
     ratio = (pv * day).sum(1) / np.maximum((exp * day).sum(1), 1e-3)
+    # gating a tuned operator rule would use: no energy-ratio verdict on snow days or dark days
+    snow = raw["wx"][..., 6].max(1) > 0.5
+    dark = (exp * day).sum(1) * 0.25 < 0.5 * kwp  # < 0.5 kWh per kWp expected in the window
+    ratio_term = np.where(snow | dark, 0.0, np.abs(1 - ratio))
     fz = (F.frozen_flags(pv, raw["hist_pv"][:, -1]) * day).sum(1) / np.maximum(day.sum(1), 1)
     trips = (raw["status"] == 3).sum(1)
-    thr = np.maximum.reduce([np.abs(1 - ratio), fz, np.minimum(1.0, trips / 2.0)])
+    thr = np.maximum.reduce([ratio_term, fz, np.minimum(1.0, trips / 2.0)])
     end = starts + H - 1
     return thr, cus[sites, end]
 
@@ -134,7 +140,8 @@ def cusum_all(src, factor, k):
     pv = np.asarray(src.array("pv_ac"), np.float32)
     exp = np.asarray(src.array("pvlib_rec"), np.float32) * factor[:, None]
     kwp = src.site_meta("kwp_recorded")[:, None]
-    valid = exp > 0.05 * kwp
+    snow = np.asarray(src.array("weather_act")[:, :, 6], np.float32)[src.loc_idx()] > 0.5
+    valid = (exp > 0.05 * kwp) & ~snow  # skip snow-covered steps
     r = np.where(valid, (exp - pv) / kwp, 0.0)
     return M.cusum(r, k, valid)
 
@@ -254,6 +261,9 @@ def run(argv=None):
     def make_batch():
         s, st = sample_train(args.batch)
         _, inp, lab = make_inputs(src, s, st, m1, m2)
+        if args.stat_noise > 0:  # in raw units scaled by the train std, so it matches the normalised-space noise
+            sd = np.asarray(stats["stat"]["std"], np.float32)
+            inp["stat"] = inp["stat"] + np.random.default_rng().normal(0, args.stat_noise, inp["stat"].shape) * sd
         return inp, lab
 
     with ctx.stage("train"):

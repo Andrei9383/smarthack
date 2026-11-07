@@ -44,7 +44,7 @@ PRESETS: dict[str, list[str]] = {
     "load_sn0": ["--model", "loadnet", "--epochs", "100", "--lr", "1e-3", "--max-minutes", "20", "--stat-noise", "0"],
     "pv_fc": ["--model", "pvnet", "--mode", "forecast", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20"],
     "load": ["--model", "loadnet", "--epochs", "100", "--lr", "1e-3", "--max-minutes", "20"],
-    "sh": ["--model", "sitehealth", "--epochs", "60", "--max-minutes", "25"],
+    "sh": ["--model", "sitehealth", "--epochs", "200", "--patience", "15", "--max-minutes", "25"],
 }
 
 
