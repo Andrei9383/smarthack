@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "source_run": "defaults",
+  "site": {
+    "stale_minutes": 60,
+    "pfault_confident": 0.6,
+    "pfault_std_max": 0.15,
+    "rel_width_max": 0.8,
+    "ood_max": 3.0
+  },
+  "turbine": {
+    "stale_minutes": 60,
+    "anomaly_conf_min": 0.6,
+    "ood_max": 3.0
+  }
+}
