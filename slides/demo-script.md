@@ -1,11 +1,11 @@
 # Demo script: 3 minutes
 
-Open the shared app once beforehand (the first load is slow). Use the Demo row under the map.
+Open the shared app once beforehand (the first load is slow). The app opens on Overview. Run the steps with the **Demo** button (top right) or keys **1–6**; space plays the timeline.
 [Brackets] come from logged runs. Say the label aloud: synthetic RO, real RO or non-RO.
 
 | Time | Click | Show | Say |
 |---|---|---|---|
-| 0:00–0:15 | start on the map | Romania, KPI strip, "118 homes on 5 feeders, 70 turbines in 1 park" | "One map, four problems." |
+| 0:00–0:15 | Overview | Romania, KPI strip, plain-language "needs attention" list, "118 homes on 5 feeders, 70 turbines in 1 park" | "One map, four problems." |
 | 0:15–0:40 | **1 Production** *(SHOULD)* | Real wind field, the Constanța park by expected MWh | "This is where energy will be made." |
 | 0:40–0:55 | **2 Demand** *(SHOULD)* | Stressed counties at the evening peak (4 counties have homes in this replay) | "And where it will be needed." |
 | 0:55–1:40 | **3 Feeders F7**, toggle Baseline then Sentinel | On Wed 4 Jun export crosses the dashed limit under the baseline (270 min) and stays under with Sentinel (0 min). Don't imply every day is clear: F7 is still over on four days, 3–27 kWh. Then nominal vs available vs committed vs realised | "We never sell the nominal number." |
@@ -25,6 +25,7 @@ Open the shared app once beforehand (the first load is slow). Use the Demo row u
 
 - [x] Real replay promoted (#29); no amber "pending" left in the slides
 - [ ] `make reproduce` works on a clean checkout (#116), since slide 11 promises it
-- [ ] Backup screenshot of every panel in `slides/backup/`
+- [x] Backup screenshot of every step in `slides/backup/` (replay#506)
+- [ ] Check frame rate on the demo laptop, especially Demand (only software rendering was tested)
 - [ ] Rehearsal 1 timed
 - [ ] Rehearsal 2 timed
