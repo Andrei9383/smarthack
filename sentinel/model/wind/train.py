@@ -125,6 +125,8 @@ def parse_args(argv):
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--model", default="windnbm", help="ignored (train.py dispatch)")
+    ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
+                    help="exact data-wait vs compute split (cuda sync per step)")
     return ap.parse_args(argv)
 
 
@@ -244,25 +246,30 @@ def main(argv: list[str] | None = None) -> None:
     best, best_state, epochs_done, steps_done = float("inf"), None, 0, 0
     gen = np.random.default_rng(args.seed)
     stopped_early = False
+    from ..harness import Throughput
+
+    tp = Throughput(run.emit, dev.type, sync=args.profile)
     with run.stage("train"):
         for ep in range(args.epochs):
             model.train()
             tl = 0.0
             for _ in range(args.steps_per_epoch):
-                xb, yb, mb, tb = batch(tr_starts, args.batch, gen)
-                loss, _, _ = loss_fn(xb, yb, mb, tb, True)
-                opt.zero_grad(set_to_none=True)
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                opt.step()
-                sched.step()
-                tl += float(loss.detach())
+                with tp.wait():
+                    xb, yb, mb, tb = batch(tr_starts, args.batch, gen)
+                with tp.compute(xb.shape[0]):
+                    loss, _, _ = loss_fn(xb, yb, mb, tb, True)
+                    opt.zero_grad(set_to_none=True)
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    opt.step()
+                    sched.step()
+                    tl += float(loss.detach())
                 steps_done += 1
                 if run.left() < reserve * 60:
                     stopped_early = True
                     break
             model.eval()
-            with torch.no_grad():
+            with tp.val(), torch.no_grad():
                 vl = np.mean([[float(v) for v in loss_fn(*b, False)] for b in val_batches], axis=0)
             epochs_done = ep + 1
             print(f"[windnbm] epoch {ep + 1}/{args.epochs} train {tl / max(1, args.steps_per_epoch):.4f} "
@@ -273,6 +280,7 @@ def main(argv: list[str] | None = None) -> None:
             if stopped_early:
                 print("[windnbm] time budget reached: stopping training to export", flush=True)
                 break
+    tp.finish()
     model.load_state_dict(best_state)
     model.eval()
     run.emit("epochs_done", epochs_done)

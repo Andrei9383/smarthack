@@ -24,7 +24,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source, window_labels
-from .harness import RunContext, export_onnx
+from .harness import RunContext, Throughput, export_onnx
 from .synth import FAULTS
 
 N_CLS = len(FAULTS)
@@ -58,6 +58,8 @@ def parse_args(argv=None):
     ap.add_argument("--max-episodes", type=int, default=0, help="cap test episodes for hours_to_detect (0 = all)")
     ap.add_argument("--no-export", action="store_true")
     ap.add_argument("--tag", default="")
+    ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
+                    help="exact data-wait vs compute split (cuda sync per step)")
     return ap.parse_args(argv)
 
 
@@ -269,6 +271,7 @@ def run(argv=None):
             inp["stat"] = inp["stat"] + np.random.default_rng().normal(0, args.stat_noise, inp["stat"].shape) * sd
         return inp, lab
 
+    tp = Throughput(ctx.emit, dev, sync=args.profile)
     with ctx.stage("train"):
         futs = [pool.submit(make_batch) for _ in range(6)]
         step = 0
@@ -276,24 +279,27 @@ def run(argv=None):
             net.train()
             t_ep, losses = time.time(), []
             for _ in range(args.steps_per_epoch):
-                inp, lab = futs.pop(0).result()
+                with tp.wait():
+                    inp, lab = futs.pop(0).result()
                 futs.append(pool.submit(make_batch))
-                with ctx.autocast():
-                    lg, _ = net(*to_t(inp))
-                loss = focal_loss(lg.float(), torch.from_numpy(lab).to(dev), args.gamma, alpha)
-                opt.zero_grad(set_to_none=True)
-                scaler.scale(loss).backward()
-                scaler.unscale_(opt)
-                torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-                scaler.step(opt)
-                scaler.update()
-                if step < total - 1:
-                    sched.step()
-                step += 1
-                losses.append(loss.detach())  # no per-step GPU sync
-            P, _, L, _ = infer(vs, vst)
-            mac, _ = M.prauc_macro(P, L)
-            binp = M.ap(L > 0, 1 - P[:, 0])
+                with tp.compute(len(lab)):
+                    with ctx.autocast():
+                        lg, _ = net(*to_t(inp))
+                    loss = focal_loss(lg.float(), torch.from_numpy(lab).to(dev), args.gamma, alpha)
+                    opt.zero_grad(set_to_none=True)
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                    scaler.step(opt)
+                    scaler.update()
+                    if step < total - 1:
+                        sched.step()
+                    step += 1
+                    losses.append(loss.detach())  # no per-step GPU sync
+            with tp.val():
+                P, _, L, _ = infer(vs, vst)
+                mac, _ = M.prauc_macro(P, L)
+                binp = M.ap(L > 0, 1 - P[:, 0])
             history.append({"epoch": ep, "loss": float(torch.stack(losses).mean()), "val_prauc": mac, "val_prauc_binary": binp,
                             "sec": round(time.time() - t_ep, 1)})
             print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_prauc {mac:.4f} binary {binp:.4f} "
@@ -310,6 +316,7 @@ def run(argv=None):
         for f in futs:
             f.cancel()
         pool.shutdown(wait=False, cancel_futures=True)
+    tp.finish()
     if best_state is not None:
         net.load_state_dict(best_state)
     ctx.emit("epochs_run", len(history))

@@ -161,6 +161,130 @@ class RunContext:
                 pass
 
 
+class GpuSampler:
+    """Background GPU utilisation sampler (#140): torch.cuda.utilization() (pynvml) if it works, else nvidia-smi.
+    `mean()` = mean % busy over the samples taken between start() and stop(); NaN when no GPU / no tool."""
+
+    def __init__(self, interval: float = 0.5):
+        import threading
+
+        self.interval, self.samples, self._stop = interval, [], threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._read = None
+
+    def _probe(self):
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                return None
+            torch.cuda.utilization()
+            return lambda: float(torch.cuda.utilization())
+        except Exception:
+            pass
+        vis = os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0].strip() or "0"
+        cmd = ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits", "-i", vis]
+
+        def smi():
+            return float(subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True, timeout=5).split()[0])
+
+        try:
+            smi()
+            return smi
+        except Exception:
+            return None
+
+    def _loop(self):
+        while not self._stop.wait(self.interval):
+            try:
+                self.samples.append(self._read())
+            except Exception:
+                return
+
+    def start(self) -> "GpuSampler":
+        self._read = self._probe()
+        if self._read is not None:
+            self._thread.start()
+        return self
+
+    def stop(self) -> float:
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2)
+        return self.mean()
+
+    def mean(self) -> float:
+        return float(np.mean(self.samples)) if self.samples else float("nan")
+
+
+class Throughput:
+    """Train-loop accounting (#140): data wait (blocked on the loader) vs compute (H2D + forward/backward/step) vs
+    per-epoch validation, samples/s and GPU utilisation. With sync=True (--profile) each compute block ends with a
+    cuda synchronize, so the split is exact (costs a little throughput); otherwise compute is the CPU-side time and
+    the GPU tail shows up in the next wait/val block.
+
+        tp = Throughput(emit, device, sync=args.profile)
+        with tp.wait(): batch = next_batch()
+        with tp.compute(len(batch)): ...step...
+        with tp.val(): ...validation...
+        tp.finish()  -> LAB_METRIC samples_per_s, gpu_util_mean, t_data_wait_s, t_compute_s, t_val_s, data_wait_frac
+    """
+
+    def __init__(self, emit, device: str = "cpu", sync: bool = False):
+        self.emit, self.cuda, self.sync = emit, str(device).startswith("cuda"), sync
+        self.t = {"data_wait": 0.0, "compute": 0.0, "val": 0.0}
+        self.samples, self.steps = 0, 0
+        self.gpu = GpuSampler().start() if self.cuda else None
+        self.t0 = time.perf_counter()
+
+    def _sync(self):
+        if self.cuda:
+            import torch
+
+            torch.cuda.synchronize()
+
+    @contextlib.contextmanager
+    def _block(self, key: str, sync: bool):
+        t = time.perf_counter()
+        try:
+            yield
+        finally:
+            if sync:
+                self._sync()
+            self.t[key] += time.perf_counter() - t
+
+    def wait(self):
+        return self._block("data_wait", self.sync)
+
+    def compute(self, n: int):
+        self.samples += int(n)
+        self.steps += 1
+        return self._block("compute", self.sync)
+
+    def val(self):
+        return self._block("val", True)
+
+    def finish(self, prefix: str = "") -> dict:
+        wall = time.perf_counter() - self.t0
+        util = self.gpu.stop() if self.gpu else float("nan")
+        train_wall = max(wall - self.t["val"], 1e-9)
+        out = {"samples_per_s": self.samples / train_wall, "gpu_util_mean": util, "t_data_wait_s": self.t["data_wait"],
+               "t_compute_s": self.t["compute"], "t_val_s": self.t["val"],
+               "data_wait_frac": self.t["data_wait"] / train_wall,
+               "ms_per_step": 1000 * train_wall / max(self.steps, 1)}
+        for k, v in out.items():
+            self.emit(prefix + k, v)
+        return out
+
+
+def pin(t):
+    """Pinned host copy (when CUDA is up) so .to(dev, non_blocking=True) really overlaps."""
+    try:
+        return t.pin_memory()
+    except Exception:
+        return t
+
+
 def _json_default(o):
     if isinstance(o, (np.floating,)):
         return float(o)

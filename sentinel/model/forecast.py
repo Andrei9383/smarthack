@@ -20,7 +20,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source
-from .harness import RunContext, export_onnx
+from .harness import RunContext, Throughput, export_onnx
 
 SPECS = {
     "pvnet": dict(kind="pv", d=96, layers=3, heads=4, ff=192, unit="kW", scale="kwp_recorded",
@@ -64,6 +64,8 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--no-lgbm", action="store_true", help="skip #15's LightGBM baseline on the same split")
     ap.add_argument("--lgbm-sites", type=int, default=150, help="train sites for the in-run LightGBM baseline")
     ap.add_argument("--tag", default="", help="suffix for artifact names (ensembles: seed tag)")
+    ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
+                    help="exact data-wait vs compute split (cuda sync per step)")
     return ap.parse_args(argv)
 
 
@@ -372,6 +374,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
         return out
 
     pool = ThreadPoolExecutor(max_workers=3)
+    tp = Throughput(ctx.emit, dev, sync=args.profile)
     with ctx.stage("train"):
         futs = [pool.submit(make_batch) for _ in range(6)]
         step = 0
@@ -379,29 +382,32 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             net.train()
             t_ep, losses = time.time(), []
             for _ in range(args.steps_per_epoch):
-                raw, inp, x, y, w, mask = futs.pop(0).result()
+                with tp.wait():
+                    raw, inp, x, y, w, mask = futs.pop(0).result()
                 futs.append(pool.submit(make_batch))
-                t = [torch.from_numpy(x[n]).to(dev, non_blocking=True) for n in ("seq", "ref", "summ", "stat")]
-                yt, wt = torch.from_numpy(y).to(dev), torch.from_numpy(w).to(dev)
-                mt = torch.from_numpy(mask).to(dev)
-                with ctx.autocast():
-                    q, _ = net(*t, mt)
-                loss = pinball(q.float(), yt, wt)
-                opt.zero_grad(set_to_none=True)
-                scaler.scale(loss).backward()
-                scaler.unscale_(opt)
-                torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-                scaler.step(opt)
-                scaler.update()
-                if step < total - 1:
-                    sched.step()
-                step += 1
-                losses.append(loss.detach())  # no per-step GPU sync
+                with tp.compute(len(y)):
+                    t = [torch.from_numpy(x[n]).to(dev, non_blocking=True) for n in ("seq", "ref", "summ", "stat")]
+                    yt, wt = torch.from_numpy(y).to(dev), torch.from_numpy(w).to(dev)
+                    mt = torch.from_numpy(mask).to(dev)
+                    with ctx.autocast():
+                        q, _ = net(*t, mt)
+                    loss = pinball(q.float(), yt, wt)
+                    opt.zero_grad(set_to_none=True)
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                    scaler.step(opt)
+                    scaler.update()
+                    if step < total - 1:
+                        sched.step()
+                    step += 1
+                    losses.append(loss.detach())  # no per-step GPU sync
             # validation (fixed subset) for early stopping
-            c = collect(src, kind, net, *val_fixed, args.mode, stats, dev, amp)
-            yv = c["y"] / c["scale"][:, None]
-            vp = M.pinball(c["q"] / c["scale"][:, None, None], yv, c["w"] > 0)
-            vn = M.nmae(c["q"][..., 1], c["y"], c["w"] > 0)
+            with tp.val():
+                c = collect(src, kind, net, *val_fixed, args.mode, stats, dev, amp)
+                yv = c["y"] / c["scale"][:, None]
+                vp = M.pinball(c["q"] / c["scale"][:, None, None], yv, c["w"] > 0)
+                vn = M.nmae(c["q"][..., 1], c["y"], c["w"] > 0)
             history.append({"epoch": ep, "train_loss": float(torch.stack(losses).mean()), "val_pinball": vp, "val_nmae": vn,
                             "sec": round(time.time() - t_ep, 1)})
             print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_pinball {vp:.4f} val_nmae {vn:.4f} "
@@ -420,6 +426,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
         for f in futs:
             f.cancel()
         pool.shutdown(wait=False, cancel_futures=True)
+    tp.finish()
     if best_state is not None:
         net.load_state_dict(best_state)
     ctx.emit("epochs_run", len(history))
