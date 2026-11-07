@@ -14,8 +14,6 @@ from sentinel.contracts import Action, ActionType, AuditRecord, CrewType, Predic
 
 from .audit import Ts
 
-DT_H = 0.25
-
 
 def action_id(kind: str, *parts: Any) -> str:
     """Deterministic, unique per (kind, parts): e.g. bs-1a2b3c4d5e6f7a8b."""

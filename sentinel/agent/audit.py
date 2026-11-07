@@ -481,11 +481,6 @@ class AuditDB:
             self.conn.execute("VACUUM")  # rebuilds indexes compactly (~6% smaller)
         self.conn.close()
 
-    def table_count(self, table: str) -> int:
-        self.flush()
-        real = self.resolve(table)
-        return 0 if real is None else self.conn.execute(f"SELECT COUNT(*) FROM `{real}`").fetchone()[0]
-
     # -- actions ------------------------------------------------------------------------------------
     def write_action(self, action: Action, rows: Optional[Mapping[str, Sequence[Mapping[str, Any]]]] = None,
                      *, ts: Optional[int] = None, extra: Optional[Mapping[str, Any]] = None) -> None:
