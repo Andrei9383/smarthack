@@ -98,3 +98,51 @@ result. Until then they keep their own code.
 - `bench` run on main: one `speedup_<kernel>` metric per kernel, measured on the same worker type that runs the work.
 - Plan-level numbers for the slide: replay wall time and P10 scenario count per feeder-day, before and after the
   kernels. Only measured numbers go on the slide.
+
+## Kernel table
+
+Status of every kernel registered in `sentinel/kernels` (#179). Parity = Rust output equals the Python reference:
+bit-exact unless a tolerance is named. It is checked by each kernel's own `tests/test_kernels_<name>.py`, by
+`tests/test_kernels_backend_equivalence.py` (every bench case, 3 seeds × 3 sizes, python vs rust, plus "every
+registered kernel has a bench case and a Rust copy"), and by `parity_<key>` in `bench`. Speedup = `speedup_<key>` from
+`bench`/`rustcheck` on the lab server (20 cores, rayon 20 threads, Python reference timed once, Rust best of 3).
+"On main" is rustcheck#759 on main's code (#179); the range in brackets is min–max over that run and the card
+runs listed below the table. Python timings move a lot with server load, so read the ranges, not the digits.
+
+| Kernel (`register` name) | Bench key | Parity | Speedup on main (range) | Called from |
+|---|---|---|---|---|
+| K3 `cusum_two_sided` | `cusum`, `cusum_cap` | bit-exact | 23.3× (14–25×); capped 22.4× (16–30×) | `sentinel/eval/baselines/pv/cusum.py` → `faults.ThresholdCusumPredictor` (M4 fallback PV fault baseline) |
+| K1 `battery_rollout` | `rollout` | bit-exact | 18.7× (5–19×) | `sentinel/opt/commit.py` `_net_export` (P10 commitment, replay, drills) |
+| K2 `window_gather` | `windows` | bit-exact | 23.0× (13–23×) | `sentinel/model/features.py` (model data path: M1/M2/M4 train, eval) |
+| K4 `rolling_mean` | `rolling` | bit-exact | 9.0× (5–13×) | `sentinel/model/wind/features.py` (M6 WindNBM classifier features) |
+| K5 `scatter_telemetry` | `scatter` | bit-exact | 14.8× (11–15×) | `sentinel/model/wind/data.py` (WindNBM telemetry load) |
+| K6 `pv_features` | `features_pv` | atol 1e-6 (cos/sin, 1 ulp) | 17.1× (6–23×) | `sentinel/model/features.py` `pv_inputs` (M1 PVNet) |
+| K6 `load_features` | `features_load` | bit-exact | 11.8× (5–12×) | `sentinel/model/features.py` `load_inputs` (M2 LoadNet) |
+| K6 `site_features` | `features_site` | atol 1e-6 (cos_zen) | 13.4× (4–13×) | `sentinel/model/features.py` `site_inputs` (M4 SiteHealth) |
+
+Arriving (passed `rustcheck` on their card, not on main yet; the harness covers them as soon as they merge, because
+it reads `bench.CASES`):
+
+| Kernel | Card | Parity | Speedup | Called from |
+|---|---|---|---|---|
+| `pv_ac_batch` (+ `sitebatch.SiteReader`, not a kernel) | #133 R2 | bit-exact | 8.9× | `sentinel/data/windows.py` pvlib channels |
+| `battery_resim` | #134 R3 | bit-exact | 224× | `sentinel/sim/faults/` fault injector battery re-simulation |
+| `self_consumption` | #135 R4 | bit-exact (raw bits) | 27.6× | `sentinel/sim/fleet/generate.py` home batteries |
+| `rolling_median`, `binned_median_mad` | #136 R5 | bit-exact | 18.0×, 7.2× | `sentinel/model/wind/normal_select.py`, `eval/baselines/wind/windmon_rules.py` |
+
+#146, #147: no kernel in their diffs so far. #172: branch not pushed yet.
+
+Source runs: rustcheck #759 (main, #179), #689 (#135), #692 (#133), #702 (#136), #705 (#134). All have
+`rust_build_ok=1` and every `parity_*=1`.
+
+**Check runtime (#179).** `check` (pure Python) took 80–130 s when it had the server mostly to itself
+(check#645/#650/#653, same tests). Under load from concurrent runs, check#688/#691/#704/#716 and merge#701 stalled at
+about 88% until the 900 s timeout.
+All of them stopped in the same place: the `trained` fixture of `tests/test_windfailure.py`, which runs
+`windfailure/train.py`. That trains LightGBM with `num_threads=0` (every core), and with several runs sharing the
+server the OpenMP workers oversubscribe the CPU. Fix: `tests/conftest.py` sets `OMP_NUM_THREADS=2` unless the caller
+set it, and registers a `slow` marker. The two tests that use the fixture are `@pytest.mark.slow`. `check` runs
+`-m 'not slow'` with `faulthandler_timeout=300`, so a future hang prints a traceback, and `--durations=15`.
+`rustcheck` also runs `-m slow`, so the coverage moves and nothing is dropped. Locally (4 cores, loaded) the fixture
+takes 137 s with all threads and 67 s with one thread. After the fix, check#758 took 1m49s in total (pytest 84 s,
+slowest test 6.9 s), and rustcheck#759 ran the fixture in 8.8 s with 2 threads.
