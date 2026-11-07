@@ -152,7 +152,7 @@ def calendar_features(times: pd.DatetimeIndex) -> np.ndarray:
     """[T, 8] local-time (Europe/Bucharest) calendar features, DST-aware."""
     loc = times.tz_convert(TZ)
     hour = (loc.hour + loc.minute / 60.0).to_numpy(np.float64)
-    dow = loc.dayofweek.to_numpy()
+    dow = loc.day_of_week.to_numpy()
     dates = loc.date
     hol_set = set().union(*(ro_holidays(y) for y in sorted({d.year for d in dates})))
     hol = np.fromiter((d in hol_set for d in dates), dtype=bool, count=len(dates))

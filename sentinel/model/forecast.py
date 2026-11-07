@@ -59,10 +59,15 @@ def parse_args(model: str, argv=None):
 
 
 # --- sampling ----------------------------------------------------------------------------------------------
-def step_weights(kind: str, raw: dict, inp: dict) -> np.ndarray:
-    """Loss / metric mask per target step: PV = daylight and no fault on that step; load = all steps."""
+def step_weights(kind: str, raw: dict, inp: dict, strict: bool = False) -> np.ndarray:
+    """Loss mask per target step: PV = daylight and no fault on that step; load = all steps.
+    strict (metrics, conformal): PV steps where the clear-sky profile reaches >= 5% of recorded kWp, so dawn/dusk
+    zeros don't inflate coverage."""
     if kind == "pv":
-        return ((~inp["night"]) & (raw["fault"] == 0)).astype(np.float32)
+        m = (~inp["night"]) & (raw["fault"] == 0)
+        if strict:
+            m &= raw["pvclear"] >= 0.05 * raw["kwp_recorded"][:, None]
+        return m.astype(np.float32)
     return np.ones(raw["y"].shape, np.float32)
 
 
@@ -235,7 +240,7 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
             res["emb"].append(e.float().cpu().numpy())
             res["y"].append(raw["y"])
             res["y_healthy"].append(raw.get("y_healthy", raw["y"]))
-            res["w"].append(step_weights(kind, raw, inp))
+            res["w"].append(step_weights(kind, raw, inp, strict=True))
             res["night"].append(inp["night"])
             res["scale"].append(inp["scale"])
             res["fault"].append(raw["fault"].max(1))

@@ -177,7 +177,9 @@ def export_onnx(module, inputs: dict, path: Path, output_names: list[str], atol:
     """Export an eval-mode fp32 module (opset 17, dynamic batch) and check onnxruntime parity on `inputs`."""
     import torch
 
-    module = module.float().eval().cpu()
+    import copy
+
+    module = copy.deepcopy(module).float().eval().cpu()  # never move the caller's (possibly CUDA) module
     names = list(inputs)
     args = tuple(torch.as_tensor(inputs[k]).float() for k in names)
     dyn = {k: {0: "batch"} for k in names + output_names}

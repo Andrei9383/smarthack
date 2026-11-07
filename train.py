@@ -1,5 +1,7 @@
 """Train one registered model: python train.py --model NAME [model flags...]
 
+Also: python train.py --preset NAME [extra flags]  (named configs in PRESETS, for one-submit grids)
+
 Registry (lazy imports, so a card's module is only imported when its model is asked for). Each target exposes
 `main(argv: list[str] | None = None) -> None`; everything after --model NAME is passed through unchanged
 (lab substitutes grid placeholders like `--lr {lr}` before this process starts).
@@ -28,6 +30,17 @@ REGISTRY: dict[str, str] = {
     "windpower": "sentinel.model.windpower.train:main",
     "windfailure": "sentinel.model.windfailure.train:main",
     "gridtwin": "sentinel.gridtwin.train:main",
+}
+
+
+# Named configs, so one `lab submit --grid preset=a,b,c` can run different models / settings in parallel
+# (a second submit on the same card cancels its running runs). Extra flags after --preset are appended.
+PRESETS: dict[str, list[str]] = {
+    "pv_now": ["--model", "pvnet", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20"],
+    "pv_now_lr2e3": ["--model", "pvnet", "--epochs", "150", "--lr", "2e-3", "--max-minutes", "20"],
+    "pv_fc": ["--model", "pvnet", "--mode", "forecast", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20"],
+    "load": ["--model", "loadnet", "--epochs", "100", "--lr", "1e-3", "--max-minutes", "20"],
+    "sh": ["--model", "sitehealth", "--epochs", "60", "--max-minutes", "25"],
 }
 
 
@@ -70,6 +83,11 @@ def split_argv(argv: list[str]) -> tuple[str | None, list[str]]:
 
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if "--preset" in argv:
+        i = argv.index("--preset")
+        if i + 1 >= len(argv) or argv[i + 1] not in PRESETS:
+            raise RegistryError(f"train.py: --preset needs one of {', '.join(PRESETS)}")
+        argv = PRESETS[argv[i + 1]] + argv[:i] + argv[i + 2:]
     name, rest = split_argv(argv)
     if name is None:
         print(__doc__)
