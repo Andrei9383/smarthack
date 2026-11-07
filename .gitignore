@@ -10,6 +10,8 @@ dist/
 .env
 .env*.local
 local.db*
+demo/fixtures.sqlite
+demo/fixtures.sqlite-*
 # Rust extension built in place by `maturin develop` (rust/build.sh, card #48)
 sentinel/_core*.so
 sentinel/_core*.pyd
