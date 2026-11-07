@@ -85,9 +85,12 @@ export const assets = sqliteTable(
     batteryKwh: real("battery_kwh"),
     batteryKw: real("battery_kw"),
     comfortReservePct: real("comfort_reserve_pct"),
-    pvKwp: real("pv_kwp"),
-    tiltDeg: real("tilt_deg"),
-    azimuthDeg: real("azimuth_deg"),
+    recordedKwp: real("recorded_kwp"), // what the GIS says
+    trueKwp: real("true_kwp"), // what M8 / grid-twin estimates
+    recordedTiltDeg: real("recorded_tilt_deg"),
+    trueTiltDeg: real("true_tilt_deg"),
+    recordedAzimuthDeg: real("recorded_azimuth_deg"),
+    trueAzimuthDeg: real("true_azimuth_deg"),
     turbineModel: text("turbine_model"),
     hubHeightM: real("hub_height_m"),
     rotorDiameterM: real("rotor_diameter_m"),
@@ -138,26 +141,28 @@ export const measurements = sqliteTable(
 export const predictions = sqliteTable(
   "predictions",
   {
-    id: integer("id").primaryKey({ autoIncrement: true }),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id),
     assetId: text("asset_id")
       .notNull()
       .references(() => assets.id),
-    model: text("model").notNull(),
+    model: text("model").notNull(), // M1 | M2 | M3 | M4 | M5 | M6 | M7 | M8
     modelVersion: text("model_version").notNull(),
-    ts: text("ts").notNull(), // ISO-8601 UTC
-    q10Kw: real("q10_kw").notNull(),
-    q50Kw: real("q50_kw").notNull(),
-    q90Kw: real("q90_kw").notNull(),
+    t0: text("t0").notNull(), // when the prediction was made (ISO-8601 UTC)
+    ts: text("ts").notNull(), // the step predicted (ISO-8601 UTC)
+    horizonIdx: integer("horizon_idx").notNull(),
+    q10: real("q10"),
+    q50: real("q50"),
+    q90: real("q90"),
     faultProbsJson: text("fault_probs_json"),
     anomalyClass: text("anomaly_class"),
     oodScore: real("ood_score"),
     memberStd: real("member_std"),
-    createdAt: text("created_at").notNull(),
+    isFallback: integer("is_fallback").default(0).notNull(),
   },
   (table) => [
+    primaryKey({ columns: [table.runId, table.assetId, table.model, table.t0, table.ts] }),
     index("predictions_asset_ts_idx").on(table.assetId, table.ts),
     index("predictions_run_model_idx").on(table.runId, table.model),
   ],
@@ -287,25 +292,24 @@ export const workOrders = sqliteTable(
       .notNull()
       .references(() => assets.id),
     assetKind: text("asset_kind").notNull(),
-    action: text("action").notNull(),
-    createdAt: text("created_at").notNull(),
-    day: text("day").notNull(), // YYYY-MM-DD
-    faultClass: text("fault_class"),
-    anomalyClass: text("anomaly_class"),
+    crewType: text("crew_type").notNull(), // residential | wind
+    action: text("action").notNull(), // truck | remote_check | inspection
+    ts: text("ts").notNull(), // ISO-8601 UTC
+    day: text("day").notNull(), // YYYY-MM-DD local day bucket
+    fault: text("fault"), // M4 class (prosumer) or M6 anomaly class (turbine)
     confidence: real("confidence").notNull(),
     lostKwhDay: real("lost_kwh_day"),
-    lostMwhDay: real("lost_mwh_day"),
     lostFlexMwhDay: real("lost_flex_mwh_day"),
-    leiAtRisk: real("lei_at_risk"),
+    lostLeiDay: real("lost_lei_day"),
     mwAtRisk: real("mw_at_risk"),
     daysToVisit: integer("days_to_visit"),
     score: real("score").notNull(),
-    rankK: integer("rank_k"),
+    rank: integer("rank"),
     status: text("status").default("open").notNull(),
     evidenceJson: text("evidence_json"),
   },
   (table) => [
-    index("work_orders_queue_idx").on(table.runId, table.day, table.rankK),
+    index("work_orders_queue_idx").on(table.runId, table.crewType, table.day, table.rank),
   ],
 );
 

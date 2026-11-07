@@ -31,12 +31,13 @@ export const workOrderItemSchema = z.object({
   actionId: z.string(),
   assetId: z.string(),
   assetKind: z.string(),
+  crewType: z.string(),
   action: z.string(),
   status: z.string(),
   score: z.number(),
   day: z.string(),
-  rankK: z.number().nullable().optional(),
-  leiAtRisk: z.number().nullable().optional(),
+  rank: z.number().nullable().optional(),
+  lostLeiDay: z.number().nullable().optional(),
 });
 export type WorkOrderItem = z.infer<typeof workOrderItemSchema>;
 

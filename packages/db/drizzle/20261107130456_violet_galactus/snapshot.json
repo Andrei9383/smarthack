@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "32b82502-989f-4e44-a6a3-1c33aaaa695d",
+  "id": "065007e8-e362-4fed-999d-65bff8a78a39",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -794,7 +794,7 @@
     },
     {
       "table": "assets",
-      "name": "pv_kwp",
+      "name": "recorded_kwp",
       "type": "real",
       "notNull": false,
       "autoincrement": false,
@@ -804,7 +804,7 @@
     },
     {
       "table": "assets",
-      "name": "tilt_deg",
+      "name": "true_kwp",
       "type": "real",
       "notNull": false,
       "autoincrement": false,
@@ -814,7 +814,37 @@
     },
     {
       "table": "assets",
-      "name": "azimuth_deg",
+      "name": "recorded_tilt_deg",
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "assets",
+      "name": "true_tilt_deg",
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "assets",
+      "name": "recorded_azimuth_deg",
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "assets",
+      "name": "true_azimuth_deg",
       "type": "real",
       "notNull": false,
       "autoincrement": false,
@@ -1824,16 +1854,6 @@
     },
     {
       "table": "predictions",
-      "name": "id",
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": true,
-      "default": null,
-      "generated": null,
-      "entityType": "columns"
-    },
-    {
-      "table": "predictions",
       "name": "run_id",
       "type": "text",
       "notNull": true,
@@ -1874,6 +1894,16 @@
     },
     {
       "table": "predictions",
+      "name": "t0",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "predictions",
       "name": "ts",
       "type": "text",
       "notNull": true,
@@ -1884,8 +1914,8 @@
     },
     {
       "table": "predictions",
-      "name": "q10_kw",
-      "type": "real",
+      "name": "horizon_idx",
+      "type": "integer",
       "notNull": true,
       "autoincrement": false,
       "default": null,
@@ -1894,9 +1924,9 @@
     },
     {
       "table": "predictions",
-      "name": "q50_kw",
+      "name": "q10",
       "type": "real",
-      "notNull": true,
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
@@ -1904,9 +1934,19 @@
     },
     {
       "table": "predictions",
-      "name": "q90_kw",
+      "name": "q50",
       "type": "real",
-      "notNull": true,
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "predictions",
+      "name": "q90",
+      "type": "real",
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
@@ -1954,11 +1994,11 @@
     },
     {
       "table": "predictions",
-      "name": "created_at",
-      "type": "text",
+      "name": "is_fallback",
+      "type": "integer",
       "notNull": true,
       "autoincrement": false,
-      "default": null,
+      "default": "0",
       "generated": null,
       "entityType": "columns"
     },
@@ -2434,6 +2474,16 @@
     },
     {
       "table": "work_orders",
+      "name": "crew_type",
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "work_orders",
       "name": "action",
       "type": "text",
       "notNull": true,
@@ -2444,7 +2494,7 @@
     },
     {
       "table": "work_orders",
-      "name": "created_at",
+      "name": "ts",
       "type": "text",
       "notNull": true,
       "autoincrement": false,
@@ -2464,17 +2514,7 @@
     },
     {
       "table": "work_orders",
-      "name": "fault_class",
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "entityType": "columns"
-    },
-    {
-      "table": "work_orders",
-      "name": "anomaly_class",
+      "name": "fault",
       "type": "text",
       "notNull": false,
       "autoincrement": false,
@@ -2504,16 +2544,6 @@
     },
     {
       "table": "work_orders",
-      "name": "lost_mwh_day",
-      "type": "real",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "entityType": "columns"
-    },
-    {
-      "table": "work_orders",
       "name": "lost_flex_mwh_day",
       "type": "real",
       "notNull": false,
@@ -2524,7 +2554,7 @@
     },
     {
       "table": "work_orders",
-      "name": "lei_at_risk",
+      "name": "lost_lei_day",
       "type": "real",
       "notNull": false,
       "autoincrement": false,
@@ -2564,7 +2594,7 @@
     },
     {
       "table": "work_orders",
-      "name": "rank_k",
+      "name": "rank",
       "type": "integer",
       "notNull": false,
       "autoincrement": false,
@@ -3031,11 +3061,15 @@
           "isExpression": false
         },
         {
+          "value": "crew_type",
+          "isExpression": false
+        },
+        {
           "value": "day",
           "isExpression": false
         },
         {
-          "value": "rank_k",
+          "value": "rank",
           "isExpression": false
         }
       ],
@@ -3689,6 +3723,19 @@
       "entityType": "pks"
     },
     {
+      "table": "predictions",
+      "name": "predictions_pk",
+      "columns": [
+        "run_id",
+        "asset_id",
+        "model",
+        "t0",
+        "ts"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
       "table": "schedules",
       "name": "schedules_pk",
       "columns": [
@@ -3807,15 +3854,6 @@
     {
       "table": "parks",
       "name": "parks_pk",
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "entityType": "pks"
-    },
-    {
-      "table": "predictions",
-      "name": "predictions_pk",
       "columns": [
         "id"
       ],

@@ -95,9 +95,12 @@ CREATE TABLE `assets` (
 	`battery_kwh` real,
 	`battery_kw` real,
 	`comfort_reserve_pct` real,
-	`pv_kwp` real,
-	`tilt_deg` real,
-	`azimuth_deg` real,
+	`recorded_kwp` real,
+	`true_kwp` real,
+	`recorded_tilt_deg` real,
+	`true_tilt_deg` real,
+	`recorded_azimuth_deg` real,
+	`true_azimuth_deg` real,
 	`turbine_model` text,
 	`hub_height_m` real,
 	`rotor_diameter_m` real,
@@ -249,20 +252,22 @@ CREATE TABLE `parks` (
 );
 --> statement-breakpoint
 CREATE TABLE `predictions` (
-	`id` integer PRIMARY KEY AUTOINCREMENT,
 	`run_id` text NOT NULL,
 	`asset_id` text NOT NULL,
 	`model` text NOT NULL,
 	`model_version` text NOT NULL,
+	`t0` text NOT NULL,
 	`ts` text NOT NULL,
-	`q10_kw` real NOT NULL,
-	`q50_kw` real NOT NULL,
-	`q90_kw` real NOT NULL,
+	`horizon_idx` integer NOT NULL,
+	`q10` real,
+	`q50` real,
+	`q90` real,
 	`fault_probs_json` text,
 	`anomaly_class` text,
 	`ood_score` real,
 	`member_std` real,
-	`created_at` text NOT NULL,
+	`is_fallback` integer DEFAULT 0 NOT NULL,
+	CONSTRAINT `predictions_pk` PRIMARY KEY(`run_id`, `asset_id`, `model`, `t0`, `ts`),
 	CONSTRAINT `fk_predictions_run_id_runs_id_fk` FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`),
 	CONSTRAINT `fk_predictions_asset_id_assets_id_fk` FOREIGN KEY (`asset_id`) REFERENCES `assets`(`id`)
 );
@@ -340,20 +345,19 @@ CREATE TABLE `work_orders` (
 	`run_id` text NOT NULL,
 	`asset_id` text NOT NULL,
 	`asset_kind` text NOT NULL,
+	`crew_type` text NOT NULL,
 	`action` text NOT NULL,
-	`created_at` text NOT NULL,
+	`ts` text NOT NULL,
 	`day` text NOT NULL,
-	`fault_class` text,
-	`anomaly_class` text,
+	`fault` text,
 	`confidence` real NOT NULL,
 	`lost_kwh_day` real,
-	`lost_mwh_day` real,
 	`lost_flex_mwh_day` real,
-	`lei_at_risk` real,
+	`lost_lei_day` real,
 	`mw_at_risk` real,
 	`days_to_visit` integer,
 	`score` real NOT NULL,
-	`rank_k` integer,
+	`rank` integer,
 	`status` text DEFAULT 'open' NOT NULL,
 	`evidence_json` text,
 	CONSTRAINT `fk_work_orders_run_id_runs_id_fk` FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`),
@@ -396,5 +400,5 @@ CREATE INDEX `predictions_asset_ts_idx` ON `predictions` (`asset_id`,`ts`);--> s
 CREATE INDEX `predictions_run_model_idx` ON `predictions` (`run_id`,`model`);--> statement-breakpoint
 CREATE INDEX `schedules_asset_policy_idx` ON `schedules` (`asset_id`,`policy`);--> statement-breakpoint
 CREATE INDEX `statuses_status_idx` ON `statuses` (`status`);--> statement-breakpoint
-CREATE INDEX `work_orders_queue_idx` ON `work_orders` (`run_id`,`day`,`rank_k`);--> statement-breakpoint
+CREATE INDEX `work_orders_queue_idx` ON `work_orders` (`run_id`,`crew_type`,`day`,`rank`);--> statement-breakpoint
 CREATE INDEX `zone_demand_ts_idx` ON `zone_demand` (`run_id`,`level`,`ts`);
