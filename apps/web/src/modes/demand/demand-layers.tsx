@@ -8,11 +8,11 @@ import { orpc } from "@/utils/orpc";
 
 import { useMapRightPadding } from "../use-map-right-padding";
 import {
-  COUNTY_OUTLINE,
+  DATA_BORDER,
   FEEDER_CASING,
   FEEDER_RAMP,
+  NO_DATA_BORDER,
   NO_DATA_FILL,
-  NO_DATA_HATCH,
   rampColor,
   SELECTED_OUTLINE,
   SELECTED_SHADOW,
@@ -37,42 +37,7 @@ const rampExpression = (input: unknown, ramp: typeof STRESS_RAMP) => [
   input,
   ...ramp.flat(),
 ];
-const HATCH_IMAGE = "demand-no-data-hatch";
-const HATCH_TILE_PX = 20; // drawn at 2× (10 px spacing) so the diagonals stay crisp and quiet
-const LEGEND_HATCH = `repeating-linear-gradient(135deg, ${NO_DATA_HATCH} 0 1px, ${NO_DATA_FILL} 1px 5px)`;
 const EMPTY = { type: "FeatureCollection" as const, features: [] };
-
-function hatchPixels() {
-  const hex = (color: string) => [1, 3, 5].map((index) => Number.parseInt(color.slice(index, index + 2), 16));
-  const [line, ground] = [hex(NO_DATA_HATCH), hex(NO_DATA_FILL)];
-  const data = new Uint8Array(HATCH_TILE_PX * HATCH_TILE_PX * 4);
-  for (let y = 0; y < HATCH_TILE_PX; y += 1) {
-    for (let x = 0; x < HATCH_TILE_PX; x += 1) {
-      const color = (x + y) % HATCH_TILE_PX < 2 ? line : ground;
-      data.set([...color, 255], (y * HATCH_TILE_PX + x) * 4);
-    }
-  }
-  return { width: HATCH_TILE_PX, height: HATCH_TILE_PX, data };
-}
-
-// The hatch is a style image; a basemap swap drops it, so re-add it whenever the style reloads.
-function useHatchImage() {
-  const { map, isLoaded } = useMap();
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    if (!map || !isLoaded) return;
-    const ensure = () => {
-      if (!map.hasImage(HATCH_IMAGE)) map.addImage(HATCH_IMAGE, hatchPixels(), { pixelRatio: 2 });
-      setReady(true);
-    };
-    ensure();
-    map.on("styledata", ensure);
-    return () => {
-      map.off("styledata", ensure);
-    };
-  }, [map, isLoaded]);
-  return ready;
-}
 
 const LEGEND_GRADIENT = `linear-gradient(to right, ${STRESS_RAMP.map(
   ([stress, color]) => `${color} ${stress * 100}%`,
@@ -148,7 +113,6 @@ export function DemandLayers() {
   const [selectedId, setSelected] = useSelectedZone();
   const { zones, counties, ts, isLoading } = useDemandData();
   const [hovered, setHovered] = useState<CountyProperties | null>(null);
-  const hatchReady = useHatchImage();
   const { data: shapes } = useQuery({
     queryKey: ["ro-counties"],
     queryFn: fetchCounties,
@@ -173,13 +137,19 @@ export function DemandLayers() {
   useCountyFocus(shapes, selectedCode, countyFeederLines);
 
   // Counties with no rows stay empty: no data must never read as low stress.
-  const { fillColor, fillOpacity, hoverOpacity, noDataOpacity } = useMemo(() => {
+  const { fillColor, fillOpacity, hoverOpacity, noDataOpacity, borderColor } = useMemo(() => {
     const stressPairs = [...byCode].flatMap(([code, county]) => {
       const stress = county.stressByTs.get(ts);
       return stress === undefined ? [] : [code, stress];
     });
     if (stressPairs.length === 0) {
-      return { fillColor: STRESS_RAMP[0]?.[1], fillOpacity: 0, hoverOpacity: 0, noDataOpacity: 1 };
+      return {
+        fillColor: STRESS_RAMP[0]?.[1],
+        fillOpacity: 0,
+        hoverOpacity: 0,
+        noDataOpacity: 1,
+        borderColor: NO_DATA_BORDER,
+      };
     }
     const codes = stressPairs.filter((_, index) => index % 2 === 0);
     const withData = (value: number, otherwise: number) => ["match", ["get", "code"], codes, value, otherwise];
@@ -188,6 +158,7 @@ export function DemandLayers() {
       fillOpacity: withData(STRESS_FILL_OPACITY, 0),
       hoverOpacity: withData(STRESS_HOVER_OPACITY, 0),
       noDataOpacity: withData(0, 1),
+      borderColor: ["match", ["get", "code"], codes, DATA_BORDER, NO_DATA_BORDER],
     };
   }, [byCode, ts]);
 
@@ -233,6 +204,17 @@ export function DemandLayers() {
 
   return (
     <>
+      {/* Counties without rows: flat basemap-land fill, drawn under the county borders. */}
+      <MapGeoJSON
+        id="demand-no-data"
+        data={shapes}
+        beforeId={beforeLabels}
+        fillPaint={{
+          "fill-color": NO_DATA_FILL,
+          "fill-opacity": (isLoading ? 0 : noDataOpacity) as never,
+        }}
+        linePaint={false}
+      />
       <MapGeoJSON
         id="demand-counties"
         data={shapes}
@@ -241,7 +223,7 @@ export function DemandLayers() {
         promoteId="code"
         fillPaint={{ "fill-color": fillColor as never, "fill-opacity": fillOpacity as never }}
         fillHoverPaint={{ "fill-opacity": hoverOpacity as never }}
-        linePaint={{ "line-color": COUNTY_OUTLINE, "line-width": 0.75 }}
+        linePaint={{ "line-color": borderColor as never, "line-width": 1 }}
         onHover={(event) => setHovered((event?.feature?.properties as CountyProperties) ?? null)}
         onClick={(event) => {
           // The map also reports clicks on markers; those belong to the feeder under the cursor.
@@ -249,23 +231,6 @@ export function DemandLayers() {
           if (target.closest(".maplibregl-marker")) return;
           const county = byCode.get((event.feature.properties as CountyProperties).code);
           if (county) setSelected(county.id);
-        }}
-      />
-      {/* Counties without rows: grey hatch and a dashed edge, so no data never reads as low. */}
-      <MapGeoJSON
-        id="demand-no-data"
-        data={shapes}
-        beforeId={beforeLabels}
-        fillPaint={{
-          "fill-color": NO_DATA_FILL,
-          ...(hatchReady ? { "fill-pattern": HATCH_IMAGE } : {}),
-          "fill-opacity": (isLoading ? 0 : noDataOpacity) as never,
-        }}
-        linePaint={{
-          "line-color": COUNTY_OUTLINE,
-          "line-width": 0.75,
-          "line-dasharray": [2, 2],
-          "line-opacity": (isLoading ? 0 : noDataOpacity) as never,
         }}
       />
       {/* Selected county: soft blurred shadow under a 2px brand outline (no glow). */}
@@ -345,8 +310,8 @@ export function DemandLayers() {
         </div>
         <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5 text-text-secondary">
           <span
-            className="h-3 w-5 shrink-0 rounded-[3px] border border-dashed"
-            style={{ background: LEGEND_HATCH, borderColor: NO_DATA_HATCH }}
+            className="size-3.5 shrink-0 rounded-[3px] border"
+            style={{ backgroundColor: NO_DATA_FILL, borderColor: NO_DATA_BORDER }}
           />
           Empty counties have no data
         </div>

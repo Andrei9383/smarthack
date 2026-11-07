@@ -9,12 +9,13 @@ export const STRESS_RAMP: readonly (readonly [stress: number, color: string])[] 
   [0.75, "#F59E0B"],
   [1, "#E5484D"], // --status-critical: red zones
 ];
-export const STRESS_FILL_OPACITY = 0.85;
+export const STRESS_FILL_OPACITY = 0.9;
 export const STRESS_HOVER_OPACITY = 1; // hover: the same colour, slightly darker
 
-// Counties without rows: light grey diagonal hatch, never confused with low stress.
-export const NO_DATA_FILL = "#F2F3F5"; // --muted
-export const NO_DATA_HATCH = "#D3D8DE"; // between --border and the basemap borders
+// Most counties have no rows: keep them flat and quiet (basemap land) so the few with data pop.
+export const NO_DATA_FILL = "#F7F8FA"; // basemap land
+export const NO_DATA_BORDER = "#DDE1E5";
+export const DATA_BORDER = "rgba(13, 13, 13, 0.15)"; // --foreground at 15%
 
 // Feeder lines inside a selected county sit on top of the county fill, so they use the
 // stronger status colours plus a white casing instead of the pale end of the ramp. The panel's
@@ -26,7 +27,6 @@ export const FEEDER_RAMP: readonly (readonly [stress: number, color: string])[] 
 ];
 export const FEEDER_CASING = "#FFFFFF";
 
-export const COUNTY_OUTLINE = "#B8BFC7"; // a step darker than basemap borders (#C9CED4)
 export const SELECTED_OUTLINE = "#0B7F48"; // --brand-700
 export const SELECTED_SHADOW = "#0D0D0D"; // drawn blurred at low opacity below the outline
 
