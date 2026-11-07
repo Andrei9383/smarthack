@@ -332,6 +332,11 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
 
     def eval_set(split, limit=args.eval_limit):
         s, d = sp.site_days(split)
+        if split == "cal":  # conformal set: cal days on ALL sites. Unseen sites are never trained on and cal days
+            # never overlap test days, so this leaks nothing, and the offsets also cover never-seen sites
+            # (calibrating on train sites only left unseen-site coverage at ~0.55 in run #289)
+            s, d = np.meshgrid(np.arange(len(src.sites)), sp.days["cal"], indexing="ij")
+            s, d = s.ravel(), d.ravel()
         if limit and len(s) > limit:  # fixed sample (independent of --seed): every run / seed / baseline scores
             sel = np.sort(np.random.default_rng(1234 + len(split)).choice(len(s), limit, replace=False))
             s, d = s[sel], d[sel]
@@ -525,6 +530,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             sel = seen if gname == "seen" else ~seen
             if sel.any():
                 ctx.emit(f"test_nmae_{gname}", M.nmae(t["q"][sel][..., 1], t["y"][sel], t["w"][sel] > 0))
+                ctx.emit(f"test_coverage_cal_{gname}", M.coverage(t["qc"][sel], t["y"][sel], t["w"][sel] > 0))
                 if "lgbm" in t["baselines"]:
                     ctx.emit(f"baseline_lgbm_nmae_{gname}", M.nmae(t["baselines"]["lgbm"][sel], t["y"][sel],
                                                                     t["w"][sel] > 0))

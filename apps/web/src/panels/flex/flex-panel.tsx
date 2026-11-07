@@ -16,35 +16,44 @@ import { useReplayStep } from "@/demo/use-replay";
 import { useSelectedFeeder } from "@/modes/feeders/use-feeder-state";
 import { orpc } from "@/utils/orpc";
 
+import { ACTUAL, BASELINE, FORECAST, OK } from "../colors";
 import { dayRange, hhmm, inRange, stepTs, wallClock } from "../site/time";
 
 // Ordered from the most the fleet could ever do to what it actually delivered (plan §3.5).
+// Colours (ui-style §3): nominal is the naive baseline (grey), available is a forecast
+// (blue, dashed), committed is Sentinel (green), realised is the measured actual (near-black).
 const SERIES = [
   {
     key: "nominal",
     label: "Nominal",
-    color: "#64748b",
+    color: BASELINE,
+    dashed: false,
     hint: "every battery, no doubts",
   },
   {
     key: "available",
     label: "Available",
-    color: "#38bdf8",
+    color: FORECAST,
+    dashed: true,
     hint: "after excluding and derating sites",
   },
   {
     key: "committed",
     label: "Committed (P10)",
-    color: "#2dd4bf",
+    color: OK,
+    dashed: false,
     hint: "what we sell: (1−h)·P10",
   },
   {
     key: "realised",
     label: "Realised",
-    color: "#f8fafc",
+    color: ACTUAL,
+    dashed: false,
     hint: "measured afterwards",
   },
 ] as const;
+const SECTION_LABEL =
+  "text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase";
 const CHART_MARGIN = { left: 8, right: 8, top: 8, bottom: 24 };
 const SCOPES = ["feeder", "fleet"] as const;
 
@@ -64,8 +73,8 @@ export function FlexDock() {
     return (
       <Button
         size="sm"
-        variant="secondary"
-        className="absolute top-3 left-3 z-10 shadow"
+        variant="default"
+        className="absolute top-3 left-3 z-10 h-8 rounded-lg px-3 text-[13px] shadow-card"
         onClick={() => setOpen(true)}
       >
         <BatteryCharging className="size-4" />
@@ -128,16 +137,20 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
     realised: now?.realisedKw,
   };
 
+  const committed = values.committed;
+
   return (
-    <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
+    <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-5 overflow-y-auto rounded-xl border bg-card p-5 text-[13px] text-foreground shadow-card">
       <header className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="font-semibold">Flexibility</h2>
-          <p className="text-xs text-muted-foreground">
+        <div className="space-y-1">
+          <h2 className="text-base leading-6 font-semibold tracking-tight">
+            Flexibility
+          </h2>
+          <p className="text-xs leading-5 text-text-secondary">
             We never sell the nominal number.
             {run.data ? (
-              <span className="ml-1 font-medium text-amber-400">
-                · {run.data.label}
+              <span className="mt-1.5 flex w-fit items-center rounded-full border bg-muted px-2 py-0.5 text-[11px] leading-4 font-medium text-text-secondary">
+                {run.data.label}
               </span>
             ) : null}
           </p>
@@ -146,6 +159,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
           <Button
             size="icon-sm"
             variant="ghost"
+            className="rounded-lg text-muted-foreground hover:text-foreground"
             onClick={onClose}
             aria-label="Close flexibility panel"
           >
@@ -154,12 +168,18 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
         ) : null}
       </header>
 
-      <div className="flex gap-1">
+      <div className="flex w-fit gap-0.5 rounded-lg bg-muted p-0.5">
         {SCOPES.map((s) => (
           <Button
             key={s}
             size="sm"
-            variant={scope === s ? "default" : "ghost"}
+            variant="ghost"
+            aria-pressed={scope === s}
+            className={`rounded-md px-3 text-xs ${
+              scope === s
+                ? "bg-card font-semibold text-foreground shadow-sm hover:bg-card"
+                : "text-text-secondary hover:bg-transparent hover:text-foreground"
+            }`}
             onClick={() => setScope(s)}
           >
             {s === "feeder" ? `Feeder ${feederId}` : "Fleet total"}
@@ -167,28 +187,50 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
         ))}
       </div>
 
-      <section className="space-y-1">
-        <h3 className="text-sm font-medium">
+      <section className="space-y-4">
+        <h3 className={SECTION_LABEL}>
           Hour starting {timeLabel(step - (step % 4))}
         </h3>
-        <ul className="space-y-1">
+        <div className="rounded-xl border border-brand-100 bg-brand-50 p-4">
+          <div className="text-xs font-medium text-brand-700">
+            Committed (P10){" "}
+            <span className="font-normal text-text-secondary">
+              what we sell: (1−h)·P10
+            </span>
+          </div>
+          <div className="mt-1 text-[30px] leading-9 font-semibold tracking-tight text-brand-900 tabular-nums">
+            {committed == null ? "—" : committed.toFixed(1)}
+            {committed == null ? null : (
+              <span className="ml-1 text-[13px] font-normal text-muted-foreground">
+                kW
+              </span>
+            )}
+          </div>
+        </div>
+        <ul className="space-y-3">
           {SERIES.map(({ key, label, color, hint }) => {
             const v = values[key];
             const top = values.nominal || 1;
             return (
               <li key={key} className="text-xs">
-                <div className="flex justify-between">
-                  <span>
-                    <span className="font-medium" style={{ color }}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="font-medium text-foreground">
+                      <span
+                        className="mr-1.5 inline-block size-2 rounded-full align-middle"
+                        style={{ background: color }}
+                      />
                       {label}
                     </span>{" "}
                     <span className="text-muted-foreground">{hint}</span>
                   </span>
-                  <span className="font-semibold">{fmtKw(v)}</span>
+                  <span className="shrink-0 font-semibold tabular-nums">
+                    {fmtKw(v)}
+                  </span>
                 </div>
-                <div className="mt-0.5 h-1.5 rounded bg-muted">
+                <div className="mt-1 h-1.5 rounded-full bg-muted">
                   <div
-                    className="h-full rounded"
+                    className="h-full rounded-full"
                     style={{
                       width: `${Math.min(100, ((v ?? 0) / top) * 100)}%`,
                       background: color,
@@ -199,26 +241,37 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             );
           })}
         </ul>
-        <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+        <div className="grid grid-cols-2 gap-4 rounded-xl bg-sidebar p-4">
           <div>
-            <div className="text-muted-foreground">P10 hit rate, today</div>
-            <div className="text-base font-semibold">{pct(dayHit)}</div>
+            <div className="text-[11px] leading-4 text-muted-foreground">
+              P10 hit rate, today
+            </div>
+            <div className="mt-0.5 text-xl font-semibold tabular-nums">
+              {pct(dayHit)}
+            </div>
           </div>
           <div>
-            <div className="text-muted-foreground">P10 hit rate, week</div>
-            <div className="text-base font-semibold">{pct(weekHit)}</div>
+            <div className="text-[11px] leading-4 text-muted-foreground">
+              P10 hit rate, week
+            </div>
+            <div className="mt-0.5 text-xl font-semibold tabular-nums">
+              {pct(weekHit)}
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="space-y-1">
-        <h3 className="text-sm font-medium">Per hour today (kW)</h3>
-        <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
-          {SERIES.map(({ label, color }) => (
-            <span key={label} className="flex items-center gap-1">
+      <section className="space-y-2">
+        <h3 className={SECTION_LABEL}>Per hour today (kW)</h3>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
+          {SERIES.map(({ label, color, dashed }) => (
+            <span key={label} className="flex items-center gap-1.5">
               <span
-                className="inline-block w-3 border-t-2"
-                style={{ borderColor: color }}
+                className="inline-block w-4 border-t-2"
+                style={{
+                  borderColor: color,
+                  borderStyle: dashed ? "dashed" : "solid",
+                }}
               />
               {label}
             </span>
@@ -232,13 +285,15 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             animationDuration={0}
           >
             <Grid />
-            {SERIES.map(({ key, color }) => (
+            {SERIES.map(({ key, color, dashed }) => (
               <Line
                 key={key}
                 dataKey={key}
                 stroke={color}
+                strokeWidth={key === "committed" ? 2.5 : 2}
                 curve={curveStepAfter}
                 fadeEdges={false}
+                dashFromIndex={dashed ? 0 : undefined}
               />
             ))}
             <XAxis numTicks={6} labels={chart.map((r) => hhmm(r.date))} />
@@ -251,42 +306,55 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
         )}
       </section>
 
-      <section className="space-y-1">
-        <h3 className="text-sm font-medium">Sites in the pool, end of run</h3>
-        <table className="w-full text-xs">
-          <thead className="text-muted-foreground">
-            <tr className="text-left">
-              <th className="font-normal">Feeder</th>
-              <th className="text-right font-normal">Eligible</th>
-              <th className="text-right font-normal">Derated</th>
-              <th className="text-right font-normal">Out</th>
-              <th className="text-right font-normal">Headroom</th>
+      <section className="space-y-2">
+        <h3 className={SECTION_LABEL}>Sites in the pool, end of run</h3>
+        <table className="w-full text-xs tabular-nums">
+          <thead className="text-[11px] text-muted-foreground">
+            <tr className="border-b text-left">
+              <th className="py-1.5 pl-2 font-medium">Feeder</th>
+              <th className="py-1.5 text-right font-medium">Eligible</th>
+              <th className="py-1.5 text-right font-medium">Derated</th>
+              <th className="py-1.5 text-right font-medium">Out</th>
+              <th className="py-1.5 pr-2 text-right font-medium">Headroom</th>
             </tr>
           </thead>
           <tbody>
             {(feeders.data ?? []).map((f) => (
               <tr
                 key={f.feederId}
-                className={`cursor-pointer hover:bg-muted ${f.feederId === feederId ? "bg-muted/60 font-medium" : ""}`}
+                className={`cursor-pointer border-b border-border/60 transition-colors last:border-0 ${f.feederId === feederId ? "bg-brand-50 font-medium text-brand-900" : "hover:bg-muted"}`}
                 onClick={() => setFeeder(f.feederId)}
               >
-                <td>{f.feederId}</td>
-                <td className="text-right">{f.eligibleSites}</td>
-                <td className="text-right text-amber-400">
-                  {f.deratedSites || ""}
+                <td className="py-1.5 pl-2">{f.feederId}</td>
+                <td className="py-1.5 text-right">{f.eligibleSites}</td>
+                <td className="py-1.5 text-right">
+                  {f.deratedSites ? (
+                    <span className="inline-flex min-w-6 justify-center rounded-full bg-status-warn/10 px-1.5 font-medium text-status-warn">
+                      {f.deratedSites}
+                    </span>
+                  ) : (
+                    ""
+                  )}
                 </td>
-                <td className="text-right text-muted-foreground">
-                  {f.excludedSites || ""}
+                <td className="py-1.5 text-right">
+                  {f.excludedSites ? (
+                    <span className="inline-flex min-w-6 justify-center rounded-full bg-status-unknown/15 px-1.5 font-medium text-text-secondary">
+                      {f.excludedSites}
+                    </span>
+                  ) : (
+                    ""
+                  )}
                 </td>
-                <td className="text-right">
-                  {f.flexibleHeadroomKw.toFixed(0)} kW
+                <td className="py-1.5 pr-2 text-right">
+                  {f.flexibleHeadroomKw.toFixed(0)}
+                  <span className="ml-0.5 text-muted-foreground">kW</span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
         {overview.data ? (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[11px] leading-4 text-muted-foreground tabular-nums">
             Fleet: {overview.data.totalBatteries} batteries ·{" "}
             {overview.data.totalKwh.toFixed(0)} kWh ·{" "}
             {overview.data.totalKw.toFixed(0)} kW. Peak hour committed{" "}
