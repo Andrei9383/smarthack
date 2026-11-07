@@ -44,10 +44,6 @@ class Episode:
         return slice(self.i0, self.i1)
 
 
-def _days_since_onset(ep: Episode) -> np.ndarray:
-    return np.arange(ep.i1 - ep.i0) / STEPS_PER_DAY
-
-
 def _lost(before: np.ndarray, after: np.ndarray) -> float:
     e = np.nansum(before)
     return float(np.clip(1 - np.nansum(after) / e, 0, 1)) if e > 0 else 0.0
@@ -59,7 +55,7 @@ def apply_soiling(ep: Episode) -> tuple[dict, float]:
     rate = max_loss / max(days, 1)  # reaches max_loss just before the cleaning rain
     pv = ep.cols["pv_ac_w"]
     before = pv[ep.sl].copy()
-    pv[ep.sl] = before * (1 - np.minimum(rate * _days_since_onset(ep), max_loss))
+    pv[ep.sl] = before * (1 - np.minimum(rate * (np.arange(ep.i1 - ep.i0) / STEPS_PER_DAY), max_loss))
     return {"loss_per_day": round(rate, 5), "max_loss": round(max_loss, 3), "cleaned_by": "rain"}, \
         _lost(before, pv[ep.sl])
 

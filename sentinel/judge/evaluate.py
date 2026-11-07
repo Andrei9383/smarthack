@@ -29,7 +29,6 @@ import numpy as np
 import pandas as pd
 
 from sentinel.judge import features as F
-from sentinel.judge import model as JM
 from sentinel.judge import rows as R
 from sentinel.judge import train as JT
 
@@ -344,9 +343,8 @@ def main(argv: list[str] | None = None) -> int:
             JT.emit(f"{n}_{k}", m[k])
         if "reliability" in m:
             JT.emit(f"{n}_ece", m["reliability"]["ece"])
-    JT.emit("brier", rep["filters"]["judge"]["brier"])
-    JT.emit("precision_use", rep["filters"]["judge"]["precision_use"])
-    JT.emit("recall_dont_use", rep["filters"]["judge"]["recall_dont_use"])
+    for k in ("brier", "precision_use", "recall_dont_use"):
+        JT.emit(k, rep["filters"]["judge"][k])
     JT.emit("cold_share_use", rep["cold_start"]["share_use"])
     JT.emit("sub_better", rep["substitute"].get("sub_better"))
     if "false_alarms_per_witness_month" in rep:

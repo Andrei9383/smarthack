@@ -192,11 +192,7 @@ def pv_factor(status: Optional[AssetStatus]) -> float:
 
 def is_controllable(site: Site, status: Optional[AssetStatus]) -> bool:
     """The planner may schedule this battery: in pool (eligible / derated), battery_ok, and a battery exists."""
-    if not site.has_battery:
-        return False
-    if status is None:
-        return True
-    return status.in_pool and status.battery_ok
+    return site.has_battery and (status is None or (status.in_pool and status.battery_ok))
 
 
 def horizon_of(forecasts: Forecasts, site_ids: Sequence[str]) -> Optional[int]:

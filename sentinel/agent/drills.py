@@ -9,23 +9,13 @@ telemetry_dropout; the function itself is applied to a long W table of the obser
 on the TRUE flows: battery model, feeder export, minutes over limit, comfort and realised flexibility all use the
 world's true pv/load. The agent must not crash and must not commit flexibility it cannot deliver.
 
-Observation vs truth in `loop.run_policy` (main @ 80f1c71). One `SiteDay` per site-day
-(`sday[s] = world.site_day(s, d)`) feeds both:
-  observation  telemetry_age_s -> qualify at t0 and at every tick (stale > 60 min -> excluded, out of the pool for
-               the rest of the day); pv_kw gated by telemetry_age_s == 0 -> `pv_obs` -> qualify `actuals` (measured
-               loss); measurements rows; input hashes. Predictors get a bare `Window(t0, 96)`: no telemetry reaches
-               them, so `human_review` (only from OOD / wide interval / ensemble spread) cannot react to a drill yet.
-  physics      pv_kw / load_kw -> battery step, grid, feeder export, minutes over limit, cost, realised flexibility
-               (P10 hit rate), asset_steps.actual_kw.
-telemetry_age_s is observation-only, so the drills that only REMOVE readings (gaps_*, missing_day, telemetry_dropout)
-are exact through `site_day` itself: true pv/load, drilled ages. Drills that change the VALUES the agent reads
-(frozen_sensor, units_*) would change physics through the same pv_kw/load_kw field, so they wait for this hook (#29
-owns the files) and are reported as skipped until it exists (detected automatically, then they run unchanged):
-  world.py  class World:  def observed_site_day(self, site_id: str, d: int) -> SiteDay:
-                              return self.site_day(site_id, d)
-  loop.py   run_policy, perceive: `oday = {s: world.observed_site_day(s, d) for s in sites}` next to `sday`; oday for
-            every observation read (input-hash digest, t0 + per-tick telemetry ages, pv_obs, measurements rows), sday
-            for physics (pv/load in the battery step, grid, realised counterfactual, asset_steps.actual_kw).
+Observation vs truth in `loop.run_policy`: `world.observed_site_day` feeds every observation read (telemetry ages
+for qualify at t0 and every tick, `pv_obs` -> qualify `actuals`, measurements rows, input hashes); `world.site_day`
+is the physics (battery step, grid, feeder export, cost, realised flexibility, asset_steps.actual_kw). Predictors get
+a bare `Window(t0, 96)`: no telemetry reaches them, so `human_review` cannot react to a drill yet.
+Drills that only REMOVE readings (gaps_*, missing_day, telemetry_dropout) are also exact through
+`site_day.telemetry_age_s` alone (observation-only); drills that change the VALUES the agent reads (frozen_sensor,
+units_*) need the `observed_site_day` hook and are reported as skipped without it (`observation_hook_available`).
 
 How a world is drilled: `drilled(world, name)` returns an instance of a subclass of the world's own class that shares
 its state (same sites, feeders, caches of the true days) and overrides only `site_day` / `observed_site_day`;

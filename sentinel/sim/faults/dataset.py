@@ -30,11 +30,8 @@ def _read_sites(f: Path, ids: list[str]) -> pa.Table:
     pf = pq.ParquetFile(f)
     col = pf.schema_arrow.get_field_index("site_id")
     lo, hi = min(ids), max(ids)
-    rgs = []
-    for i in range(pf.metadata.num_row_groups):
-        st = pf.metadata.row_group(i).column(col).statistics
-        if st is None or not st.has_min_max or (st.min <= hi and st.max >= lo):
-            rgs.append(i)
+    stats = [pf.metadata.row_group(i).column(col).statistics for i in range(pf.metadata.num_row_groups)]
+    rgs = [i for i, st in enumerate(stats) if st is None or not st.has_min_max or (st.min <= hi and st.max >= lo)]
     value_set = pa.array(ids, pa.string())
     t = pf.read_row_groups(rgs)
     t = t.filter(pc.is_in(t.column("site_id"), value_set=value_set))

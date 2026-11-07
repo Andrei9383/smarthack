@@ -24,10 +24,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 import numpy as np
+
+from sentinel.agent.audit import iso, local_dt
+from sentinel.agent.audit import parse_iso as _ts
 
 from . import gate as G
 from . import scores as S
@@ -61,24 +63,6 @@ REPORT_WINDOW_DAYS = 3  # an alarm is confirmed / a healthy call passed by a rep
 M7_HORIZON_DAYS = 14
 FAULT_STOP_CODE, CURTAIL_CODE = 211, 40  # observable status codes (SCADA / operator curtailment log)
 NORM_ERR_Q = (np.arange(10) + 0.5) / 10  # 10 quantiles of the day's normalised errors per asset-day (J2 #147)
-
-
-def iso(ts: float) -> str:
-    return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _local(ts: int) -> datetime:
-    try:
-        from zoneinfo import ZoneInfo
-
-        return datetime.fromtimestamp(int(ts), tz=ZoneInfo("Europe/Bucharest"))
-    except Exception:  # no tzdata
-        utc = datetime.fromtimestamp(int(ts), tz=timezone.utc)
-        return utc + timedelta(hours=3 if 4 <= utc.month <= 10 else 2)
-
-
-def _ts(t0: str) -> int:
-    return int(datetime.fromisoformat(t0.replace("Z", "+00:00")).timestamp())
 
 
 # ------------------------------------------------------------------------------------------ observations
@@ -119,7 +103,7 @@ class ReplayObs:
         self.fuse = np.array([float(r.get("fuse_kw") or G.DEFAULT_FUSE_KW) for r in self.site_rows])
         self.rated = np.array([float(r["rated_kw"]) for r in self.turbine_rows])
         self.day_ts = np.array([self.day0_ts + d * DAY_S for d in range(D + 1)])
-        loc = [_local(int(t)) for t in self.day_ts[:D]]
+        loc = [local_dt(int(t)) for t in self.day_ts[:D]]
         self.day_label = [x.date().isoformat() for x in loc]
         self.day_iso = [iso(t) for t in self.day_ts]
         self.season = ["warm" if 4 <= x.month <= 9 else "cold" for x in loc]
@@ -500,9 +484,9 @@ def _turbine_claims(preds: Sequence[Any], obs: ReplayObs) -> dict[tuple[str, str
     return out
 
 
-def _turbine_events(obs: ReplayObs) -> tuple[list[list[set]], list[list[str]]]:
+def _turbine_events(obs: ReplayObs) -> list[list[set]]:
     """Observable per turbine-day classes from telemetry: fault_stop (code 211), curtailment (code 40, operator
-    log), data_gap (>= 4 unreported steps). Returns [N][H+D] sets of classes and their sources."""
+    log), data_gap (>= 4 unreported steps). Returns [N][H+D] sets of classes."""
     tc, tp = obs.tcode, obs.tpow
     stop = (tc == FAULT_STOP_CODE).any(-1)
     curt = (tc == CURTAIL_CODE).any(-1)
@@ -511,7 +495,7 @@ def _turbine_events(obs: ReplayObs) -> tuple[list[list[set]], list[list[str]]]:
     for arr, name in ((stop, "fault_stop"), (curt, "curtailment"), (gap, "data_gap")):
         for i, j in zip(*np.nonzero(arr)):
             ev[i][j].add(name)
-    return ev, []
+    return ev
 
 
 def _grade_detectors(claims: Mapping[tuple, _Claim], kind: str, obs: ReplayObs, reports_by: Mapping[str, list],
@@ -520,7 +504,7 @@ def _grade_detectors(claims: Mapping[tuple, _Claim], kind: str, obs: ReplayObs, 
     gate = obs.gate("pv" if kind == "site" else "turbine")
     index = obs.site_index if kind == "site" else obs.turbine_index
     resid = obs.residual_pass() if kind == "site" else None
-    tev = _turbine_events(obs)[0] if kind == "turbine" else None
+    tev = _turbine_events(obs) if kind == "turbine" else None
     win = REPORT_WINDOW_DAYS * DAY_S
     miss_all = obs.missing_share("pv") if kind == "site" else 1.0 - np.isfinite(obs.tpow).mean(-1)
     cols: dict[str, list] = defaultdict(list)

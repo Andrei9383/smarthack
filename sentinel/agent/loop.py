@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import math
 import sys
 import traceback
 from dataclasses import dataclass, field
@@ -76,7 +75,7 @@ from sentinel.contracts import (
 )
 
 from . import actions as A
-from .audit import Ts, iso, local_dt
+from .audit import Ts, iso, local_dt, parse_iso
 from .world import SiteDay, World
 
 DT = 0.25
@@ -550,23 +549,18 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
         rest_fn = _builtin_rest
 
     # qualify + triage (#26) ---------------------------------------------------------------------------------
-    qmany, tri, tcfg = fallback_qualify_many, fallback_triage, None
+    qmany, tri = fallback_qualify_many, fallback_triage
+    tcfg = lambda price, run_id, policy: FallbackTriageConfig(price, policy, run_id)  # noqa: E731
     src["qualify"], src["triage"] = "fallback:builtin_qualify", "fallback:builtin_triage"
     q = _try("qualify", lambda: __import__("sentinel.agent.qualify", fromlist=["qualify_many"]))
-    if q is not None:
-        qmany, src["qualify"] = q.qualify_many, "real:sentinel.agent.qualify.qualify_many"
     tr = _try("triage", lambda: __import__("sentinel.agent.triage", fromlist=["triage"])) if q is not None else None
-    if tr is not None:
+    if tr is not None:  # q is not None too
+        qmany, src["qualify"] = q.qualify_many, "real:sentinel.agent.qualify.qualify_many"
         tri, src["triage"] = tr.triage, "real:sentinel.agent.triage.triage"
         tcfg = lambda price, run_id, policy, _tr=tr: _tr.TriageConfig(price_lei_mwh=price, run_id=run_id,  # noqa
                                                                         policy=policy)
-    if tcfg is None:
-        tcfg = lambda price, run_id, policy: FallbackTriageConfig(price, policy, run_id)  # noqa: E731
-    if (q is None) != (tr is None):
+    elif q is not None:
         log("WARNING qualify and triage must come from the same module set; using both fallbacks")
-        qmany, tri = fallback_qualify_many, fallback_triage
-        tcfg = lambda price, run_id, policy: FallbackTriageConfig(price, policy, run_id)  # noqa: E731
-        src["qualify"], src["triage"] = "fallback:builtin_qualify", "fallback:builtin_triage"
 
     # committer (#27) ----------------------------------------------------------------------------------------
     commit_fn: Callable = fallback_commit
@@ -734,6 +728,14 @@ def _is_fallback(p: Prediction, comps: "Components") -> int:
     return int(str(p.model_version).startswith("mock") or "predictors" in comps.fallbacks)
 
 
+def _health_row(run_id: str, s: str, h: Prediction, ts: Any, k: int, comps: "Components") -> dict[str, Any]:
+    """predictions row of a SiteHealth assessment made at `ts` (= its t0), horizon index k."""
+    return {"run_id": run_id, "asset_id": s, "model": h.model, "model_version": h.model_version, "ts": ts,
+            "q10_kw": h.q10[k], "q50_kw": h.q50[k], "q90_kw": h.q90[k], "fault_probs_json": h.fault_probs,
+            "ood_score": h.ood_score, "member_std": h.member_std, "t0": ts, "horizon_idx": k,
+            "is_fallback": _is_fallback(h, comps)}
+
+
 def _predict(pred: Any, asset: Mapping[str, Any], t0: str) -> Prediction:
     return pred.predict(asset, Window(t0=t0, horizon=DAY_STEPS))
 
@@ -845,13 +847,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                                  "ood_score": p.ood_score, "member_std": p.member_std,
                                                  "t0": created, "horizon_idx": k,
                                                  "is_fallback": _is_fallback(p, comps)})
-                h = hl_p[s]
-                sink.add("predictions", {"run_id": run_id, "asset_id": s, "model": h.model,
-                                         "model_version": h.model_version, "ts": Ts(day_ts), "q10_kw": h.q10[0],
-                                         "q50_kw": h.q50[0], "q90_kw": h.q90[0], "fault_probs_json": h.fault_probs,
-                                         "ood_score": h.ood_score, "member_std": h.member_std,
-                                         "t0": created, "horizon_idx": 0,
-                                         "is_fallback": _is_fallback(h, comps)})
+                sink.add("predictions", _health_row(run_id, s, hl_p[s], created, 0, comps))
             rows, acts = _safe_zone_demand(comps, world, d, ld_p, run_id, policy)
             sink.add_many("zone_demand", rows)
             for a in acts:
@@ -951,13 +947,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     hl_p[s] = preds["sitehealth"].predict(sites[s].row, Window(t0=t0, horizon=DAY_STEPS,
                                                                                meta={"tick": k}))
                     if write_inputs:
-                        h = hl_p[s]
-                        sink.add("predictions", {"run_id": run_id, "asset_id": s, "model": h.model,
-                                                 "model_version": h.model_version, "ts": tsx, "q10_kw": h.q10[k],
-                                                 "q50_kw": h.q50[k], "q90_kw": h.q90[k],
-                                                 "fault_probs_json": h.fault_probs, "ood_score": h.ood_score,
-                                                 "member_std": h.member_std, "t0": tsx, "horizon_idx": k,
-                                                 "is_fallback": _is_fallback(h, comps)})
+                        sink.add("predictions", _health_row(run_id, s, hl_p[s], tsx, k, comps))
             # -- qualify every tick (sentinel): telemetry age + measured loss; triage
             if sentinel:
                 ages_min = {**{s: oday[s].telemetry_age_s[k] / 60 for s in sites},
@@ -1152,13 +1142,8 @@ def _slice(p: Prediction, k: int) -> Prediction:
     q = copy.copy(p)
     q.q10, q.q50, q.q90 = p.q10[k:], p.q50[k:], p.q90[k:]
     q.horizon = len(q.q50)
-    q.t0 = iso(int(_parse(p.t0)) + k * 900)
+    q.t0 = iso(parse_iso(p.t0) + k * 900)
     return q
-
-
-def _parse(t: str) -> int:
-    from .audit import parse_iso
-    return parse_iso(t)
 
 
 def _night_interior(actual: Sequence[float], pred: Prediction, k: int) -> bool:
@@ -1247,11 +1232,11 @@ def _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, p
             continue
         try:
             pl = fn(spec, elig, rest, fc, spec.g_kw, prices_kwh, statuses=st, t0=t0)
-            res.plan_status[pl.solver_status] = res.plan_status.get(pl.solver_status, 0) + 1
-            return pl
+            break
         except Exception as e:
             comps.note_error(slot, e)
-    pl = builtin_plan_feeder(spec, elig, rest, fc, spec.g_kw, prices_kwh, statuses=st, t0=t0)
+    else:
+        pl = builtin_plan_feeder(spec, elig, rest, fc, spec.g_kw, prices_kwh, statuses=st, t0=t0)
     res.plan_status[pl.solver_status] = res.plan_status.get(pl.solver_status, 0) + 1
     return pl
 

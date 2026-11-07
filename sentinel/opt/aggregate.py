@@ -43,8 +43,7 @@ def _waterfill(total: float, weights: np.ndarray, caps: np.ndarray) -> np.ndarra
         if w.sum() <= 1e-12:
             w = free.astype(float)
         share = remaining * w / w.sum()
-        room = caps - out
-        take = np.minimum(share, room)
+        take = np.minimum(share, caps - out)
         out += take
         remaining -= float(take.sum())
         free &= (caps - out) > 1e-12

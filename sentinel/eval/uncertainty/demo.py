@@ -206,8 +206,7 @@ def run(n_feeders: int = 8, n_sites: int = 10, cal_days: int = 30, test_days: in
             rl_all.append(r)
             c.realised = [float(x) for x in r[0]]
             commitments.append(c)
-    stats = hit_stats(committed=np.concatenate(cm_all), realised=np.concatenate(rl_all))
-    metrics.update(stats)
+    metrics.update(hit_stats(committed=np.concatenate(cm_all), realised=np.concatenate(rl_all)))
     metrics["committed_kwh_per_feeder_day"] = float(np.mean([sum(c.committed) * DT_H for c in commitments]))
     metrics["nominal_kwh_per_feeder_day"] = float(np.mean([sum(c.nominal) * DT_H for c in commitments]))
     metrics["runtime_s"] = time.perf_counter() - t_start

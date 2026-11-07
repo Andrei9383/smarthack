@@ -53,9 +53,8 @@ def main(argv: list[str] | None = None) -> dict:
     t_start = time.perf_counter()
 
     eval_year = a.val_year if a.split == "val" else a.test_year
-    end_year = eval_year
-    data_dir = a.data or ensure_dataset(a.sites, a.feeders, a.start_year, end_year)
-    fa = load_arrays(data_dir, years=list(range(a.start_year, end_year + 1)))
+    data_dir = a.data or ensure_dataset(a.sites, a.feeders, a.start_year, eval_year)
+    fa = load_arrays(data_dir, years=list(range(a.start_year, eval_year + 1)))
     train_days = fa.days.year < a.val_year
     eval_days = fa.days.year == eval_year
     train_sites = (fa.sites.split == "train").to_numpy()

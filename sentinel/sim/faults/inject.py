@@ -50,7 +50,7 @@ def available_kinds(cols: dict[str, np.ndarray], site: pd.Series) -> list[str]:
     kinds = ["soiling", "string_outage", "sensor_fault"]
     if "lat" in site and "lon" in site:
         kinds.append("shading")
-    if "inverter_kw" in site and np.isfinite(site.get("inverter_kw", np.nan)):
+    if np.isfinite(site.get("inverter_kw", np.nan)):
         kinds.append("clipping")
     if "inv_voltage_v" in cols and np.isfinite(cols["inv_voltage_v"]).any():
         kinds.append("overvoltage_trip")
@@ -92,7 +92,7 @@ def _resimulate_battery(arrays, rows, starts, cf, pf, bp: BatteryParams) -> None
     pv, load = arrays["pv_ac_w"][rows], arrays["load_w"][rows]
     soc0, batt0 = arrays["soc"][rows].astype(float), arrays["batt_w"][rows].astype(float)
     cap = bp.capacity_kwh[rows]
-    e = np.where(t0 > 0, np.nan_to_num(soc0[:, t0 - 1]) * cap, 0.5 * cap) if t0 > 0 else 0.5 * cap
+    e = np.nan_to_num(soc0[:, t0 - 1]) * cap if t0 > 0 else 0.5 * cap
     # The per-step loop (capacity/power derating + apply_power, original series kept before each row's onset) is
     # kernel K7: numpy reference sentinel.kernels.battery_resim_py, Rust copy when built (#134).
     batt, soc = kernels.battery_resim(pv - load, soc0, batt0, cf[rows], pf[rows], start, e, cap, bp.p_max_kw[rows],

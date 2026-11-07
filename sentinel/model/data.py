@@ -215,20 +215,9 @@ def _make_splits_local(src: ArraySource) -> Splits:
     return Splits(np.nonzero(seen)[0], np.nonzero(~seen)[0], days, seen)
 
 
-def fault_daylight_label(fault_row: np.ndarray, daylight: np.ndarray, min_steps: int = 4) -> int:
-    """Window label: the fault class observable on >= min_steps steps (daylight for PV classes), else healthy."""
-    from .synth import FAULT_IDX
-
-    obs_any = (fault_row == FAULT_IDX["battery_fade"]) | (fault_row == FAULT_IDX["sensor_fault"])
-    vis = (fault_row > 0) & (daylight | obs_any)
-    if vis.sum() < min_steps:
-        return 0
-    vals, cnt = np.unique(fault_row[vis], return_counts=True)
-    return int(vals[np.argmax(cnt)])
-
-
 def window_labels(fault: np.ndarray, daylight: np.ndarray, min_steps: int = 4) -> np.ndarray:
-    """Vectorised fault_daylight_label over a batch: fault [B, H] int, daylight [B, H] bool -> [B]."""
+    """Window label per row: the fault class observable on >= min_steps steps (daylight for PV classes), else healthy.
+    fault [B, H] int, daylight [B, H] bool -> [B]."""
     from .synth import FAULT_IDX
 
     obs_any = (fault == FAULT_IDX["battery_fade"]) | (fault == FAULT_IDX["sensor_fault"])
@@ -239,14 +228,3 @@ def window_labels(fault: np.ndarray, daylight: np.ndarray, min_steps: int = 4) -
     lab = counts.argmax(1)
     lab[counts.max(1) < min_steps] = 0
     return lab
-
-
-def healthy_day_mask(src: ArraySource, sites: np.ndarray, days: np.ndarray) -> np.ndarray:
-    """True where the target day (00-24 UTC) has no fault step at all."""
-    f = src.array("fault")
-    out = np.empty(len(sites), bool)
-    for k in range(0, len(sites), 4096):
-        s, d = sites[k:k + 4096], days[k:k + 4096]
-        idx = d[:, None] * H + np.arange(H)[None]
-        out[k:k + 4096] = (np.asarray(f[s[:, None], idx]) == 0).all(1)
-    return out

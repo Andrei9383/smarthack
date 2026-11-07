@@ -117,10 +117,8 @@ def load_arrays(data_dir: Path, years: list[int] | None = None, max_sites: int |
     locs = sorted(sites.locality_id.astype(str).unique())
     loc_ix = {l: i for i, l in enumerate(locs)}
     site_loc = np.array([loc_ix[str(l)] for l in sites.locality_id])
-    weather = {}
-    for c in ("ghi_wm2", "dni_wm2", "dhi_wm2", "temp_c", "wind10_ms", "snow_cm"):
-        w = wide(wx, c, "point_id", locs)
-        weather[c.replace("_wm2", "")] = w[site_loc]
+    weather = {c.replace("_wm2", ""): wide(wx, c, "point_id", locs)[site_loc]
+               for c in ("ghi_wm2", "dni_wm2", "dhi_wm2", "temp_c", "wind10_ms", "snow_cm")}
 
     n = len(ids)
     geom = {k: np.zeros((n, len(days), D)) for k in ("zenith", "azimuth", "cs_ghi", "doy")}

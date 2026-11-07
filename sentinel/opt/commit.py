@@ -101,12 +101,7 @@ def rollout(schedule: np.ndarray, soc0: np.ndarray, battery_params: Union[Batter
     lead = shape[:-1]  # (..., S)
     t_steps = shape[-1]
     req = np.broadcast_to(req, shape)
-    cap = np.broadcast_to(bp.capacity_kwh, lead)
-    pmax = np.broadcast_to(bp.p_max_kw, lead)
-    eta_c = np.broadcast_to(bp.eta_charge, lead)
-    eta_d = np.broadcast_to(bp.eta_discharge, lead)
-    e_lo = np.broadcast_to(bp.e_min_kwh, lead)
-    e_hi = np.broadcast_to(bp.e_max_kwh, lead)
+    cap, pmax, eta_c, eta_d, e_lo, e_hi = (np.broadcast_to(x, lead) for x in bp)
     e = np.broadcast_to(np.asarray(soc0, dtype=float), lead) * cap
     e = np.array(e, dtype=float)  # writable copy
     inv_cap = np.where(cap > 0, 1.0 / np.where(cap > 0, cap, 1.0), 0.0)
@@ -241,15 +236,6 @@ def make_scenarios(pv: Mapping[str, ForecastIn], load: Mapping[str, ForecastIn],
 
 
 # --- commitment ----------------------------------------------------------------------------------------------
-def telemetry_haircut(loss_prob: Mapping[str, float], weights: Optional[Mapping[str, float]] = None) -> float:
-    """h = weighted mean probability that a pool site's telemetry is lost during delivery (weights e.g. p_max)."""
-    if not loss_prob:
-        return 0.0
-    w = {s: float((weights or {}).get(s, 1.0)) for s in loss_prob}
-    tot = sum(w.values())
-    return float(np.clip(sum(loss_prob[s] * w[s] for s in loss_prob) / tot, 0.0, 1.0)) if tot > 0 else 0.0
-
-
 def _schedule_matrix(schedule: Union[Mapping[str, Sequence[float]], FeederPlan]) -> tuple[list[str], np.ndarray]:
     if isinstance(schedule, FeederPlan):
         schedule = schedule.schedule

@@ -106,11 +106,8 @@ def apply_rules(wide: pl.DataFrame, turbines: pl.DataFrame | None = None, rated_
     present = [s for s in SENSORS if s in df.columns]
 
     # FROZEN needs run lengths per turbine: rle id, then run size
-    run_cols = []
-    for s in present:
-        rid = f"_rid_{s}"
-        df = df.with_columns(pl.col(s).rle_id().over("turbine_id").alias(rid))
-        run_cols.append(rid)
+    run_cols = [f"_rid_{s}" for s in present]
+    df = df.with_columns([pl.col(s).rle_id().over("turbine_id").alias(f"_rid_{s}") for s in present])
     df = df.with_columns([pl.len().over(["turbine_id", f"_rid_{s}"]).alias(f"_rlen_{s}") for s in present])
 
     def missing(s):
