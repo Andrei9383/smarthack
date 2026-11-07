@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { useSelectedSite } from "@/panels/site/use-site";
 
+import { setPaint, useCameraFocus, useFrameLoop, useMotionAllowed } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
 import { OM_COLORS, OM_STATUS_COLORS } from "./colors";
 import { useOmAssets, useWorkOrders } from "./use-om-data";
@@ -14,6 +15,8 @@ import { useFocusedPark, useSelectedTurbine } from "./use-om-state";
 const PANEL_PADDING_PX = 452; // OmPanel width + gutter
 const SOURCE = "om-assets";
 const LAYERS = {
+  // slow red ring on a stopped turbine or one with an open work order (#115)
+  pulse: "om-pulse",
   halo: "om-halo",
   clusterRing: "om-cluster-ring",
   clusters: "om-clusters",
@@ -28,6 +31,9 @@ const RISK = OM_COLORS.critical;
 const UNKNOWN = OM_COLORS.unknown;
 // light basemap: solid fills with a white ring, no glows
 const RING = OM_COLORS.ring;
+const PULSE_MS = 2400; // slow: a stopped turbine is urgent, not an alarm bell
+const TURBINE_ZOOM = 13;
+const PARK_ZOOM = 11;
 
 type AssetProps = {
   id: string;
@@ -35,6 +41,7 @@ type AssetProps = {
   status: string;
   ok: number;
   risk: number;
+  pulse: number;
 };
 
 // a turbine that is out of service is stopped, which reads red; an excluded home is just grey
@@ -71,6 +78,7 @@ export function OmLayers() {
         .map((a) => {
           const turbine = a.assetKind === "turbine";
           const ok = a.status === "eligible" ? 1 : 0;
+          const stopped = turbine && a.status === "excluded";
           return {
             type: "Feature",
             geometry: {
@@ -80,7 +88,7 @@ export function OmLayers() {
             properties: {
               id: a.id,
               kind: a.assetKind,
-              status: turbine && a.status === "excluded" ? "stopped" : a.status,
+              status: stopped ? "stopped" : a.status,
               ok,
               // the risk halo is for turbines: stopped, derated, or carrying an open work order
               // (a turbine with no status yet is unknown, not at risk)
@@ -91,6 +99,7 @@ export function OmLayers() {
                   withOrder.has(a.id))
                   ? 1
                   : 0,
+              pulse: stopped || (turbine && withOrder.has(a.id)) ? 1 : 0,
             },
           };
         }),
@@ -124,6 +133,23 @@ export function OmLayers() {
             "+",
             ["case", ["==", ["get", "status"], "stopped"], 1, 0],
           ],
+        },
+      });
+      map.addLayer({
+        id: LAYERS.pulse,
+        type: "circle",
+        source: SOURCE,
+        filter: [
+          "all",
+          ["!", ["has", "point_count"]],
+          ["==", ["get", "pulse"], 1],
+        ],
+        paint: {
+          "circle-radius": 10,
+          "circle-opacity": 0,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": RISK,
+          "circle-stroke-opacity": 0,
         },
       });
       map.addLayer({
@@ -279,33 +305,52 @@ export function OmLayers() {
     (map.getSource(SOURCE) as GeoJSONSource | undefined)?.setData(geojson);
   }, [map, isLoaded, geojson]);
 
-  // demo jump 5 (?park=WP01): fly to the park so its turbines are separate, not one cluster
-  useEffect(() => {
-    if (!map || !isLoaded || !park) return;
+  // Fly to a picked turbine, or to a focused park (demo jump 5, ?park=WP01) so its turbines are
+  // separate, not one cluster; with neither, ease back to the country view (#115).
+  const [turbine] = useSelectedTurbine();
+  const focusTarget = useMemo(() => {
+    if (turbine) {
+      const feature = geojson.features.find((f) => f.properties.id === turbine);
+      return feature
+        ? { center: feature.geometry.coordinates as [number, number], zoom: TURBINE_ZOOM }
+        : null;
+    }
+    if (!park) return null;
     const turbines = geojson.features.filter((f) =>
       f.properties.id.startsWith(`${park}.`),
     );
-    if (turbines.length === 0) return;
+    if (turbines.length === 0) return null;
     const lon =
       turbines.reduce((s, f) => s + (f.geometry.coordinates[0] ?? 0), 0) /
       turbines.length;
     const lat =
       turbines.reduce((s, f) => s + (f.geometry.coordinates[1] ?? 0), 0) /
       turbines.length;
-    // after the panel-padding ease (useMapRightPadding) so it does not cancel this move
-    const timer = setTimeout(
-      () =>
-        map.flyTo({
-          center: [lon, lat],
-          zoom: 11,
-          padding: { right: PANEL_PADDING_PX },
-          duration: 800,
-        }),
-      350,
-    );
-    return () => clearTimeout(timer);
-    // only when the park changes or the first rows arrive
-  }, [map, isLoaded, park, geojson.features.length > 0]);
+    return { center: [lon, lat] as [number, number], zoom: PARK_ZOOM };
+  }, [geojson, turbine, park]);
+  useCameraFocus(
+    turbine ? `turbine:${turbine}` : park ? `park:${park}` : null,
+    focusTarget,
+    PANEL_PADDING_PX,
+  );
+
+  // Pulse rings only while something is stopped or has an open order; static under reduced motion.
+  const motion = useMotionAllowed();
+  const pulsing =
+    motion && geojson.features.some((f) => f.properties.pulse === 1);
+  useEffect(() => {
+    if (map && isLoaded && !pulsing)
+      setPaint(map, LAYERS.pulse, { "circle-stroke-opacity": 0 });
+  }, [map, isLoaded, pulsing]);
+  useFrameLoop(Boolean(map && isLoaded) && pulsing, (now) => {
+    if (!map) return;
+    const phase = (now % PULSE_MS) / PULSE_MS;
+    const eased = 1 - (1 - phase) ** 2;
+    setPaint(map, LAYERS.pulse, {
+      "circle-radius": 8 + eased * 16,
+      "circle-stroke-opacity": (1 - phase) * 0.75,
+    });
+  });
 
   return null;
 }
