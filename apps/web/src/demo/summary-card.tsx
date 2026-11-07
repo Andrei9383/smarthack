@@ -15,6 +15,9 @@ import { canonicalName, formatKpiParts, type Kpi } from "./kpi-format";
 const METRICS = [
   { name: "peak_reduction", label: "Peak reduction" },
   { name: "minutes_over_limit", label: "Minutes over limit" },
+  // kWh and kW over the limit, next to minutes (team/insights.md, replay#506): minutes can rise while the overload falls.
+  { name: "energy_over_limit", label: "Energy over limit" },
+  { name: "peak_overshoot", label: "Peak over limit" },
   { name: "p10_hit_rate", label: "P10 hit rate" },
   { name: "comfort_breaches", label: "Comfort breaches" },
   { name: "lei_per_home", label: "Lei per home" },
@@ -24,10 +27,15 @@ const METRICS = [
 // The three numbers the summary leads with.
 const HEROES = ["peak_reduction", "minutes_over_limit", "comfort_breaches"];
 
+// Sentinel-only metrics that are already measured against the baseline; their hero tile says so.
+const VS_BASELINE: Record<string, string> = { peak_reduction: "Feeder peak cut vs baseline" };
+
 // Which way is better, for colouring the change chip. Metrics not listed get a neutral chip.
 const BETTER: Record<string, "up" | "down"> = {
   peak_reduction: "up",
   minutes_over_limit: "down",
+  energy_over_limit: "down",
+  peak_overshoot: "down",
   comfort_breaches: "down",
   alerts_per_turbine_day: "down",
 };
@@ -145,7 +153,9 @@ export function SummaryCard() {
                       <>
                         Baseline <Value kpi={baseline} className="text-text-secondary" />
                       </>
-                    ) : null}
+                    ) : (
+                      VS_BASELINE[name] ?? null
+                    )}
                   </div>
                 </div>
               );
