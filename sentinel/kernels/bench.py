@@ -121,6 +121,24 @@ def feat_raw(scale: float, rng: np.random.Generator) -> list[dict]:
     return out
 
 
+def site_raw(scale: float, rng: np.random.Generator) -> list[dict]:
+    """M4 site windows (features.site_inputs after gather): feat_raw + assessed-day telemetry and its 14-day history."""
+    out = []
+    for r in feat_raw(scale, rng):
+        b, kwp = len(r["kwp"]), r["kwp"]
+        f = lambda *s: rng.random(s, np.float32)  # noqa: E731
+        bkwh = np.where(rng.random(b) < 0.5, rng.uniform(5, 15, b), 0.0)
+        out.append({"kwp_recorded": kwp.astype(np.float64), "battery_kw": bkwh / 2, "battery_kwh": bkwh,
+                    "has_batt": (bkwh > 0).astype(np.float32), "geom": r["geom"], "pvclear": r["pvclear"],
+                    "pvlib": r["pvlib"], "hist_pv": r["hist"], "hist_load": f(b, 1344), "pv": r["pvlib"] * f(b, 1),
+                    "m1": np.sort(f(b, 96, 3), -1) * kwp[:, None, None], "m2": f(b, 96), "volt": 230 + 5 * f(b, 96),
+                    "status": rng.integers(0, 4, (b, 96), dtype=np.int8), "soc": f(b, 96), "batt": f(b, 96) - 0.5,
+                    "load": f(b, 96), "valid": rng.random((b, 96)) > 0.02, "hist_volt": 230 + 5 * f(b, 1344),
+                    "hist_status": rng.integers(0, 4, (b, 1344), dtype=np.int8), "hist_soc": f(b, 1344),
+                    "hist_batt": f(b, 1344) - 0.5})
+    return out
+
+
 def pv_args(r: dict) -> tuple[Any, ...]:
     return r["wx"], r["geom"], r["pvclear"], r["pvlib"], r["hist"], r["kwp"]
 
@@ -149,6 +167,8 @@ CASES = [
      lambda a: pv_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} PV windows (features.pv_inputs)", 1e-6),  # cos/sin: 1 ulp
     ("load_features", "features_load", lambda sc, rng: (feat_raw(sc, rng),), lambda fn, a: [fn(*load_args(r)) for r in a[0]],
      lambda a: load_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
+    ("site_features", "features_site", lambda sc, rng: (site_raw(sc, rng),), lambda fn, a: [fn(r) for r in a[0]],
+     lambda a: (a[0][0],), f"{FEAT_BATCHES} batches x {FEAT_B} M4 site windows (features.site_inputs)", 1e-6),  # cos_zen
 ]
 
 

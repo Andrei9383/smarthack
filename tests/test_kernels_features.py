@@ -107,3 +107,28 @@ def test_rust_size_errors():
         core.load_features(np.zeros((2, H * 7), np.float32), np.zeros((2, H * 8), np.float32),
                            np.zeros((2, HH), np.float32), np.zeros((2, H * 14), np.float32),
                            np.zeros((2, 100), np.float32), np.zeros((2, 56), np.float32), np.zeros(2, np.float32))
+
+
+def site_raw(B=64, seed=0):
+    """M4 site window (site_inputs) with NaN / inf / no-battery / frozen edge cases."""
+    from sentinel.kernels.bench import site_raw as bench_site_raw
+
+    raw = bench_site_raw(B / 256, np.random.default_rng(seed))[0]
+    raw["pv"][2, 50], raw["m1"][3, 20, 1], raw["hist_soc"][4, -30], raw["hist_volt"][5, -9] = np.nan, np.nan, np.nan, np.inf
+    raw["pv"][:, 61] = raw["pv"][:, 60]  # frozen flags
+    return raw
+
+
+@rust
+@pytest.mark.parametrize("float_codes", [False, True])
+def test_rust_site_parity(float_codes):
+    raw = site_raw(300, seed=int(float_codes))
+    if float_codes:  # predictor path: float status codes / valid
+        raw["status"], raw["hist_status"], raw["valid"] = (raw[k] * 1.0 for k in ("status", "hist_status", "valid"))
+    py, rs = kernels.get("site_features", "python")(raw), kernels.get("site_features", "rust")(raw)
+    assert [(a.shape, a.dtype) for a in rs] == [((300, H, 18), np.float32), ((300, 14, 8), np.float32)]
+    keep = [c for c in range(18) if c != 7]  # cos_zen: <= 1 ulp
+    assert py[0][..., keep].tobytes() == rs[0][..., keep].tobytes() and py[1].tobytes() == rs[1].tobytes()
+    np.testing.assert_allclose(rs[0][..., 7], py[0][..., 7], rtol=0, atol=2e-7)
+    raw["hist_volt"] = None  # degraded mode -> reference
+    assert np.array_equal(kernels.get("site_features", "rust")(raw)[1], F.site_arrays(raw)[1])
