@@ -1,8 +1,9 @@
 import { parseAsInteger, parseAsStringLiteral, useQueryState } from "nuqs";
 
-import { NOON_STEP } from "./replay";
+import { DEFAULT_STEP } from "./replay";
 
 const POLICIES = ["baseline", "sentinel"] as const;
+export type Policy = (typeof POLICIES)[number];
 
 // Shared by every mode, so a link reproduces exactly what is on screen.
 export function usePolicy() {
@@ -10,5 +11,5 @@ export function usePolicy() {
 }
 
 export function useReplayStep() {
-  return useQueryState("t", parseAsInteger.withDefault(NOON_STEP));
+  return useQueryState("t", parseAsInteger.withDefault(DEFAULT_STEP));
 }

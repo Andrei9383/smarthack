@@ -6,7 +6,8 @@ import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
 import { useEffect, useMemo, useRef } from "react";
 
 import { useMapRightPadding } from "../use-map-right-padding";
-import { expectedMwh, PARKS, parkForecast, SOLAR_COUNTIES } from "./data";
+import { expectedMwh } from "./data";
+import { useProductionData } from "./use-production-data";
 import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field";
 
@@ -146,24 +147,26 @@ export function ProductionLayers() {
   });
   useWindRaster(meta, hour);
   useWindParticles(meta, hour);
+  const { parks, rows, counties } = useProductionData();
 
   return (
     <>
-      {SOLAR_COUNTIES.map((county) => (
+      {counties.filter((county) => county.solarMwh > 0).map((county) => (
         <MapMarker key={county.county} longitude={county.lon} latitude={county.lat}>
           <MarkerContent>
             <span
-              className="flex items-center justify-center rounded-full border border-amber-300/70 bg-amber-400/20 text-[10px] font-semibold text-amber-100"
-              style={{ width: diameter(county.expected_mwh), height: diameter(county.expected_mwh) }}
-              title={`${county.county} solar, ${county.expected_mwh} MWh next 24 h`}
+              className="flex flex-col items-center justify-center rounded-full border border-amber-300/70 bg-amber-400/20 text-[10px] leading-tight font-semibold text-amber-100"
+              style={{ width: diameter(county.solarMwh), height: diameter(county.solarMwh) }}
+              title={`${county.county} solar, ${county.solarMwh.toFixed(1)} MWh next 24 h`}
             >
               {county.county}
+              <span className="font-normal whitespace-nowrap">{county.solarMwh.toFixed(1)} MWh</span>
             </span>
           </MarkerContent>
         </MapMarker>
       ))}
-      {PARKS.map((park) => {
-        const mwh = expectedMwh(parkForecast(park));
+      {parks.map((park) => {
+        const mwh = expectedMwh(rows.filter((row) => row.parkId === park.id));
         return (
           <MapMarker
             key={park.id}

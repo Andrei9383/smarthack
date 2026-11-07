@@ -19,15 +19,13 @@ import { Zap } from "lucide-react";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 
 import { DemoJumps } from "@/demo/demo-jumps";
+import { KpiStrip } from "@/demo/kpi-strip";
 import { ReplayBar } from "@/demo/replay-bar";
 import { SummaryCard } from "@/demo/summary-card";
 import { useBasemapStyles } from "@/demo/use-basemap";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 import { FlexDock } from "@/panels/flex/flex-panel";
 import { SiteSheet } from "@/panels/site/site-sheet";
-
-// Values stay empty until replay rows exist; never show invented numbers.
-const KPIS = ["Production MWh", "Avg wind", "Availability", "Active issues"];
 
 const ROMANIA_CENTER: [number, number] = [25, 45.9];
 
@@ -81,14 +79,7 @@ export function AppShell() {
           </Tabs>
         </header>
 
-        <section className="grid grid-cols-2 gap-px border-b bg-border md:grid-cols-4">
-          {KPIS.map((label) => (
-            <div key={label} className="bg-background p-3">
-              <div className="text-xs text-muted-foreground">{label}</div>
-              <div className="text-xl font-semibold">—</div>
-            </div>
-          ))}
-        </section>
+        <KpiStrip />
 
         <main className="relative min-h-0 flex-1">
           {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
