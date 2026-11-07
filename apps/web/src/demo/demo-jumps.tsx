@@ -1,33 +1,47 @@
 "use client";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@sentinel-app/ui/components/dropdown-menu";
-import { Check, ChevronUp, Presentation } from "lucide-react";
+import { cn } from "@sentinel-app/ui/lib/utils";
+import { ChevronRight, Play } from "lucide-react";
 import { parseAsBoolean, parseAsInteger, parseAsString, useQueryStates } from "nuqs";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { setPlaying } from "./replay-bar";
 import { DEFAULT_STEP, FAULT_DAY, NOON_STEP, STEPS_PER_DAY } from "./replay";
 
 const EVENING_STEP = DEFAULT_STEP - NOON_STEP + 76; // 19:00 on the hero day
 const FAULT_STEP = FAULT_DAY * STEPS_PER_DAY + NOON_STEP;
 
-// Demo script, plan §7. The story days come from #30.
+// Demo script, plan §7. The story days come from #30. Step 6 opens the summary instead of a jump.
 const JUMPS = [
-  { label: "1 Production", state: { mode: "production", park: "WP01", t: DEFAULT_STEP } },
-  { label: "2 Demand", state: { mode: "demand", t: EVENING_STEP } },
-  { label: "3 Feeders F7", state: { mode: "feeders", feeder: "F7", policy: "sentinel", t: DEFAULT_STEP } },
   {
-    label: "4 String failure, 1042",
+    title: "Production",
+    note: "Wind over Romania and the 24 h forecast for WP01",
+    state: { mode: "production", park: "WP01", t: DEFAULT_STEP },
+  },
+  {
+    title: "Demand",
+    note: "Where use peaks this evening, 19:00",
+    state: { mode: "demand", t: EVENING_STEP },
+  },
+  {
+    title: "Feeders F7",
+    note: "Sentinel keeps F7 Oșorhei under its limit at noon",
+    state: { mode: "feeders", feeder: "F7", policy: "sentinel", t: DEFAULT_STEP },
+  },
+  {
+    title: "String failure, 1042",
+    note: "A broken solar string becomes a repair job",
     state: { mode: "feeders", feeder: "F7", site: "1042", t: FAULT_STEP },
   },
-  { label: "5 O&M park", state: { mode: "om", park: "WP01", t: FAULT_STEP + STEPS_PER_DAY } },
+  {
+    title: "O&M park",
+    note: "WP01 turbines, crews and the review queue",
+    state: { mode: "om", park: "WP01", t: FAULT_STEP + STEPS_PER_DAY },
+  },
 ] as const;
+
+const SUMMARY_STEP = { title: "Summary", note: "The week, Sentinel against the baseline" };
+const STEP_COUNT = JUMPS.length + 1;
 
 const PARSERS = {
   mode: parseAsString,
@@ -35,6 +49,7 @@ const PARSERS = {
   park: parseAsString,
   site: parseAsString,
   zone: parseAsString,
+  turbine: parseAsString,
   policy: parseAsString,
   t: parseAsInteger,
   summary: parseAsBoolean,
@@ -45,64 +60,142 @@ export function useSummaryOpen() {
   return [Boolean(summary), (open: boolean) => set({ summary: open || null })] as const;
 }
 
-export function DemoJumps() {
+const isTyping = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+
+/** Runs demo step `index` (0-based) and returns the next step to suggest. */
+function useRunStep() {
   const [, setState] = useQueryStates(PARSERS);
   const [summaryOpen, setSummaryOpen] = useSummaryOpen();
-
-  // A compact menu at the right end of the floating bottom dock (app-shell).
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-[13px] font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 data-popup-open:bg-muted ${
-          summaryOpen
-            ? "border-brand-100 bg-brand-50 text-brand-900 hover:bg-brand-100"
-            : "border-border bg-background text-text-secondary hover:bg-muted hover:text-foreground"
-        }`}
-      >
-        <Presentation aria-hidden className="size-4" />
-        Demo
-        <ChevronUp aria-hidden className="size-3.5 text-muted-foreground" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        side="top"
-        align="end"
-        sideOffset={12}
-        className="w-60 rounded-lg border border-border p-1 shadow-card ring-0"
-      >
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="px-2 pt-1.5 pb-1 text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
-            Demo
-          </DropdownMenuLabel>
-          {JUMPS.map(({ label, state }) => (
-            <DropdownMenuItem
-              key={label}
-              onClick={() => setState({ site: null, summary: null, zone: null, ...state })}
-              className={ITEM_CLASS}
-            >
-              <JumpLabel label={label} />
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator className="my-1 bg-border" />
-        <DropdownMenuItem onClick={() => setSummaryOpen(!summaryOpen)} className={ITEM_CLASS}>
-          <JumpLabel label="6 Summary" />
-          {summaryOpen ? <Check aria-hidden className="ml-auto size-4 text-primary" /> : null}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+  return useCallback(
+    (index: number) => {
+      setPlaying(false);
+      const jump = JUMPS[index];
+      // Tudor's ?zone clearing stays: a jump must never inherit a selected demand zone.
+      if (jump) setState({ site: null, turbine: null, summary: null, zone: null, ...jump.state });
+      else setSummaryOpen(!summaryOpen);
+    },
+    [setState, setSummaryOpen, summaryOpen],
   );
 }
 
-const ITEM_CLASS =
-  "gap-2.5 rounded-md px-2 py-2 text-[13px] text-foreground focus:bg-brand-50 focus:text-brand-900 focus:**:text-brand-900";
+/** "Demo 1/6" in the top bar, opening the numbered script (keys 1–6 work anywhere). */
+export function DemoPopover() {
+  const [open, setOpen] = useState(false);
+  const [next, setNext] = useState(0);
+  const [summaryOpen] = useSummaryOpen();
+  const runStep = useRunStep();
+  const root = useRef<HTMLDivElement>(null);
 
-/** "1 Production" → a muted step number followed by the label; the text itself is unchanged. */
-function JumpLabel({ label }: { label: string }) {
-  const space = label.indexOf(" ");
+  const run = useCallback(
+    (index: number) => {
+      runStep(index);
+      setNext(Math.min(STEP_COUNT - 1, index + 1));
+      setOpen(false);
+    },
+    [runStep],
+  );
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
+      const digit = Number(event.key);
+      if (Number.isInteger(digit) && digit >= 1 && digit <= STEP_COUNT) {
+        event.preventDefault();
+        run(digit - 1);
+      } else if (event.key === "Escape") setOpen(false);
+    };
+    const onPointer = (event: PointerEvent) => {
+      if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointer);
+    };
+  }, [run]);
+
+  const steps = [...JUMPS.map(({ title, note }) => ({ title, note })), SUMMARY_STEP];
+
   return (
-    <>
-      <span className="w-3 text-center font-semibold text-muted-foreground tabular-nums">{label.slice(0, space)}</span>{" "}
-      <span>{label.slice(space + 1)}</span>
-    </>
+    <div ref={root} data-tour="demo" className="relative flex">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen((value) => !value)}
+        className={cn(
+          "flex items-center gap-2 rounded-xl border border-border bg-card/95 px-3.5 text-[13px] font-semibold text-foreground shadow-card transition-colors duration-150 hover:bg-sidebar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+          open && "bg-sidebar",
+        )}
+      >
+        <Play aria-hidden className="size-4" />
+        Demo
+        <span className="font-mono text-[11px] font-medium text-muted-foreground tabular-nums">
+          {next + 1}/{STEP_COUNT}
+        </span>
+      </button>
+
+      <div
+        role="dialog"
+        aria-label="Demo script"
+        className={cn(
+          "absolute top-[calc(100%+8px)] right-0 z-50 w-[340px] origin-top-right rounded-xl border border-border bg-card p-2 shadow-[0_1px_2px_rgb(13_13_13/0.05),0_16px_40px_rgb(13_13_13/0.10)] transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+          open ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-1.5 opacity-0",
+        )}
+      >
+        <header className="flex items-center justify-between px-2.5 pt-2 pb-1.5">
+          <b className="text-[13px] font-semibold">Demo script</b>
+          <span className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">keys 1–6</span>
+        </header>
+        {steps.map((step, index) => {
+          const current = index === next;
+          const done = index < next || (index === STEP_COUNT - 1 && summaryOpen);
+          return (
+            <button
+              key={step.title}
+              type="button"
+              tabIndex={open ? 0 : -1}
+              onClick={() => run(index)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-150",
+                current ? "bg-brand-50" : "hover:bg-sidebar",
+              )}
+            >
+              <span
+                className={cn(
+                  "grid size-6 shrink-0 place-items-center rounded-md border font-mono text-xs font-semibold",
+                  current
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : done
+                      ? "border-brand-100 bg-card text-brand-700"
+                      : "border-border bg-card text-foreground",
+                )}
+              >
+                {index + 1}
+              </span>
+              <span className="min-w-0">
+                <b className="block text-[13px] font-semibold text-foreground">{step.title}</b>
+                <span className="block truncate text-xs text-muted-foreground">{step.note}</span>
+              </span>
+            </button>
+          );
+        })}
+        <div className="mt-1.5 flex items-center justify-between border-t border-border px-2.5 pt-2 pb-1">
+          <span className="text-xs text-muted-foreground">Press 1–6 anywhere</span>
+          <button
+            type="button"
+            tabIndex={open ? 0 : -1}
+            onClick={() => run(next)}
+            className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors duration-150 hover:bg-brand-700"
+          >
+            Run step {next + 1}
+            <ChevronRight aria-hidden className="size-4" />
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
