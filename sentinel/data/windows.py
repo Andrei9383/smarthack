@@ -80,12 +80,9 @@ def forecast_weather(act: np.ndarray, geom: np.ndarray, doy: np.ndarray, rng, ph
     csi = np.divide(act[:, 0], csg, out=np.zeros(T), where=csg > 20)
 
     def ar1(rho, n):
-        e = rng.standard_normal(n) * np.sqrt(1 - rho**2)
-        out = np.empty(n)
-        out[0] = e[0]
-        for i in range(1, n):
-            out[i] = rho * out[i - 1] + e[i]
-        return out
+        from scipy.signal import lfilter
+
+        return lfilter([1.0], [1.0, -rho], rng.standard_normal(n) * np.sqrt(1 - rho**2))
 
     miss = rng.random(D) < 0.15
     eps_d = rng.standard_normal(D) * np.where(miss, 0.22, 0.08)
