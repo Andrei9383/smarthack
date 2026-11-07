@@ -13,7 +13,7 @@ import { stepToTs, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import { orpc } from "@/utils/orpc";
 
-
+import { BASELINE_SERIES, LIMIT_SERIES, SENTINEL_SERIES, SOC_SERIES } from "./colors";
 import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
@@ -44,18 +44,29 @@ function bucharestWallClock(ts: string) {
 const hhmm = (date: Date) =>
   `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 
-const BASELINE_COLOR = "#f59e0b";
-const SENTINEL_COLOR = "#2dd4bf";
-const LIMIT_COLOR = "#ef4444";
-const SOC_COLOR = "#818cf8";
 const CHART_MARGIN = { left: 8, right: 8, top: 8, bottom: 24 };
 
+// Status text classes: Sentinel green, over-limit red (team/contracts/ui-style.md §2).
+const OVER_TONE = "text-status-critical";
+const SENTINEL_TONE = "text-brand-700";
+
+const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase";
+
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  // "45 min" → big number, unit at 13px muted beside it. "—" has no unit.
+  const gap = value.lastIndexOf(" ");
+  const number = gap > 0 ? value.slice(0, gap) : value;
+  const unit = gap > 0 ? value.slice(gap + 1) : "";
   return (
-    <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="text-base font-semibold" style={{ color: tone }}>
-        {value}
+    <div className="flex flex-col gap-1">
+      <div className="text-[11px] leading-snug text-muted-foreground">{label}</div>
+      <div className="flex items-baseline gap-1">
+        <span
+          className={`text-2xl leading-none font-semibold tracking-tight tabular-nums ${tone ?? "text-foreground"}`}
+        >
+          {number}
+        </span>
+        {unit && <span className="text-[13px] text-muted-foreground">{unit}</span>}
       </div>
     </div>
   );
@@ -63,11 +74,11 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 
 function ChartLegend({ items }: { items: { label: string; color: string; dashed?: boolean }[] }) {
   return (
-    <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
       {items.map(({ label, color, dashed }) => (
-        <span key={label} className="flex items-center gap-1">
+        <span key={label} className="flex items-center gap-1.5">
           <span
-            className="inline-block w-3 border-t-2"
+            className="inline-block w-4 border-t-[2.5px]"
             style={{ borderColor: color, borderStyle: dashed ? "dashed" : "solid" }}
           />
           {label}
@@ -145,7 +156,7 @@ export function FeederPanel() {
 
   if (!feeder) {
     return (
-      <aside className="absolute top-3 right-3 z-10 w-72 rounded-md border bg-background/95 p-3 text-sm text-muted-foreground">
+      <aside className="absolute top-3 right-3 z-10 w-72 rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground shadow-card">
         {isLoading
           ? "Loading feeders…"
           : "No replay data. Run python3 demo/fixtures/make_fixtures.py."}
@@ -154,15 +165,15 @@ export function FeederPanel() {
   }
 
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-5 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-card">
       <header className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="font-semibold">
+        <div className="space-y-1.5">
+          <h2 className="flex items-center gap-2 text-base font-semibold">
             <select
               aria-label="Feeder"
               value={feederId}
               onChange={(event) => setSelected(event.target.value)}
-              className="mr-1 rounded border bg-background px-1 text-sm"
+              className="h-8 rounded-sm border border-border bg-muted px-2 text-sm font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {feeders?.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -172,29 +183,31 @@ export function FeederPanel() {
             </select>
             {feeder.name}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            {feeder.county} · limit {Math.round(feeder.limitKw)} kW · GIS trust{" "}
+          <p className="text-xs leading-relaxed text-text-secondary">
+            {feeder.county} · limit <span className="tabular-nums">{Math.round(feeder.limitKw)}</span> kW · GIS trust{" "}
             {feeder.gisTrust ?? "unknown"} ·{" "}
-            <span className="font-medium text-amber-400">{label ?? "no run"}</span>
+            <span className="inline-flex rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
+              {label ?? "no run"}
+            </span>
           </p>
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-2 rounded border p-2">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-5 rounded-lg bg-sidebar p-4">
         <Stat
           label="Baseline, minutes over limit today"
           value={`${baselineOver} min`}
-          tone={baselineOver > 0 ? LIMIT_COLOR : undefined}
+          tone={baselineOver > 0 ? OVER_TONE : undefined}
         />
         <Stat
           label="Sentinel, minutes over limit today"
           value={`${sentinelOver} min`}
-          tone={sentinelOver > 0 ? LIMIT_COLOR : SENTINEL_COLOR}
+          tone={sentinelOver > 0 ? OVER_TONE : SENTINEL_TONE}
         />
         <Stat
           label={`At ${timeLabel(step)}, ${policy} export`}
           value={now ? `${Math.round(nowExport ?? 0)} kW` : "—"}
-          tone={now && (nowExport ?? 0) > now.limit ? LIMIT_COLOR : undefined}
+          tone={now && (nowExport ?? 0) > now.limit ? OVER_TONE : undefined}
         />
         <Stat label="Limit" value={`${Math.round(feeder.limitKw)} kW`} />
         <Stat
@@ -207,63 +220,63 @@ export function FeederPanel() {
         />
       </div>
 
-      <section className="space-y-1">
-        <h3 className="text-sm font-medium">Export vs limit (kW)</h3>
+      <section className="space-y-2">
+        <h3 className={SECTION_LABEL}>Export vs limit (kW)</h3>
         <ChartLegend
           items={[
-            { label: "Baseline", color: BASELINE_COLOR },
-            { label: "Sentinel", color: SENTINEL_COLOR },
-            { label: "Limit", color: LIMIT_COLOR, dashed: true },
+            { label: "Baseline", color: BASELINE_SERIES },
+            { label: "Sentinel", color: SENTINEL_SERIES },
+            { label: "Limit", color: LIMIT_SERIES, dashed: true },
           ]}
         />
         <LineChart data={exportData} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
           <Grid />
-          <Line dataKey="baseline_export" stroke={BASELINE_COLOR} curve={curveMonotoneX} fadeEdges={false} />
-          <Line dataKey="sentinel_export" stroke={SENTINEL_COLOR} curve={curveMonotoneX} fadeEdges={false} />
-          <Line dataKey="limit" stroke={LIMIT_COLOR} strokeWidth={1.5} fadeEdges={false} dashFromIndex={0} />
+          <Line dataKey="baseline_export" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
+          <Line dataKey="sentinel_export" stroke={SENTINEL_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+          <Line dataKey="limit" stroke={LIMIT_SERIES} strokeWidth={2} fadeEdges={false} dashFromIndex={0} />
           <XAxis numTicks={5} labels={labels} />
           <ChartTooltip />
         </LineChart>
       </section>
 
-      <section className="space-y-1">
-        <h3 className="text-sm font-medium">Evening import (kW)</h3>
+      <section className="space-y-2">
+        <h3 className={SECTION_LABEL}>Evening import (kW)</h3>
         <ChartLegend
           items={[
-            { label: "Baseline", color: BASELINE_COLOR },
-            { label: "Sentinel", color: SENTINEL_COLOR },
+            { label: "Baseline", color: BASELINE_SERIES },
+            { label: "Sentinel", color: SENTINEL_SERIES },
           ]}
         />
         <LineChart data={exportData} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
           <Grid />
-          <Line dataKey="baseline_import" stroke={BASELINE_COLOR} curve={curveMonotoneX} fadeEdges={false} />
-          <Line dataKey="sentinel_import" stroke={SENTINEL_COLOR} curve={curveMonotoneX} fadeEdges={false} />
+          <Line dataKey="baseline_import" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
+          <Line dataKey="sentinel_import" stroke={SENTINEL_SERIES} curve={curveMonotoneX} fadeEdges={false} />
           <XAxis numTicks={5} labels={labels} />
           <ChartTooltip />
         </LineChart>
       </section>
 
-      <section className="space-y-1">
-        <h3 className="text-sm font-medium">Battery SoC fan, Sentinel (%)</h3>
+      <section className="space-y-2">
+        <h3 className={SECTION_LABEL}>Battery SoC fan, Sentinel (%)</h3>
         {socData.length > 0 ? <LineChart data={socData} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
           <Grid />
-          <Band upperKey="soc_q90" lowerKey="soc_q10" label="P10–P90" fill={SOC_COLOR} curve={curveMonotoneX} />
-          <Line dataKey="soc_q50" stroke={SOC_COLOR} curve={curveMonotoneX} fadeEdges={false} />
+          <Band upperKey="soc_q90" lowerKey="soc_q10" label="P10–P90" fill={SOC_SERIES} fillOpacity={0.14} strokeOpacity={0.35} curve={curveMonotoneX} />
+          <Line dataKey="soc_q50" stroke={SOC_SERIES} curve={curveMonotoneX} fadeEdges={false} />
           <XAxis numTicks={5} labels={socLabels} />
           <ChartTooltip />
         </LineChart> : <p className="text-xs text-muted-foreground">No schedule rows for this feeder.</p>}
       </section>
 
-      <section className="space-y-1">
-        <h3 className="text-sm font-medium">Sites that carried the absorption</h3>
+      <section className="space-y-2">
+        <h3 className={SECTION_LABEL}>Sites that carried the absorption</h3>
         {(sites ?? []).length === 0 ? (
           <p className="text-xs text-muted-foreground">No absorption needed on this feeder today.</p>
         ) : (
-          <ul className="space-y-1 text-sm">
+          <ul className="divide-y divide-border text-[13px]">
             {sites?.map((site) => (
-              <li key={site.assetId} className="flex justify-between">
+              <li key={site.assetId} className="flex justify-between py-1.5">
                 <span>Site {site.assetId}</span>
-                <span className="text-muted-foreground">{site.absorbedKwh.toFixed(1)} kWh</span>
+                <span className="text-text-secondary tabular-nums">{site.absorbedKwh.toFixed(1)} kWh</span>
               </li>
             ))}
           </ul>
