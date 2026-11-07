@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from .ro_calendar import local_day_index  # noqa: E402
+
 
 def sanity_plots(out: Path, feeders: pd.DataFrame, ts: pd.DatetimeIndex, net_w: np.ndarray) -> None:
     pdir = out / "plots"
@@ -19,7 +21,7 @@ def sanity_plots(out: Path, feeders: pd.DataFrame, ts: pd.DatetimeIndex, net_w: 
     cols = 5
     rows = int(np.ceil(nf / cols))
     local = ts.tz_convert("Europe/Bucharest")
-    day = (local.normalize() - local[0].normalize()).days.to_numpy()
+    day = local_day_index(local)
     summer = np.isin(local.month.to_numpy(), [5, 6, 7])
 
     fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 2.8 * rows), sharex=True, squeeze=False)
@@ -34,7 +36,7 @@ def sanity_plots(out: Path, feeders: pd.DataFrame, ts: pd.DatetimeIndex, net_w: 
         ax.plot(local[m].hour + local[m].minute / 60, x[m] / 1000, color="#3b5bdb", lw=1.4, label="net export")
         ax.axhline(f.g_max_kw, color="#c92a2a", lw=1, label="G_max")
         ax.axhline(f.g_conservative_kw, color="#b7791f", lw=1, ls="--", label="G_conservative")
-        ax.set_title(f"{f.feeder_id} {f.locality} ({f.n_prosumers} PV)", fontsize=9)
+        ax.set_title(f"{f.feeder_id} {f.locality} ({f.n_sites} PV)", fontsize=9)
         ax.tick_params(labelsize=7)
     axes.flat[0].legend(fontsize=7)
     fig.supxlabel("local hour, peak summer day")

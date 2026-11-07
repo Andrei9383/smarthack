@@ -30,9 +30,8 @@ function loadMapLibre() {
   maplibrePromise ??= import("maplibre-gl")
     .then((lib) => {
       if (!lib.getWorkerUrl()) {
-        lib.setWorkerUrl(
-          `https://unpkg.com/maplibre-gl@${lib.getVersion()}/dist/maplibre-gl-worker.mjs`,
-        );
+        // Served by the app (copied at build time), so the map works with no internet.
+        lib.setWorkerUrl("/maplibre-gl-worker.mjs");
       }
       return lib;
     })
