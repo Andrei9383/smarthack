@@ -11,6 +11,8 @@ import { ChartTooltip } from "@/components/charts/tooltip";
 import { stepToDate } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { useShowOwnPill } from "@/components/shell/inspector-embedded";
+import { Term } from "@/components/help";
+import { Metric, MetricRow, PopList } from "@/panels/disclosure";
 
 import { expectedMwh, hourly } from "./data";
 import { FanHourTicks, FanNowMarker, FanYAxis } from "./fan-chart-overlays";
@@ -22,7 +24,7 @@ import { fetchWindMeta } from "./wind-field";
 const FAN_FILL = "var(--brand-500)";
 const FAN_LINE = "var(--primary)";
 const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-text-secondary uppercase";
-const PILL = "inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-text-secondary";
+const PILL = "inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-text-secondary";
 const Y_TICKS = 4;
 const TICK_HOURS = 6;
 const CHART_MARGIN = { left: 32, right: 8, top: 26, bottom: 24 };
@@ -90,12 +92,13 @@ export function ProductionPanel() {
   const showPill = useShowOwnPill(label);
   const park = parks.find((p) => p.id === selected) ?? parks[0];
 
-  const { fan, bestHours, parkMwh } = useMemo(() => {
+  const { fan, bestHours, parkMwh, parkPeak } = useMemo(() => {
     const parkRows = rows.filter((row) => row.parkId === park?.id);
     const parkHours = hourly(parkRows);
     return {
       fan: parkHours.map((row) => ({
         date: wallClock(row.ts),
+        ts: row.ts,
         p10: row.p10,
         p50: row.p50,
         p90: row.p90,
@@ -104,21 +107,25 @@ export function ProductionPanel() {
         .sort((a, b) => b.p50 - a.p50)
         .slice(0, BEST_HOURS),
       parkMwh: expectedMwh(parkRows),
+      parkPeak: [...parkHours].sort((a, b) => b.p50 - a.p50)[0],
     };
   }, [park?.id, rows]);
   const windCounties = counties.filter((county) => county.windMwh > 0);
 
   const peakMw = Math.max(...bestHours.map((row) => row.p50), 0);
+  const best = bestHours[0];
+  const nowRow = fan[0];
   const now = stepToDate(step);
   const nowDate = new Date(wallClock(now.toISOString()).getTime() + now.getUTCMinutes() * 60_000);
   const [parkName, parkTag] = park ? splitTag(park.name) : ["", null];
 
   const hourTs = meta?.hours[hour]?.ts;
   const windLabel = meta?.source === "mock" ? "mock wind field" : "real RO, ERA5 100 m wind";
+  const mwFmt = (v: number) => (v >= 10 ? Math.round(v).toString() : v.toFixed(1));
 
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-3.5 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-card">
-      <header className="space-y-2">
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto rounded-xl bg-card px-5 pt-4 pb-3 text-card-foreground shadow-floating">
+      <header className="space-y-1">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-base leading-snug font-semibold text-foreground">
             {park ? (
@@ -138,27 +145,25 @@ export function ProductionPanel() {
           ) : null}
         </div>
         {park && (
-          <p className="text-[13px] text-text-secondary tabular-nums">
-            {`${park.county} · ${park.ratedMw} MW rated · `}
-            <span className="font-semibold text-foreground">{Math.round(parkMwh)} MWh</span>
-            {" next 24 h"}
+          <p className="text-xs text-text-secondary tabular-nums">
+            {park.county} · {park.ratedMw} MW rated
           </p>
         )}
       </header>
 
       {/* Neighbouring parks stack at country zoom, so their markers alone can't select them all. */}
       {parks.length > 1 && (
-        <nav className="flex flex-wrap gap-1.5" aria-label="Parks">
+        <nav className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Parks">
           {parks.map((p) => (
             <button
               key={p.id}
               type="button"
               aria-pressed={p.id === park?.id}
               onClick={() => setSelected(p.id)}
-              className={`rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors ${
+              className={`rounded-full px-2.5 py-1 text-xs font-medium tabular-nums transition-[background-color,box-shadow,color] duration-150 ${
                 p.id === park?.id
-                  ? "border-brand-100 bg-brand-50 text-brand-900"
-                  : "border-border bg-card text-text-secondary hover:bg-muted hover:text-foreground"
+                  ? "bg-brand-50 text-brand-900 shadow-raised"
+                  : "bg-card text-text-secondary shadow-raised hover:bg-sidebar hover:text-foreground"
               }`}
             >
               {p.id}
@@ -167,27 +172,100 @@ export function ProductionPanel() {
         </nav>
       )}
 
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-2.5">
-        <div className="space-y-1">
-          <div className={SECTION_LABEL}>Wind at 100 m</div>
-          <div className="text-[15px] font-semibold text-foreground tabular-nums">
-            {hourTs ? `${localLabel(hourTs)} Bucharest` : "—"}
-          </div>
-        </div>
-        <Pill text={meta ? windLabel : "loading"} />
-      </div>
-
       {fan.length === 0 ? (
         !isLoading && (
-          <p className="rounded-lg bg-muted p-4 text-[13px] text-text-secondary">
-            No park forecast rows for this time in the loaded run.
-          </p>
+          <p className="mt-3 text-[13px] text-text-secondary">No park forecast rows for this time in the loaded run.</p>
         )
       ) : (
         <>
-          <section className="space-y-2">
+          <p className="pt-3 pb-3 text-[14px] leading-snug text-foreground">
+            {park?.id} makes about {mwFmt(nowRow?.p50 ?? 0)} MW right now. Expect about {Math.round(parkMwh)} MWh over
+            the next 24 hours, with the strongest wind around {parkPeak ? localLabel(parkPeak.ts) : "—"}.
+          </p>
+
+          <MetricRow className="border-y border-border py-2">
+            <Metric
+              label="Next 24 h"
+              value={Math.round(parkMwh)}
+              unit="MWh"
+              sub={`${park?.id} expected`}
+              popTitle="Expected energy, next 24 hours"
+              pop={
+                <div className="space-y-2">
+                  <PopList
+                    rows={[
+                      { key: "park", label: `${park?.id} park`, value: `${Math.round(parkMwh)} MWh` },
+                      ...windCounties.map(({ county, windMwh }) => ({
+                        key: county,
+                        label: `${county} wind, all parks`,
+                        value: `${Math.round(windMwh)} MWh`,
+                      })),
+                    ]}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    The sum of the P50 (middle) forecast, 15 minutes at a time.
+                  </p>
+                </div>
+              }
+            />
+            <Metric
+              label="Now"
+              value={mwFmt(nowRow?.p50 ?? 0)}
+              unit="MW"
+              sub={nowRow ? `range ${mwFmt(nowRow.p10)}–${mwFmt(nowRow.p90)}` : undefined}
+              popTitle="How sure is this?"
+              pop={
+                <div className="space-y-2">
+                  <PopList
+                    rows={[
+                      { key: "p90", label: "P90, high case", value: `${mwFmt(nowRow?.p90 ?? 0)} MW` },
+                      { key: "p50", label: "P50, middle", value: `${mwFmt(nowRow?.p50 ?? 0)} MW` },
+                      { key: "p10", label: "P10, low case", value: `${mwFmt(nowRow?.p10 ?? 0)} MW` },
+                    ]}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Eight times in ten the park lands inside the shaded band on the chart.
+                  </p>
+                </div>
+              }
+            />
+            <Metric
+              label="Best hour"
+              value={best ? localLabel(best.ts) : "—"}
+              sub={best ? `${Math.round(best.p50)} MW, all parks` : undefined}
+              popTitle="Best production hours, all parks"
+              pop={
+                <ol className="space-y-1 text-[13px] tabular-nums">
+                  {bestHours.map(({ ts, p50 }, index) => {
+                    const top = index === 0;
+                    return (
+                      <li key={ts} className="flex items-center gap-2.5">
+                        <span className={`w-3 font-mono text-[11px] ${top ? "font-semibold text-brand-700" : "text-muted-foreground"}`}>
+                          {index + 1}
+                        </span>
+                        <span className={`w-11 font-medium ${top ? "text-brand-900" : "text-foreground"}`}>{localLabel(ts)}</span>
+                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                          <span
+                            className={`block h-full rounded-full ${top ? "bg-primary" : "bg-brand-500/50"}`}
+                            style={{ width: `${peakMw > 0 ? (p50 / peakMw) * 100 : 0}%` }}
+                          />
+                        </span>
+                        <span className={`w-12 text-right ${top ? "font-semibold text-brand-900" : "text-text-secondary"}`}>
+                          {Math.round(p50)} <span className="text-[11px] font-normal text-muted-foreground">MW</span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              }
+            />
+          </MetricRow>
+
+          <section className="space-y-1.5 pt-3.5">
             <div className="flex items-center justify-between gap-3">
-              <h3 className={SECTION_LABEL}>Park output, P10–P90 (MW)</h3>
+              <h3 className={SECTION_LABEL}>
+                Park output, <Term id="forecast-band">P10–P90</Term> (MW)
+              </h3>
               <ul className="flex items-center gap-3 text-[11px] text-text-secondary">
                 <li className="flex items-center gap-1.5">
                   <span className="h-0.5 w-3.5 rounded-full bg-primary" aria-hidden />
@@ -218,50 +296,24 @@ export function ProductionPanel() {
             </LineChart>
           </section>
 
-          <section className="space-y-3 rounded-lg bg-sidebar px-4 py-3">
+          {/* Facts as hairline rows, not boxes inside the inspector card. */}
+          <dl className="mt-2 divide-y divide-border border-t border-border text-[13px]">
+            <div className="flex items-center justify-between gap-3 py-2.5">
+              <dt className="text-text-secondary">Wind at 100 m</dt>
+              <dd className="flex items-center gap-2">
+                <span className="font-semibold text-foreground tabular-nums">{hourTs ? localLabel(hourTs) : "—"}</span>
+                <Pill text={meta ? windLabel : "loading"} />
+              </dd>
+            </div>
             {windCounties.map(({ county, windMwh }) => (
-              <div key={county} className="flex items-baseline justify-between gap-4">
-                <div className="text-[13px] font-medium whitespace-nowrap text-text-secondary">
-                  {county} wind · next 24 h
-                </div>
-                <div className="text-[28px] leading-none font-semibold text-foreground tabular-nums">
-                  {Math.round(windMwh)}{" "}
-                  <span className="text-[13px] font-normal whitespace-nowrap text-muted-foreground">MWh</span>
-                </div>
+              <div key={county} className="flex items-baseline justify-between gap-3 py-2.5">
+                <dt className="text-text-secondary">{county} wind · next 24 h</dt>
+                <dd className="font-semibold text-foreground tabular-nums">
+                  {Math.round(windMwh)} <span className="text-[11px] font-normal text-muted-foreground">MWh</span>
+                </dd>
               </div>
             ))}
-          </section>
-
-          <section className="space-y-2">
-            <h3 className={SECTION_LABEL}>Best production hours, all parks</h3>
-            <ol className="space-y-1 text-[13px] tabular-nums">
-              {bestHours.map(({ ts, p50 }, index) => {
-                const top = index === 0;
-                return (
-                  <li
-                    key={ts}
-                    className={`flex items-center gap-3 rounded-md px-2 py-1.5 ${top ? "bg-brand-50" : ""}`}
-                  >
-                    <span className={`w-3 text-[11px] ${top ? "font-semibold text-brand-700" : "text-muted-foreground"}`}>
-                      {index + 1}
-                    </span>
-                    <span className={`w-11 font-medium ${top ? "text-brand-900" : "text-foreground"}`}>
-                      {localLabel(ts)}
-                    </span>
-                    <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                      <span
-                        className={`block h-full rounded-full ${top ? "bg-primary" : "bg-brand-500/50"}`}
-                        style={{ width: `${peakMw > 0 ? (p50 / peakMw) * 100 : 0}%` }}
-                      />
-                    </span>
-                    <span className={`w-14 text-right ${top ? "font-semibold text-brand-900" : "text-text-secondary"}`}>
-                      {Math.round(p50)} <span className="text-[11px] font-normal text-muted-foreground">MW</span>
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-          </section>
+          </dl>
         </>
       )}
     </aside>

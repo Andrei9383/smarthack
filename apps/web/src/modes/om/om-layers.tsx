@@ -8,7 +8,8 @@ import { useSelectedSite } from "@/panels/site/use-site";
 
 import { setPaint, useCameraFocus, useFrameLoop, useMotionAllowed } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
-import { OM_COLORS, OM_STATUS_COLORS } from "./colors";
+import { OM_COLORS } from "./colors";
+import { addStatusIcons, statusIcon } from "./status-icons";
 import { useOmAssets, useWorkOrders } from "./use-om-data";
 import { useFocusedPark, useSelectedTurbine } from "./use-om-state";
 
@@ -28,7 +29,6 @@ const LAYERS = {
 const OK = OM_COLORS.ok;
 const ISSUE = OM_COLORS.warn;
 const RISK = OM_COLORS.critical;
-const UNKNOWN = OM_COLORS.unknown;
 // light basemap: solid fills with a white ring, no glows
 const RING = OM_COLORS.ring;
 const PULSE_MS = 2400; // slow: a stopped turbine is urgent, not an alarm bell
@@ -44,14 +44,8 @@ type AssetProps = {
   pulse: number;
 };
 
-// a turbine that is out of service is stopped, which reads red; an excluded home is just grey
-// (OM_STATUS_COLORS maps "stopped" to red)
-const statusColor: unknown[] = [
-  "match",
-  ["get", "status"],
-  ...Object.entries(OM_STATUS_COLORS).flat(),
-  UNKNOWN,
-];
+// A turbine that is out of service is stopped (red diamond); an excluded home is a grey ring.
+// Points are the shape-coded status marks the legend shows (status-icons.ts, ui-style §7).
 
 /** Sites and turbines coloured by status; clustered when zoomed out, a halo on turbines at risk. */
 export function OmLayers() {
@@ -109,6 +103,7 @@ export function OmLayers() {
   // add the source and layers once per map style
   useEffect(() => {
     if (!map || !isLoaded) return;
+    addStatusIcons(map);
     if (!map.getSource(SOURCE)) {
       map.addSource(SOURCE, {
         type: "geojson",
@@ -227,19 +222,15 @@ export function OmLayers() {
       });
       map.addLayer({
         id: LAYERS.points,
-        type: "circle",
+        type: "symbol",
         source: SOURCE,
         filter: ["!", ["has", "point_count"]],
-        paint: {
-          "circle-color": statusColor as never,
-          "circle-radius": ["case", ["==", ["get", "kind"], "turbine"], 6, 4.5],
-          "circle-stroke-width": [
-            "case",
-            ["==", ["get", "kind"], "turbine"],
-            2,
-            1.25,
-          ],
-          "circle-stroke-color": RING,
+        layout: {
+          "icon-image": statusIcon as never,
+          // 16 px marks for turbines, 12 px for homes (the old 6 / 4.5 px dots with their rings)
+          "icon-size": ["case", ["==", ["get", "kind"], "turbine"], 1, 0.75],
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
       });
       map.addLayer({

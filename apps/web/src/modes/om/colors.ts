@@ -20,6 +20,11 @@ export const OM_COLORS = {
   border: "#E6E8EB",
   /** cluster disc fill (--card) */
   card: "#FFFFFF",
+  /** contact shadow under a map status mark (foreground at 28%) */
+  markShadow: "rgba(13, 13, 13, 0.28)",
+  /** specular light on a map status mark's dome */
+  markLight: "rgba(255, 255, 255, 0.5)",
+  markLightEnd: "rgba(255, 255, 255, 0)",
 } as const;
 
 /** Site / turbine status → colour, same keys as the shared STATUS_COLORS, remapped to the light palette. */

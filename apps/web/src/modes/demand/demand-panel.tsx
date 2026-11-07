@@ -2,13 +2,15 @@
 
 import { curveMonotoneX } from "d3-shape";
 import { MapPinned } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { useShowOwnPill } from "@/components/shell/inspector-embedded";
+import { StatusMark } from "@/components/brand/status-mark";
+import { DetailsSheet, Metric, MetricRow, RowButton, SheetSection } from "@/panels/disclosure";
 
 import { hhmm, wallClock } from "@/panels/site/time";
 
@@ -23,12 +25,18 @@ import {
   yAxisFor,
 } from "../feeders/ui";
 import { DEMAND_SERIES, rampColor } from "./colors";
-import { byStress, countyOf, formatPower, type Zone } from "./data";
+import { byStress, formatPower, type Zone } from "./data";
 import { useDemandData, useSelectedZone } from "./use-demand-data";
 
 const TOP_FEEDERS = 5;
-const KPI_LABEL = "text-[11px] leading-none whitespace-nowrap text-text-secondary";
-const KPI_VALUE = "text-[22px] leading-none font-semibold tracking-tight tabular-nums";
+
+/** Stress in words: P90 demand over what the zone's cables can carry. */
+function stressWords(stress: number) {
+  if (stress >= 1) return "over what its cables can carry";
+  if (stress >= 0.8) return "close to what its cables can carry";
+  if (stress >= 0.5) return "about half of what its cables can carry";
+  return "well within what its cables can carry";
+}
 
 function peakLabel(zone: Zone) {
   return `${hhmm(wallClock(zone.peakTs))}, ${formatPower(zone.peakMw)}`;
@@ -101,6 +109,7 @@ function ListHeader({ title }: { title: string }) {
 
 export function DemandPanel() {
   const [selectedId, setSelected] = useSelectedZone();
+  const [listOpen, setListOpen] = useState(false);
   const { zones, counties, feeders, all, ts, isLoading } = useDemandData();
   const selected = selectedId ? zones.get(selectedId) : undefined;
   // Nothing picked: chart the most stressed county, without zooming to it.
@@ -142,10 +151,17 @@ export function DemandPanel() {
   const now = shown?.rows.find((row) => row.ts === ts);
   const stressNow = shown?.stressByTs.get(ts);
   const unit = (shown?.peakMw ?? 0) < 1 ? "kW" : "MW";
+  const [nowValue, nowUnit] = now ? formatPower(now.q50Mw).split(" ") : ["—", undefined];
+  const [peakValue] = shown ? [hhmm(wallClock(shown.peakTs))] : ["—"];
+  const listTitle = selected ? `Inside ${selected.name}` : "Counties by peak stress";
+  const select = (id: string) => {
+    setListOpen(false);
+    void setSelected(id);
+  };
 
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto overscroll-contain rounded-lg border border-border bg-card text-card-foreground shadow-card">
-      <header className="sticky top-0 z-10 border-b border-border bg-card/95 px-5 pt-4 pb-3 backdrop-blur-sm">
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto overscroll-contain rounded-xl bg-card text-card-foreground shadow-floating">
+      <header className="px-5 pt-4">
         <nav className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" aria-label="Zone">
           <button type="button" className="transition-colors duration-150 hover:text-brand-700" onClick={() => setSelected(null)}>
             Romania
@@ -165,14 +181,15 @@ export function DemandPanel() {
             </span>
           )}
         </nav>
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <h2 className="text-xl leading-tight font-semibold tracking-tight">{shown ? shown.name : "Demand"}</h2>
           {shown && (
             <span
-              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                selected ? "bg-muted text-text-secondary" : "bg-status-warn/10 text-status-warn"
+              className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+                selected ? "text-text-secondary" : "text-status-warn"
               }`}
             >
+              {selected ? null : <StatusMark kind="warn" size="sm" />}
               {selected ? shown.level : "most stressed county"}
             </span>
           )}
@@ -191,29 +208,41 @@ export function DemandPanel() {
           </div>
         )
       ) : (
-        <div className="flex flex-col divide-y divide-border px-5">
-          <section className="grid grid-cols-3 gap-x-5 py-5">
-            <div className="flex flex-col gap-2">
-              <div className={KPI_LABEL}>Stress now</div>
-              <div className="flex items-center gap-2">
-                <span className={KPI_VALUE}>{stressNow?.toFixed(2) ?? "—"}</span>
-                {stressNow !== undefined && <StressMeter stress={stressNow} className="w-full max-w-12" />}
-              </div>
-              <div className="text-[11px] leading-none text-muted-foreground tabular-nums">of 1.00</div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className={KPI_LABEL}>Demand now</div>
-              <div className={`${KPI_VALUE} whitespace-nowrap`}>{now ? formatPower(now.q50Mw) : "—"}</div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className={KPI_LABEL}>Peak today</div>
-              <div className={`${KPI_VALUE} whitespace-nowrap`}>{hhmm(wallClock(shown.peakTs))}</div>
-              <div className="text-[11px] leading-none text-muted-foreground tabular-nums">{formatPower(shown.peakMw)}</div>
-            </div>
-          </section>
+        <div className="flex flex-col px-5 pb-2">
+          <p className="pt-3 pb-3 text-[14px] leading-snug text-foreground">
+            {shown.name} peaks at {hhmm(wallClock(shown.peakTs))} with {formatPower(shown.peakMw)}, {stressWords(shown.peakStress)}.
+            {now ? ` Right now it draws ${formatPower(now.q50Mw)}.` : ""}
+          </p>
 
-          <section className="space-y-3 py-6">
-            <SectionHeader title={`Demand, P50 with P10–P90 (${unit})`}>
+          <MetricRow className="border-y border-border py-2">
+            <Metric
+              label="Stress now"
+              value={stressNow?.toFixed(2) ?? "—"}
+              sub="of 1.00"
+              popTitle="What stress means"
+              pop={
+                <div className="space-y-2.5">
+                  <p>
+                    P90 demand divided by what the zone&apos;s cables can carry. At 1.00 a high-case evening fills them.
+                  </p>
+                  {stressNow !== undefined ? (
+                    <div className="space-y-1">
+                      <StressMeter stress={stressNow} />
+                      <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
+                        <span>now {stressNow.toFixed(2)}</span>
+                        <span>peak {shown.peakStress.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              }
+            />
+            <Metric label="Demand now" value={nowValue} unit={nowUnit} sub="P50 forecast" />
+            <Metric label="Peak today" value={peakValue} sub={formatPower(shown.peakMw)} />
+          </MetricRow>
+
+          <section className="space-y-2 pt-3.5">
+            <SectionHeader title={`Demand today, ${unit}`}>
               <ChartLegend
                 items={[
                   { label: "P50", color: DEMAND_SERIES },
@@ -224,7 +253,7 @@ export function DemandPanel() {
             <div className="relative">
               <LineChart
                 data={fan}
-                aspectRatio="2 / 1"
+                aspectRatio="5 / 2"
                 margin={AXIS_MARGIN}
                 animationDuration={0}
                 yScaleDomainMax={axis.domainMax}
@@ -234,23 +263,46 @@ export function DemandPanel() {
                 <Line dataKey="p50" stroke={DEMAND_SERIES} curve={curveMonotoneX} fadeEdges={false} />
                 <ChartTooltip />
               </LineChart>
-              <ChartAxes dates={dates} top={axis.top} ticks={axis.ticks} unit={unit} />
+              <ChartAxes dates={dates} top={axis.top} ticks={axis.ticks} unit={unit} now={wallClock(ts)} />
             </div>
           </section>
 
-          {children.length > 0 && (
-            <section className="space-y-2 py-6">
-              <ListHeader title={selected ? "Inside this zone" : "Counties by peak stress"} />
-              <ZoneList zones={children} selectedId={selectedId} onSelect={setSelected} />
-            </section>
-          )}
+          {children.length > 0 || feeders.length > 0 ? (
+            <div className="mt-2 border-t border-border">
+              <RowButton
+                onClick={() => setListOpen(true)}
+                aside={
+                  children[0] ? (
+                    <span>
+                      top: {children[0].name} {children[0].peakStress.toFixed(2)}
+                    </span>
+                  ) : null
+                }
+              >
+                <span className="font-medium">{listTitle}</span>
+              </RowButton>
+            </div>
+          ) : null}
 
-          {feeders.length > 0 && (
-            <section className="space-y-2 py-6">
-              <ListHeader title="Top stressed feeders" />
-              <ZoneList zones={feeders.slice(0, TOP_FEEDERS)} selectedId={selectedId} onSelect={setSelected} />
-            </section>
-          )}
+          <DetailsSheet
+            open={listOpen}
+            onOpenChange={setListOpen}
+            title={selected ? `Inside ${selected.name}` : "Where demand peaks"}
+            description="Ranked by peak stress today. Pick a row to chart it and zoom the map."
+          >
+            {children.length > 0 && (
+              <SheetSection title={listTitle}>
+                <ListHeader title="" />
+                <ZoneList zones={children} selectedId={selectedId} onSelect={select} />
+              </SheetSection>
+            )}
+            {feeders.length > 0 && (
+              <SheetSection title="Top stressed feeders">
+                <ListHeader title="" />
+                <ZoneList zones={feeders.slice(0, TOP_FEEDERS)} selectedId={selectedId} onSelect={select} />
+              </SheetSection>
+            )}
+          </DetailsSheet>
         </div>
       )}
     </aside>

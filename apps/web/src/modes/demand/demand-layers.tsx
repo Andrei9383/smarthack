@@ -4,6 +4,7 @@ import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/c
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { orpc } from "@/utils/orpc";
 
 import { tweenPaint, useMotionAllowed } from "../feeders/map-motion";
@@ -14,7 +15,6 @@ import {
   FEEDER_RAMP,
   NO_DATA_BORDER,
   NO_DATA_FILL,
-  rampColor,
   SELECTED_OUTLINE,
   SELECTED_SHADOW,
   STRESS_FILL_OPACITY,
@@ -52,6 +52,9 @@ const rampExpression = (input: unknown, ramp: typeof STRESS_RAMP) => [
   ...ramp.flat(),
 ];
 const EMPTY = { type: "FeatureCollection" as const, features: [] };
+
+// Feeder chips show stress as a shape-coded LED, on the same breakpoints as FEEDER_RAMP.
+const stressKind = (stress: number): StatusKind => (stress >= 1 ? "critical" : stress >= 0.6 ? "warn" : "ok");
 
 const LEGEND_GRADIENT = `linear-gradient(to right, ${STRESS_RAMP.map(
   ([stress, color]) => `${color} ${stress * 100}%`,
@@ -379,18 +382,19 @@ export function DemandLayers() {
         >
           <MarkerContent>
             <span
-              className={`flex h-7 -translate-y-5 cursor-pointer items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-bold whitespace-nowrap text-foreground shadow-card transition-shadow duration-150 ${
-                zone.id === selected?.id ? "border-primary ring-2 ring-primary/30" : "border-border"
+              className={`flex h-7 -translate-y-5 cursor-pointer items-center gap-1.5 rounded-full bg-card px-2.5 text-xs font-bold whitespace-nowrap text-foreground shadow-raised transition-shadow duration-150 ${
+                zone.id === selected?.id ? "ring-2 ring-primary" : "hover:shadow-floating"
               }`}
               title={`${zone.id}, stress ${stress.toFixed(2)}`}
             >
-              <span className="size-2 rounded-full" style={{ backgroundColor: rampColor(stress) }} />
+              <StatusMark kind={stressKind(stress)} size="sm" />
               {zone.id}
             </span>
           </MarkerContent>
         </MapMarker>
       ))}
-      <div className="pointer-events-none absolute top-3 left-3 z-10 w-64 rounded-lg border border-border bg-card p-3 text-xs text-card-foreground shadow-card">
+      {/* `pointer-events-none … bg-card` must stay: components/app-shell.tsx moves this card by selector. */}
+      <div className="pointer-events-none absolute top-3 left-3 z-10 w-64 rounded-lg bg-card p-3 text-xs text-card-foreground shadow-floating">
         <div className="font-semibold text-foreground">Stress, P90 demand / capacity</div>
         <div
           className="mt-2.5 h-2.5 rounded-full ring-1 ring-border ring-inset"
@@ -404,13 +408,23 @@ export function DemandLayers() {
             <span className="mr-0.5 text-[10px] font-normal text-muted-foreground tabular-nums">1</span> High
           </span>
         </div>
-        <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5 text-text-secondary">
-          <span
-            className="size-3.5 shrink-0 rounded-[3px] border"
-            style={{ backgroundColor: NO_DATA_FILL, borderColor: NO_DATA_BORDER }}
-          />
-          Empty counties have no data
-        </div>
+        <ul className="mt-2.5 space-y-1.5 border-t border-border pt-2.5 text-text-secondary">
+          <li className="flex items-center gap-2">
+            <span
+              className="size-3.5 shrink-0 rounded-[3px] border"
+              style={{ backgroundColor: NO_DATA_FILL, borderColor: NO_DATA_BORDER }}
+            />
+            Empty counties have no data
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="flex shrink-0 items-center gap-0.5">
+              <StatusMark kind="ok" size="xs" />
+              <StatusMark kind="warn" size="xs" />
+              <StatusMark kind="critical" size="xs" />
+            </span>
+            Feeder chips: calm, busy, at capacity
+          </li>
+        </ul>
         {hovered && (
           <div className="mt-2 flex items-center justify-between gap-2 rounded-sm bg-muted px-2 py-1.5 font-medium text-foreground tabular-nums">
             {hoveredStress === undefined ? `${hovered.name}: no data` : `${hoveredZone?.name}: ${hoveredStress.toFixed(2)}`}

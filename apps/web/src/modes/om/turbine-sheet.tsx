@@ -9,10 +9,12 @@ import {
 } from "@sentinel-app/ui/components/sheet";
 import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX } from "d3-shape";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
+import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { Fold, Metric, MetricRow } from "@/panels/disclosure";
 import { timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { dayName, wallClock } from "@/panels/site/time";
@@ -57,6 +59,13 @@ const STATUS_TEXT: Record<string, string> = {
   human_review: "text-status-review",
   excluded: "text-status-critical",
 };
+const STATUS_KIND: Record<string, StatusKind> = {
+  eligible: "ok",
+  derated: "warn",
+  human_review: "review",
+  excluded: "critical",
+};
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const CHART_MARGIN = { left: 48, right: 8, top: 10, bottom: 24 };
 
 function parseJson(
@@ -71,6 +80,8 @@ function parseJson(
 }
 
 export function TurbineSheet() {
+  // Focus lands at the top of the sheet, not on the first collapsible row.
+  const focusRef = useRef<HTMLSpanElement>(null);
   const [turbine, setTurbine] = useSelectedTurbine();
   return (
     <Sheet
@@ -78,9 +89,11 @@ export function TurbineSheet() {
       onOpenChange={(open) => (open ? null : setTurbine(null))}
     >
       <SheetContent
+        initialFocus={focusRef}
         side="right"
-        className="w-full gap-0 overflow-y-auto border-l border-border bg-card text-foreground shadow-card data-[side=right]:sm:max-w-md"
+        className="w-full gap-0 overflow-y-auto border-0 bg-card text-foreground shadow-overlay data-[side=right]:border-l-0 data-[side=right]:sm:max-w-md"
       >
+        <span ref={focusRef} tabIndex={-1} className="sr-only">Details</span>
         {turbine ? <TurbineView assetId={turbine} /> : null}
       </SheetContent>
     </Sheet>
@@ -274,7 +287,7 @@ function TurbineView({ assetId }: { assetId: string }) {
 
   return (
     <>
-      <SheetHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
+      <SheetHeader className="gap-1 px-5 pt-5 pb-4 shadow-[0_1px_0_var(--border)]">
         <SheetTitle className="text-base font-semibold text-foreground">
           Turbine {assetId}
         </SheetTitle>
@@ -291,142 +304,34 @@ function TurbineView({ assetId }: { assetId: string }) {
         </SheetDescription>
       </SheetHeader>
 
-      <div className="flex flex-col gap-6 p-5">
-        <div className="grid grid-cols-3 gap-3 rounded-lg border border-border bg-sidebar p-3 text-xs">
-          <div>
-            <div className={SECTION_LABEL}>Status at {timeLabel(step)}</div>
-            <div
-              className={`mt-1 text-sm font-semibold ${STATUS_TEXT[asset?.status ?? ""] ?? "text-foreground"}`}
-            >
-              {asset?.status === "excluded"
-                ? "stopped"
-                : (asset?.status.replaceAll("_", " ") ?? "—")}
-            </div>
-          </div>
-          <div>
-            <div className={SECTION_LABEL}>Reason</div>
-            <div className="mt-1 text-sm font-semibold text-foreground">
-              {asset?.reason.replaceAll("_", " ") ?? "—"}
-            </div>
-          </div>
-          <div>
-            <div className={SECTION_LABEL}>Risk score</div>
-            {/* M7 (component failure risk) is OPTIONAL and has not shipped: show the trend only (R12) */}
-            <div
-              className="mt-1 text-sm font-semibold text-muted-foreground"
-              title="M7 not in this run"
-            >
-              n/a
-            </div>
-          </div>
-        </div>
+      <div className="flex flex-col px-5 pt-4 pb-6">
+        <p className="pb-3 text-[14px] leading-snug text-foreground">
+          {order
+            ? `${capital(order.fault?.replaceAll("_", " ") ?? "an anomaly")}: the agent sent ${order.action === "remote_check" ? "a remote check" : order.action === "truck" ? "a truck" : `an ${order.action}`}${order.daysToVisit != null ? ` within ${order.daysToVisit} d` : ""}${order.lostKwhDay ? `, ${(order.lostKwhDay / 1000).toFixed(1)} MWh a day is at stake` : ""}.`
+            : asset?.status === "excluded"
+              ? "This turbine is stopped. No work order yet at this time."
+              : "Working as expected. No work order for this turbine at this time."}
+        </p>
 
-        {order ? (
-          <section className="space-y-3 rounded-lg border border-border bg-card p-4 text-xs shadow-card">
-            <div className="flex items-center justify-between gap-2">
-              <span className="rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
-                {order.fault?.replaceAll("_", " ") ?? "anomaly"}
+        <MetricRow className="border-y border-border py-2">
+          <Metric
+            label={`Status at ${timeLabel(step)}`}
+            value={
+              <span className={`inline-flex items-center gap-1.5 text-[17px] ${STATUS_TEXT[asset?.status ?? ""] ?? "text-foreground"}`}>
+                {asset ? <StatusMark kind={STATUS_KIND[asset.status] ?? "unknown"} size="md" pulse={asset.status === "excluded"} /> : null}
+                {asset?.status === "excluded" ? "stopped" : (asset?.status.replaceAll("_", " ") ?? "—")}
               </span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap tabular-nums ${order.action === "truck" ? "bg-primary text-primary-foreground" : "bg-brand-50 text-brand-900"}`}
-              >
-                {order.action === "remote_check"
-                  ? "remote check"
-                  : order.action}
-                {order.daysToVisit != null ? ` · ≤ ${order.daysToVisit} d` : ""}
-              </span>
-            </div>
-            {order.lostKwhDay || order.lostLeiDay || order.mwAtRisk ? (
-              <p className="text-[13px] font-medium text-foreground tabular-nums">
-                {[
-                  order.lostKwhDay
-                    ? `${(order.lostKwhDay / 1000).toFixed(1)} MWh/day lost`
-                    : null,
-                  order.lostLeiDay
-                    ? `${Math.round(order.lostLeiDay).toLocaleString("en-GB")} lei/day`
-                    : null,
-                  order.mwAtRisk
-                    ? `${order.mwAtRisk.toLocaleString("en-GB", { maximumSignificantDigits: 2 })} MW at risk`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            ) : null}
-            <div className="space-y-2.5 rounded-lg border border-border bg-sidebar p-3">
-              <div className={SECTION_LABEL}>Why this decision</div>
-              <div className="flex items-center justify-between gap-3 text-text-secondary">
-                <span>Confidence</span>
-                <Meter
-                  value={order.confidence}
-                  width="w-24"
-                  label={`${Math.round(order.confidence * 100)}%`}
-                />
-              </div>
-              {factors.length ? (
-                <ul className="space-y-1.5">
-                  {factors.map((f) => (
-                    <li
-                      key={f.label}
-                      className="flex items-center justify-between gap-3 text-text-secondary"
-                    >
-                      <span>{f.label}</span>
-                      <Meter
-                        value={f.value}
-                        width="w-24"
-                        tone={f.tone}
-                        label={`${Math.round(f.value * 100)}%`}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {typeof evidence?.evidence === "string" ? (
-                <p className="leading-relaxed text-text-secondary">
-                  Evidence: {evidence.evidence}
-                </p>
-              ) : typeof evidence?.detail === "string" ? (
-                <p className="leading-relaxed text-text-secondary">
-                  {evidence.detail}
-                </p>
-              ) : null}
-              {typeof evidence?.note === "string" ? (
-                <p className="leading-relaxed text-text-secondary">
-                  {evidence.note}
-                </p>
-              ) : null}
-            </div>
-          </section>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            No work order for this turbine at this time.
-          </p>
-        )}
+            }
+          />
+          <Metric
+            label="Reason"
+            value={<span className="text-[17px]">{asset?.reason.replaceAll("_", " ") ?? "—"}</span>}
+          />
+          {/* M7 (component failure risk) is OPTIONAL and has not shipped: show the trend only (R12) */}
+          <Metric label="Risk score" value={<span className="text-[17px] text-muted-foreground">n/a</span>} sub="M7 not in this run" />
+        </MetricRow>
 
-        {turbineAlerts.length ? (
-          <ul className="space-y-1.5 text-xs">
-            {turbineAlerts.map((a) => (
-              <li
-                key={a.actionId}
-                className="rounded-lg border border-border p-2.5"
-              >
-                <span className="font-semibold text-foreground">
-                  {a.code.replaceAll("_", " ")}
-                </span>
-                {a.createsWorkOrder ? (
-                  ""
-                ) : (
-                  <span className="ml-1 text-muted-foreground">
-                    · logged, no work order
-                  </span>
-                )}
-                <div className="mt-0.5 text-text-secondary">{a.message}</div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <section className="space-y-2">
+        <section className="space-y-2 pt-4 pb-4">
           <h3 className={SECTION_LABEL}>
             Power curve: measured vs expected (wind m/s)
           </h3>
@@ -440,7 +345,7 @@ function TurbineView({ assetId }: { assetId: string }) {
               Expected (M6 P50)
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block size-2 rounded-full bg-status-critical" />{" "}
+              <StatusMark kind="critical" size="xs" />{" "}
               Below half of expected
             </span>
           </div>
@@ -453,10 +358,67 @@ function TurbineView({ assetId }: { assetId: string }) {
           )}
         </section>
 
-        <section className="space-y-2">
-          <h3 className={SECTION_LABEL}>
-            Temperature residual vs ambient (°C), up to {dayName(nowTs)}
-          </h3>
+        {order ? (
+          <Fold
+            title="Why this decision"
+            aside={`${Math.round(order.confidence * 100)}% sure`}
+          >
+            <p className="text-[13px] font-medium text-foreground tabular-nums">
+              {[
+                order.fault?.replaceAll("_", " ") ?? "anomaly",
+                `${order.action === "remote_check" ? "remote check" : order.action}${order.daysToVisit != null ? ` · ≤ ${order.daysToVisit} d` : ""}`,
+                order.lostKwhDay ? `${(order.lostKwhDay / 1000).toFixed(1)} MWh/day lost` : null,
+                order.lostLeiDay ? `${Math.round(order.lostLeiDay).toLocaleString("en-GB")} lei/day` : null,
+                order.mwAtRisk
+                  ? `${order.mwAtRisk.toLocaleString("en-GB", { maximumSignificantDigits: 2 })} MW at risk`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
+              <span>Confidence</span>
+              <Meter value={order.confidence} width="w-24" label={`${Math.round(order.confidence * 100)}%`} />
+            </div>
+            {factors.length ? (
+              <ul className="space-y-1.5 text-xs">
+                {factors.map((f) => (
+                  <li key={f.label} className="flex items-center justify-between gap-3 text-text-secondary">
+                    <span>{f.label}</span>
+                    <Meter value={f.value} width="w-24" tone={f.tone} label={`${Math.round(f.value * 100)}%`} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {typeof evidence?.evidence === "string" ? (
+              <p className="border-l-2 border-border pl-3 text-xs leading-relaxed text-text-secondary">Evidence: {evidence.evidence}</p>
+            ) : typeof evidence?.detail === "string" ? (
+              <p className="border-l-2 border-border pl-3 text-xs leading-relaxed text-text-secondary">{evidence.detail}</p>
+            ) : null}
+            {typeof evidence?.note === "string" ? (
+              <p className="text-xs leading-relaxed text-text-secondary">{evidence.note}</p>
+            ) : null}
+          </Fold>
+        ) : null}
+
+        {turbineAlerts.length ? (
+          <Fold title="Alerts on this turbine" aside={`${turbineAlerts.length}`}>
+            <ul className="divide-y divide-border text-xs">
+              {turbineAlerts.map((a) => (
+                <li key={a.actionId} className="py-2">
+                  <span className="font-semibold text-foreground">{a.code.replaceAll("_", " ")}</span>
+                  {a.createsWorkOrder ? "" : <span className="ml-1 text-muted-foreground">· logged, no work order</span>}
+                  <div className="mt-0.5 text-text-secondary">{a.message}</div>
+                </li>
+              ))}
+            </ul>
+          </Fold>
+        ) : null}
+
+        <Fold
+          title={<>Temperature residual vs ambient (°C), up to {dayName(nowTs)}</>}
+          aside={drift != null ? `${drift >= 0 ? "+" : ""}${drift.toFixed(1)} °C drift` : undefined}
+        >
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
             {RESIDUALS.map((r) => (
               <span key={r.key} className="flex items-center gap-1.5">
@@ -498,9 +460,11 @@ function TurbineView({ assetId }: { assetId: string }) {
               .
             </p>
           ) : null}
-        </section>
+        </Fold>
 
-        <ParkReport parkId={parkId} />
+        <Fold title={`Daily report, park ${parkId}`}>
+          <ParkReport parkId={parkId} title={false} />
+        </Fold>
       </div>
     </>
   );

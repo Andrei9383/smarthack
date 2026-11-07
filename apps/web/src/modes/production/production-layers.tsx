@@ -241,9 +241,9 @@ function MarkerPin({
 }) {
   return (
     <span ref={pinRef} className="relative block" title={title}>
-      <span className={`pointer-events-auto block rounded-full ring-2 ring-card shadow-card ${dotClassName}`} />
+      <span className={`pointer-events-auto block rounded-full ring-2 ring-card shadow-raised ${dotClassName}`} />
       <span
-        className={`pointer-events-auto absolute top-full left-1/2 mt-1.5 flex -translate-x-1/2 items-center rounded-lg bg-card whitespace-nowrap shadow-card transition-colors duration-150 ${chipClassName}`}
+        className={`pointer-events-auto absolute top-full left-1/2 mt-1.5 flex -translate-x-1/2 items-center rounded-lg bg-card whitespace-nowrap shadow-raised transition-colors duration-150 ${chipClassName}`}
       >
         {children}
       </span>
