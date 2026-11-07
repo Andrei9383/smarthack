@@ -1,0 +1,15 @@
+# Light runtime deps: check, baseline, replay, eval. No torch here (see requirements-train.txt).
+numpy>=1.26
+scipy>=1.13
+polars>=1.0
+pyarrow>=16
+duckdb>=1.0
+pandera[polars]>=0.20
+pvlib>=0.11
+cvxpy>=1.5
+highspy>=1.7
+ortools>=9.10
+lightgbm>=4.3
+scikit-learn>=1.5
+onnxruntime>=1.18
+pytest>=8
