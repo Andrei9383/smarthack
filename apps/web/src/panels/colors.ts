@@ -11,6 +11,8 @@ export const SOC = "#6366F1"; // --status-soc: battery state of charge
 export const REVIEW = "#8B5CF6"; // --status-review: handed to a human
 export const UNKNOWN = "#94A3B8"; // --status-unknown: excluded, no data
 export const ACTUAL = "#0D0D0D"; // --status-actual: measured series
+/** Measured actual at 85%, for bars and legend swatches where solid black reads too heavy. */
+export const ACTUAL_SOFT = "rgba(13, 13, 13, 0.85)";
 /** Baseline / naive policy: #0D0D0D at 55%, so green vs grey always reads "ours vs baseline". */
 export const BASELINE = "rgba(13, 13, 13, 0.55)";
 
