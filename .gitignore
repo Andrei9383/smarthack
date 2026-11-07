@@ -12,3 +12,7 @@ dist/
 local.db*
 demo/fixtures.sqlite
 demo/fixtures.sqlite-*
+apps/web/public/maplibre-gl-worker.mjs
+# Rust extension built in place by `maturin develop` (rust/build.sh, card #48)
+sentinel/_core*.so
+sentinel/_core*.pyd
