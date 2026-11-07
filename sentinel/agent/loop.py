@@ -9,6 +9,18 @@ review), execute the plan through the battery model with a feasibility clip that
 reserve (MUST), optional hourly re-solve on the remaining horizon (SHOULD, `resolve_hourly`). Wind: statuses ->
 work orders / curtailment log / park report; turbines never enter the LP (R20).
 
+Observation vs physics: every read of telemetry (input hashes, telemetry ages at t0 and per tick, measured PV for
+qualify, measurements rows) goes through `world.observed_site_day`; `world.site_day` is the physics (battery step,
+grid, realised flex). Telemetry loss (#78 drills) is handled in three places, all switchable in LoopConfig:
+  hold_blind     a pool site that qualify drops only for missing telemetry (stale_telemetry / data_gap) leaves
+                 re-planning but keeps running today's schedule already on its device (feasibility clip and comfort
+                 floor still apply on the device); a site dropped for a fault / review goes to its own local rule.
+  readmit        a dropped pool site rejoins the live pool as soon as its telemetry is fresh and it re-qualifies.
+  blind_haircut  at commit time (t0), the share of the planned reduction coming from pool sites expected to be
+                 blind at a step (same step of the trailing day's observation over the 60-min stale limit, +-1 h)
+                 is not committed: committed_k *= 1 - loss_k, h_k = 1 - (1 - h)(1 - loss_k) in commitments.haircut_h.
+                 Sites already stale at t0 are out of the pool (qualify) and so out of the commitment.
+
 Policies: `baseline` (= `self_consumption`, contract rule on every site), `threshold` (per-home export threshold),
 `sentinel`. All policies run the same perceive + estimate stages on the same world, so their inputs are identical
 (`PolicyResult.input_hashes`); only decide/act differ.
@@ -23,7 +35,7 @@ otherwise by a minimal built-in, and `Components.sources` records which (also wr
     demand     sentinel.demand.aggregate_scenarios + zone_demand_rows/actions (#44) -> fallback: summed quantiles
     predictors world.default_predictors() (MockPredictor / world-aware mock) until trained models are injected
     wind       built-in rule classifier (M6 stand-in: fault stop / underperformance / data gap from expected power);
-               baseline alerts = built-in WindMon rules (#24 stand-in)
+               baseline alerts = WindMon's four rules (#24 sentinel.eval.baselines.wind; built-in stand-in fallback)
 """
 
 from __future__ import annotations
@@ -61,10 +73,12 @@ from sentinel.contracts import (
 
 from . import actions as A
 from .audit import Ts, iso, local_dt
-from .world import World
+from .world import SiteDay, World
 
 DT = 0.25
 EPS = 1e-6
+BLIND_REASONS = ("stale_telemetry", "data_gap")  # qualify reasons that mean "not seen", not "not fit"
+STALE_AGE_S = 3600.0  # qualify DEFAULT_THRESHOLDS["site"]["stale_minutes"] = 60: older telemetry = out of the pool
 BASELINE_ALIASES = {"baseline": "baseline", "self_consumption": "baseline", "threshold": "threshold",
                     "sentinel": "sentinel"}
 
@@ -433,6 +447,7 @@ class Components:
     threshold_step: Callable[..., tuple[float, float, float]]
     sources: dict[str, str] = field(default_factory=dict)
     errors: dict[str, int] = field(default_factory=dict)
+    windmon_flags: Optional[Callable[..., dict[str, np.ndarray]]] = None  # #24 rules (baseline policy); None = builtin
 
     @property
     def fallbacks(self) -> list[str]:
@@ -478,13 +493,19 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
                        predictors: Optional[dict[str, Any]] = None) -> Components:
     """Real modules where they import (lazy), built-in fallbacks otherwise. `force_fallback=True` or a list of
     slots (planner, qualify, triage, committer, demand) forces the built-ins (tests, A/B checks)."""
-    forced = set(["planner", "qualify", "triage", "committer", "demand"] if force_fallback is True
+    forced = set(["planner", "qualify", "triage", "committer", "demand", "wind_baseline"] if force_fallback is True
                  else (force_fallback or []))
     src: dict[str, str] = {}
     preds = predictors or world.default_predictors()
-    versions = sorted({getattr(p, "model_version", "?") for p in preds.values()})
+    versions = sorted({getattr(p, "model_version", "?") for k, p in preds.items() if k != "zone"})  # zone: unused
     src["predictors"] = ("mock:" if all(str(v).startswith("mock") for v in versions) else "real:") + ",".join(versions)
-    src["wind_classifier"] = "fallback:builtin_rules (M6 stand-in)"
+    for k, p in sorted((k, p) for k, p in preds.items() if k != "zone"):  # zone: unused by the loop
+        v = str(getattr(p, "model_version", "?"))
+        src[f"predictor_{k}"] = ("fallback:mock " if v.startswith("mock") else "real:") + \
+            f"{getattr(p, 'model', k)}:{v}"
+    wind_real = not str(getattr(preds.get("wind"), "model_version", "mock")).startswith("mock")
+    src["wind_classifier"] = ("real:windnbm per-step classes" if wind_real
+                              else "fallback:builtin_rules (M6 stand-in)")
     src["wind_baseline"] = "fallback:builtin_windmon_rules (#24 stand-in)"
 
     def _try(slot: str, fn: Callable[[], Any]) -> Any:
@@ -578,6 +599,11 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
                                                                                 t=world.day_t0(d), policy=policy)
 
     comps = Components(preds, plan, backup, qmany, tri, tcfg, commit_fn, zd, rest_fn, thr_step, src)
+    wm = _try("wind_baseline", lambda: __import__("sentinel.eval.baselines.wind.windmon_rules",
+                                                  fromlist=["windmon_flags"]))
+    if wm is not None and hasattr(wm, "windmon_flags"):
+        comps.windmon_flags = wm.windmon_flags
+        src["wind_baseline"] = "real:sentinel.eval.baselines.wind.windmon_rules (#24)"
     banner = ", ".join(f"{k}={v}" for k, v in sorted(src.items()))
     log(f"components: {banner}")
     if comps.fallbacks:
@@ -599,6 +625,11 @@ class LoopConfig:
     c_deg_lei_kwh: float = 0.12  # ~EUR 0.025/kWh per direction (plan §3.5), both policies
     threshold_alpha: float = 0.5
     haircut: float = 0.05
+    readmit: bool = True  # re-admit a dropped pool site to the live pool once its telemetry is fresh and it re-qualifies
+    hold_blind: bool = True  # a pool site dropped only for missing telemetry keeps running the schedule on its device
+    blind_haircut: bool = True  # haircut committed flex by the share expected to be unobserved (trailing-day profile)
+    conformal: bool = True  # commit on PV/load quantiles conformally recalibrated on the replay's PAST days (observed)
+    conformal_buckets: int = 24  # hour-of-day buckets (t0 = local midnight): dawn load misses differ from midday PV
     n_scenarios: int = 200
     seed: int = 0
 
@@ -623,10 +654,19 @@ class PolicyResult:
     n_actions: dict[str, int] = field(default_factory=dict)
     action_ids: list[str] = field(default_factory=list)
     plan_status: dict[str, int] = field(default_factory=dict)
+    conformal: dict[int, dict[str, Any]] = field(default_factory=dict)  # day -> commit-time calibration (runs.notes)
 
     @property
     def minutes_over_limit(self) -> float:
         return sum(v["minutes_over"] for v in self.feeder_days.values())
+
+    @property
+    def energy_over_limit_kwh(self) -> float:
+        return sum(v.get("kwh_over", 0.0) for v in self.feeder_days.values())
+
+    @property
+    def peak_overshoot_kw(self) -> float:
+        return max((v.get("peak_overshoot", 0.0) for v in self.feeder_days.values()), default=0.0)
 
     @property
     def p10_hit_rate(self) -> Optional[float]:
@@ -664,6 +704,14 @@ def _digest(*arrays: Sequence[float]) -> str:
     for a in arrays:
         h.update(np.asarray(a, dtype=np.float64).tobytes())
     return h.hexdigest()[:16]
+
+
+def _is_fallback(p: Prediction, comps: "Components") -> int:
+    """predictions.is_fallback: the envelope's own flag (real adapters), else whether its version is a mock."""
+    fb = (p.extra or {}).get("is_fallback")
+    if fb is not None:
+        return int(fb)
+    return int(str(p.model_version).startswith("mock") or "predictors" in comps.fallbacks)
 
 
 def _predict(pred: Any, asset: Mapping[str, Any], t0: str) -> Prediction:
@@ -707,6 +755,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
     under_run: dict[str, int] = {}
     curt_ep: dict[str, dict[str, Any]] = {}
     windmon_active: dict[tuple[str, str], bool] = {}
+    windmon = _windmon_precompute(world, comps) if (not sentinel and world.turbines) else None
     res.turbine_days = len(world.turbines) * world.days
 
     def act(action: Action, ts: int, rows: Optional[dict[str, list[dict[str, Any]]]] = None,
@@ -721,8 +770,9 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
     if write_inputs:  # grid-twin flags (M8 stand-in in the mock world), once per run
         t0 = world.day_t0(0)
         for fl in world.gis_flags():
-            rec = A.audit("gridtwin:mock-1", fl, {"tau": fl["tau"]}, 0.5, "flagged",
-                          note="mock grid-twin (M8 stand-in)")
+            twin_v = getattr(world, "gridtwin_version", "gridtwin:mock-1")
+            rec = A.audit(twin_v, fl, {"tau": fl["tau"], "score": fl.get("score")}, fl.get("threshold", 0.5),
+                          "flagged", note=fl.get("message") or "mock grid-twin (M8 stand-in)")
             a = A.make(ActionType.GIS_FLAG, t0, policy, run_id, {
                 "section_id": fl["section_id"], "recorded_feeder": fl["recorded_feeder"],
                 "recorded_phase": fl["recorded_phase"], "suggested_feeder": fl["suggested_feeder"],
@@ -730,6 +780,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 "geometry": {"type": "Point", "coordinates": [fl["lon"], fl["lat"]]}}, rec, fl["section_id"])
             act(a, world.day_ts(0))
 
+    prev_oday: dict[str, SiteDay] = {}  # yesterday's observation: the blind-haircut profile at commit time
+    cal_hist: dict[str, list[tuple[np.ndarray, ...]]] = {"pv": [], "load": []}  # (y, q10, q50, q90, observed)
     for d in range(world.days):
         t0 = world.day_t0(d)
         day_ts = world.day_ts(d)
@@ -738,18 +790,22 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         pdig = _digest(prices)
         mean_price = float(np.mean(prices))
         # ---------------------------------------------------------------- perceive
-        sday = {s: world.site_day(s, d) for s in sites}
+        sday = {s: world.site_day(s, d) for s in sites}  # physics (truth): battery step, grid, realised
+        oday = {s: world.observed_site_day(s, d) for s in sites}  # observation: everything the agent reads
         tday = {t: world.turbine_day(t, d) for t in world.turbines}
         # ---------------------------------------------------------------- estimate
         pv_p = {s: _predict(preds["pv"], sites[s].row, t0) for s in sites}
         ld_p = {s: _predict(preds["load"], sites[s].row, t0) for s in sites}
+        if hasattr(preds["sitehealth"], "prefetch"):  # batch M4 over all sites (real models)
+            preds["sitehealth"].prefetch(list(sites), t0, 0)
         hl_p = {s: _predict(preds["sitehealth"], sites[s].row, t0) for s in sites}
+        reassess = set(getattr(preds["sitehealth"], "reassess_ticks", ()) or ())
         wd_p = {t: _predict(preds["wind"], world.turbines[t].row, t0) for t in world.turbines}
         day_inputs = {}
         for s in sites:
             g = world.feeders[sites[s].feeder_id].spec.g_kw
             inp = A.site_inputs(sites[s].row, {"pv": pv_p[s], "load": ld_p[s], "sitehealth": hl_p[s]},
-                                _digest(sday[s].pv_kw, sday[s].load_kw, sday[s].telemetry_age_s), pdig, g)
+                                _digest(oday[s].pv_kw, oday[s].load_kw, oday[s].telemetry_age_s), pdig, g)
             res.input_hashes[(d, s)] = day_inputs[s] = input_hash(inp)
         res.day_hashes[d] = input_hash([day_inputs, {t: _digest([x if x is not None else -1 for x in tday[t].act_pwt_kw])
                                                      for t in tday}, {t: wd_p[t].to_dict() for t in wd_p}])
@@ -763,14 +819,14 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                                  "q10_kw": p.q10[k], "q50_kw": p.q50[k], "q90_kw": p.q90[k],
                                                  "ood_score": p.ood_score, "member_std": p.member_std,
                                                  "t0": created, "horizon_idx": k,
-                                                 "is_fallback": int("predictors" in comps.fallbacks)})
+                                                 "is_fallback": _is_fallback(p, comps)})
                 h = hl_p[s]
                 sink.add("predictions", {"run_id": run_id, "asset_id": s, "model": h.model,
                                          "model_version": h.model_version, "ts": Ts(day_ts), "q10_kw": h.q10[0],
                                          "q50_kw": h.q50[0], "q90_kw": h.q90[0], "fault_probs_json": h.fault_probs,
                                          "ood_score": h.ood_score, "member_std": h.member_std,
                                          "t0": created, "horizon_idx": 0,
-                                         "is_fallback": int("predictors" in comps.fallbacks)})
+                                         "is_fallback": _is_fallback(h, comps)})
             rows, acts = _safe_zone_demand(comps, world, d, ld_p, run_id, policy)
             sink.add_many("zone_demand", rows)
             for a in acts:
@@ -785,14 +841,17 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         e_day0 = dict(energy)
         if sentinel:
             ass = _safe_qualify(comps, [site_rows[s] for s in sites], hl_p,
-                                {s: sday[s].telemetry_age_s[0] / 60 for s in sites}, None, {})
+                                {s: oday[s].telemetry_age_s[0] / 60 for s in sites}, None, {})
             for x in ass:
                 statuses[x.asset_id] = x.status
+            blind = _blind_profile(prev_oday, cfg) if cfg.blind_haircut else {}
+            cal = _fit_conformal(cal_hist, cfg) if cfg.conformal else {}
+            res.conformal[d] = {k: c.to_dict() for k, c in cal.items()}
             for fid, feeder in world.feeders.items():
                 members = feeder.site_ids
                 pool[fid] = [s for s in members if s in energy and statuses[s].in_pool and statuses[s].battery_ok]
                 pl, comm = _plan_and_commit(comps, cfg, world, feeder.spec, members, pool[fid], pv_p, ld_p,
-                                            statuses, energy, prices_kwh, t0, res)
+                                            statuses, energy, prices_kwh, t0, res, blind, cal)
                 plans[fid], commitments[fid] = pl, comm
                 gi = feeder.spec.g_kw
                 for s in pool[fid]:
@@ -811,12 +870,14 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 thresholds[s] = cfg.threshold_alpha * max(0.0, max(a - b for a, b in zip(pv_p[s].q50, ld_p[s].q50)))
         # ---------------------------------------------------------------- tick loop: act + log
         live_pool = {f: set(pool[f]) for f in pool}
+        held = {f: set() for f in pool}  # blind pool sites still running today's schedule on the device (no re-plan)
         cf_e = {s: e_day0[s] for f in pool for s in pool[f]}  # rule counterfactual for realised
         realised = {f: [0.0] * DAY_STEPS for f in world.feeders}
         executed = {s: [0.0] * DAY_STEPS for s in batt_sites}
         pv_obs = {s: np.full(DAY_STEPS, np.nan) for s in sites}
         tb_obs = {t: np.full(DAY_STEPS, np.nan) for t in world.turbines}
-        fd = {f: {"peak_export": 0.0, "minutes_over": 0.0, "peak_import_evening": 0.0} for f in world.feeders}
+        fd = {f: {"peak_export": 0.0, "minutes_over": 0.0, "peak_import_evening": 0.0, "kwh_over": 0.0,
+                  "peak_overshoot": 0.0} for f in world.feeders}  # overshoot kW: max(0, export - limit)
         park_acc = {p: {"prod": 0.0, "exp": 0.0, "avail": 0.0, "curt": 0.0, "dq": 0.0, "n": 0, "issues": []}
                     for p in world.parks}
         revision = 0
@@ -838,7 +899,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                prices_kwh[k:], iso(ts), res)
                     old = plans[fid]
                     plans[fid] = FeederPlan(fid, old.t0, old.policy, old.g_kw,
-                                            {s: old.schedule.get(s, [0.0] * DAY_STEPS)[:k] + pl.schedule.get(s, [0.0] * (DAY_STEPS - k))
+                                            {s: old.schedule[s] if s in held[fid] else  # the device keeps its copy
+                                             old.schedule.get(s, [0.0] * DAY_STEPS)[:k] + pl.schedule.get(s, [0.0] * (DAY_STEPS - k))
                                              for s in set(old.schedule) | set(pl.schedule)},
                                             old.export_curve[:k] + pl.export_curve, old.slack[:k] + pl.slack,
                                             solver_status=pl.solver_status)
@@ -852,11 +914,26 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                                revision=revision), ts)
             # -- perceive this tick
             for s in sites:
-                if sday[s].telemetry_age_s[k] == 0:
-                    pv_obs[s][k] = sday[s].pv_kw[k]
+                if oday[s].telemetry_age_s[k] == 0:
+                    pv_obs[s][k] = oday[s].pv_kw[k]
+            # -- intraday SiteHealth re-check (real M4 on the 24 h ending now): new fault evidence mid-day
+            if k in reassess:
+                if hasattr(preds["sitehealth"], "prefetch"):
+                    preds["sitehealth"].prefetch(list(sites), t0, k)
+                for s in sites:
+                    hl_p[s] = preds["sitehealth"].predict(sites[s].row, Window(t0=t0, horizon=DAY_STEPS,
+                                                                               meta={"tick": k}))
+                    if write_inputs:
+                        h = hl_p[s]
+                        sink.add("predictions", {"run_id": run_id, "asset_id": s, "model": h.model,
+                                                 "model_version": h.model_version, "ts": tsx, "q10_kw": h.q10[k],
+                                                 "q50_kw": h.q50[k], "q90_kw": h.q90[k],
+                                                 "fault_probs_json": h.fault_probs, "ood_score": h.ood_score,
+                                                 "member_std": h.member_std, "t0": tsx, "horizon_idx": k,
+                                                 "is_fallback": _is_fallback(h, comps)})
             # -- qualify every tick (sentinel): telemetry age + measured loss; triage
             if sentinel:
-                ages_min = {**{s: sday[s].telemetry_age_s[k] / 60 for s in sites},
+                ages_min = {**{s: oday[s].telemetry_age_s[k] / 60 for s in sites},
                             **{t: _gap_age(tday[t].act_pwt_kw, k) for t in world.turbines}}
                 ass = _safe_qualify(comps, [site_rows[s] for s in sites] + [world.turbines[t].row for t in world.turbines],
                                     {**hl_p, **_wind_preds(world, wd_p, tday, k, tb_obs, under_run)}, ages_min,
@@ -874,7 +951,16 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     if x.asset_kind == "site":
                         fid = sites[x.asset_id].feeder_id
                         if x.asset_id in live_pool[fid] and not st.in_pool:
-                            live_pool[fid].discard(x.asset_id)  # drops to its local rule for the rest of the day
+                            live_pool[fid].discard(x.asset_id)  # out of re-planning
+                            if cfg.hold_blind and st.reason in BLIND_REASONS:
+                                held[fid].add(x.asset_id)  # blind only: the device keeps today's schedule
+                        elif x.asset_id in held[fid] and not st.in_pool and st.reason not in BLIND_REASONS:
+                            held[fid].discard(x.asset_id)  # a real problem now: its own local rule
+                        elif (cfg.readmit and x.asset_id in cf_e and x.asset_id not in live_pool[fid]
+                              and st.in_pool and st.battery_ok):
+                            live_pool[fid].add(x.asset_id)  # telemetry fresh again and re-qualified: back on plan
+                            held[fid].discard(x.asset_id)
+                            statuses[x.asset_id] = st  # (the next hourly re-solve starts from its current energy)
                 tri = _safe_triage(comps, ass, t_iso, triage_state, comps.triage_config(mean_price, run_id, policy))
                 triage_state = tri.state
                 for a in [*tri.work_orders, *tri.alerts, *tri.human_reviews]:
@@ -884,7 +970,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 _wind_tick(world, d, k, ts, ass, wd_p, tday, park_acc, curt_ep, act, run_id, policy, sink,
                            write_inputs, res)
             elif world.turbines:
-                _windmon_tick(world, k, ts, tday, windmon_active, act, run_id, policy, res)
+                _windmon_tick(world, k, ts, tday, windmon_active, act, run_id, policy, res, windmon, d)
             # -- act: batteries
             fexp = {f: 0.0 for f in world.feeders}
             for s in sites:
@@ -898,7 +984,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     p, grid = 0.0, pv - ld
                 else:
                     e = energy[s]
-                    if sentinel and s in live_pool[fid]:
+                    if sentinel and (s in live_pool[fid] or s in held[fid]):
                         req = plans[fid].schedule.get(s, [0.0] * DAY_STEPS)[k]
                         p, e2 = _clip_step(b, e, req)
                         clipped = abs(p - req) > 1e-3
@@ -923,14 +1009,16 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 fexp[fid] += grid
                 res.cost_lei += prices_kwh[k] * (max(-grid, 0.0) - cfg.beta * max(grid, 0.0)) * DT \
                     + cfg.c_deg_lei_kwh * abs(executed[s][k] if b else 0.0) * DT
-                stale = sd.telemetry_age_s[k] > 0
+                od = oday[s]
+                stale = od.telemetry_age_s[k] > 0
                 if write_inputs:  # telemetry once per DB (per-policy battery rows are in schedules)
                     sink.add("measurements", {"run_id": run_id, "asset_id": s, "ts": tsx,
-                                              "pv_ac_kw": None if stale else pv, "load_kw": None if stale else ld,
+                                              "pv_ac_kw": None if stale else od.pv_kw[k],
+                                              "load_kw": None if stale else od.load_kw[k],
                                               "batt_kw": None if (stale or b is None) else round(p, 4),
                                               "soc": None if (stale or b is None) else round(energy[s] / b.capacity_kwh, 4),
-                                              "inv_voltage_v": None if stale else sd.inv_voltage_v[k],
-                                              "inv_status": str(sd.inv_status[k]), "data_quality": "gap" if stale else "ok"})
+                                              "inv_voltage_v": None if stale else od.inv_voltage_v[k],
+                                              "inv_status": str(od.inv_status[k]), "data_quality": "gap" if stale else "ok"})
                 if asset_steps and write_inputs and (cfg.step_predictions or not _night_interior(sd.pv_kw, pv_p[s], k)):
                     sink.add("asset_steps", {"run_id": run_id, "asset_id": s, "ts": tsx, "actual_kw": pv,
                                              "q10_kw": pv_p[s].q10[k], "q50_kw": pv_p[s].q50[k],
@@ -955,6 +1043,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 acc = fd[fid]
                 acc["peak_export"] = max(acc["peak_export"], x)
                 acc["minutes_over"] += 15.0 * over
+                acc["kwh_over"] += max(0.0, x - g) * DT
+                acc["peak_overshoot"] = max(acc["peak_overshoot"], x - g)
                 if 17 <= local_h < 22:
                     acc["peak_import_evening"] = max(acc["peak_import_evening"], -x)
                 sink.add("feeder_curves", {"run_id": run_id, "feeder_id": fid, "policy": policy, "ts": tsx,
@@ -962,6 +1052,15 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                            "limit_kw": g, "slack_kw": round(max(0.0, x - g), 4),
                                            "is_violation": int(over)})
         # ---------------------------------------------------------------- end of day: log
+        prev_oday = oday
+        for s in sites:  # calibration slice for the next days: what was forecast vs what was observed
+            ok = np.asarray(oday[s].telemetry_age_s, float) == 0
+            for key, p, y in (("pv", pv_p[s], oday[s].pv_kw), ("load", ld_p[s], oday[s].load_kw)):
+                y, q50 = np.asarray(y, float), np.asarray(p.q50, float)
+                e_obs, e_fc = float(y[ok].sum()), float(q50[ok].sum())
+                if ok.sum() < DAY_STEPS // 2 or e_fc < 1.0 or not 1 / 3 <= e_obs / e_fc <= 3:
+                    continue  # data-quality gate: a site-day off by > 3x in energy is a unit / sensor problem
+                cal_hist[key].append((y, np.asarray(p.q10, float), q50, np.asarray(p.q90, float), ok))
         for fid in world.feeders:
             res.feeder_days[(fid, d)] = fd[fid]
         if sentinel:
@@ -978,7 +1077,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     sink.add("commitments", {"run_id": run_id, "feeder_id": fid, "ts": Ts(world.tick_ts(d, k)),
                                              "nominal_kw": c.nominal[k], "available_kw": c.available[k],
                                              "committed_kw": cm, "realised_kw": round(r, 4),
-                                             "haircut_h": c.haircut, "hit": None if hit is None else int(hit)})
+                                             "haircut_h": c.extra.get("haircut_k", [c.haircut] * DAY_STEPS)[k],
+                                             "hit": None if hit is None else int(hit)})
                 c.realised = [round(v, 4) for v in realised[fid]]
                 rec = A.audit(comps.sources["committer"], {"feeder": fid, "t0": t0, "pool": sorted(pool[fid]),
                                                            "inputs": [day_inputs[s] for s in sorted(pool[fid])]},
@@ -1049,10 +1149,16 @@ def _wind_preds(world, wd_p, tday, k, tb_obs, under_run) -> dict[str, Prediction
         a = tday[t].act_pwt_kw[k]
         if a is not None:
             tb_obs[t][k] = a
-        cls, score, under_run[t] = _wind_rules(rated, a, base.q50[k], under_run.get(t, 0))
         p = copy.copy(base)
+        steps = (base.extra or {}).get("step_classes")
+        if steps is not None and a is not None:  # real M6: its class at this step
+            cls, score = steps[k], float(base.extra["step_scores"][k])
+            if cls == "normal":
+                score = 1.0 - score
+        else:
+            cls, score, under_run[t] = _wind_rules(rated, a, base.q50[k], under_run.get(t, 0))
+            p.model_version = f"{base.model_version}+rules"
         p.anomaly_class, p.anomaly_score = cls, score
-        p.model_version = f"{base.model_version}+rules"
         out[t] = p
     return out
 
@@ -1116,20 +1222,86 @@ def _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, p
     return pl
 
 
+def _blind_profile(prev_oday: Mapping[str, SiteDay], cfg: LoopConfig) -> dict[str, np.ndarray]:
+    """Per site, the steps of the day it is expected to be blind (telemetry age over the qualify stale limit), from
+    the same steps of the trailing day's observation, widened by +-1 h. Only what is known at t0; {} on day 0."""
+    out = {}
+    w = 4
+    for s, od in prev_oday.items():
+        blind = np.asarray(od.telemetry_age_s, float) > STALE_AGE_S
+        if blind.any():
+            pad = np.concatenate([np.zeros(w, bool), blind, np.zeros(w, bool)])
+            out[s] = np.array([pad[k:k + 2 * w + 1].any() for k in range(len(blind))])
+    return out
+
+
+def _blind_haircut(c: Commitment, contrib: Mapping[str, np.ndarray], blind: Mapping[str, np.ndarray]) -> Commitment:
+    """Commit-time telemetry haircut by step: committed_k *= 1 - loss_k, loss_k = share of the planned reduction at
+    step k that comes from pool sites expected to be blind then (their flex cannot be verified or steered, so it is
+    not sold). Effective h_k = 1 - (1 - h)(1 - loss_k) goes to extra['haircut_k'] and to commitments.haircut_h."""
+    T = len(c.committed)
+    num, den = np.zeros(T), np.zeros(T)
+    for s, r in contrib.items():
+        r = np.maximum(0.0, np.asarray(r, float)[:T])
+        den += r
+        if s in blind:
+            num += r * blind[s][:T]
+    loss = np.divide(num, den, out=np.zeros(T), where=den > 1e-9)
+    if loss.any():
+        c.committed = [float(x) * (1.0 - l) for x, l in zip(c.committed, loss)]
+        c.extra["haircut_k"] = [round(1.0 - (1.0 - c.haircut) * (1.0 - l), 4) for l in loss]
+        c.extra["blind_sites"] = sorted(s for s in contrib if s in blind)
+    return c
+
+
+def _fit_conformal(hist: Mapping[str, list[tuple[np.ndarray, ...]]], cfg: LoopConfig) -> dict[str, Any]:
+    """Split-conformal offsets (sentinel.eval.uncertainty.conformal, normalised asymmetric CQR) per quantity, fitted on
+    every site-day already replayed (observed steps only): no information from the day being committed. Site-days
+    whose observed energy is off the forecast by > 3x are dropped (unit / sensor faults would poison the offsets) and
+    offsets are clipped to +-2 band widths. {} on day 0 or when the module is missing."""
+    try:
+        from sentinel.eval.uncertainty.conformal import ConformalCalibration, default_mask
+    except ImportError:
+        return {}
+    out = {}
+    for key, rows in hist.items():
+        if not rows:
+            continue
+        y, q10, q50, q90, ok = (np.stack([r[i] for r in rows]) for i in range(5))
+        m = ok & default_mask(y, q10, q90)
+        if m.sum() < 200:
+            continue
+        c = ConformalCalibration.fit(y, (q10, q50, q90), mask=m, n_buckets=cfg.conformal_buckets,
+                                     model=key, model_version="online-past-days")
+        for mc in c.members.values():  # bounded: at most +-2 band widths per quantile
+            mc.offsets = {k: [float(np.clip(v, -2.0, 2.0)) for v in vs] for k, vs in mc.offsets.items()}
+        out[key] = c
+    return out
+
+
 def _plan_and_commit(comps, cfg, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, prices_kwh, t0,
-                     res):
+                     res, blind: Optional[Mapping[str, np.ndarray]] = None, cal: Optional[Mapping[str, Any]] = None):
     pl = _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, prices_kwh, t0, res)
     sites = world.sites
     pv_d = {s: _scaled(pv_p[s], _pv_factor(statuses.get(s))) for s in pool_ids}
     red = np.zeros(pl.horizon)
-    for s in pool_ids:  # planned export reduction vs the rule on P50 (fallback committer, audit)
+    contrib = {}
+    for s in pool_ids:  # planned export reduction vs the rule on P50 (fallback committer, audit, blind haircut)
         b = sites[s].battery
         e = energy[s]
         sched = pl.schedule.get(s, [0.0] * pl.horizon)
+        r = contrib[s] = np.zeros(pl.horizon)
         for t in range(pl.horizon):
             p_rule, e, _ = self_consumption_step(b, e, pv_d[s].q50[t], ld_p[s].q50[t])
-            red[t] += sched[t] - p_rule
-    ctx = {"planned_reduction": red, "haircut": cfg.haircut, "pv": pv_d, "load": {s: ld_p[s] for s in pool_ids},
+            r[t] = sched[t] - p_rule
+        red += r
+    ld_c = {s: ld_p[s] for s in pool_ids}
+    if cal:  # the commitment samples calibrated bands; the plan itself stays on the models' quantiles
+        if "pv" in cal:
+            pv_d = {s: cal["pv"].apply_prediction(pv_d[s]) for s in pool_ids}
+        if "load" in cal:
+            ld_c = {s: cal["load"].apply_prediction(ld_c[s]) for s in pool_ids}
+    ctx = {"planned_reduction": red, "haircut": cfg.haircut, "pv": pv_d, "load": ld_c,
            "batteries": {s: sites[s].battery for s in pool_ids},
            "soc0": {s: energy[s] / sites[s].battery.capacity_kwh for s in pool_ids},
            "pv_cap": {s: float(sites[s].row.get("kwp_recorded") or 10.0) for s in pool_ids},
@@ -1141,6 +1313,8 @@ def _plan_and_commit(comps, cfg, world, spec, members, pool_ids, pv_p, ld_p, sta
             raise
         comps.note_error("committer", e)
         c = fallback_commit(spec, pl, ctx)
+    if blind:
+        c = _blind_haircut(c, contrib, blind)
     return pl, c
 
 
@@ -1208,22 +1382,47 @@ def _close_curtailment(pid, curt_ep, act, run_id, policy, ts, res):
     res.turbine_alerts += 1
 
 
-def _windmon_tick(world, k, ts, tday, active, act, run_id, policy, res):
-    """Baseline wind O&M: WindMon's four rules on raw SCADA, one alert per rule episode per turbine."""
+def _windmon_precompute(world, comps):
+    """#24's WindMon rules over the whole replay (causal: each step uses only past steps); None -> builtin rules."""
+    fn = comps.windmon_flags
+    if fn is None:
+        return None
+    try:
+        got = world.turbine_sensors()
+        if got is None:
+            return None
+        ids, sens, err, rated = got
+        flags = fn(sens, err, rated)
+        return {"col": {t: j for j, t in enumerate(ids)}, "flags": {r: np.asarray(f, bool) for r, f in flags.items()}}
+    except Exception as e:
+        comps.note_error("wind_baseline", e)
+        comps.sources["wind_baseline"] = "fallback:builtin_windmon_rules (#24 import ok, run failed)"
+        return None
+
+
+def _windmon_tick(world, k, ts, tday, active, act, run_id, policy, res, windmon=None, d=0):
+    """Baseline wind O&M: WindMon's four rules on raw SCADA, one alert per rule episode per turbine (#24's rules when
+    importable, else the builtin stand-in)."""
     for t, tb in world.turbines.items():
         td = tday[t]
         a, w, gb = td.act_pwt_kw[k], td.wd_spd_kmh[k], td.gearbox_t_c[k]
-        fired = {
-            "HIGH_WIND_ZERO_POWER": a is not None and w is not None and w > 15.0 and a < 10.0,
-            "DATA_GAP": a is None,
-            "TEMPERATURE_SPIKE": gb is not None and gb > 85.0,
-            "SUSPECT_DATA": td.error_code[k] != 0 and is_error_code("gearbox_t", float(td.error_code[k])),
-        }
+        if windmon is not None:
+            row, j = d * DAY_STEPS + k, windmon["col"][t]
+            fired = {r: bool(f[row, j]) for r, f in windmon["flags"].items()}
+            model, note = "windmon_rules:#24", "WindMon rule (#24, sentinel.eval.baselines.wind)"
+        else:
+            fired = {
+                "HIGH_WIND_ZERO_POWER": a is not None and w is not None and w > 15.0 and a < 10.0,
+                "DATA_GAP": a is None,
+                "TEMPERATURE_SPIKE": gb is not None and gb > 85.0,
+                "SUSPECT_DATA": td.error_code[k] != 0 and is_error_code("gearbox_t", float(td.error_code[k])),
+            }
+            model, note = "windmon_rules:builtin", "WindMon rule (builtin #24 stand-in)"
         for rule, thr in _WINDMON:
-            on = fired[rule]
+            on = fired.get(rule, False)
             if on and not active.get((t, rule)):
-                rec = A.audit("windmon_rules:builtin", {"t": t, "ts": ts, "act": a, "wd_spd": w, "gearbox_t": gb},
-                              {"act_pwt_kw": a, "wd_spd_kmh": w}, thr, "alert", note="WindMon rule (#24 stand-in)")
+                rec = A.audit(model, {"t": t, "ts": ts, "act": a, "wd_spd": w, "gearbox_t": gb},
+                              {"act_pwt_kw": a, "wd_spd_kmh": w}, thr, "alert", note=note)
                 act(A.make(ActionType.ALERT, iso(ts), policy, run_id, {
                     "asset_id": t, "asset_kind": "turbine", "park_id": tb.park_id,
                     "severity": Severity.WARNING.value, "code": rule,

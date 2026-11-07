@@ -45,16 +45,73 @@ def _git_sha() -> Optional[str]:
         return None
 
 
+def _predictor_report(preds: dict[str, Any]) -> dict[str, Any]:
+    from .predictors import predictor_report
+
+    return predictor_report({k: v for k, v in preds.items() if k != "zone"})
+
+
+def feeder_line(head: tuple[float, float], points: Sequence[tuple[float, float]], max_points: int = 200
+                ) -> dict[str, Any]:
+    """GeoJSON LineString ([lon, lat]) for a radial LV feeder: a minimum spanning tree over the substation head and
+    the feeder's sites (Prim, local equirectangular distance), walked depth-first from the head so one line draws
+    every branch (back along a branch before the next). Falls back to sites ordered by distance from the head when
+    the walk would exceed `max_points`. Deterministic (ties by input order)."""
+    pts = [tuple(map(float, head))] + [tuple(map(float, p)) for p in points]
+    n = len(pts)
+    if n == 1:
+        return {"type": "LineString", "coordinates": [list(pts[0]), list(pts[0])]}
+    kx = math.cos(math.radians(pts[0][1]))
+
+    def d2(a: int, b: int) -> float:
+        return ((pts[a][0] - pts[b][0]) * kx) ** 2 + (pts[a][1] - pts[b][1]) ** 2
+
+    parent = [-1] * n
+    best = [d2(0, j) for j in range(n)]
+    done = [False] * n
+    done[0] = True
+    children: dict[int, list[int]] = {i: [] for i in range(n)}
+    for j in range(1, n):
+        parent[j] = 0
+    for _ in range(n - 1):
+        j = min((k for k in range(n) if not done[k]), key=lambda k: best[k])
+        done[j] = True
+        children[parent[j]].append(j)
+        for k in range(n):
+            if not done[k] and d2(j, k) < best[k]:
+                best[k], parent[k] = d2(j, k), j
+    walk: list[int] = []
+
+    def dfs(i: int) -> None:
+        walk.append(i)
+        for c in sorted(children[i], key=lambda c: d2(i, c)):
+            dfs(c)
+            walk.append(i)
+
+    sys.setrecursionlimit(max(1000, 4 * n))
+    dfs(0)
+    while len(walk) > 1 and walk[-1] == walk[-2]:
+        walk.pop()
+    if len(walk) > max_points:
+        walk = sorted(range(n), key=lambda k: d2(0, k))[:max_points]
+    # trim the final return to the head: the line ends at the last branch tip
+    while len(walk) > 2 and walk[-1] in walk[:-1]:
+        walk.pop()
+    return {"type": "LineString", "coordinates": [[round(pts[k][0], 5), round(pts[k][1], 5)] for k in walk]}
+
+
 def write_topology(db: AuditDB, world: World) -> None:
     for fid, f in world.feeders.items():
         sites = [world.sites[s] for s in f.site_ids]
+        geom = feeder_line((f.lon, f.lat), [(float(s.row["lon"]), float(s.row["lat"])) for s in sites])
         db.add("feeders", {
             "id": fid, "name": f"{fid} {f.locality}", "county": f.county,
             "locality": f.locality, "limit_kw": f.spec.g_kw, 
             "tau": f.spec.tau, "gis_trust": "low" if f.spec.tau < 0.8 else "ok", "n_sites": len(sites),
             "g_max_kw": f.spec.g_max_kw, "g_conservative_kw": f.spec.g_conservative_kw,
             "installed_pv_kw": round(sum(float(s.row.get("kwp_recorded") or 0) for s in sites), 2),
-            "installed_batt_kwh": round(sum(s.battery.capacity_kwh for s in sites if s.battery), 2)})
+            "installed_batt_kwh": round(sum(s.battery.capacity_kwh for s in sites if s.battery), 2),
+            "geometry_json": geom})
     for pid, p in world.parks.items():
         rated = sum(world.turbines[t].rated_kw for t in p.turbine_ids)
         db.add("parks", {"id": pid, "name": p.name, "county": p.county, "lat": p.lat,
@@ -83,6 +140,16 @@ def write_topology(db: AuditDB, world: World) -> None:
             "rotor_diameter_m": r.get("rotor_d_m"), "hub_height_m": r.get("hub_height_m"), "metadata_json": r})
 
 
+KPI_UNITS = {"minutes_over_limit": "min", "lei_per_home": "lei/home/month", "alerts_per_turbine_day": "1/turbine-day",
+             "energy_over_limit": "kWh", "peak_overshoot": "kW"}
+
+
+def hero_feeder(world: World) -> Optional[str]:
+    from .world import HERO_FEEDER_ID
+
+    return HERO_FEEDER_ID if HERO_FEEDER_ID in world.feeders else None
+
+
 def compute_metrics(world: World, results: dict[str, PolicyResult]) -> dict[str, float]:
     m: dict[str, float] = {}
     base, sent = results.get("baseline"), results.get("sentinel")
@@ -90,6 +157,14 @@ def compute_metrics(world: World, results: dict[str, PolicyResult]) -> dict[str,
     for pol, r in results.items():
         m[f"minutes_over_limit_{pol}"] = r.minutes_over_limit
         m[f"minutes_over_limit_per_feeder_day_{pol}"] = r.minutes_over_limit / n_fd
+        m[f"energy_over_limit_{pol}"] = r.energy_over_limit_kwh
+        m[f"peak_overshoot_{pol}"] = r.peak_overshoot_kw
+        hf = hero_feeder(world)
+        for (f, d), v in sorted(r.feeder_days.items()):
+            if f == hf:  # the hero feeder day by day (minutes can rise while energy over the limit falls)
+                m[f"minutes_over_limit_{f}_d{d}_{pol}"] = v["minutes_over"]
+                m[f"energy_over_limit_{f}_d{d}_{pol}"] = v.get("kwh_over", 0.0)
+                m[f"peak_overshoot_{f}_d{d}_{pol}"] = v.get("peak_overshoot", 0.0)
         m[f"comfort_breaches_{pol}"] = float(r.comfort_breaches)
         m[f"alerts_per_turbine_day_{pol}"] = r.turbine_alerts / r.turbine_days if r.turbine_days else 0.0
         m[f"lei_cost_per_home_month_{pol}"] = r.cost_lei / max(1, r.n_homes) * 30 / max(1, world.days)
@@ -161,9 +236,16 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             "created_at": Ts(started), "finished_at": Ts(int(datetime.now(timezone.utc).timestamp())),
             "week_start": w.week_start,
             "notes": {"components": comps.sources, "fallbacks": comps.fallbacks, "component_errors": comps.errors,
+                      "predictors": _predictor_report(comps.predictors),
+                      **(w.replay_notes() if hasattr(w, "replay_notes") else {}),
                       "world": w.describe(), "resolve_hourly": resolve_hourly, "schema": db.schema_source,
                       "inputs_hash": __import__("sentinel.contracts", fromlist=["input_hash"]).input_hash(
                           res.day_hashes), "plan_status": res.plan_status,
+                      "commit_calibration": {d: {k: {"method": "online split conformal, past replay days",
+                                                     "buckets": v.get("n_buckets"),
+                                                     **{f: next(iter(v["members"].values()))[f]
+                                                        for f in ("n_cal", "raw_coverage")}}
+                                                 for k, v in c.items()} for d, c in res.conformal.items()},
                       "warning": ("FALLBACK components: " + ", ".join(comps.fallbacks)) if comps.fallbacks else ""}})
     metrics = compute_metrics(w, results)
     for pol, rid in run_ids.items():
@@ -175,8 +257,17 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             if val is None or (isinstance(val, float) and math.isnan(val)):
                 continue
             db.add("kpis", {"run_id": rid, "policy": pol, "name": name, "value": float(val), "label": w.label,
-                            "unit": {"minutes_over_limit": "min", "lei_per_home": "lei/home/month",
-                                     "alerts_per_turbine_day": "1/turbine-day"}.get(name)})
+                            "unit": KPI_UNITS.get(name)})
+        # energy over the limit + peak overshoot: all feeders x days, and the hero feeder day by day
+        hf = hero_feeder(w)
+        extra = ["energy_over_limit", "peak_overshoot"] + [f"{k}_{hf}_d{d}" for d in range(w.days) for k in
+                                                           ("minutes_over_limit", "energy_over_limit", "peak_overshoot")
+                                                           if hf]
+        for name in extra:
+            val = metrics.get(f"{name}_{pol}")
+            if val is not None:
+                db.add("kpis", {"run_id": rid, "policy": pol, "name": name, "value": float(val), "label": w.label,
+                                "unit": KPI_UNITS.get(name.split(f"_{hf}_d")[0] if hf else name)})
     summary = db.summary()
     db.close()
     secs = time.perf_counter() - t_start
@@ -187,7 +278,8 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
         order = ["peak_reduction", "peak_reduction_congested", "minutes_over_limit"] + \
                 [f"minutes_over_limit_{p}" for p in pols] + ["p10_hit_rate", "comfort_breaches"] + \
                 [f"comfort_breaches_{p}" for p in pols] + ["lei_per_home", "alerts_per_turbine_day"] + \
-                [f"alerts_per_turbine_day_{p}" for p in pols]
+                [f"alerts_per_turbine_day_{p}" for p in pols] + [f"energy_over_limit_{p}" for p in pols] + \
+                [f"peak_overshoot_{p}" for p in pols]
         for k in dict.fromkeys(order):
             if k in metrics:
                 print(f"LAB_METRIC {k}={metrics[k]:.4g}")
