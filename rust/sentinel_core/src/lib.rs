@@ -6,12 +6,13 @@
 
 use numpy::ndarray::{Array2, Array3};
 use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
-            PyUntypedArrayMethods};
+            PyReadwriteArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 mod cusum;
 mod rollout;
+mod windows;
 
 /// cusum_two_sided(x: f64[m, n], k: float, h: float, cap: float | None = None)
 ///   -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
@@ -91,6 +92,71 @@ fn battery_rollout<'py>(
     Ok((soc, batt))
 }
 
+/// Shared argument checks for the K2 window gathers; returns (r, w, length) as usize.
+fn window_args(src_shape: &[usize], rows: usize, starts: usize, length: i64, out_shape: &[usize])
+    -> PyResult<(usize, usize, usize)> {
+    if rows != starts {
+        return Err(PyValueError::new_err("rows and starts must have the same length"));
+    }
+    if length < 0 {
+        return Err(PyValueError::new_err("length must be >= 0"));
+    }
+    let length = length as usize;
+    if out_shape != [rows, length] {
+        return Err(PyValueError::new_err(format!("out must have shape ({rows}, {length}), got {out_shape:?}")));
+    }
+    Ok((src_shape[0], src_shape[1], length))
+}
+
+/// window_gather_bytes(src u8[r, w], rows i64[b], starts i64[b], step, offset, length, out u8[b, length])
+///
+/// out[k] = src[rows[k], starts[k]*step + offset ..][..length] (units = bytes). Same-dtype window copy; the
+/// Python wrapper `sentinel.kernels.windows.window_gather_rust` views the arrays as bytes.
+#[pyfunction]
+#[pyo3(signature = (src, rows, starts, step, offset, length, out))]
+#[allow(clippy::too_many_arguments)]
+fn window_gather_bytes<'py>(
+    py: Python<'py>,
+    src: PyReadonlyArray2<'py, u8>,
+    rows: PyReadonlyArray1<'py, i64>,
+    starts: PyReadonlyArray1<'py, i64>,
+    step: i64,
+    offset: i64,
+    length: i64,
+    mut out: PyReadwriteArray2<'py, u8>,
+) -> PyResult<()> {
+    let (r, w, length) = window_args(src.shape(), rows.len(), starts.len(), length, out.shape())?;
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let (s, ro, st) = (src.as_slice().map_err(contig)?, rows.as_slice().map_err(contig)?,
+                       starts.as_slice().map_err(contig)?);
+    let o = out.as_slice_mut().map_err(contig)?;
+    py.detach(|| windows::gather_copy(s, r, w, ro, st, step, offset, length, o)).map_err(PyValueError::new_err)
+}
+
+/// window_gather_f16_f32(src u16[r, w] (float16 bits), rows, starts, step, offset, length, out f32[b, length])
+///
+/// Like `window_gather_bytes` (units = elements) with float16 -> float32 conversion, bit-identical to numpy.
+#[pyfunction]
+#[pyo3(signature = (src, rows, starts, step, offset, length, out))]
+#[allow(clippy::too_many_arguments)]
+fn window_gather_f16_f32<'py>(
+    py: Python<'py>,
+    src: PyReadonlyArray2<'py, u16>,
+    rows: PyReadonlyArray1<'py, i64>,
+    starts: PyReadonlyArray1<'py, i64>,
+    step: i64,
+    offset: i64,
+    length: i64,
+    mut out: PyReadwriteArray2<'py, f32>,
+) -> PyResult<()> {
+    let (r, w, length) = window_args(src.shape(), rows.len(), starts.len(), length, out.shape())?;
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let (s, ro, st) = (src.as_slice().map_err(contig)?, rows.as_slice().map_err(contig)?,
+                       starts.as_slice().map_err(contig)?);
+    let o = out.as_slice_mut().map_err(contig)?;
+    py.detach(|| windows::gather_f16_f32(s, r, w, ro, st, step, offset, length, o)).map_err(PyValueError::new_err)
+}
+
 /// Number of rayon worker threads (for the bench log).
 #[pyfunction]
 fn num_threads() -> usize {
@@ -102,6 +168,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(cusum_two_sided, m)?)?;
     m.add_function(wrap_pyfunction!(battery_rollout, m)?)?;
+    m.add_function(wrap_pyfunction!(window_gather_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(window_gather_f16_f32, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }
