@@ -28,6 +28,7 @@ The per-prediction rows frame (`judge_rows`, also what J3 trains on) is document
 
 from __future__ import annotations
 
+import copy
 import importlib
 import json
 import math
@@ -196,7 +197,39 @@ class _LedgerAdapter:
                 f"counted, not printed)")
 
 
-def _load_ledger(models_dir: Path) -> Any:
+class _J2Ledger:
+    """J2's batch ledger (#147, `sentinel.judge.ledger.Ledger(outcomes, priors, start)`) used day by day: outcomes
+    accumulate as the replay grades them, the ledger is rebuilt when they change, and `lookup(day=D)` reads only
+    outcomes with observed_at <= D (J2's causal grid). No outcomes yet -> the version's prior (J2 `Priors`)."""
+
+    def __init__(self, mod: Any, models_dir: Path, start: Optional[str] = None, run_id: str = ""):
+        self.mod, self.start, self.run_id = mod, start, run_id
+        self.priors = mod.Priors.from_dir(models_dir)
+        self.rows: list[dict[str, Any]] = []
+        self.L: Any = None
+        self.version = "real:sentinel.judge.ledger.Ledger"
+
+    def update(self, outcomes: Any) -> None:
+        recs = outcomes.to_dict("records") if hasattr(outcomes, "to_dict") else list(outcomes)
+        if recs:
+            self.rows.extend({k: _clean(v) for k, v in r.items()} for r in recs)
+            self.L = None
+
+    def lookup(self, model, model_version, score_name, bucket, day=None) -> dict[str, Any]:
+        if not self.rows:
+            p = float(self.priors.get(model, model_version, score_name, bucket))
+            lo, hi = self.mod.beta_interval(np.array([p]), np.array([0.0]))
+            return {"prior": p, "trust": p, "n_eff": 0.0, "lo80": float(lo[0]), "hi80": float(hi[0]),
+                    "band_scale": 1.0, "health_alert": False}
+        if self.L is None:
+            import polars as pl
+
+            self.L = self.mod.Ledger(pl.DataFrame(self.rows, infer_schema_length=None), self.priors,
+                                     start=self.start, run_id=self.run_id)
+        return dict(self.L.lookup(model, model_version, score_name, bucket, day))
+
+
+def _load_ledger(models_dir: Path, start: Optional[str] = None, run_id: str = "") -> Any:
     fallback = PriorLedger(models_dir)
     try:
         mod = importlib.import_module("sentinel.judge.ledger")
@@ -205,22 +238,20 @@ def _load_ledger(models_dir: Path) -> Any:
     except Exception as e:
         log(f"WARNING sentinel.judge.ledger failed to import ({type(e).__name__}: {e}); prior-only ledger")
         return fallback
+    if hasattr(mod, "Ledger") and hasattr(mod, "Priors"):  # J2 (#147)
+        try:
+            return _LedgerAdapter(_J2Ledger(mod, models_dir, start, run_id), fallback)
+        except Exception as e:
+            log(f"WARNING J2 ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
+            return fallback
     cls = getattr(mod, "Ledger", None) or getattr(mod, "TrustLedger", None)
     if cls is None:
         return fallback
-    for ctor in ("from_models", "from_dir", "load"):
-        if hasattr(cls, ctor):
-            try:
-                obj = getattr(cls, ctor)(models_dir)
-                break
-            except Exception:
-                continue
-    else:
-        try:
-            obj = cls()
-        except Exception as e:
-            log(f"WARNING ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
-            return fallback
+    try:
+        obj = cls()
+    except Exception as e:
+        log(f"WARNING ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
+        return fallback
     if not hasattr(obj, "lookup"):
         log("WARNING sentinel.judge.ledger has no lookup(); prior-only ledger")
         return fallback
@@ -244,12 +275,55 @@ def _load_model(models_dir: Path) -> tuple[Any, str]:
     return (j, "loaded") if j is not None else (None, "no Judge weights")
 
 
+class _J1Grader:
+    """J1's grader (#146, `sentinel.judge.grader.grade`) called once per replay day on that day's predictions.
+
+    Observations come from `obs_from_world` (what the agent observed, built once per run); reports are the Judge's
+    audit checks for the day (`world.audit_checks`, sampled towards uncertain verdicts, §5.6); M8 flags on day 0.
+    Outcomes that need later data (residual check, visits) carry their own later observed_at, and the ledger only
+    reads an outcome from the day it was observable (§5.5)."""
+
+    def __init__(self, mod: Any):
+        self.mod = mod
+        self._obs: dict[int, Any] = {}
+        self.version = "real:sentinel.judge.grader.grade"
+
+    def __call__(self, ctx: dict[str, Any]) -> Any:
+        w, d = ctx["world"], int(ctx["d"])
+        if id(w) not in self._obs:
+            self._obs = {id(w): self.mod.obs_from_world(w)}
+        obs = self._obs[id(w)]
+        preds = [p for k in ("pvnet", "loadnet", "sitehealth") for p in ctx["predictions"].get(k, {}).values()]
+        calls = ctx.get("wind_calls") or {}
+        for t, p in ctx["predictions"].get("windnbm", {}).items():
+            if (getattr(p, "extra", None) or {}).get("step_classes") is None and t in calls:
+                p = copy.copy(p)  # the loop's per-tick M6 stand-in classes, summarised as the day's call
+                p.anomaly_class, p.anomaly_score = calls[t]
+            preds.append(p)
+        reports = []
+        if hasattr(w, "audit_checks"):
+            weights = ctx.get("audit_weights") or None
+            try:
+                reports = list(w.audit_checks(d, weights=weights))
+            except TypeError:
+                reports = list(w.audit_checks(d))
+        kw: dict[str, Any] = {"run_id": ctx["run_id"], "horizon_end_ts": int(w.day_ts(d)) + 86400}
+        if d == 0 and ctx.get("gis_flags"):
+            kw["gis_flags"] = ctx["gis_flags"]
+            kw["gis_version"] = str(getattr(w, "gridtwin_version", "mock-1"))
+        return self.mod.grade(preds, obs, reports, **kw)
+
+
 def _load_grader() -> Optional[Callable[[dict[str, Any]], Any]]:
     try:
         mod = importlib.import_module("sentinel.judge.grader")
     except Exception:
         return None
-    return getattr(mod, "grade_loop_day", None)
+    if hasattr(mod, "grade_loop_day"):
+        return mod.grade_loop_day
+    if hasattr(mod, "grade") and hasattr(mod, "obs_from_world"):
+        return _J1Grader(mod)
+    return None
 
 
 # ------------------------------------------------------------------------------------------- input gate (§5.4)
@@ -334,6 +408,7 @@ class JudgeSlot:
         self.residual_d1: dict[str, float] = {}
         self.trust_hist: dict[tuple[str, str, str, str], list[tuple[int, float]]] = {}
         self.wind_counts: dict[str, Counter] = {}
+        self.wind_calls: dict[str, tuple[str, float]] = {}
         self.wind_score: dict[tuple[str, str], float] = {}
         self.gis_sites: set[str] = set()
         self.gis_flags: list[dict[str, Any]] = []
@@ -346,7 +421,7 @@ class JudgeSlot:
     def start_run(self, world: Any, run_id: str, sink: Any, gis_flags: Sequence[Mapping[str, Any]] = ()) -> None:
         self._reset()
         self.world, self.run_id, self.sink = world, run_id, sink
-        self.ledger = _load_ledger(self.models_dir)
+        self.ledger = _load_ledger(self.models_dir, self._context(world.day_t0(0))[0], run_id)
         for t in ("judge_verdicts", "trust", "outcomes"):
             ok = sink.has_table(t) if hasattr(sink, "has_table") else True
             if ok:
@@ -516,6 +591,8 @@ class JudgeSlot:
             safe = [(n, k) for k, n in c.items() if k in SAFETY_CLASSES]
             other = [(n, k) for k, n in c.items() if k not in ("normal", None)]
             calls[t] = max(safe)[1] if safe else (max(other)[1] if other else "normal")
+        self.wind_calls = {t: (c, self.wind_score.get((t, c), 0.5 if c != "normal" else 0.05))
+                           for t, c in calls.items()}
         by_park: dict[str, Counter] = {}
         for t in tids:
             by_park.setdefault(str(w.turbines[t].park_id), Counter())[calls[t]] += 1
@@ -759,7 +836,9 @@ class JudgeSlot:
             ctx = {"run_id": self.run_id, "d": d, "day": rows["day"].iat[0] if rows is not None and len(rows) else None,
                    "t0": t0, "rows": rows, "predictions": {"pvnet": dict(pv_p), "loadnet": dict(ld_p),
                                                            "sitehealth": dict(hl_p), "windnbm": dict(wd_p)},
-                   "observed": dict(oday), "turbines": dict(tday), "world": self.world}
+                   "observed": dict(oday), "turbines": dict(tday), "world": self.world,
+                   "wind_calls": dict(self.wind_calls), "gis_flags": self.gis_flags,
+                   "audit_weights": self._audit_weights(rows)}
             try:
                 outc = self.grader(ctx)
             except Exception as e:
@@ -769,15 +848,30 @@ class JudgeSlot:
                 if n == 0:
                     log(f"WARNING grade_loop_day raised {type(e).__name__}: {e} (further errors counted)")
             if outc is not None and len(outc):
-                outc = pd.DataFrame(outc)
+                outc = led_rows = pd.DataFrame(outc)  # the ledger gets the grader's rows as they are
                 if "outcomes" in self.tables:
+                    if "bucket" not in outc.columns and "kind" in outc.columns:  # J1 rows carry the conditions
+                        outc = outc.assign(bucket=[
+                            _bucket_key(kind=r.get("kind", "site"), seen=bool(r.get("seen", True)),
+                                        battery=bool(r.get("battery", False)),
+                                        season=r.get("season") or season_of(int(str(r["day"])[5:7])),
+                                        quality=r.get("quality") or "clean", ood_high=bool(r.get("ood_high", False)))
+                            for r in outc.to_dict("records")])
                     keep = [c for c in OUTCOME_COLUMNS if c in outc.columns]
                     recs = outc[keep].assign(run_id=self.run_id).to_dict("records")
                     self.sink.add_many("outcomes", [{k: _clean(v) for k, v in r.items()} for r in recs])
                 self.n_outcomes += len(outc)
-                self.ledger.update(outc)
+                self.ledger.update(led_rows)
         self.day_rows.pop(d - 1, None)
         return judged
+
+    def _audit_weights(self, rows: Optional[pd.DataFrame]) -> dict[str, float]:
+        """§5.6: audit draws favour assets whose least-trusted verdict sits near a threshold (weight 0.1 + bump)."""
+        if rows is None or rows.empty or "p_valid" not in rows:
+            return {}
+        p = rows.groupby("asset_id")["p_valid"].min().dropna()
+        th = (self.thresholds.widen("forecast"), self.thresholds.use("forecast"))
+        return {str(a): 0.1 + max(math.exp(-(((v - t) / 0.15) ** 2)) for t in th) for a, v in p.items()}
 
     # -- report -------------------------------------------------------------------------------------
     def summary(self) -> dict[str, Any]:

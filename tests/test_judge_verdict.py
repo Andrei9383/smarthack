@@ -182,7 +182,7 @@ def test_slot_with_a_judge_model_ledger_and_grader(monkeypatch):
 
     slot = S.JudgeSlot(judge=fake, model_status="loaded", grader=grader)
     led = _LowLedger()
-    monkeypatch.setattr(S, "_load_ledger", lambda d: S._LedgerAdapter(led, S.PriorLedger(d)))
+    monkeypatch.setattr(S, "_load_ledger", lambda d, *a: S._LedgerAdapter(led, S.PriorLedger(d)))
     res, sink = _run(w, slot)
     v = pd.DataFrame(sink.rows["judge_verdicts"])
     assert set(v["model"]) >= {"pvnet", "loadnet", "sitehealth", "windnbm"}
@@ -205,7 +205,7 @@ def test_slot_with_a_judge_model_ledger_and_grader(monkeypatch):
 def test_slot_safety_call_passes_with_low_trust(monkeypatch):
     w = _small_world(days=1)
     slot = S.JudgeSlot()
-    monkeypatch.setattr(S, "_load_ledger", lambda d: S._LedgerAdapter(_LowLedger(), S.PriorLedger(d)))
+    monkeypatch.setattr(S, "_load_ledger", lambda d, *a: S._LedgerAdapter(_LowLedger(), S.PriorLedger(d)))
     slot.start_run(w, "t", L._MemSink())
     tid = sorted(w.turbines)[0]
     base = w.default_predictors()["wind"].predict(w.turbines[tid].row, L.Window(t0=w.day_t0(0), horizon=96))
