@@ -4,10 +4,10 @@ import { useMap } from "@sentinel-app/ui/components/map";
 import type { GeoJSONSource, MapLayerMouseEvent } from "maplibre-gl";
 import { useEffect, useMemo, useRef } from "react";
 
-import { STATUS_COLORS } from "@/panels/site/site-sheet";
 import { useSelectedSite } from "@/panels/site/use-site";
 
 import { useMapRightPadding } from "../use-map-right-padding";
+import { OM_COLORS, OM_STATUS_COLORS } from "./colors";
 import { useOmAssets, useWorkOrders } from "./use-om-data";
 import { useFocusedPark, useSelectedTurbine } from "./use-om-state";
 
@@ -19,10 +19,12 @@ const LAYERS = {
   count: "om-cluster-count",
   points: "om-points",
 };
-const OK = "#2dd4bf";
-const ISSUE = "#f59e0b";
-const RISK = "#ef4444";
-const UNKNOWN = "#475569";
+const OK = OM_COLORS.ok;
+const ISSUE = OM_COLORS.warn;
+const RISK = OM_COLORS.critical;
+const UNKNOWN = OM_COLORS.unknown;
+// light basemap: solid fills with a white ring, no glows
+const RING = OM_COLORS.ring;
 
 type AssetProps = {
   id: string;
@@ -33,12 +35,11 @@ type AssetProps = {
 };
 
 // a turbine that is out of service is stopped, which reads red; an excluded home is just grey
+// (OM_STATUS_COLORS maps "stopped" to red)
 const statusColor: unknown[] = [
   "match",
   ["get", "status"],
-  "stopped",
-  RISK,
-  ...Object.entries(STATUS_COLORS).flat(),
+  ...Object.entries(OM_STATUS_COLORS).flat(),
   UNKNOWN,
 ];
 
@@ -108,11 +109,14 @@ export function OmLayers() {
           ["!", ["has", "point_count"]],
           ["==", ["get", "risk"], 1],
         ],
+        // a crisp red ring with a faint fill, readable on a light basemap
         paint: {
-          "circle-radius": 16,
+          "circle-radius": 12,
           "circle-color": RISK,
-          "circle-opacity": 0.35,
-          "circle-blur": 0.6,
+          "circle-opacity": 0.12,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": RISK,
+          "circle-stroke-opacity": 0.9,
         },
       });
       map.addLayer({
@@ -122,10 +126,10 @@ export function OmLayers() {
         filter: ["has", "point_count"],
         paint: {
           "circle-color": ["case", [">", ["get", "issues"], 0], ISSUE, OK],
-          "circle-opacity": 0.85,
+          "circle-opacity": 1,
           "circle-radius": ["step", ["get", "point_count"], 12, 20, 16, 60, 21],
-          "circle-stroke-width": 1.5,
-          "circle-stroke-color": "#0f172a",
+          "circle-stroke-width": 2,
+          "circle-stroke-color": RING,
         },
       });
       map.addLayer({
@@ -137,7 +141,7 @@ export function OmLayers() {
           "text-field": ["get", "point_count_abbreviated"],
           "text-size": 11,
         },
-        paint: { "text-color": "#0f172a" },
+        paint: { "text-color": OM_COLORS.onFill },
       });
       map.addLayer({
         id: LAYERS.points,
@@ -150,10 +154,10 @@ export function OmLayers() {
           "circle-stroke-width": [
             "case",
             ["==", ["get", "kind"], "turbine"],
-            1.5,
-            0.5,
+            2,
+            1.25,
           ],
-          "circle-stroke-color": "#f8fafc",
+          "circle-stroke-color": RING,
         },
       });
     }

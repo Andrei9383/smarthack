@@ -86,7 +86,10 @@ class ArraySource:
         return pd.date_range(self.t_start, periods=self.n_days, freq="D")
 
     def site_meta(self, key: str, dtype=np.float32) -> np.ndarray:
-        return np.array([s.get(key, 0) for s in self.sites], dtype=dtype)
+        return np.array([(s.get(key) if s.get(key) is not None else 0) for s in self.sites], dtype=dtype)
+
+    def has(self, name: str) -> bool:
+        return name in self.index["arrays"]
 
     def loc_idx(self) -> np.ndarray:
         return self.site_meta("loc_idx", np.int64)
@@ -109,24 +112,46 @@ def find_lab_windows() -> Path | None:
     return None
 
 
+def build_lab_windows(verbose: bool = True) -> Path | None:
+    """Build #10's windows (fleet #11 + faults #12) into the shared cache via sentinel.data.windows; None if the
+    data cards are not on this branch."""
+    try:
+        from sentinel.data import windows as W
+    except ImportError as e:
+        if verbose:
+            print(f"[data] sentinel.data.windows (#10) not available ({e})", flush=True)
+        return None
+    return W.build_windows(log=(print if verbose else (lambda *a, **k: None)))
+
+
 def open_source(kind: str = "auto", synth_sites: int | None = None, verbose: bool = True) -> ArraySource:
-    """kind: auto (lab windows if present, else synthetic) | lab | synth | <path to a layout dir>."""
+    """kind: auto | lab | synth | <path to a layout dir>.
+
+    auto/lab = #10's windows (shared #11 fleet + #12 faults): read ~/.cache/sentinel/data-v{N}/windows, building it
+    with sentinel.data.windows when missing. auto falls back to the #14 synthetic generator only if #10 is absent
+    or fails; lab raises instead."""
     if kind not in ("auto", "lab", "synth"):
         return ArraySource(Path(kind))
     if kind in ("auto", "lab"):
         d = find_lab_windows()
+        err = None
+        if d is None:
+            try:
+                d = build_lab_windows(verbose)
+            except Exception as e:  # pragma: no cover - surfaced in the log
+                err = e  # e.g. a concurrent run on the same worker renamed its build into place first
+                d = find_lab_windows()
         if d is not None:
             try:
                 src = ArraySource(d)
                 if verbose:
-                    print(f"[data] using #10 windows at {d}", flush=True)
+                    print(f"[data] using #10 windows at {d} ({src.index.get('label')})", flush=True)
                 return src
             except ValueError as e:
-                if kind == "lab":
-                    raise
-                print(f"[data] #10 windows not usable ({e}); falling back to synthetic", flush=True)
-        elif kind == "lab":
-            raise FileNotFoundError("no #10 windows under ~/.cache/sentinel/data-v*/windows")
+                err = e
+        if kind == "lab":
+            raise FileNotFoundError(f"#10 windows not available: {err}")
+        print(f"[data] #10 windows not usable ({err}); FALLING BACK to the #14 synthetic generator", flush=True)
     from .synth import SynthConfig, generate
 
     cfg = SynthConfig() if synth_sites is None else SynthConfig(n_sites=synth_sites)
@@ -152,7 +177,16 @@ class Splits:
         return s_.ravel(), d_.ravel()
 
 
-def make_splits(src: ArraySource) -> Splits:
+def make_splits(src: ArraySource):
+    """#10's split definition (sentinel.data.splits) when present, else the identical local copy below."""
+    try:
+        from sentinel.data import splits as S10
+    except ImportError:
+        return _make_splits_local(src)
+    return S10.make_splits(src.day_dates(), [s.get("split", "train") for s in src.sites], HIST_DAYS)
+
+
+def _make_splits_local(src: ArraySource) -> Splits:
     dates = src.day_dates()
     years = dates.year.to_numpy()
     week = dates.isocalendar().week.to_numpy().astype(int)

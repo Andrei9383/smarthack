@@ -69,7 +69,7 @@ def _load_ckpt(path, model, device):
 
     ck = torch.load(path, map_location=device, weights_only=False)
     a = argparse.Namespace(**ck["args"])
-    net = build_model(model, a, ck["dims"]).to(device)
+    net = build_model(model, a, ck["dims"], ck["stats"]).to(device)
     net.load_state_dict(ck["state"])
     return net, ck["stats"], a.mode
 
@@ -114,7 +114,7 @@ def baseline_scores(raw, cus, starts, sites, factor):
     pv = raw["pv"].astype(np.float32)
     exp = raw["pvlib"].astype(np.float32) * factor[sites][:, None]
     kwp = raw["kwp_recorded"].astype(np.float32)
-    day = exp > 0.05 * kwp[:, None]
+    day = (exp > 0.05 * kwp[:, None]) & raw.get("valid", True)  # logger dropouts (0-filled) are not evidence
     ratio = (pv * day).sum(1) / np.maximum((exp * day).sum(1), 1e-3)
     # gating a tuned operator rule would use: no energy-ratio verdict on snow days or dark days
     snow = raw["wx"][..., 6].max(1) > 0.5
@@ -142,6 +142,8 @@ def cusum_all(src, factor, k):
     kwp = src.site_meta("kwp_recorded")[:, None]
     snow = np.asarray(src.array("weather_act")[:, :, 6], np.float32)[src.loc_idx()] > 0.5
     valid = (exp > 0.05 * kwp) & ~snow  # skip snow-covered steps
+    if src.has("valid"):
+        valid &= np.asarray(src.array("valid")) > 0  # and logger dropouts
     r = np.where(valid, (exp - pv) / kwp, 0.0)
     return M.cusum(r, k, valid)
 
@@ -162,8 +164,9 @@ def run(argv=None):
     common = ["--seed", str(args.seed), "--data", args.data, "--device", args.device]
     if args.synth_sites:
         common += ["--synth-sites", str(args.synth_sites)]
-    if args.eval_limit:
-        common += ["--eval-limit", str(args.eval_limit)]
+    # upstream M1/M2 are inputs here (their headline numbers come from the pvnet/loadnet runs): no LightGBM
+    # reference and a capped eval keep the M4 budget for M4
+    common += ["--no-lgbm", "--eval-limit", str(args.eval_limit or 20000)]
 
     with ctx.stage("upstream"):
         ups = {}

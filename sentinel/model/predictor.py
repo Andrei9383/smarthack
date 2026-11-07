@@ -84,11 +84,36 @@ def _weather(window: Window, n=H):
         raise ValueError("window.weather is required")
     w = _to_steps(window.weather, n)
     names = list(window.meta.get("weather_channels", ph.WEATHER_CHANNELS))
+    w = np.nan_to_num(w)
     out = np.zeros((n, len(ph.WEATHER_CHANNELS)))
     for i, c in enumerate(ph.WEATHER_CHANNELS):
         if c in names:
             out[:, i] = w[:, names.index(c)]
     return out, names
+
+
+def _fill_cloud(wx: np.ndarray, names: list[str], geom: np.ndarray) -> np.ndarray:
+    """Cloud channel derived exactly like #10's windows (the training data) do, from the daily clear-sky index:
+    cloud = clip(100 (1.05 - k) / 0.95, 0, 100). Applied even when a cloud column is given (eval.py takes ERA5
+    cloud_pct, which is inconsistent with the synthetic GHI), so serving inputs match training inputs."""
+    ci = ph.WEATHER_CHANNELS.index("cloud")
+    k = wx[:, 0].sum() / max(geom[:, 2].sum(), 1e-6)
+    wx = wx.copy()
+    wx[:, ci] = np.clip(100 * (1.05 - k) / 0.95, 0, 100)
+    return wx
+
+
+def _status(code, pv_kw, inverter_kw):
+    """Raw inverter codes (0 ok, 37 overvoltage) -> #10's training encoding: 0 off, 1 producing, 2 limiting,
+    3 overvoltage trip. Already-encoded inputs (values in 0..3) pass through."""
+    code = np.nan_to_num(np.asarray(code, np.float64))
+    if code.size and np.isin(code, (0, 1, 2, 3)).all() and (code > 0).any():
+        return code
+    pv = np.nan_to_num(np.asarray(pv_kw, np.float64))
+    st = np.where(pv > 0.005, 1.0, 0.0)
+    st[(pv >= 0.995 * inverter_kw) & (pv > 0.1)] = 2.0
+    st[code == 37] = 3.0
+    return st
 
 
 def _site_meta(asset):
@@ -145,9 +170,10 @@ class ForecastPredictor:
     def raw(self, asset: Mapping[str, Any], window: Window) -> dict:
         meta = _site_meta(asset)
         times = ph.times_utc(window.t0, H)
-        wx, _ = _weather(window)
+        wx, names = _weather(window)
         geom = (_to_steps(window.solar_geometry) if window.solar_geometry is not None
                 else ph.solar_geometry(times, meta["lat"], meta["lon"]))
+        wx = _fill_cloud(wx, names, geom)
         cal = ph.calendar_features(times)
         unit = 1.0 if window.meta.get("power_unit", "W") == "kW" else 1e-3
         raw = {k: np.array([v], np.float32) for k, v in meta.items()}
@@ -248,8 +274,11 @@ class SiteHealthPredictor:
         raw = self.pv.raw(asset, window)
         qs, _, _ = self.pv.quantiles(raw)
         m1 = np.stack(qs).mean(0)
-        pv = _to_steps(tel["pv_ac_w"]) * unit
-        load = _to_steps(tel.get("load_w", np.zeros(H))) * unit
+        pv_raw = _to_steps(tel["pv_ac_w"])
+        valid = np.isfinite(pv_raw)
+        pv = np.nan_to_num(pv_raw) * unit
+        load = np.nan_to_num(_to_steps(tel.get("load_w", np.zeros(H)))) * unit
+        inv_kw = float(raw["inverter_kw"][0])
         if self.load is not None and window.history is not None:
             lq, _, _ = self.load.quantiles(self.load.raw(asset, window))
             m2 = np.stack(lq).mean(0)[:, 1]
@@ -257,14 +286,19 @@ class SiteHealthPredictor:
         else:
             m2 = load
             raw["hist_load"] = np.full((1, F.HIST_DAYS * H), max(load.mean(), 0.1), np.float32)
-        bat = np.zeros((H, 2)) if window.battery is None else _to_steps(window.battery)
-        raw.update(pv=pv[None], volt=_to_steps(tel.get("inv_voltage_v", np.full(H, 230.0)))[None],
-                   status=_to_steps(tel.get("inv_status", (pv > 0).astype(float)))[None],
+        bat = np.zeros((H, 2)) if window.battery is None else np.nan_to_num(_to_steps(window.battery))
+        volt = np.nan_to_num(_to_steps(tel.get("inv_voltage_v", np.full(H, 230.0))), nan=230.0)
+        raw.update(pv=pv[None], volt=volt[None], valid=valid[None],
+                   status=_status(_to_steps(tel.get("inv_status", np.zeros(H))), pv, inv_kw)[None],
                    soc=bat[None, :, 0], batt=bat[None, :, 1] * unit, load=load[None], m1=m1[None], m2=m2[None])
         th = window.meta.get("telemetry_history")
         if th is not None:
-            raw["hist_volt"] = _hist(th["inv_voltage_v"], 1.0)
-            raw["hist_status"] = _hist(th["inv_status"], 1.0)
+            raw["hist_volt"] = _hist(np.where(np.nan_to_num(th["inv_voltage_v"]) > 0, th["inv_voltage_v"], 230.0), 1.0)
+            hpv = window.reference if window.reference is not None else np.zeros(len(th["inv_status"]))
+            hpv = np.nan_to_num(np.asarray(hpv, np.float64).ravel()) * unit
+            hst = np.asarray(th["inv_status"], np.float64).ravel()
+            n_h = min(len(hst), len(hpv))
+            raw["hist_status"] = _hist(_status(hst[-n_h:], hpv[-n_h:], inv_kw), 1.0)
             raw["hist_soc"] = _hist(th["soc"], 1.0)
             raw["hist_batt"] = _hist(th["batt_w"], unit)
         inp = F.site_inputs(raw)

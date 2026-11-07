@@ -47,7 +47,11 @@ class QuantileEncoder(nn.Module):
     """
 
     def __init__(self, c_seq, r_dim, c_sum, c_stat, d=64, layers=3, heads=4, ff=128, patch=8, horizon=96,
-                 drop=0.1, nonneg=True):
+                 drop=0.1, nonneg=True, pointwise=0, base=None):
+        """pointwise > 0: a per-step MLP over the seq channels (hidden size `pointwise`) added to the head, so the
+        step-wise physics mapping (weather/geometry/pvlib -> power, what a GBM learns) is direct instead of going
+        through 8-step patch embeddings. base = (channel, mean, std): q50 is a residual on that (un-normalised) seq
+        channel, e.g. pvlib-with-recorded-metadata per kWp for PV, the 7-day mean profile for load."""
         super().__init__()
         self.patch, self.n_patch, self.nonneg = patch, horizon // patch, nonneg
         self.patch_emb = nn.Linear(patch * c_seq, d)
@@ -59,6 +63,12 @@ class QuantileEncoder(nn.Module):
         self.blocks = nn.ModuleList(Block(d, heads, ff, drop) for _ in range(layers))
         self.ln = nn.LayerNorm(d)
         self.head = nn.Linear(d, patch * 3)
+        self.pw = (nn.Sequential(nn.Linear(c_seq, pointwise), nn.GELU(), nn.Linear(pointwise, pointwise), nn.GELU(),
+                                 nn.Linear(pointwise, 3)) if pointwise else None)
+        self.base_ch = None if base is None else int(base[0])
+        if base is not None:
+            self.register_buffer("base_mu", torch.tensor(float(base[1])))
+            self.register_buffer("base_sd", torch.tensor(float(base[2])))
 
     def forward(self, seq, ref, summ, stat, mask):
         B = seq.shape[0]
@@ -73,7 +83,11 @@ class QuantileEncoder(nn.Module):
             toks = blk(toks)
         toks = self.ln(toks)
         out = self.head(toks[:, : self.n_patch]).reshape(B, -1, 3)  # [B, 96, 3]
+        if self.pw is not None:
+            out = out + self.pw(seq)
         mid = out[..., 1]
+        if self.base_ch is not None:
+            mid = mid + seq[..., self.base_ch] * self.base_sd + self.base_mu
         if self.nonneg:
             mid = F.softplus(mid, beta=8.0)
         lo = mid - F.softplus(out[..., 0])
