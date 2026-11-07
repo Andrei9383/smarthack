@@ -1,0 +1,116 @@
+import { oc } from "@orpc/contract";
+import { z } from "zod";
+
+export const assetListItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  assetKind: z.string(),
+  status: z.string(),
+  headroomFactor: z.number(),
+  reason: z.string(),
+  county: z.string(),
+  locality: z.string().nullable().optional(),
+});
+export type AssetListItem = z.infer<typeof assetListItemSchema>;
+
+export const alertItemSchema = z.object({
+  id: z.string(),
+  assetId: z.string().nullable().optional(),
+  parkId: z.string().nullable().optional(),
+  feederId: z.string().nullable().optional(),
+  severity: z.string(),
+  kind: z.string(),
+  message: z.string(),
+  ts: z.number(),
+});
+export type AlertItem = z.infer<typeof alertItemSchema>;
+
+export const workOrderItemSchema = z.object({
+  id: z.string(),
+  assetId: z.string(),
+  assetKind: z.string(),
+  action: z.string(),
+  status: z.string(),
+  score: z.number(),
+  rankK: z.number().nullable().optional(),
+  leiAtRisk: z.number().nullable().optional(),
+});
+export type WorkOrderItem = z.infer<typeof workOrderItemSchema>;
+
+export const turbineDrawerSchema = z.object({
+  assetId: z.string(),
+  name: z.string(),
+  powerCurve: z.array(
+    z.object({
+      wdSpd: z.number(),
+      actPwt: z.number(),
+      expectedPwt: z.number().optional(),
+    }),
+  ),
+  tempTrends: z.array(
+    z.object({
+      ts: z.number(),
+      convTemp: z.number().optional(),
+      gearboxTemp: z.number().optional(),
+      genTemp: z.number().optional(),
+    }),
+  ),
+});
+export type TurbineDrawerData = z.infer<typeof turbineDrawerSchema>;
+
+export const parkReportItemSchema = z.object({
+  id: z.string(),
+  parkId: z.string().nullable().optional(),
+  day: z.number(),
+  productionMwh: z.number().nullable().optional(),
+  availabilityPct: z.number().nullable().optional(),
+  curtailedMwh: z.number().nullable().optional(),
+});
+export type ParkReportItem = z.infer<typeof parkReportItemSchema>;
+
+export const omContract = {
+  listAssets: oc
+    .input(
+      z
+        .object({
+          status: z.string().optional(),
+          assetKind: z.string().optional(),
+          runId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .output(z.array(assetListItemSchema)),
+  listAlerts: oc
+    .input(
+      z
+        .object({
+          runId: z.string().optional(),
+          severity: z.string().optional(),
+        })
+        .optional(),
+    )
+    .output(z.array(alertItemSchema)),
+  listWorkOrders: oc
+    .input(
+      z
+        .object({
+          runId: z.string().optional(),
+          status: z.string().optional(),
+        })
+        .optional(),
+    )
+    .output(z.array(workOrderItemSchema)),
+  getTurbineDrawer: oc
+    .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
+    .output(turbineDrawerSchema),
+  listReports: oc
+    .input(
+      z
+        .object({
+          parkId: z.string().optional(),
+          runId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .output(z.array(parkReportItemSchema)),
+};
