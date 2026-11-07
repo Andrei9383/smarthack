@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node -e \"require('fs').copyFileSync(require.resolve('maplibre-gl/dist/maplibre-gl-worker.mjs'),'public/maplibre-gl-worker.mjs')\"",
     "dev": "next dev --port 3001",
+    "prebuild": "node -e \"require('fs').copyFileSync(require.resolve('maplibre-gl/dist/maplibre-gl-worker.mjs'),'public/maplibre-gl-worker.mjs')\"",
     "build": "tsc -b ../../packages/api && next build",
     "check-types": "tsc -b ../../packages/api && tsc --noEmit",
     "start": "next start -H \"${HOST:-0.0.0.0}\" -p \"${PORT:-3000}\""

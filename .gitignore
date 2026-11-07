@@ -12,3 +12,4 @@ dist/
 local.db*
 demo/fixtures.sqlite
 demo/fixtures.sqlite-*
+apps/web/public/maplibre-gl-worker.mjs
