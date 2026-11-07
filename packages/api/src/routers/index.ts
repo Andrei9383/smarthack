@@ -3,10 +3,12 @@ import type { RouterClient } from "@orpc/server";
 import { protectedProcedure, publicProcedure } from "../index";
 import { feedersRouter } from "./feeders";
 import { manifestRouter } from "./manifest";
+import { productionRouter } from "./production";
 
 export const appRouter = {
   feeders: feedersRouter,
   manifest: manifestRouter,
+  production: productionRouter,
   healthCheck: publicProcedure.handler(() => {
     return "OK";
   }),

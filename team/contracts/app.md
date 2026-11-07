@@ -82,7 +82,7 @@ The application uses `@orpc/contract` and `@orpc/server` with Zod schemas define
 
 - **`feeders`**: `list`, `getCurves`, `getCommitments`, `listGisFlags`
 - **`om`**: `listAssets`, `listAlerts`, `listWorkOrders`, `listReviewQueue`, `getTurbineDrawer`, `listReports`
-- **`production`**: `getWindfield`, `getParkForecasts`, `getCountyTotals`
+- **`production`**: `getRun`, `listParks`, `getParkForecasts`, `getCountyTotals` (wind field is static: `/windfield/meta.json`)
 - **`demand`**: `getZones`, `getTopStressed`
 - **`flex`**: `getOverview`, `getFeedersFlex`
 - **`sites`**: `getDetail`, `getTelemetry`, `getSteps`, `getPredictions`

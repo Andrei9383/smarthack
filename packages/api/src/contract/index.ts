@@ -54,13 +54,8 @@ export const stubOmRouter = {
 };
 
 export const stubProductionRouter = {
-  getWindfield: publicProcedure.handler(() => ({
-    source: "stub",
-    bounds: [20.0, 43.4, 30.0, 48.5] as [number, number, number, number],
-    imageUnscale: [-30, 30] as [number, number],
-    speedMax: 20,
-    hours: [],
-  })),
+  getRun: publicProcedure.handler(() => null),
+  listParks: publicProcedure.handler(() => []),
   getParkForecasts: publicProcedure.handler(() => []),
   getCountyTotals: publicProcedure.handler(() => []),
 };
