@@ -194,7 +194,7 @@ export function FeederMotion({ feeders, homes }: { feeders: MotionFeeder[]; home
       setPaint(m, LAYERS.glow, {
         // the label chip is ~50 px wide, so the glow has to reach past it to read
         "circle-radius": 28 + breathe * 16,
-        "circle-opacity": close ? 0 : 0.12 + breathe * 0.26,
+        "circle-opacity": close ? 0 : 0.08 + breathe * 0.18, // gentle: a breathe, not an alarm
       });
     }
     if (rippling) {
