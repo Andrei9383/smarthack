@@ -12,6 +12,7 @@ mod features;
 mod rollout;
 mod rolling;
 mod scatter;
+mod selfcons;
 mod windows;
 
 /// cusum_two_sided(x f64[m, n], k, h, cap=None) -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
@@ -310,6 +311,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(site_features, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
+    m.add_function(wrap_pyfunction!(selfcons::self_consumption, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }
