@@ -1,6 +1,8 @@
 import { Activity, Factory, Network, Wrench, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
+import { DemandLayers } from "./demand/demand-layers";
+import { DemandPanel } from "./demand/demand-panel";
 import { FeederPanel } from "./feeders/feeder-panel";
 import { FeedersLayers } from "./feeders/feeders-layers";
 import { OmLayers } from "./om/om-layers";
@@ -52,5 +54,7 @@ export const MODES: Record<ModeId, ModeEntry> = {
     icon: Activity,
     blurb: "Zones by peak-stress score, peak hour and MW.",
     card: "#40",
+    Layers: DemandLayers,
+    Panel: DemandPanel,
   },
 };
