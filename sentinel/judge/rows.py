@@ -988,12 +988,29 @@ def _week_rows(m, p, d, keys, table, version, g, subs, spec, asset_ids, seen, ba
         r["y_alarm_precision"], r["y_miss_score"] = g["alarm_precision"], g["miss_score"]
         r["y_truth"] = g["truth"]
     r.update(_ledger_cols(m, fam, d, keys, table, version, np.asarray(r.get("alarm", np.zeros(S)), float) > 0.5))
+    r.update(_history_cols(p, fam, d))
     r["valid"] = g["valid"]
     r["graded"] = g["graded"].astype(float)
     r["drifted"] = drift_on[:, d].astype(float) if spec.drift and spec.drift.witness == m else np.zeros(S)
     r["year"] = np.full(S, spec.year)
     return pd.DataFrame(r)
 
+
+
+def _history_cols(p: dict, fam: str, d: int) -> dict[str, np.ndarray]:
+    """The witness's own outputs on earlier days of the replay (burn-in included, drift included): F.HISTORY_COLUMNS.
+    Per-day summaries are computed once per witness and kept on `p`."""
+    if "_daily" not in p:
+        if fam == "forecast":
+            s = F.summarize_forecast(p["q"][..., 0], p["q"][..., 1], p["q"][..., 2], p["kind"])  # [S, D]
+            p["_daily"] = {"energy_q50": s["energy_q50"], "band_rel": s["band_rel"]}
+        else:
+            pf = 1.0 - p["probs"][..., 0]
+            p["_daily"] = {"p_fault": pf, "alarm": (pf >= p["thr"]).astype(float)}
+    out = F.history_features(p["_daily"], d)
+    cur = p["q"][:, :, :, 1] if fam == "forecast" else p["probs"]
+    out["repeat_prev"] = F.repeats(cur[:, d], cur[:, d - 1]) if d > 0 else np.zeros(cur.shape[0])
+    return out
 
 
 SUB_VERSION = {"pvlib": "pvlib-recorded", "persistence_load": "persistence-d1"}

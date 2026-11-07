@@ -51,7 +51,12 @@ DETECTOR_COLUMNS = ["alarm", "p_fault", "p_fault_std", "p_top", "top_class", "ab
 SUB_COLUMNS = ["sub_model", "sub_energy", "sub_band_rel"]
 LEDGER_COLUMNS = ["trust_cal", "trust_sharp", "trust_ap", "trust_ms", "trust_main", "prior_main", "n_eff",
                   "trust_lo80", "trust_trend3", "band_scale", "health_alert", "sub_trust_main", "sub_n_eff"]
-RAW_COLUMNS = ID_COLUMNS + CONTEXT_COLUMNS + OWN_COLUMNS + DETECTOR_COLUMNS + SUB_COLUMNS + LEDGER_COLUMNS
+# the witness's own recent outputs for this asset (drift shows as a jump against them before any outcome arrives):
+# medians over the previous 7 days and over days 8-28 back, and whether today's output repeats yesterday's exactly
+HISTORY_COLUMNS = ["hist_band_rel7", "hist_band_rel28", "hist_energy7", "hist_energy28", "hist_p_fault7",
+                   "hist_p_fault28", "hist_alarm7", "repeat_prev"]
+RAW_COLUMNS = ID_COLUMNS + CONTEXT_COLUMNS + OWN_COLUMNS + DETECTOR_COLUMNS + SUB_COLUMNS + LEDGER_COLUMNS + \
+    HISTORY_COLUMNS
 
 # ------------------------------------------------------------------------------------------- features
 COMMON = ["witness", "battery", "seen", "month_sin", "month_cos", "sky", "ood_score", "ood_ratio", "is_fallback",
@@ -60,9 +65,11 @@ COMMON = ["witness", "battery", "seen", "month_sin", "month_cos", "sky", "ood_sc
           "sub_trust_main", "sub_gap", "sub_n_eff"]
 FEATURES: dict[str, list[str]] = {
     "forecast": COMMON + ["trust_cal", "trust_sharp", "band_rel", "member_std_rel", "energy_rel", "rel_vs_sub",
-                          "abs_rel_vs_sub", "sub_band_rel", "rel_vs_yday"],
+                          "abs_rel_vs_sub", "sub_band_rel", "rel_vs_yday", "band_vs_hist7", "band_vs_hist28",
+                          "energy_vs_hist7", "energy_vs_hist28", "repeat_prev"],
     "detector": COMMON + ["trust_ap", "trust_ms", "alarm", "p_fault", "p_fault_std", "p_top", "top_class",
-                          "abn_share", "resid_yday", "park_consensus", "member_std_rel"],
+                          "abn_share", "resid_yday", "park_consensus", "member_std_rel", "pfault_vs_hist7",
+                          "pfault_vs_hist28", "hist_alarm7", "repeat_prev"],
 }
 CATEGORICAL = ["witness", "top_class"]
 
@@ -86,7 +93,7 @@ def build(rows: pd.DataFrame, family: str) -> pd.DataFrame:
               "in_unit_jump", "trust_main", "n_eff", "trust_lo80", "trust_trend3", "band_scale", "health_alert",
               "sub_trust_main", "sub_n_eff", "trust_cal", "trust_sharp", "trust_ap", "trust_ms", "band_rel",
               "sub_band_rel", "alarm", "p_fault", "p_fault_std", "p_top", "abn_share", "resid_yday",
-              "park_consensus"):
+              "park_consensus", "hist_alarm7", "repeat_prev"):
         f[c] = _col(r, c)
     month = _col(r, "month")
     f["month_sin"], f["month_cos"] = np.sin(2 * np.pi * month / 12), np.cos(2 * np.pi * month / 12)
@@ -102,6 +109,11 @@ def build(rows: pd.DataFrame, family: str) -> pd.DataFrame:
     f["abs_rel_vs_sub"] = f["rel_vs_sub"].abs()
     yd = _col(r, "energy_yday")
     f["rel_vs_yday"] = (e50 - yd) / np.maximum(yd.abs(), 0.1)
+    for w in ("7", "28"):
+        hb, he = _col(r, f"hist_band_rel{w}"), _col(r, f"hist_energy{w}")
+        f[f"band_vs_hist{w}"] = f["band_rel"] / hb.where(hb > EPS)
+        f[f"energy_vs_hist{w}"] = (e50 - he) / np.maximum(he.abs(), 0.1)
+        f[f"pfault_vs_hist{w}"] = f["p_fault"] - _col(r, f"hist_p_fault{w}")
     tc = r["top_class"] if "top_class" in r else pd.Series(np.nan, index=r.index)
     f["top_class"] = pd.to_numeric(tc.map(lambda v: CLASS_CODE.get(v, np.nan) if isinstance(v, str) else v),
                                    errors="coerce").astype(float)
@@ -181,11 +193,37 @@ def detector_summary(probs: np.ndarray, threshold: float, classes: Sequence[str]
                                               else np.full(len(p), np.nan))}
 
 
+def history_features(daily: Mapping[str, np.ndarray], d: int) -> dict[str, np.ndarray]:
+    """Own-history columns for day index d from per-day summaries [N, D] (keys energy_q50, band_rel, p_fault, alarm;
+    any subset): medians over days d-7..d-1 (`*7`) and d-28..d-8 (`*28`), mean alarm rate over d-7..d-1."""
+    out: dict[str, np.ndarray] = {}
+    names = {"band_rel": "hist_band_rel", "energy_q50": "hist_energy", "p_fault": "hist_p_fault"}
+    for k, x in daily.items():
+        x = np.atleast_2d(np.asarray(x, float))
+        n = x.shape[0]
+        w7, w28 = x[:, max(0, d - 7):d], x[:, max(0, d - 28):max(0, d - 7)]
+        if k == "alarm":
+            out["hist_alarm7"] = _nanstat(w7, np.nanmean, n)
+        elif k in names:
+            out[names[k] + "7"], out[names[k] + "28"] = _nanstat(w7, np.nanmedian, n), _nanstat(w28, np.nanmedian, n)
+    return out
+
+
+def _nanstat(w: np.ndarray, fn, n: int) -> np.ndarray:
+    if w.shape[-1] == 0 or not np.isfinite(w).any():
+        return np.full(n, np.nan)
+    ok = np.isfinite(w).any(-1)
+    res = np.full(n, np.nan)
+    res[ok] = fn(w[ok], axis=-1)
+    return res
+
+
 # ----------------------------------------------------------------------------------- one envelope -> row
 def prediction_row(pred: Any, *, day: str, context: Optional[Mapping[str, Any]] = None,
                    substitute: Any = None, ledger: Optional[Mapping[str, Any]] = None,
                    telemetry_prev: Optional[Mapping[str, Any]] = None,
-                   thresholds: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+                   thresholds: Optional[Mapping[str, Any]] = None,
+                   history: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     """Raw row for one contract `Prediction` (what J4's loop slot calls per prediction).
 
     context:   battery (bool), seen (bool), month (1-12), sky (0/1/2, `sky_class`), bucket (ledger key), kind,
@@ -195,6 +233,10 @@ def prediction_row(pred: Any, *, day: str, context: Optional[Mapping[str, Any]] 
     ledger:    the ledger snapshot for (witness, bucket) as a dict with LEDGER_COLUMNS names (missing -> NaN).
     telemetry_prev: {"y": [96] measured kW of the previous day, "valid": [96] 0/1, "energy_ref": kWh} or None.
     thresholds: the witness's calibration `thresholds` ({ood, p_fault, ...}).
+    history:   this witness's earlier rows for the same asset, oldest first, one per day up to yesterday (up to 28):
+               {"energy_q50": [...], "band_rel": [...]} for forecasts, {"p_fault": [...], "alarm": [...]} for
+               detectors (the same-named columns of earlier `prediction_row` results), plus "q50_prev" (yesterday's
+               [96] q50) or "p_fault_prev" to flag a frozen repeat. Missing -> NaN (the model was trained with it).
     """
     ctx = dict(context or {})
     th = dict(thresholds or {})
@@ -240,7 +282,27 @@ def prediction_row(pred: Any, *, day: str, context: Optional[Mapping[str, Any]] 
     for c in LEDGER_COLUMNS:
         if ledger is not None and c in ledger and ledger[c] is not None:
             row[c] = float(ledger[c])
+    if history:
+        daily = {k: np.asarray(history[k], float)[None] for k in ("energy_q50", "band_rel", "p_fault", "alarm")
+                 if history.get(k) is not None and len(history[k])}
+        n_days = max([v.shape[1] for v in daily.values()], default=0)
+        daily = {k: np.pad(v, ((0, 0), (n_days - v.shape[1], 0)), constant_values=np.nan) for k, v in daily.items()}
+        row.update({k: float(v[0]) for k, v in history_features(daily, n_days).items()})
+        if history.get("q50_prev") is not None:
+            row["repeat_prev"] = float(repeats(np.asarray(pred.q50, float)[None],
+                                               np.asarray(history["q50_prev"], float)[None])[0])
+        elif history.get("p_fault_prev") is not None and "p_fault" in row:
+            row["repeat_prev"] = float(abs(row["p_fault"] - float(history["p_fault_prev"])) < 1e-9)
     return row
+
+
+def repeats(today: np.ndarray, prev: np.ndarray) -> np.ndarray:
+    """1 where today's output equals the previous day's step for step (a frozen witness), 0 otherwise, [N, ...]."""
+    a, b = np.asarray(today, float), np.asarray(prev, float)
+    ax = tuple(range(1, a.ndim))
+    same = np.all(np.abs(np.nan_to_num(a) - np.nan_to_num(b)) < 1e-9, axis=ax) if a.ndim > 1 else np.abs(a - b) < 1e-9
+    nonzero = np.any(np.abs(np.nan_to_num(a)) > 1e-6, axis=ax) if a.ndim > 1 else np.abs(a) > 1e-6
+    return (same & nonzero).astype(float)
 
 
 def rows_frame(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:

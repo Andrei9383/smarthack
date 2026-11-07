@@ -178,3 +178,33 @@ def test_detector_row_and_features():
     assert row["alarm"] == 1.0 and row["top_class"] == "string_outage" and row["p_fault"] == pytest.approx(0.7)
     X = F.build(pd.DataFrame([row]), "detector")
     assert X["top_class"].iloc[0] == F.CLASS_CODE["string_outage"] and X["witness"].iloc[0] == 10
+
+
+def test_history_features_flag_jumps_and_repeats():
+    D = 30
+    band = np.full((2, D), 0.4)
+    band[0, 25:] = 0.2  # witness 0 narrows its bands from day 25
+    energy = np.tile(np.linspace(10, 12, D), (2, 1))
+    h = F.history_features({"band_rel": band, "energy_q50": energy}, 27)
+    assert h["hist_band_rel7"][0] == pytest.approx(0.4) and h["hist_band_rel28"][0] == pytest.approx(0.4)
+    assert h["hist_energy7"].shape == (2,)
+    assert np.isnan(F.history_features({"band_rel": band}, 0)["hist_band_rel7"]).all()  # no history yet
+    pf = np.zeros((1, 10))
+    pf[0, 5:] = 1.0
+    assert F.history_features({"alarm": pf}, 8)["hist_alarm7"][0] == pytest.approx(3 / 7)
+    q = np.random.default_rng(0).uniform(0, 3, (3, 96))
+    prev = q.copy()
+    prev[1] += 0.1
+    assert F.repeats(q, prev).tolist() == [1.0, 0.0, 1.0]
+    assert F.repeats(np.zeros((1, 96)), np.zeros((1, 96))).tolist() == [0.0]  # night / all-zero is not frozen
+    # prediction_row with history -> same numbers, and build() turns them into ratios
+    q50 = np.r_[np.zeros(24), np.linspace(0, 4, 24), np.linspace(4, 0, 24), np.zeros(24)]
+    p = Prediction(asset_id="S1", model="pvnet", model_version="v", t0="2024-06-01T21:00:00Z", horizon=96,
+                   q10=(q50 * 0.9).tolist(), q50=q50.tolist(), q90=(q50 * 1.1).tolist())
+    row = F.prediction_row(p, day="2024-06-02", history={"band_rel": [0.4] * 10, "energy_q50": [20.0] * 10,
+                                                         "q50_prev": q50.tolist()})
+    assert row["hist_band_rel7"] == pytest.approx(0.4) and row["repeat_prev"] == 1.0
+    X = F.build(F.rows_frame([row]), "forecast")
+    assert X["band_vs_hist7"].iloc[0] == pytest.approx(row["band_rel"] / 0.4)
+    assert X["band_vs_hist28"].iloc[0] == pytest.approx(row["band_rel"] / 0.4)  # days 8-10 back
+    assert X["repeat_prev"].iloc[0] == 1.0

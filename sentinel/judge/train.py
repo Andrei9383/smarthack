@@ -296,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--burn-in", type=int, default=21)
     ap.add_argument("--workers", type=int, default=0, help="row-generation processes (0 = one per week, <= cores)")
     ap.add_argument("--seeds", type=int, default=5)
-    ap.add_argument("--rounds", type=int, default=600)
+    ap.add_argument("--rounds", type=int, default=1500)
     ap.add_argument("--threads", type=int, default=0, help="LightGBM threads (0 = all cores)")
     ap.add_argument("--device", default="cpu", help="cpu | gpu | auto (gpu only if --bench-device shows it faster)")
     ap.add_argument("--bench-device", action="store_true")
