@@ -8,7 +8,9 @@ prints each file xz-compressed + base64 between markers; `scripts/demo_data_load
 
 grid:      G3 dso_value with --run-g1 (writes G1 hosting_capacity.json + dso_value.json in one run) and G2 voltage.json.
 imbalance: the worker's stored imbalance.sqlite of --from-run if it is on this machine, else a fresh
-           `replay.py --mode imbalance`; exported as compact CSV (positions, portfolio_forecast day-ahead, kpis).
+           `replay.py --mode imbalance`; exported as compact CSV: imbalance_kpis (whole replay) and positions +
+           day-ahead portfolio_forecast for ts in [--from, --to) only. The lab keeps ~1 MB of log per run, and the
+           whole year of positions alone is 20 MB of CSV.
 """
 
 from __future__ import annotations
@@ -67,7 +69,7 @@ def table_csv(con: sqlite3.Connection, sql: str) -> bytes:
     return buf.getvalue().encode()
 
 
-def imbalance(from_run: str) -> int:
+def imbalance(from_run: str, ts_from: str, ts_to: str) -> int:
     cands = [WORK / "outputs" / from_run / "imbalance.sqlite", WORK / "runs" / from_run / ".lab-out" / "imbalance.sqlite"]
     for d in (WORK / "outputs" / from_run, WORK / "runs" / from_run):
         print(f"# ls {d}: {sorted(p.name for p in d.iterdir()) if d.is_dir() else 'absent'}")
@@ -85,11 +87,13 @@ def imbalance(from_run: str) -> int:
     print(f"# source: {src} ({source})", flush=True)
     con = sqlite3.connect(src)
     dump("imbalance_kpis.csv", table_csv(con, "SELECT * FROM imbalance_kpis"))
+    win = f"ts >= '{ts_from}' AND ts < '{ts_to}'"
     dump("positions.csv", table_csv(con, "SELECT ts, policy, bought_da, traded_id, actual, dev_mwh, intraday_lei, "
                                          "imbalance_lei, avoidable_lei, import_mwh, export_mwh, run_id FROM positions "
-                                         "ORDER BY ts, policy"))
+                                         f"WHERE {win} ORDER BY ts, policy"))
     dump("portfolio_forecast_da.csv", table_csv(con, "SELECT issue_time, ts, policy, horizon, p10, p50, p90, run_id "
-                                                     "FROM portfolio_forecast WHERE horizon = 'da' ORDER BY ts, policy"))
+                                                     f"FROM portfolio_forecast WHERE horizon = 'da' AND {win} "
+                                                     "ORDER BY ts, policy"))
     return 0
 
 
@@ -97,8 +101,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("what", choices=["grid", "imbalance"])
     ap.add_argument("--from-run", default="1071")
+    ap.add_argument("--from", dest="ts_from", default="2025-05-28T21:00:00Z", help="imbalance: first ts (UTC) kept")
+    ap.add_argument("--to", dest="ts_to", default="2025-06-11T21:00:00Z", help="imbalance: end ts (UTC), exclusive")
     a = ap.parse_args()
-    return grid() if a.what == "grid" else imbalance(a.from_run)
+    return grid() if a.what == "grid" else imbalance(a.from_run, a.ts_from, a.ts_to)
 
 
 if __name__ == "__main__":
