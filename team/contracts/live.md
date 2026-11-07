@@ -41,8 +41,10 @@ UI: draw the "now" line at the latest `live_ticks.ts + 15 min`; actuals left of 
 | `model_versions_json`, `notes`, `created_at` | provenance |
 
 `live_ticks` (one row per handled tick; PK `(run_id, ts)` so a restart never duplicates a tick)
-`run_id, ts, wall_at, status (ok | gap), n_readings`. `gap` = the process was down or the source had nothing;
-gap ticks have no readings and no predictions.
+`run_id, ts, wall_at, status, n_readings`; `ts` = the step whose readings arrived. `status`:
+`ok`; `missed` = the process was down at that tick (real-time mode backfills up to 24 h of readings on restart, but
+stores **no prediction** for the step after it: nobody predicted it at the time); `empty` = the source had nothing
+(predictions then fall back to `model`).
 
 `live_readings` (PK `(run_id, ts, site_id)`): what arrived for step `ts`.
 `run_id, ts, site_id, feeder_id, pv_kw, load_kw, batt_kw, soc, net_kw`. kW; `batt_kw` + = charging (the
@@ -55,13 +57,14 @@ self-consumption rule, data.md); `net_kw = pv_kw - load_kw - batt_kw`, + = expor
 | `t0` | information cut-off |
 | `level`, `entity_id`, `feeder_id` | `site` + site id, or `feeder` + feeder id (`entity_id = feeder_id`) |
 | `quantity` | `pv`, `load`, `net` (net = export after the battery rule, + = export) |
-| `method` | `corrected` (headline: model + 0.9 x last residual), `model` (M1/M2 day-ahead step), `persistence` (PV: clear-sky-index, load: last value) |
+| `method` | `corrected` (headline: model + 0.9 x last residual), `model` (M1/M2 day-ahead step), `persistence` (PV: clear-sky-index, load: last value; point forecast, q10 = q50 = q90). A home with no reading at the last tick falls back to `model` for the other two |
 | `q10, q50, q90` | kW. Feeder rows: `q50` = sum of site q50; `q10`/`q90` = sum of site quantiles (**conservative band, not a feeder quantile**, say so in the UI) |
 | `limit_kw` | feeder rows only: `G` of the feeder |
 | `flag` | feeder `net` rows only: `none / watch / congested / severe` (one-step version of #120 notify.md: `severe` P10 > limit or P50 ≥ 1.3·limit; `congested` P50 > limit; `watch` P90 > limit or P50 ≥ 0.9·limit) |
-| `actual` | filled at the next tick (NULL until then, or if the reading is missing) |
+| `actual` | filled at the next tick (NULL until then, or if the reading is missing; feeder rows: NULL unless every home reported) |
 | `err` | `actual - q50` |
 | `err_flag` | 1 if the miss is large: actual outside [q10, q90] **and** `abs(err)` > max(0.25·max(|q50|, |actual|), 1 kW·n_sites) — show as a marker |
+| `n_sites` | homes summed (1 for site rows) |
 | `model_version`, `is_fallback` | provenance (`is_fallback = 1` when the model was not available and the mock answered) |
 
 The app's "F7 is about to go over its limit" = the latest `ts` row with `level='feeder' AND quantity='net' AND
