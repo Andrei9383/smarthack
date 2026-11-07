@@ -13,26 +13,33 @@ use pyo3::prelude::*;
 mod cusum;
 mod rollout;
 
-/// cusum_two_sided(x: f64[m, n], k: float, h: float) -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
+/// cusum_two_sided(x: f64[m, n], k: float, h: float, cap: float | None = None)
+///   -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
 ///
-/// The Python wrapper `sentinel.kernels.cusum_two_sided` handles 1-D input and validation.
+/// The Python wrapper `sentinel.kernels.cusum.cusum_two_sided_rust` handles 1-D input and validation.
 #[pyfunction]
-#[pyo3(signature = (x, k, h))]
+#[pyo3(signature = (x, k, h, cap=None))]
 fn cusum_two_sided<'py>(
     py: Python<'py>,
     x: PyReadonlyArray2<'py, f64>,
     k: f64,
     h: f64,
+    cap: Option<f64>,
 ) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<bool>>)> {
     if !k.is_finite() || !h.is_finite() {
         return Err(PyValueError::new_err("k and h must be finite"));
     }
+    let cap = match cap {
+        None => f64::INFINITY,
+        Some(c) if c.is_finite() && c >= 0.0 => c,
+        Some(_) => return Err(PyValueError::new_err("cap must be finite and >= 0 (or None)")),
+    };
     let shape = x.shape();
     let (m, n) = (shape[0], shape[1]);
     let xs = x
         .as_slice()
         .map_err(|_| PyValueError::new_err("x must be C-contiguous"))?;
-    let (sp, sn, al) = py.detach(|| cusum::cusum_2d(xs, m, n, k, h));
+    let (sp, sn, al) = py.detach(|| cusum::cusum_2d(xs, m, n, k, h, cap));
     let to2 = |e: numpy::ndarray::ShapeError| PyValueError::new_err(e.to_string());
     let sp = Array2::from_shape_vec((m, n), sp).map_err(to2)?.into_pyarray(py);
     let sn = Array2::from_shape_vec((m, n), sn).map_err(to2)?.into_pyarray(py);
