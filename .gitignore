@@ -10,3 +10,5 @@ dist/
 .env
 .env*.local
 local.db*
+demo/fixtures.sqlite
+demo/fixtures.sqlite-*
