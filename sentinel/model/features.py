@@ -27,9 +27,10 @@ PV_SUM = ("energy_ratio", "max_ratio", "am_shift", "zero_frac", "frozen_frac")
 PV_STATIC = ("lat", "lon", "kwp", "tilt", "az_sin", "az_cos", "inv_ratio", "has_batt", "doy_sin", "doy_cos")
 LOAD_SEQ = ("temp", "ghi") + ph.CAL_CHANNELS + ("yesterday", "last_week", "mean7", "max7")
 LOAD_SUM = ("energy", "peak", "min", "evening_share")
-LOAD_STATIC = tuple(f"arch_{a}" for a in ARCHETYPES) + ("has_batt", "lat", "lon", "log_scale")
+HOUSE_FLAGS = ("has_ac", "has_ev", "has_electric_boiler", "works_from_home")
+LOAD_STATIC = tuple(f"arch_{a}" for a in ARCHETYPES) + ("has_batt", "lat", "lon", "log_scale") + HOUSE_FLAGS
 SITE_SEQ = ("pv", "q10", "q50", "q90", "res", "zres", "pvlib", "cos_zen", "volt", "st_prod", "st_limit",
-            "st_trip", "frozen", "soc", "batt", "load_res", "ratio")
+            "st_trip", "frozen", "soc", "batt", "load_res", "ratio", "valid")
 SITE_SUM = PV_SUM + ("vmax", "trip_frac", "soc_swing")
 SITE_STATIC = ("has_batt", "kwp", "inv_ratio", "batt_kwh", "batt_kw")
 
@@ -120,8 +121,9 @@ def load_inputs(raw: dict) -> dict:
     arch = np.zeros((B, len(ARCHETYPES)), np.float32)
     a_idx = raw["arch_idx"].astype(int)
     arch[np.arange(B)[a_idx >= 0], a_idx[a_idx >= 0]] = 1
+    flags = np.stack([np.asarray(raw.get(k, np.zeros(B)), np.float32) for k in HOUSE_FLAGS], -1)
     stat = np.concatenate([arch, np.stack([raw["has_batt"], (raw["lat"] - 45.5) / 1.5, (raw["lon"] - 25.0) / 2.5,
-                                           np.log(scale)], -1)], -1).astype(np.float32)
+                                           np.log(scale)], -1), flags], -1).astype(np.float32)
     return {"seq": seq.astype(np.float32), "ref": refh.astype(np.float32), "summ": summ.astype(np.float32),
             "stat": stat, "scale": scale.astype(np.float32), "night": np.zeros(seq.shape[:2], bool)}
 
@@ -166,6 +168,7 @@ def site_inputs(raw: dict) -> dict:
         frozen_flags(pv, prev), raw["soc"].astype(np.float32), raw["batt"].astype(np.float32) / bkw,
         np.clip((raw["load"].astype(np.float32) - raw["m2"].astype(np.float32)) / lscale, -5, 5),
         np.clip(pv / (q50 + 0.05 * k), 0, 3),
+        np.asarray(raw.get("valid", np.ones(pv.shape, bool)), np.float32),  # logger dropout (0-filled) != a fault
     ], -1)
     stat = np.stack([raw["has_batt"], kwp / 10, raw["inverter_kw"] / kwp, raw["battery_kwh"] / 10,
                      raw["battery_kw"] / 5], -1).astype(np.float32)
@@ -181,7 +184,19 @@ def _site_static(src, sites):
     meta["has_batt"] = (meta["battery_kwh"] > 0).astype(np.float32)
     arch = [s.get("archetype", "base") for s in src.sites]
     meta["arch_idx"] = np.array([ARCHETYPES.index(a) if a in ARCHETYPES else -1 for a in arch])[sites]
+    for k in HOUSE_FLAGS:
+        meta[k] = house_flags(src.sites, k)[sites]
     return meta
+
+
+def house_flags(site_rows, key: str) -> np.ndarray:
+    """Household flags from the sites table (#11); derived from the archetype when the column is absent (synth)."""
+    derive = {"has_ac": lambda r: r.get("archetype") == "ac", "has_ev": lambda r: r.get("archetype") == "ev"}
+    out = []
+    for r in site_rows:
+        v = r.get(key)
+        out.append(float(bool(v)) if v is not None else float(derive.get(key, lambda r: False)(r)))
+    return np.array(out, np.float32)
 
 
 def gather(src, sites: np.ndarray, starts: np.ndarray, kind: str, mode: str = "nowcast",
@@ -202,6 +217,7 @@ def gather(src, sites: np.ndarray, starts: np.ndarray, kind: str, mode: str = "n
     raw["pvlib"] = np.asarray(src.array("pvlib_rec_fc" if mode == "forecast" else "pvlib_rec")[s2, idx], np.float32)
     raw["doy_sin"], raw["doy_cos"] = raw["cal"][:, 0, 6], raw["cal"][:, 0, 7]
     raw["fault"] = np.asarray(src.array("fault")[s2, idx])
+    raw["valid"] = (np.asarray(src.array("valid")[s2, idx]) > 0) if src.has("valid") else np.ones(idx.shape, bool)
     if kind in ("pv", "site"):
         raw["hist_pv"] = np.asarray(src.array("pv_ac")[s2, hidx], np.float32)
     if kind == "pv":

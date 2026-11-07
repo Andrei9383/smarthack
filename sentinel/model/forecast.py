@@ -45,6 +45,9 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--heads", type=int, default=sp["heads"])
     ap.add_argument("--ff", type=int, default=sp["ff"])
     ap.add_argument("--dropout", type=float, default=0.1)
+    ap.add_argument("--pointwise", type=int, default=64, help="per-step MLP branch width (0 = off)")
+    ap.add_argument("--residual", action=argparse.BooleanOptionalAction, default=True,
+                    help="q50 = residual on pvlib (PV) / 7-day mean profile (load)")
     ap.add_argument("--mode", choices=["nowcast", "forecast"], default="nowcast")
     ap.add_argument("--offset-frac", type=float, default=0.3, help="share of train windows with a random t0 offset")
     ap.add_argument("--stat-noise", type=float, default=0.3,
@@ -55,23 +58,28 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--data", default="auto", help="auto | lab | synth | <layout dir>")
     ap.add_argument("--synth-sites", type=int, default=None)
     ap.add_argument("--device", default="auto")
-    ap.add_argument("--eval-limit", type=int, default=0, help="cap windows per eval split (0 = all; smoke tests)")
+    ap.add_argument("--eval-limit", type=int, default=40000,
+                    help="windows per eval split, a fixed seeded sample shared by all runs and baselines (0 = all)")
     ap.add_argument("--no-export", action="store_true")
+    ap.add_argument("--no-lgbm", action="store_true", help="skip #15's LightGBM baseline on the same split")
+    ap.add_argument("--lgbm-sites", type=int, default=150, help="train sites for the in-run LightGBM baseline")
     ap.add_argument("--tag", default="", help="suffix for artifact names (ensembles: seed tag)")
     return ap.parse_args(argv)
 
 
 # --- sampling ----------------------------------------------------------------------------------------------
 def step_weights(kind: str, raw: dict, inp: dict, strict: bool = False) -> np.ndarray:
-    """Loss mask per target step: PV = daylight and no fault on that step; load = all steps.
-    strict (metrics, conformal): PV steps where the clear-sky profile reaches >= 5% of recorded kWp, so dawn/dusk
-    zeros don't inflate coverage."""
+    """Loss / metric mask per target step (always only logged steps, `valid`).
+    PV headline = #15's definition: daylight (solar zenith < 90°) and no fault on that step.
+    strict (secondary metric): also clear-sky profile >= 5% of recorded kWp, so dawn/dusk zeros don't count.
+    Load: every logged step."""
+    valid = raw.get("valid", np.ones(raw["y"].shape, bool))
     if kind == "pv":
-        m = (~inp["night"]) & (raw["fault"] == 0)
+        m = (raw["geom"][..., 0] < 90) & (raw["fault"] == 0) & valid
         if strict:
             m &= raw["pvclear"] >= 0.05 * raw["kwp_recorded"][:, None]
         return m.astype(np.float32)
-    return np.ones(raw["y"].shape, np.float32)
+    return valid.astype(np.float32)
 
 
 def batch_arrays(src, kind, sites, starts, mode, stats):
@@ -84,11 +92,21 @@ def batch_arrays(src, kind, sites, starts, mode, stats):
     return raw, inp, x, y.astype(np.float32), w, mask
 
 
-def build_model(model: str, args, dims):
+BASE_CHANNEL = {"pvnet": "pvlib", "loadnet": "mean7"}  # residual targets (see QuantileEncoder base)
+
+
+def build_model(model: str, args, dims, stats=None):
     from .nets import QuantileEncoder
 
+    base = None
+    if getattr(args, "residual", False):
+        chans = list(SPECS[model]["channels"]["seq"])
+        ch = chans.index(BASE_CHANNEL[model])
+        mu, sd = (stats["seq"]["mean"][ch], stats["seq"]["std"][ch]) if stats else (0.0, 1.0)
+        base = (ch, mu, sd)
     return QuantileEncoder(dims["seq"], dims["ref"], dims["summ"], dims["stat"], d=args.d_model, layers=args.layers,
-                           heads=args.heads, ff=args.ff, drop=args.dropout, nonneg=True)
+                           heads=args.heads, ff=args.ff, drop=args.dropout, nonneg=True,
+                           pointwise=getattr(args, "pointwise", 0), base=base)
 
 
 class Wrapped:
@@ -223,7 +241,7 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
     import torch
 
     net.eval()
-    res = {k: [] for k in ("q", "y", "y_healthy", "w", "night", "scale", "fault", "emb", "csi", "month", "offday",
+    res = {k: [] for k in ("q", "y", "y_healthy", "w", "w_strict", "night", "scale", "fault", "emb", "csi", "month", "offday",
                            "snow")}
     bl: dict[str, list] = {}
     with torch.no_grad():
@@ -244,7 +262,8 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
             res["emb"].append(e.float().cpu().numpy())
             res["y"].append(raw["y"])
             res["y_healthy"].append(raw.get("y_healthy", raw["y"]))
-            res["w"].append(step_weights(kind, raw, inp, strict=True))
+            res["w"].append(step_weights(kind, raw, inp))
+            res["w_strict"].append(step_weights(kind, raw, inp, strict=True))
             res["night"].append(inp["night"])
             res["scale"].append(inp["scale"])
             res["fault"].append(raw["fault"].max(1))
@@ -313,8 +332,8 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
 
     def eval_set(split, limit=args.eval_limit):
         s, d = sp.site_days(split)
-        if limit and len(s) > limit:
-            sel = np.sort(rng.choice(len(s), limit, replace=False))
+        if limit and len(s) > limit:  # fixed sample (independent of --seed): every run / seed / baseline scores
+            sel = np.sort(np.random.default_rng(1234 + len(split)).choice(len(s), limit, replace=False))
             s, d = s[sel], d[sel]
         return s, d * H
 
@@ -326,7 +345,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
 
     from .nets import n_params, pinball
 
-    net = build_model(model, args, dims).to(dev)
+    net = build_model(model, args, dims, stats).to(dev)
     n_par = n_params(net)
     ctx.emit("n_params", n_par)
     opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -413,7 +432,24 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             c = collect(src, kind, net, s, st, args.mode, stats, dev, amp)
             c["qc"] = apply_offsets(c["q"], offsets, c["scale"], True, c["night"])
             c["site"] = s
+            c["start"] = st
             evals[split] = c
+        from . import lgbm_ref
+
+        if not args.no_lgbm and lgbm_ref.available():
+            # #15's LightGBM (its own feature code / params) on the SAME windows, split and mask -> baseline "lgbm"
+            with ctx.stage("lgbm"):
+                try:
+                    bundle = lgbm_ref.fit(src, sp, kind, args.mode, max_train_sites=args.lgbm_sites, seed=args.seed,
+                                          log=lambda m: print(f"[lgbm] {m}", flush=True))
+                    for split, c in evals.items():
+                        lq = lgbm_ref.predict(bundle, src, c["site"], c["start"] // H, args.mode)
+                        c["baselines"]["lgbm"] = lq[..., 1]
+                        w = c["w"] > 0
+                        ctx.emit(f"{split}_baseline_lgbm_pinball", M.pinball(lq, c["y"], w))
+                        ctx.emit(f"{split}_baseline_lgbm_coverage", M.coverage(lq, c["y"], w))
+                except Exception as e:  # never lose the M1/M2 run to the reference baseline
+                    print(f"[lgbm] skipped: {type(e).__name__}: {e}", flush=True)
         tr_s2, tr_st2 = sample_train(min(20000, 40 * args.batch))
         _, emb_tr = predict(net, src, kind, tr_s2, tr_st2, args.mode, stats, dev, amp=amp, with_emb=True)
         ood = fit_ood(emb_tr)
@@ -423,6 +459,10 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             pre = split
             ctx.emit(f"{pre}_nmae", M.nmae(c["q"][..., 1], c["y"], w))
             ctx.emit(f"{pre}_pinball", M.pinball(c["q"], c["y"], w))
+            if kind == "pv":
+                ws = c["w_strict"] > 0
+                ctx.emit(f"{pre}_nmae_strict", M.nmae(c["q"][..., 1], c["y"], ws))
+                ctx.emit(f"{pre}_coverage_cal_strict", M.coverage(c["qc"], c["y"], ws))
             ctx.emit(f"{pre}_coverage_raw", M.coverage(c["q"], c["y"], w))
             ctx.emit(f"{pre}_coverage_cal", M.coverage(c["qc"], c["y"], w))
             ctx.emit(f"{pre}_pinball_cal", M.pinball(c["qc"], c["y"], w))
@@ -434,6 +474,8 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             ctx.emit(f"baseline_{b}_nmae", M.nmae(v, t["y"], t["w"] > 0))
         main_b = "pvlib" if kind == "pv" else "persistence_yesterday"
         ctx.emit(f"test_gain_vs_{main_b}", 1 - ctx.get("test_nmae") / max(ctx.get(f"baseline_{main_b}_nmae"), 1e-9))
+        if "lgbm" in t["baselines"]:
+            ctx.emit("test_gain_vs_lgbm", 1 - ctx.get("test_nmae") / max(ctx.get("baseline_lgbm_nmae"), 1e-9))
 
         # error analysis on test
         seen = sp.seen_mask[t["site"]]
@@ -465,16 +507,27 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                 ww = t["w"][sel] > 0
                 ctx.emit(f"test_nmae_meta_{wname}", M.nmae(t["q"][sel][..., 1], t["y"][sel], ww))
                 ctx.emit(f"baseline_pvlib_nmae_meta_{wname}", M.nmae(t["baselines"]["pvlib"][sel], t["y"][sel], ww))
+                if "lgbm" in t["baselines"]:
+                    ctx.emit(f"baseline_lgbm_nmae_meta_{wname}", M.nmae(t["baselines"]["lgbm"][sel], t["y"][sel], ww))
         if kind == "pv":
             ns = groups["snow"] == "no_snow"
             ctx.emit("test_nmae_nosnow", M.nmae(t["q"][ns][..., 1], t["y"][ns], t["w"][ns] > 0))
             ctx.emit("baseline_pvlib_nmae_nosnow", M.nmae(t["baselines"]["pvlib"][ns], t["y"][ns], t["w"][ns] > 0))
             ctx.emit("baseline_pvlib_scaled_nmae_nosnow",
                      M.nmae(t["baselines"]["pvlib_scaled"][ns], t["y"][ns], t["w"][ns] > 0))
+            if "lgbm" in t["baselines"]:
+                ctx.emit("baseline_lgbm_nmae_nosnow", M.nmae(t["baselines"]["lgbm"][ns], t["y"][ns], t["w"][ns] > 0))
+                sn = ~ns
+                if sn.any():
+                    ctx.emit("test_nmae_snow", M.nmae(t["q"][sn][..., 1], t["y"][sn], t["w"][sn] > 0))
+                    ctx.emit("baseline_lgbm_nmae_snow", M.nmae(t["baselines"]["lgbm"][sn], t["y"][sn], t["w"][sn] > 0))
         for gname in ("seen", "unseen"):
             sel = seen if gname == "seen" else ~seen
             if sel.any():
                 ctx.emit(f"test_nmae_{gname}", M.nmae(t["q"][sel][..., 1], t["y"][sel], t["w"][sel] > 0))
+                if "lgbm" in t["baselines"]:
+                    ctx.emit(f"baseline_lgbm_nmae_{gname}", M.nmae(t["baselines"]["lgbm"][sel], t["y"][sel],
+                                                                    t["w"][sel] > 0))
         ood_val = ood_score(ood, evals["val"]["emb"])
         ood_t = ood_score(ood, t["emb"])
         report["ood"] = {"val_p50": float(np.median(ood_val)), "val_p99": float(np.quantile(ood_val, 0.99)),

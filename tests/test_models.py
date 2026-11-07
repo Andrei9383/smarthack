@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 from sentinel.contracts import Prediction, PvFault, Window  # noqa: E402
 from sentinel.model import features as F  # noqa: E402
 from sentinel.model import metrics as M  # noqa: E402
+from sentinel.model import physics as ph  # noqa: E402
 from sentinel.model.data import ArraySource, H, make_splits, window_labels  # noqa: E402
 from sentinel.model.synth import FAULTS, SynthConfig, generate  # noqa: E402
 
@@ -202,8 +203,10 @@ def test_predictor_envelope_with_tiny_onnx(small_src, tmp_path):
         x = F.build(kind, F.gather(small_src, sites, starts, kind))
         stats = F.fit_stats([x])
         dims = {k: x[k].shape[-1] for k in ("seq", "ref", "summ", "stat")}
-        for tag in ("", ".s1"):  # two members -> ensemble path
-            net = QuantileEncoder(dims["seq"], dims["ref"], dims["summ"], dims["stat"], d=16, layers=1, heads=2, ff=32)
+        for tag in ("", ".s1"):  # two members -> ensemble path; .s1 uses the pointwise branch + residual base
+            extra = {} if not tag else {"pointwise": 8, "base": (2, stats["seq"]["mean"][2], stats["seq"]["std"][2])}
+            net = QuantileEncoder(dims["seq"], dims["ref"], dims["summ"], dims["stat"], d=16, layers=1, heads=2, ff=32,
+                                  **extra)
             feeds = {k: x[k] for k in ("seq", "ref", "summ", "stat")}
             feeds["mask"] = (~x["night"]).astype(np.float32)
             info = export_onnx(Wrapped.make(net, stats), feeds, tmp_path / f"{model}{tag}.onnx", ["q", "emb"])
@@ -240,6 +243,19 @@ def test_predictor_envelope_with_tiny_onnx(small_src, tmp_path):
         else:
             assert set(pred.fault_probs) == set(FAULTS) and abs(sum(pred.fault_probs.values()) - 1) < 1e-3
             assert "p_fault_std" in pred.extra
+    # eval.py-style inputs: a weather channel that is all NaN (PVDAQ snow_cm), an ERA5 cloud column, NaN telemetry
+    # gaps and raw inverter codes (37 = overvoltage) must still give a valid envelope
+    wx = np.asarray(w.weather, np.float64).copy()
+    wx[:, 6] = np.nan
+    tel = {k: np.asarray(v, np.float64).copy() for k, v in w.meta["telemetry"].items()}
+    tel["pv_ac_w"][10:14] = np.nan
+    tel["inv_status"] = np.where(np.arange(96) == 50, 37.0, 0.0)
+    w2 = Window(t0=w.t0, weather=wx, reference=np.where(np.arange(len(w.reference)) % 97 == 0, np.nan, w.reference),
+                history=w.history, battery=w.battery,
+                meta={"weather_channels": list(ph.WEATHER_CHANNELS), "power_unit": "W", "telemetry": tel,
+                      "telemetry_history": dict(w.meta["telemetry_history"], inv_status=np.zeros(14 * 96))})
+    for model in ("pvnet", "loadnet", "sitehealth"):
+        load_predictor(model, tmp_path).predict(asset, w2).validate()
     # PV: night steps are exactly zero
     pv = load_predictor("pvnet", tmp_path).predict(asset, w)
     zen = np.asarray(w.solar_geometry)[:, 0]
@@ -255,7 +271,7 @@ def test_quantile_encoder_monotone_and_params():
     q, emb = net(torch.randn(4, 96, len(F.PV_SEQ)), torch.randn(4, 168), torch.randn(4, 14, len(F.PV_SUM)),
                  torch.randn(4, len(F.PV_STATIC)), torch.ones(4, 96))
     assert q.shape == (4, 96, 3) and (q[..., 0] <= q[..., 1] + 1e-6).all() and (q[..., 1] <= q[..., 2] + 1e-6).all()
-    assert float(pinball(q, torch.zeros(4, 96))) >= 0
+    assert float(pinball(q, torch.zeros(4, 96)).detach()) >= 0
     sh = SiteHealthNet(len(F.SITE_SEQ), len(F.SITE_SUM), len(F.SITE_STATIC))
     assert 0.05e6 < n_params(sh) < 0.15e6
 
@@ -271,3 +287,14 @@ def test_train_presets_expand():
         tm.main(["--preset", "nope"])
     with pytest.raises(SystemExit, match="--preset"):
         tm.main(["--preset", "pv_now@sx"])
+
+
+def test_predictor_status_mapping_matches_windows():
+    pytest.importorskip("onnxruntime")
+    from sentinel.model.predictor import _status
+
+    pv = np.array([0.0, 0.002, 1.0, 4.99, 0.0])
+    raw = np.array([0, 0, 0, 0, 37])  # sim codes: 0 ok, 37 overvoltage
+    assert _status(raw, pv, 5.0).tolist() == [0, 0, 1, 2, 3]  # #10 encoding: off, off, producing, limiting, trip
+    enc = np.array([0, 1, 2, 3, 1])
+    assert _status(enc, pv, 5.0).tolist() == enc.tolist()  # already encoded -> unchanged
