@@ -49,6 +49,12 @@ fn mid(win: &[f64]) -> f64 {
 /// Columns per task: one 64-byte cache line per row of the row-major [t, c] input.
 const BLOCK: usize = 8;
 
+/// Columns per task for c columns: up to BLOCK, but at least ~4 tasks per rayon thread (117 turbines on 20 threads
+/// -> 1 column per task) so every thread gets work.
+fn block_for(c: usize) -> usize {
+    (c / (4 * rayon::current_num_threads())).clamp(1, BLOCK)
+}
+
 /// Raw output pointer shared by the column tasks; each task writes only its own columns.
 #[derive(Clone, Copy)]
 struct OutPtr(*mut f64);
@@ -103,11 +109,12 @@ pub fn rolling_median_cols(x: &[f64], t: usize, c: usize, w: usize, minp: usize)
         return out;
     }
     let ptr = OutPtr(out.as_mut_ptr());
-    (0..c.div_ceil(BLOCK)).into_par_iter().for_each_init(
-        || (vec![0.0f64; t * BLOCK], vec![0.0f64; t * BLOCK], Vec::with_capacity(w.min(t))),
+    let bw = block_for(c);
+    (0..c.div_ceil(bw)).into_par_iter().for_each_init(
+        || (vec![0.0f64; t * bw], vec![0.0f64; t * bw], Vec::with_capacity(w.min(t))),
         |(cols, res, win), blk| {
             let p = ptr;
-            let (c0, nb) = (blk * BLOCK, BLOCK.min(c - blk * BLOCK));
+            let (c0, nb) = (blk * bw, bw.min(c - blk * bw));
             for i in 0..t {
                 for k in 0..nb {
                     cols[k * t + i] = x[i * c + c0 + k];
@@ -156,9 +163,10 @@ pub fn binned_median_mad_cols(b: &[i64], x: &[f64], ok: &[bool], t: usize, c: us
         return Err(format!("b must be in [0, {n_bins}) where ok"));
     }
     let (pm, pa) = (OutPtr(med.as_mut_ptr()), OutPtr(mad.as_mut_ptr()));
-    (0..c.div_ceil(BLOCK)).into_par_iter().for_each(|blk| {
+    let bw = block_for(c);
+    (0..c.div_ceil(bw)).into_par_iter().for_each(|blk| {
         let (pm, pa) = (pm, pa);
-        let (c0, nb) = (blk * BLOCK, BLOCK.min(c - blk * BLOCK));
+        let (c0, nb) = (blk * bw, bw.min(c - blk * bw));
         // counting sort of the kept values by (column, bin)
         let nk = n_bins + 1;
         let mut cnt = vec![0usize; nb * nk + 1];
