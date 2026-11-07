@@ -88,6 +88,9 @@ const lostLabel = (o: { assetKind: string; lostKwhDay?: number | null }) =>
   o.assetKind === "turbine" ? `${((o.lostKwhDay ?? 0) / 1000).toFixed(1)} MWh` : `${(o.lostKwhDay ?? 0).toFixed(1)} kWh`;
 
 type Order = NonNullable<ReturnType<typeof useWorkOrders>["data"]>[number];
+// W4: lei/day ranks the queue; older runs only have lost_lei_day
+const leiDay = (o: Order) => o.leiPerDay ?? o.lostLeiDay ?? 0;
+const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
 
 function parseJson(text: string | null | undefined): Record<string, unknown> | null {
   if (!text) return null;
@@ -180,7 +183,7 @@ function TopOrderRow({ o, index, selected, onOpen }: { o: Order; index: number; 
             <span className="truncate text-xs text-text-secondary">{words(o.fault)}</span>
           </span>
           <span className="block text-[11px] text-muted-foreground tabular-nums">
-            {Math.round(o.lostLeiDay ?? 0).toLocaleString("en-GB")} lei/day · {lostLabel(o)} lost
+            {lei(leiDay(o))} lei/day · {lostLabel(o)} lost
           </span>
         </span>
         <Status tone={tone}>{ACTION_WORDS[o.action] ?? o.action}</Status>
@@ -236,8 +239,18 @@ function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number;
         </span>
         <span className="whitespace-nowrap tabular-nums">
           Lost/day <span className="font-medium text-foreground">{lostLabel(o)}</span> ·{" "}
-          {Math.round(o.lostLeiDay ?? 0).toLocaleString("en-GB")} lei
+          <span className="font-mono font-medium text-foreground">{lei(leiDay(o))}</span> lei
         </span>
+        {o.triageScore != null ? (
+          <span className="whitespace-nowrap tabular-nums">
+            Triage <span className="font-mono font-medium text-foreground">{lei(o.triageScore)}</span>
+          </span>
+        ) : null}
+        {o.bestRepairDay ? (
+          <span className="whitespace-nowrap tabular-nums">
+            Cheapest repair <span className="font-mono font-medium text-status-ok">{dayName(o.bestRepairDay)}</span>
+          </span>
+        ) : null}
         <span className="whitespace-nowrap tabular-nums">
           MW at risk <span className="font-medium text-foreground">{o.mwAtRisk ? mw(o.mwAtRisk) : "—"}</span>
         </span>
@@ -514,7 +527,7 @@ export function OmPanel() {
   const orderList = orders ?? [];
   const reviewList = review ?? [];
   const todayOrders = orderList.filter((o) => o.day === today).length;
-  const top = [...orderList].sort((a, b) => (b.lostLeiDay ?? 0) - (a.lostLeiDay ?? 0)).slice(0, TOP_N);
+  const top = [...orderList].sort((a, b) => leiDay(b) - leiDay(a)).slice(0, TOP_N);
   const listTab = tab === "review" ? "review" : "orders";
 
   const sentence = (
