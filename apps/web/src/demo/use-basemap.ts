@@ -2,7 +2,7 @@ import type { StyleSpecification } from "maplibre-gl";
 import { parseAsBoolean, useQueryState } from "nuqs";
 import { useEffect, useState } from "react";
 
-const ONLINE_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const ONLINE_STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const PROBE_TIMEOUT_MS = 8000; // Long on purpose: a busy page must not look like an outage.
 
 // Committed Natural Earth borders, so the demo still shows Romania with no internet.
@@ -12,18 +12,18 @@ const OFFLINE_STYLE: StyleSpecification = {
     countries: { type: "geojson", data: "/basemap/countries.geojson" },
   },
   layers: [
-    { id: "sea", type: "background", paint: { "background-color": "#1b2530" } },
+    { id: "sea", type: "background", paint: { "background-color": "#e6eef2" } },
     {
       id: "land",
       type: "fill",
       source: "countries",
-      paint: { "fill-color": ["case", ["get", "focus"], "#141414", "#0d0d0d"] },
+      paint: { "fill-color": "#f7f8fa" },
     },
     {
       id: "borders",
       type: "line",
       source: "countries",
-      paint: { "line-color": ["case", ["get", "focus"], "#a3a3a3", "#3f3f3f"], "line-width": 1 },
+      paint: { "line-color": "#c9ced4", "line-width": ["case", ["get", "focus"], 1.5, 0.75] },
     },
   ],
 };
