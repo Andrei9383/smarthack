@@ -66,8 +66,7 @@ def pv_features(*, weather: dict, geom: dict, pvlib_kw, pvlib_cs_kw, ref_kw, ref
     with np.errstate(invalid="ignore", divide="ignore"):
         cs_ghi = geom["cs_ghi"]
         kt = np.where(cs_ghi > 20, weather["ghi"] / np.maximum(cs_ghi, 1e-9), np.nan)
-        doy = geom["doy"] if "doy" in geom else None
-        ang = 2 * np.pi * (np.asarray(doy, np.float64) if doy is not None else 0) / 365.25
+        ang = 2 * np.pi * (np.asarray(geom["doy"], np.float64) if "doy" in geom else 0) / 365.25
         return {
             "ghi": b(weather["ghi"]), "dni": b(weather["dni"]), "dhi": b(weather["dhi"]),
             "temp_c": b(weather["temp_c"]), "wind10_ms": b(weather["wind10_ms"]), "snow_cm": b(weather["snow_cm"]),

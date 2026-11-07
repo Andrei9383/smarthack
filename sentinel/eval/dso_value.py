@@ -85,29 +85,23 @@ def hosting_capacity(world=None, doc: Optional[Mapping[str, Any]] = None, varian
                                    "source": f"G1 #159 ({doc.get('label')}, {variant}, tol {tol} min/week)",
                                    "run_id": doc.get("run_id")}
         return out
-    feeders = {}
-    if world is not None:
-        for fid, f in world.feeders.items():
-            if f.congested:
-                feeders[fid] = len(f.site_ids)
-    else:
-        feeders = {"F7": 24}
+    feeders = ({fid: len(f.site_ids) for fid, f in world.feeders.items() if f.congested} if world is not None
+               else {"F7": 24})
     return {fid: {"n_homes": n, "hc_baseline": _HC_STUB["baseline"], "hc_sentinel": _HC_STUB["sentinel"],
                   "source": "STUB pending G1 #159", "run_id": None} for fid, n in feeders.items()}
 
 
 def deo_cost_per_prosumer_lei() -> tuple[float, float]:
-    lo, hi = (DEO_EUR / n * EUR_RON for n in reversed(DEO_PROSUMERS))
-    return lo, hi
+    return tuple(DEO_EUR / n * EUR_RON for n in reversed(DEO_PROSUMERS))
 
 
 def deferred_capex(hc: Mapping[str, Mapping[str, Any]], cost: float = REINFORCEMENT_COST_LEI,
                    r: float = DISCOUNT_RATE, growth: float = GROWTH_RATE) -> dict[str, Any]:
     rows = []
+    lo, hi = deo_cost_per_prosumer_lei()
     for fid, h in sorted(hc.items()):
         y = years_deferred(h["n_homes"], h["hc_baseline"], h["hc_sentinel"], growth)
         gain = max(0.0, float(h["hc_sentinel"]) - float(h["hc_baseline"]))
-        lo, hi = deo_cost_per_prosumer_lei()
         rows.append({"feeder_id": fid, "n_homes": h["n_homes"], "hc_baseline": h["hc_baseline"],
                      "hc_sentinel": h["hc_sentinel"], "hosting_capacity_gain": gain, "years_deferred": round(y, 3),
                      "deferred_capex_lei": round(deferred_value(cost, y, r), 0),
@@ -249,7 +243,6 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
             print(f"# moved home: none ({case.get('note')}; {note})")
 
     # deferred capex (lei), on G1's hosting capacity (STUB until #159 merges)
-    doc = None
     if a.run_g1:
         try:
             from sentinel.eval.hosting_capacity import main as g1_main
@@ -258,8 +251,7 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
         else:
             g1_main(["--world", a.world, "--out", str(a.out / "g1")])
             a.hosting_capacity = a.out / "g1" / "hosting_capacity.json"
-    if a.hosting_capacity:
-        doc = json.loads(Path(a.hosting_capacity).read_text())
+    doc = json.loads(Path(a.hosting_capacity).read_text()) if a.hosting_capacity else None
     hc = hosting_capacity(world, doc)
     cap = deferred_capex(hc)
     out["dso_value"] = cap

@@ -53,29 +53,30 @@ def _past(window, fn) -> None:
             setattr(window, k, fn(x, k))
 
 
+def _blank(x: np.ndarray, idx) -> np.ndarray:
+    x[idx] = np.nan
+    return x
+
+
+def _tag(window, drill: str, **extra) -> None:
+    window.meta = {**(window.meta or {}), "drill": drill, **extra}
+
+
 def gaps(share: float) -> Callable:
     def drill(asset, window, rng):
         asset, window = _copy(asset, window)
         n = len(window.reference) if window.reference is not None else 0
         mask = _gap_mask(n, share, rng)
-
-        def f(x, _):
-            x[mask[: len(x)]] = np.nan
-            return x
-        _past(window, f)
-        window.meta = {**(window.meta or {}), "drill": f"gaps_{int(share * 100)}"}
+        _past(window, lambda x, _: _blank(x, mask[: len(x)]))
+        _tag(window, f"gaps_{int(share * 100)}")
         return asset, window
     return drill
 
 
 def missing_day(asset, window, rng):
     asset, window = _copy(asset, window)
-
-    def f(x, _):
-        x[-DAY:] = np.nan
-        return x
-    _past(window, f)
-    window.meta = {**(window.meta or {}), "drill": "missing_day"}
+    _past(window, lambda x, _: _blank(x, slice(-DAY, None)))
+    _tag(window, "missing_day")
     return asset, window
 
 
@@ -88,7 +89,7 @@ def frozen_sensor(asset, window, rng):
         val = float(x[start - DAY + day[len(day) // 2]]) if len(day) else 0.0
         x[start:] = val
         window.reference = x
-    window.meta = {**(window.meta or {}), "drill": "frozen_sensor"}
+    _tag(window, "frozen_sensor")
     return asset, window
 
 
@@ -96,7 +97,7 @@ def units(factor: float, name: str) -> Callable:
     def drill(asset, window, rng):
         asset, window = _copy(asset, window)
         _past(window, lambda x, _: x * factor)
-        window.meta = {**(window.meta or {}), "drill": name}  # power_unit still claims "W"
+        _tag(window, name)  # power_unit still claims "W"
         return asset, window
     return drill
 
@@ -116,19 +117,15 @@ def unseen_site_type(asset, window, rng):
         if k in asset:
             asset[k] = float(rng.choice([90.0, 270.0]))  # east-west
     asset["archetype"] = "commercial_flat_roof"
-    window.meta = {**(window.meta or {}), "drill": "unseen_site_type"}
+    _tag(window, "unseen_site_type")
     return asset, window
 
 
 def telemetry_dropout(asset, window, rng, hours: float = 6.0):
     asset, window = _copy(asset, window)
     k = int(hours * 4)
-
-    def f(x, _):
-        x[-k:] = np.nan
-        return x
-    _past(window, f)
-    window.meta = {**(window.meta or {}), "drill": "telemetry_dropout", "telemetry_age_steps": k}
+    _past(window, lambda x, _: _blank(x, slice(-k, None)))
+    _tag(window, "telemetry_dropout", telemetry_age_steps=k)
     return asset, window
 
 
@@ -148,8 +145,7 @@ def forecast_noise(asset, window, rng):
         for i in temp:
             w[:, i] = w[:, i] + rng.normal(0, 2.0)
         window.weather = w
-        window.meta = {**(window.meta or {}), "drill": "forecast_noise", "drill_ghi_factor": round(factor, 3),
-                       "drill_shift_steps": shift}
+        _tag(window, "forecast_noise", drill_ghi_factor=round(factor, 3), drill_shift_steps=shift)
     return asset, window
 
 

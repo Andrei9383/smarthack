@@ -22,7 +22,8 @@ export function formatKpiParts(kpi: Kpi): { number: string; unit: string } {
     const percent = kpi.unit === "%" ? kpi.value : kpi.value * 100;
     return { number: percent.toFixed(1), unit: "%" };
   }
-  const number = Number.isInteger(kpi.value) ? String(kpi.value) : kpi.value.toFixed(2);
+  const number =
+    Number.isInteger(kpi.value) || Math.abs(kpi.value) >= 100 ? kpi.value.toFixed(0) : kpi.value.toFixed(2);
   const unit = kpi.unit && kpi.unit !== "count" ? kpi.unit : "";
   return { number, unit };
 }

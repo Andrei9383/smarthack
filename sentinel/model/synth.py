@@ -84,13 +84,11 @@ def cache_root() -> Path:
 def _ar1(rng, shape, rho, axis=-1):
     """Stationary unit-variance AR(1) noise along `axis`."""
     e = rng.standard_normal(shape) * np.sqrt(1 - rho**2)
-    out = lfilter([1.0], [1.0, -rho], e, axis=axis)
-    return out
+    return lfilter([1.0], [1.0, -rho], e, axis=axis)
 
 
 def _smooth(x, n):
-    k = np.ones(n) / n
-    return np.convolve(x, k, mode="same")
+    return np.convolve(x, np.ones(n) / n, mode="same")
 
 
 # --- weather -----------------------------------------------------------------------------------------------
@@ -119,7 +117,7 @@ def _weather(cfg: SynthConfig, rng, times: pd.DatetimeIndex, geoms: np.ndarray):
     w_nat = _ar1(rng, (D,), 0.6)
     lead = np.tile(np.linspace(0.8, 1.25, ph.DAY), D)  # forecast error grows over the target day (lead 12-36 h)
     for li, (_, _, lat, lon) in enumerate(LOCALITIES):
-        zen, az, csghi = geoms[li, :, 0], geoms[li, :, 1], geoms[li, :, 2]
+        zen, csghi = geoms[li, :, 0], geoms[li, :, 2]
         e = _ar1(rng, (T,), 0.85)
         md = np.repeat(m_d[li], ph.DAY)
         sd = np.repeat(sig_d[li], ph.DAY)
@@ -359,7 +357,7 @@ def generate(cfg: SynthConfig = SynthConfig(), out: Path | None = None, verbose:
         li = s["loc_idx"]
         zen, saz = geoms[li, :, 0], geoms[li, :, 1]
         w = act[li].astype(np.float64)
-        ghi, temp, wind, snow = w[:, 0], w[:, 3], w[:, 5], w[:, 6]
+        ghi, temp, wind = w[:, 0], w[:, 3], w[:, 5]
         # site-level cloud mismatch vs the locality weather (strongest on broken-cloud days)
         sd = np.repeat(sig_d[li], ph.DAY)
         csg = geoms[li, :, 2]
