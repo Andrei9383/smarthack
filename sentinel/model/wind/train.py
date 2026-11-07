@@ -129,8 +129,10 @@ def parse_args(argv):
                     help="exact data-wait vs compute split (cuda sync per step)")
     ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
                     help="fused AdamW kernel on CUDA")
-    ap.add_argument("--compile", default="off", choices=["off", "default", "reduce-overhead", "max-autotune-no-cudagraphs"],
-                    help="torch.compile mode for the train forward (compile time logged as t_compile_s)")
+    ap.add_argument("--compile", default="auto", choices=["auto", "off", "default", "reduce-overhead",
+                                                          "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the train forward; auto = reduce-overhead (CUDA graphs) on CUDA sm>=7.5, "
+                         "else off. Compile time is logged as t_compile_s (#140)")
     return ap.parse_args(argv)
 
 
@@ -235,7 +237,7 @@ def main(argv: list[str] | None = None) -> None:
     if dev.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
 
-    from ..harness import compile_net
+    from ..harness import compile_net, resolve_compile
 
     fwd_train = compile_net(model.forward_all, args.compile)
 
@@ -275,10 +277,11 @@ def main(argv: list[str] | None = None) -> None:
                     sched.step()
                     tl += loss.detach()
                 steps_done += 1
-                if args.compile != "off" and steps_done == 1:
+                if resolve_compile(args.compile) != "off" and steps_done == 1:
                     if dev.type == "cuda":
                         torch.cuda.synchronize()
                     run.emit("t_compile_s", time.perf_counter() - t_c)
+                    tp.warmup(time.perf_counter() - t_c, xb.shape[0])
                 if run.left() < reserve * 60:
                     stopped_early = True
                     break

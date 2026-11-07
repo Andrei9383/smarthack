@@ -234,6 +234,7 @@ class Throughput:
         self.emit, self.cuda, self.sync = emit, str(device).startswith("cuda"), sync
         self.t = {"data_wait": 0.0, "compute": 0.0, "val": 0.0}
         self.samples, self.steps = 0, 0
+        self.warm_s, self.warm_n, self.warm_steps = 0.0, 0, 0
         self.gpu = GpuSampler().start() if self.cuda else None
         self.t0 = time.perf_counter()
 
@@ -264,24 +265,45 @@ class Throughput:
     def val(self):
         return self._block("val", True)
 
+    def warmup(self, seconds: float, n: int, steps: int = 1) -> None:
+        """Leave a one-off block (e.g. the torch.compile first step) out of samples_per_s / ms_per_step."""
+        self.warm_s, self.warm_n, self.warm_steps = self.warm_s + seconds, self.warm_n + n, self.warm_steps + steps
+
     def finish(self, prefix: str = "") -> dict:
         wall = time.perf_counter() - self.t0
         util = self.gpu.stop() if self.gpu else float("nan")
-        train_wall = max(wall - self.t["val"], 1e-9)
-        out = {"samples_per_s": self.samples / train_wall, "gpu_util_mean": util, "t_data_wait_s": self.t["data_wait"],
-               "t_compute_s": self.t["compute"], "t_val_s": self.t["val"],
+        train_wall = max(wall - self.t["val"] - self.warm_s, 1e-9)
+        out = {"samples_per_s": (self.samples - self.warm_n) / train_wall, "gpu_util_mean": util,
+               "t_data_wait_s": self.t["data_wait"], "t_compute_s": self.t["compute"], "t_val_s": self.t["val"],
                "data_wait_frac": self.t["data_wait"] / train_wall,
-               "ms_per_step": 1000 * train_wall / max(self.steps, 1)}
+               "ms_per_step": 1000 * train_wall / max(self.steps - self.warm_steps, 1)}
         for k, v in out.items():
             self.emit(prefix + k, v)
         return out
+
+
+def resolve_compile(mode: str | None) -> str:
+    """auto -> reduce-overhead on CUDA with compute capability >= 7.5 (triton + CUDA graphs), else off."""
+    if mode in (None, "", "off"):
+        return "off"
+    if mode != "auto":
+        return mode
+    try:
+        import torch
+
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (7, 5):
+            return "reduce-overhead"
+    except Exception:
+        pass
+    return "off"
 
 
 def compile_net(net, mode: str = "off"):
     """torch.compile(net) (a module or a bound forward) for the train forward only; eval / export / state_dict keep
     using `net` (shared weights).
     Falls back to eager (and says so) if the compiler is unavailable on this worker."""
-    if mode in (None, "", "off"):
+    mode = resolve_compile(mode)
+    if mode == "off":
         return net
     import torch
 

@@ -20,7 +20,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source
-from .harness import RunContext, Throughput, compile_net, export_onnx, pin
+from .harness import RunContext, Throughput, compile_net, export_onnx, pin, resolve_compile
 
 SPECS = {
     "pvnet": dict(kind="pv", d=96, layers=3, heads=4, ff=192, unit="kW", scale="kwp_recorded",
@@ -67,8 +67,10 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
                     help="exact data-wait vs compute split (cuda sync per step)")
     ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
-    ap.add_argument("--compile", default="off", choices=["off", "default", "reduce-overhead", "max-autotune-no-cudagraphs"],
-                    help="torch.compile mode for the train forward (compile time logged as t_compile_s)")
+    ap.add_argument("--compile", default="auto", choices=["auto", "off", "default", "reduce-overhead",
+                                                          "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the train forward; auto = reduce-overhead (CUDA graphs) on CUDA sm>=7.5, "
+                         "else off. Compile time is logged as t_compile_s (#140)")
     ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
                     help="fused AdamW kernel on CUDA (one launch per step instead of one per tensor group)")
     return ap.parse_args(argv)
@@ -458,10 +460,11 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                         sched.step()
                     step += 1
                     losses.append(loss.detach())  # no per-step GPU sync
-                if args.compile != "off" and step == 1:
+                if resolve_compile(args.compile) != "off" and step == 1:
                     if cuda:
                         torch.cuda.synchronize()
                     ctx.emit("t_compile_s", time.perf_counter() - t_c)
+                    tp.warmup(time.perf_counter() - t_c, len(host[0]))
             # validation (fixed subset) for early stopping
             with tp.val():
                 vp, vn = val_score(net, vcache, amp)

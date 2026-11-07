@@ -24,7 +24,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source, window_labels
-from .harness import RunContext, Throughput, compile_net, export_onnx
+from .harness import RunContext, Throughput, compile_net, export_onnx, resolve_compile
 from .synth import FAULTS
 
 N_CLS = len(FAULTS)
@@ -61,8 +61,10 @@ def parse_args(argv=None):
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
                     help="exact data-wait vs compute split (cuda sync per step)")
     ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
-    ap.add_argument("--compile", default="off", choices=["off", "default", "reduce-overhead", "max-autotune-no-cudagraphs"],
-                    help="torch.compile mode for the train forward (compile time logged as t_compile_s)")
+    ap.add_argument("--compile", default="auto", choices=["auto", "off", "default", "reduce-overhead",
+                                                          "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the train forward; auto = reduce-overhead (CUDA graphs) on CUDA sm>=7.5, "
+                         "else off. Compile time is logged as t_compile_s (#140)")
     ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
                     help="fused AdamW kernel on CUDA")
     return ap.parse_args(argv)
@@ -331,10 +333,11 @@ def run(argv=None):
                         sched.step()
                     step += 1
                     losses.append(loss.detach())  # no per-step GPU sync
-                if args.compile != "off" and step == 1:
+                if resolve_compile(args.compile) != "off" and step == 1:
                     if cuda:
                         torch.cuda.synchronize()
                     ctx.emit("t_compile_s", time.perf_counter() - t_c)
+                    tp.warmup(time.perf_counter() - t_c, len(host[-1]))
             with tp.val():
                 P, L = val_probs()
                 mac, _ = M.prauc_macro(P, L)
