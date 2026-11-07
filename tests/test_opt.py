@@ -271,3 +271,119 @@ def test_lp_scales_to_60_sites():
     plan = plan_feeder("F1", rows, None, fc, G=G, prices=0.6)
     assert time.perf_counter() - t < 20
     assert plan.max_slack_kw == 0.0 and plan.simultaneous_steps == 0
+
+
+# --- negative prices (card #80) ---------------------------------------------------------------------------
+# Real OPCOM PZU day-ahead prices (lei/MWh, hourly, data/raw/prices.parquet) for the local days 2025-06-07 and
+# 2025-06-08 of the demo week: negative at midday. The merged LP was unbounded on both.
+OPCOM_0607 = ("2025-06-06T21:00:00Z", [
+    524.73, 502.85, 485.74, 486.39, 462.48, 455.89, 410.5, 407.25, 372.43, 300.6, 69.28, 47.73, 6.0, -0.03, -0.08,
+    -0.09, 25.71, 450.83, 685.46, 990.68, 1138.9, 825.06, 623.22, 598.59])
+OPCOM_0608 = ("2025-06-07T21:00:00Z", [
+    484.1, 446.87, 435.59, 424.11, 398.14, 332.44, 229.1, 20.22, 0.01, -2.52, -10.08, -16.79, -86.42, -129.34,
+    -163.67, -30.0, 72.86, 461.76, 795.67, 763.16, 895.58, 801.81, 628.82, 508.96])
+
+
+def negative_day(day):
+    t0, hourly = day
+    rows, fc = make_feeder(t0)
+    prices = np.repeat(np.asarray(hourly) / 1000.0, 4)  # lei/kWh per 15 min step, as the replay passes them
+    return rows, fc, prices, t0
+
+
+def lp_arrays(rows, fc, G, prices, t0):
+    from sentinel.opt.policies import site_quantiles
+
+    sites = [site_from_row(r) for r in rows]
+    q = {s.site_id: site_quantiles(fc, s.site_id) for s in sites}
+    bats = [s.battery for s in sites]
+    e0 = np.array([s.initial_energy() for s in sites])
+    return dict(
+        net50=np.stack([q[s.site_id]["pv50"] - q[s.site_id]["l50"] for s in sites]),
+        worst=np.stack([q[s.site_id]["pv90"] - q[s.site_id]["l10"] for s in sites]),
+        p_max=np.array([b.p_max_kw for b in bats]), e_lo=np.minimum([b.e_min for b in bats], e0),
+        e_hi=np.array([b.e_max for b in bats]), e0=e0, eta_c=np.array([b.eta_charge for b in bats]),
+        eta_d=np.array([b.eta_discharge for b in bats]), rest_worst=np.zeros(96), rest_net=np.zeros(96),
+        g_kw=G, prices=prices, peak_mask=peak_mask_for(t0, 96),
+    )
+
+
+@pytest.mark.parametrize("day", [OPCOM_0607, OPCOM_0608], ids=["2025-06-07", "2025-06-08"])
+def test_negative_price_day_lp_optimal(day):
+    rows, fc, prices, t0 = negative_day(day)
+    assert prices.min() < 0
+    G = 0.7 * float(worst_no_battery(fc).max())
+    plan = plan_feeder("F1", rows, None, fc, G=G, prices=prices)
+    assert plan.method == "lp" and plan.solver_status == "optimal"
+    assert plan.max_slack_kw == 0.0 and max(plan.worst_export_curve) <= G + 1e-4  # headroom suffices
+    assert plan.simultaneous_steps == 0
+    assert np.isfinite(plan.objective) and plan.solve_time_s < 10
+    assert_reserve_and_replay(plan, rows)
+    for row in rows:  # end-of-day energy kept (e_T >= e0)
+        assert plan.soc_kwh[row["site_id"]][-1] >= site_from_row(row).initial_energy() - 1e-6
+
+
+def test_negative_price_lp_flows_are_physical():
+    """One net flow per site: no simultaneous import + export, and the LP objective is the real cost of the plan
+    (nothing earned from phantom import/export pairs)."""
+    from sentinel.opt.lp import solve_lp
+
+    rows, fc, prices, t0 = negative_day(OPCOM_0608)
+    G = 0.7 * float(worst_no_battery(fc).max())
+    args = lp_arrays(rows, fc, G, prices, t0)
+    params = LPParams()
+    sol = solve_lp(**args, params=params)
+    assert sol.status == "optimal"
+    imp, exp = sol.import_kw, sol.export_kw
+    np.testing.assert_allclose(exp - imp, args["net50"] - sol.c + sol.d, atol=1e-9)
+    assert (np.minimum(imp, exp) <= params.simultaneous_tol_kw).all()
+    # objective = Σ π·imp·Δt − β_t·π·exp·Δt + c_deg·(c + d)·Δt + M·Σ s·Δt + M·w·max s + λ·z, β_t = 1 when π < 0
+    beta_t = np.where(prices >= 0, params.beta, params.beta_negative)
+    cost = 0.25 * float(np.sum(prices * imp - beta_t * prices * exp) + params.c_deg * np.sum(sol.c + sol.d)
+                        + params.big_m * sol.s.sum()) + params.big_m * params.slack_peak_weight * sol.s.max() \
+        + params.lam * sol.z
+    assert sol.objective == pytest.approx(cost, rel=1e-6, abs=1e-4)
+    # Charging during negative prices is the point: the batteries take energy while π < 0.
+    neg = prices < 0
+    assert sol.c[:, neg].sum() * 0.25 > 50.0
+
+
+def test_negative_prices_same_as_before_when_prices_nonnegative(sunny):
+    """π >= 0: the net-flow LP is the merged m/x LP after a change of variables (same optimum)."""
+    from sentinel.opt.lp import solve_lp
+
+    rows, fc, peak = sunny
+    prices = np.r_[np.full(40, 0.3), np.zeros(30), np.full(26, 1.2)]
+    args = lp_arrays(rows, fc, 0.7 * peak, prices, SUMMER)
+    sol = solve_lp(**args)
+    # Same optimum as the merged formulation on this fixture (recorded before the change).
+    assert sol.objective == pytest.approx(6.681244, abs=1e-5)
+
+
+def test_negative_price_day_aggregate_fallback():
+    rows, fc, prices, t0 = negative_day(OPCOM_0608)
+    G = 0.7 * float(worst_no_battery(fc).max())
+    agg = plan_feeder_aggregate("F1", rows, None, fc, G=G, prices=prices)
+    assert agg.method == "aggregate" and agg.solver_status == "optimal"
+    assert agg.max_slack_kw <= 1e-6 and max(agg.worst_export_curve) <= G + 1e-4
+    # The virtual battery pools energy and power, so the last full-power charge step at negative prices can't be
+    # split exactly (sites with room are at their power cap); the applied schedule (and its slack) is what counts.
+    assert agg.extra["split_shortfall_kw"] < 0.2 * sum(site_from_row(r).battery.p_max_kw for r in rows)
+    assert_reserve_and_replay(agg, rows)
+
+
+def test_grid_limit_and_beta_negative_params():
+    rows, fc, prices, t0 = negative_day(OPCOM_0608)
+    G = 0.7 * float(worst_no_battery(fc).max())
+    lim = 2.0
+    plan = plan_feeder("F1", rows, None, fc, G=G, prices=prices, params=LPParams(grid_limit_kw=lim))
+    assert plan.solver_status == "optimal"
+    for r in rows:  # the battery never pushes the connection beyond max(limit, |forecast net|)
+        sid = r["site_id"]
+        net50 = np.asarray(fc[sid]["pv"].q50) - np.asarray(fc[sid]["load"].q50)
+        g = net50 - np.asarray(plan.schedule[sid])
+        assert (np.abs(g) <= np.maximum(lim, np.abs(net50)) + 1e-5).all()
+    with pytest.raises(ValueError):
+        LPParams(beta_negative=0.9)
+    with pytest.raises(ValueError):
+        LPParams(grid_limit_kw=0.0)
