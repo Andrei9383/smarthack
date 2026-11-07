@@ -23,6 +23,7 @@ import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
 import { clampStep, clockLabel, dayLabel, dayOfStep, HERO_DAY, STEPS_PER_DAY, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
+import { TrustBoard } from "@/panels/judge/trust-board";
 
 import { MiniMap } from "./mini-map";
 import { type FeederState, useOverviewData } from "./use-overview-data";
@@ -709,6 +710,9 @@ export function OverviewPage({ onTour }: ModePageProps) {
         </div>
         <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-3">
           <AgentActivity />
+        </div>
+        <div className="@min-[880px]:col-start-2 @min-[880px]:row-start-4">
+          <TrustBoard />
         </div>
       </div>
     </div>

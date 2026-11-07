@@ -34,6 +34,10 @@ otherwise by a minimal built-in, and `Components.sources` records which (also wr
     committer  sentinel.opt.commit.make_scenarios + commit (#27) -> fallback: committed = 0.8 x planned reduction
     demand     sentinel.demand.aggregate_scenarios + zone_demand_rows/actions (#44) -> fallback: summed quantiles
     predictors world.default_predictors() (MockPredictor / world-aware mock) until trained models are injected
+    judge      sentinel.judge.slot.JudgeSlot (#149, judge-design §7.5/§7.7/§8): one verdict per (witness, asset, day)
+               into judge_verdicts (+ trust, outcomes when J1/J2 are in); Judge model (J3) if its weights load, else
+               ledger-only mode. Observer only: actions are still open (§10), so decisions and KPIs do not change.
+               Not counted in `fallbacks` (it never changes a number); its mode is in runs.notes["judge"].
     wind       built-in rule classifier (M6 stand-in: fault stop / underperformance / data gap from expected power);
                baseline alerts = WindMon's four rules (#24 sentinel.eval.baselines.wind; built-in stand-in fallback)
 """
@@ -79,6 +83,7 @@ DT = 0.25
 EPS = 1e-6
 BLIND_REASONS = ("stale_telemetry", "data_gap")  # qualify reasons that mean "not seen", not "not fit"
 STALE_AGE_S = 3600.0  # qualify DEFAULT_THRESHOLDS["site"]["stale_minutes"] = 60: older telemetry = out of the pool
+OBSERVER_SLOTS = ("judge",)  # slots that record but never change a decision (not listed as fallbacks)
 BASELINE_ALIASES = {"baseline": "baseline", "self_consumption": "baseline", "threshold": "threshold",
                     "sentinel": "sentinel"}
 
@@ -448,10 +453,11 @@ class Components:
     sources: dict[str, str] = field(default_factory=dict)
     errors: dict[str, int] = field(default_factory=dict)
     windmon_flags: Optional[Callable[..., dict[str, np.ndarray]]] = None  # #24 rules (baseline policy); None = builtin
+    judge: Optional[Any] = None  # sentinel.judge.slot.JudgeSlot (#149); None = no verdicts
 
     @property
     def fallbacks(self) -> list[str]:
-        return sorted(k for k, v in self.sources.items() if not v.startswith("real"))
+        return sorted(k for k, v in self.sources.items() if not v.startswith("real") and k not in OBSERVER_SLOTS)
 
     def note_error(self, slot: str, exc: BaseException) -> None:
         n = self.errors.get(slot, 0)
@@ -490,7 +496,8 @@ def _builtin_threshold_step(battery, e, pv, load, threshold_kw, dt_h=DT):
 
 
 def default_components(world: World, force_fallback: bool | Sequence[str] = False,
-                       predictors: Optional[dict[str, Any]] = None) -> Components:
+                       predictors: Optional[dict[str, Any]] = None, judge: bool = True,
+                       models_dir: Optional[Any] = None) -> Components:
     """Real modules where they import (lazy), built-in fallbacks otherwise. `force_fallback=True` or a list of
     slots (planner, qualify, triage, committer, demand) forces the built-ins (tests, A/B checks)."""
     forced = set(["planner", "qualify", "triage", "committer", "demand", "wind_baseline"] if force_fallback is True
@@ -604,6 +611,17 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
     if wm is not None and hasattr(wm, "windmon_flags"):
         comps.windmon_flags = wm.windmon_flags
         src["wind_baseline"] = "real:sentinel.eval.baselines.wind.windmon_rules (#24)"
+    # judge (#149): observer slot, never fails the loop ------------------------------------------------------
+    src["judge"] = "off"
+    if judge:
+        try:
+            from sentinel.judge.slot import JudgeSlot
+
+            comps.judge = JudgeSlot.load(models_dir)
+            src["judge"] = comps.judge.source
+        except Exception as e:  # e.g. pandas missing: the agent runs as before, without verdicts
+            log(f"WARNING judge slot unavailable ({type(e).__name__}: {e}); no verdicts this run")
+            src["judge"] = f"unavailable ({type(e).__name__})"
     banner = ", ".join(f"{k}={v}" for k, v in sorted(src.items()))
     log(f"components: {banner}")
     if comps.fallbacks:
@@ -632,6 +650,7 @@ class LoopConfig:
     conformal_buckets: int = 24  # hour-of-day buckets (t0 = local midnight): dawn load misses differ from midday PV
     n_scenarios: int = 200
     seed: int = 0
+    judge: bool = True  # run comps.judge (if any) on the sentinel policy: verdicts only, decisions unchanged
 
 
 @dataclass
@@ -655,6 +674,7 @@ class PolicyResult:
     action_ids: list[str] = field(default_factory=list)
     plan_status: dict[str, int] = field(default_factory=dict)
     conformal: dict[int, dict[str, Any]] = field(default_factory=dict)  # day -> commit-time calibration (runs.notes)
+    judge: dict[str, Any] = field(default_factory=dict)  # JudgeSlot.summary(): mode, verdict counts, t_judge_s per day
 
     @property
     def minutes_over_limit(self) -> float:
@@ -767,9 +787,12 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         res.n_actions[action.type] = res.n_actions.get(action.type, 0) + 1
         res.action_ids.append(action.action_id)
 
+    judge = comps.judge if (sentinel and cfg.judge) else None
+    gis: list[dict[str, Any]] = []
     if write_inputs:  # grid-twin flags (M8 stand-in in the mock world), once per run
         t0 = world.day_t0(0)
-        for fl in world.gis_flags():
+        gis = list(world.gis_flags())
+        for fl in gis:
             twin_v = getattr(world, "gridtwin_version", "gridtwin:mock-1")
             rec = A.audit(twin_v, fl, {"tau": fl["tau"], "score": fl.get("score")}, fl.get("threshold", 0.5),
                           "flagged", note=fl.get("message") or "mock grid-twin (M8 stand-in)")
@@ -780,6 +803,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 "geometry": {"type": "Point", "coordinates": [fl["lon"], fl["lat"]]}}, rec, fl["section_id"])
             act(a, world.day_ts(0))
 
+    if judge is not None:
+        judge.start_run(world, run_id, sink, gis_flags=gis)
     prev_oday: dict[str, SiteDay] = {}  # yesterday's observation: the blind-haircut profile at commit time
     cal_hist: dict[str, list[tuple[np.ndarray, ...]]] = {"pv": [], "load": []}  # (y, q10, q50, q90, observed)
     for d in range(world.days):
@@ -839,6 +864,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         thresholds: dict[str, float] = {}
         commitments: dict[str, Commitment] = {}
         e_day0 = dict(energy)
+        if judge is not None:  # verdicts at t0: predictions + telemetry age now + past observed days only
+            judge.at_t0(d, t0, pv_p, ld_p, hl_p, {s: oday[s].telemetry_age_s[0] for s in sites})
         if sentinel:
             ass = _safe_qualify(comps, [site_rows[s] for s in sites], hl_p,
                                 {s: oday[s].telemetry_age_s[0] / 60 for s in sites}, None, {})
@@ -935,8 +962,11 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
             if sentinel:
                 ages_min = {**{s: oday[s].telemetry_age_s[k] / 60 for s in sites},
                             **{t: _gap_age(tday[t].act_pwt_kw, k) for t in world.turbines}}
+                wind_k = _wind_preds(world, wd_p, tday, k, tb_obs, under_run)
+                if judge is not None:
+                    judge.observe_wind_tick(d, k, wind_k)
                 ass = _safe_qualify(comps, [site_rows[s] for s in sites] + [world.turbines[t].row for t in world.turbines],
-                                    {**hl_p, **_wind_preds(world, wd_p, tday, k, tb_obs, under_run)}, ages_min,
+                                    {**hl_p, **wind_k}, ages_min,
                                     {**pv_obs, **tb_obs},
                                     {t: {"data_gap": True} for t in world.turbines if tday[t].act_pwt_kw[k] is None})
                 for x in ass:
@@ -1063,6 +1093,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 cal_hist[key].append((y, np.asarray(p.q10, float), q50, np.asarray(p.q90, float), ok))
         for fid in world.feeders:
             res.feeder_days[(fid, d)] = fd[fid]
+        if judge is not None:  # M6 day verdicts, grading hook, ledger update (the day's telemetry is now observed)
+            judge.at_end_of_day(d, t0, oday, tday, wd_p, pv_p, ld_p, hl_p)
         if sentinel:
             for fid, c in commitments.items():
                 tot_c = tot_r = 0.0
@@ -1108,6 +1140,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
     # close open curtailment episodes
     for pid in list(curt_ep):
         _close_curtailment(pid, curt_ep, act, run_id, policy, world.tick_ts(world.days - 1, DAY_STEPS - 1), res)
+    if judge is not None:
+        res.judge = judge.summary()
     if hasattr(sink, "flush"):
         sink.flush()
     return res
