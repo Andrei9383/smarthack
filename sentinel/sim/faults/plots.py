@@ -20,10 +20,8 @@ TITLES = {
 
 
 def _series(d: Path, site: str, t0, t1) -> pd.DataFrame:
-    parts = []
-    for f in sorted((d / "telemetry").glob("year=*.parquet")):
-        df = pd.read_parquet(f, filters=[("site_id", "==", site), ("ts", ">=", t0), ("ts", "<", t1)])
-        parts.append(df)
+    parts = [pd.read_parquet(f, filters=[("site_id", "==", site), ("ts", ">=", t0), ("ts", "<", t1)])
+             for f in sorted((d / "telemetry").glob("year=*.parquet"))]
     return pd.concat(parts).sort_values("ts").set_index("ts")
 
 
