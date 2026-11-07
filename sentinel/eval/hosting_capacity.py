@@ -41,6 +41,7 @@ import os
 import sys
 import time
 import zlib
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -552,18 +553,33 @@ def run_jobs(jobs: Sequence[Job], workers: int = 1) -> list[dict[str, Any]]:
     if workers <= 1:
         return [run_job(j) for j in jobs]
     out = []
-    with ProcessPoolExecutor(max_workers=workers, initializer=_worker_init) as ex:
-        futs = {ex.submit(_run_job_worker, j): j for j in jobs}
-        for f in as_completed(futs):
-            r = f.result()
-            log(f"{r['feeder_id']} {r['policy']} {r['variant']}: capacity {r['capacity']} "
-                f"({r['evals']} replays, {r['seconds']} s)")
-            out.append(r)
+    # spawn, not fork: the parent may already run Rust (rayon) / OpenMP threads, and forked workers
+    # inherit their locked mutexes and hang. Thread caps are set before the workers start.
+    saved = {k: os.environ.get(k) for k in _THREAD_VARS}
+    os.environ.update({k: "1" for k in _THREAD_VARS})
+    try:
+        with ProcessPoolExecutor(max_workers=workers, initializer=_worker_init,
+                                 mp_context=multiprocessing.get_context("spawn")) as ex:
+            futs = {ex.submit(_run_job_worker, j): j for j in jobs}
+            for f in as_completed(futs):
+                r = f.result()
+                log(f"{r['feeder_id']} {r['policy']} {r['variant']}: capacity {r['capacity']} "
+                    f"({r['evals']} replays, {r['seconds']} s)")
+                out.append(r)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
     return out
 
 
+_THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "RAYON_NUM_THREADS")
+
+
 def _worker_init() -> None:
-    for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "RAYON_NUM_THREADS"):
+    for k in _THREAD_VARS:
         os.environ[k] = "1"
 
 

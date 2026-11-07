@@ -218,3 +218,15 @@ def test_judge_verdicts_flow_through_the_c1_adapter():
     np.testing.assert_allclose(fw.pv_q[1, 0, 2] - fw.pv_q[1, 0, 1], 2 * (base.pv_q[1, 0, 2] - base.pv_q[1, 0, 1]))
     assert fw.g_kw == pytest.approx(w.feeders["F7"].spec.g_conservative_kw)
     assert fw.meta["verdicts"]["pv"]["dont_use"] == 1 and fw.meta["verdicts"]["pv"]["unknown"] == 1
+
+
+def test_process_pool_matches_serial_and_does_not_hang():
+    # workers are spawned (not forked) so a parent that already runs Rust/OpenMP threads cannot deadlock them
+    fw = _toy(g=13.0)
+    fleet = hc.Fleet(np.array([4.0, 6.0]), [BatterySpec(10.0, 4.0, comfort_reserve_kwh=2.0)], 0.5)
+    plan = hc.plan_synthetic(fw, fleet, n_max=12)
+    jobs = [hc.Job(fw, plan, p, v, (0, 30), 12) for p in ("self_consumption", "threshold") for v in hc.VARIANTS]
+    key = lambda r: (r["policy"], r["variant"])  # noqa: E731
+    serial = sorted(hc.run_jobs(jobs, workers=1), key=key)
+    pooled = sorted(hc.run_jobs(jobs, workers=2), key=key)
+    assert [(key(r), r["capacity"]) for r in pooled] == [(key(r), r["capacity"]) for r in serial]
