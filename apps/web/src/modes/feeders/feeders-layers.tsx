@@ -1,6 +1,7 @@
 "use client";
 
 import { MapGeoJSON, MapMarker, MarkerContent } from "@sentinel-app/ui/components/map";
+import { parseAsString, useQueryState } from "nuqs";
 import { type ReactNode, useMemo } from "react";
 
 import { usePolicy } from "@/demo/use-replay";
@@ -21,13 +22,17 @@ import {
   FEEDER_WARN,
   LOW_TRUST_GAP,
 } from "./colors";
-import { useFeederList, useOverLimit } from "./use-feeder-data";
+import { FeederMotion, type MotionFeeder } from "./feeder-motion";
+import { boundsOf, useCameraFocus, useFocusIntent } from "./map-motion";
+import { useAbsorbingHomes, useFeederList, useFeedersNow, useOverLimit } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
 const PANEL_PADDING_PX = 452; // FeederPanel width + gutter; keeps Dobrogea clear of the panel.
 const LINE_WIDTH = 4;
 const SELECTED_LINE_WIDTH = 7;
 const CASING_PX = 2; // white casing on each side of the line
+const NEAR_LIMIT = 0.9; // export above 90 % of the limit reads amber
+const FEEDER_MAX_ZOOM = 15;
 
 type Status = "ok" | "warn" | "over" | "unknown";
 const STATUS_COLOR: Record<Status, string> = {
@@ -42,6 +47,12 @@ function statusFor(minutes: number | undefined): Status {
   if (minutes === undefined) return "unknown";
   if (minutes === 0) return "ok";
   return minutes <= 60 ? "warn" : "over";
+}
+
+// Status at the replay clock (#115): over its limit now, near it (amber, no pulse), or within.
+function statusNow(exportKw: number, limitKw: number): Status {
+  if (exportKw > limitKw) return "over";
+  return exportKw > limitKw * NEAR_LIMIT ? "warn" : "ok";
 }
 
 function lineOf(geometryJson?: string | null): [number, number][] {
@@ -63,9 +74,13 @@ type Item = {
   lowTrust: boolean;
   status: Status;
   color: string;
+  charging: boolean;
   longitude: number;
   latitude: number;
 };
+
+// The chip's status dot rings outward while its feeder is over the limit (motion-safe only).
+const RING_KEYFRAMES = `@keyframes feeder-over-ring{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--status-critical) 50%,transparent)}100%{box-shadow:0 0 0 7px transparent}}`;
 
 function LegendRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -76,20 +91,25 @@ function LegendRow({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-function FeedersLegend() {
+function FeedersLegend({ charging }: { charging: boolean }) {
   const swatch = (color: string) => (
     <span className="block h-1 w-5 rounded-full" style={{ backgroundColor: color }} />
   );
   return (
-    <div className="pointer-events-none absolute bottom-[84px] left-2 z-10 rounded-lg border border-border bg-card px-3 py-2.5 text-xs text-text-secondary shadow-card">
+    <div className="pointer-events-none absolute bottom-[112px] left-2 z-10 rounded-lg border border-border bg-card px-3 py-2.5 text-xs text-text-secondary shadow-card">
       <ul className="space-y-1.5">
         <LegendRow label="Within limit">{swatch(FEEDER_OK)}</LegendRow>
         <LegendRow label="Near limit">{swatch(FEEDER_WARN)}</LegendRow>
-        <LegendRow label="Over limit">{swatch(FEEDER_OVER)}</LegendRow>
+        <LegendRow label="Over limit now (pulses)">{swatch(FEEDER_OVER)}</LegendRow>
         <LegendRow label="No data">{swatch(FEEDER_UNKNOWN)}</LegendRow>
         <LegendRow label="Low GIS trust">
           <span className="block w-5 border-t-[3px] border-dashed border-text-secondary" />
         </LegendRow>
+        {charging && (
+          <LegendRow label="Batteries charging">
+            <span className="block size-3 rounded-full border-[1.5px] border-brand-500" />
+          </LegendRow>
+        )}
       </ul>
     </div>
   );
@@ -101,6 +121,8 @@ export function FeedersLayers() {
   const [selected, setSelected] = useSelectedFeeder();
   const { data: feeders } = useFeederList();
   const { data: overLimit } = useOverLimit();
+  const feederIds = useMemo(() => (feeders ?? []).map((feeder) => feeder.id), [feeders]);
+  const now = useFeedersNow(feederIds, policy);
 
   const items = useMemo<Item[]>(
     () =>
@@ -108,9 +130,11 @@ export function FeedersLayers() {
         const line = lineOf(feeder.geometryJson);
         const anchor = line[Math.floor(line.length / 2)];
         if (!anchor) return [];
-        const status = statusFor(
-          overLimit?.find((row) => row.feederId === feeder.id && row.policy === policy)?.minutesOver,
-        );
+        const current = now.get(feeder.id);
+        // Until the step's curves arrive, fall back to the day's over-limit minutes.
+        const status = current
+          ? statusNow(current.exportKw, current.limitKw)
+          : statusFor(overLimit?.find((row) => row.feederId === feeder.id && row.policy === policy)?.minutesOver);
         return [
           {
             id: feeder.id,
@@ -118,13 +142,37 @@ export function FeedersLayers() {
             lowTrust: feeder.gisTrust === "low",
             status,
             color: STATUS_COLOR[status],
+            charging: policy === "sentinel" && Boolean(current?.charging),
             longitude: anchor[0],
             latitude: anchor[1],
           },
         ];
       }),
-    [feeders, overLimit, policy],
+    [feeders, overLimit, policy, now],
   );
+
+  // Fly to a feeder picked on the map, in the panel or in a link; with no ?feeder the mode opens on
+  // the country view. A click on empty map eases back to Romania (the panel keeps its feeder).
+  const [explicit] = useQueryState("feeder", parseAsString);
+  const [focused, setFocused] = useFocusIntent(explicit);
+  const focusLine = items.find((item) => item.id === focused)?.line;
+  const focusBounds = useMemo(() => (focusLine ? boundsOf(focusLine) : null), [focusLine]);
+  useCameraFocus(focused, focusBounds && { bounds: focusBounds, maxZoom: FEEDER_MAX_ZOOM }, PANEL_PADDING_PX);
+
+  const motionFeeders = useMemo<MotionFeeder[]>(
+    () =>
+      items.map((item) => ({
+        id: item.id,
+        line: item.line,
+        anchor: [item.longitude, item.latitude],
+        over: item.status === "over",
+        charging: item.charging,
+      })),
+    [items],
+  );
+  const selectedCharging = items.some((item) => item.id === selected && item.charging);
+  const homes = useAbsorbingHomes(selectedCharging ? selected : null);
+  const anyCharging = items.some((item) => item.charging);
 
   // Labels are all peers, so colliding ones push each other equally (#91).
   const placed = useMemo<PlacedMarker[]>(
@@ -197,6 +245,8 @@ export function FeedersLayers() {
           "line-dasharray": [0.8, 1.2],
         }}
       />
+      <FeederMotion feeders={motionFeeders} homes={homes} />
+      <style>{RING_KEYFRAMES}</style>
       {items.map((item) => {
         const isSelected = item.id === selected;
         return (
@@ -204,7 +254,10 @@ export function FeedersLayers() {
             key={item.id}
             longitude={item.longitude}
             latitude={item.latitude}
-            onClick={() => setSelected(item.id)}
+            onClick={() => {
+              setFocused(item.id);
+              void setSelected(item.id);
+            }}
           >
             <MarkerContent>
               <Displaced offset={offsets.get(item.id) ?? NO_OFFSET}>
@@ -215,7 +268,12 @@ export function FeedersLayers() {
                   }`}
                   title={item.lowTrust ? `${item.id}: low GIS trust` : item.id}
                 >
-                  <span className="size-2 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span
+                    className={`size-2 rounded-full ${
+                      item.status === "over" ? "motion-safe:animate-[feeder-over-ring_1.2s_ease-out_infinite]" : ""
+                    }`}
+                    style={{ backgroundColor: item.color }}
+                  />
                   {item.id}
                 </span>
               </Displaced>
@@ -223,7 +281,7 @@ export function FeedersLayers() {
           </MapMarker>
         );
       })}
-      <FeedersLegend />
+      <FeedersLegend charging={anyCharging} />
     </>
   );
 }

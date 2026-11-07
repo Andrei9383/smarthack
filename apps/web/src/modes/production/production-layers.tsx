@@ -4,8 +4,10 @@ import { MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/ma
 import { useQuery } from "@tanstack/react-query";
 import { Wind } from "lucide-react";
 import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
+import { parseAsString, useQueryState } from "nuqs";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+import { useCameraFocus, useFocusIntent } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
 import { PARTICLE_COLOR_RAMP } from "./colors";
 import { expectedMwh } from "./data";
@@ -15,6 +17,7 @@ import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field";
 
 const PANEL_PADDING_PX = 452;
+const PARK_ZOOM = 9; // the park and its neighbouring county markers, readable
 const SOURCE_ID = "wind-speed";
 const LAYER_ID = "wind-speed-raster";
 // The speed PNGs bake a light → emerald ramp (scripts/windfield.py, card #92) under the particles.
@@ -283,6 +286,16 @@ export function ProductionLayers() {
   );
   const offsets = useMarkerOffsets(placed);
 
+  // Picking a park (chip or link) flies to it; empty-map click or no ?park keeps Romania (#115).
+  const [explicitPark] = useQueryState("park", parseAsString);
+  const [focusedPark, setFocusedPark] = useFocusIntent(explicitPark);
+  const focusPark = parks.find((park) => park.id === focusedPark);
+  useCameraFocus(
+    focusPark ? focusPark.id : focusedPark,
+    focusPark ? { center: [focusPark.lon, focusPark.lat], zoom: PARK_ZOOM } : null,
+    PANEL_PADDING_PX,
+  );
+
   return (
     <>
       {solarCounties.map((county) => (
@@ -311,7 +324,10 @@ export function ProductionLayers() {
             key={park.id}
             longitude={park.lon}
             latitude={park.lat}
-            onClick={() => setSelected(park.id)}
+            onClick={() => {
+              setFocusedPark(park.id);
+              void setSelected(park.id);
+            }}
           >
             <MarkerContent>
               <Displaced offset={offsets.get(park.id) ?? NO_OFFSET}>

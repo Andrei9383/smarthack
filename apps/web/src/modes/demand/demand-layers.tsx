@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { orpc } from "@/utils/orpc";
 
+import { tweenPaint, useMotionAllowed } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
 import {
   DATA_BORDER,
@@ -29,6 +30,19 @@ type Counties = GeoJSON.FeatureCollection<Geometry, CountyProperties>;
 
 const PANEL_PADDING_PX = 452;
 const ZOOM_PADDING_PX = 48;
+const FOCUS_MS = 500;
+const STRESS_FADE_MS = 200; // the previous step's colours cross-fade into the new ones
+const SELECT_FADE_MS = 250;
+const SELECTED_FILL_OPACITY = 0.1;
+const COUNTIES_LINE = "geojson-line-demand-counties"; // MapGeoJSON's line layer for id="demand-counties"
+const PREVIOUS_SOURCE = "demand-stress-previous";
+const PREVIOUS_LAYER = "demand-stress-previous";
+const SELECTED_LAYERS = {
+  fill: "geojson-fill-demand-selected-fill",
+  shadow: "geojson-line-demand-selected-shadow",
+  outline: "geojson-line-demand-selected-outline",
+};
+const SHADOW_OPACITY = 0.16;
 
 // MapLibre `interpolate` over a ramp of [stress, colour] stops; stress above 1 stays red.
 const rampExpression = (input: unknown, ramp: typeof STRESS_RAMP) => [
@@ -71,6 +85,7 @@ function useCountyFocus(
   feederLines: [number, number][][],
 ) {
   const { map, isLoaded } = useMap();
+  const motion = useMotionAllowed();
   const home = useRef<{ center: [number, number]; zoom: number } | null>(null);
   const focused = useRef(false);
 
@@ -89,7 +104,7 @@ function useCountyFocus(
     const county = counties.features.find((feature) => feature.properties.code === countyCode);
     if (!county) {
       // Only after a zoom: on load this would cancel the panel padding animation.
-      if (focused.current && home.current) map.easeTo({ ...home.current, duration: 500 });
+      if (focused.current && home.current) map.easeTo({ ...home.current, duration: motion ? FOCUS_MS : 0 });
       focused.current = false;
       return;
     }
@@ -102,9 +117,60 @@ function useCountyFocus(
         [Math.min(...lons), Math.min(...lats)],
         [Math.max(...lons), Math.max(...lats)],
       ],
-      { padding: ZOOM_PADDING_PX, duration: 500 }, // on top of the map's own panel padding
+      { padding: ZOOM_PADDING_PX, duration: motion ? FOCUS_MS : 0 }, // on top of the map's own panel padding
     );
-  }, [map, isLoaded, counties, countyCode, feederLines]);
+  }, [map, isLoaded, counties, countyCode, feederLines, motion]);
+}
+
+// When the clock moves, a copy of the county fill holding the previous step's stress (in feature
+// state, so no re-tiling) fades out over the new colours: a 200 ms cross-fade, not a hard cut.
+function useStressCrossfade(stressByCode: Map<string, number>, shapes: Counties | undefined) {
+  const { map, isLoaded } = useMap();
+  const motion = useMotionAllowed();
+  const previous = useRef<Map<string, number> | null>(null);
+  const codes = useMemo(() => shapes?.features.map((feature) => feature.properties.code) ?? [], [shapes]);
+
+  useEffect(() => {
+    if (!map || !isLoaded || !shapes) return;
+    map.addSource(PREVIOUS_SOURCE, { type: "geojson", data: shapes, promoteId: "code" });
+    map.addLayer(
+      {
+        id: PREVIOUS_LAYER,
+        type: "fill",
+        source: PREVIOUS_SOURCE,
+        paint: {
+          "fill-color": [
+            "case",
+            ["<", ["coalesce", ["feature-state", "previousStress"], -1], 0],
+            "rgba(0, 0, 0, 0)",
+            rampExpression(["feature-state", "previousStress"], STRESS_RAMP),
+          ] as never,
+          "fill-opacity": 0,
+        },
+      },
+      map.getLayer(COUNTIES_LINE) ? COUNTIES_LINE : undefined,
+    );
+    return () => {
+      if (!map.getStyle()) return;
+      if (map.getLayer(PREVIOUS_LAYER)) map.removeLayer(PREVIOUS_LAYER);
+      if (map.getSource(PREVIOUS_SOURCE)) map.removeSource(PREVIOUS_SOURCE);
+    };
+  }, [map, isLoaded, shapes]);
+
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = stressByCode;
+    if (!map || !isLoaded || !before || !motion || !map.getLayer(PREVIOUS_LAYER)) return;
+    for (const code of codes) {
+      map.setFeatureState({ source: PREVIOUS_SOURCE, id: code }, { previousStress: before.get(code) ?? -1 });
+    }
+    return tweenPaint(
+      map,
+      [{ layer: PREVIOUS_LAYER, property: "fill-opacity", from: STRESS_FILL_OPACITY, to: 0 }],
+      STRESS_FADE_MS,
+      true,
+    );
+  }, [map, isLoaded, stressByCode, codes, motion]);
 }
 
 export function DemandLayers() {
@@ -137,11 +203,15 @@ export function DemandLayers() {
   useCountyFocus(shapes, selectedCode, countyFeederLines);
 
   // Counties with no rows stay empty: no data must never read as low stress.
-  const { fillColor, fillOpacity, hoverOpacity, noDataOpacity, borderColor } = useMemo(() => {
+  const { fillColor, fillOpacity, hoverOpacity, noDataOpacity, borderColor, stressByCode } = useMemo(() => {
     const stressPairs = [...byCode].flatMap(([code, county]) => {
       const stress = county.stressByTs.get(ts);
       return stress === undefined ? [] : [code, stress];
     });
+    const stressByCode = new Map<string, number>();
+    for (let index = 0; index < stressPairs.length; index += 2) {
+      stressByCode.set(stressPairs[index] as string, stressPairs[index + 1] as number);
+    }
     if (stressPairs.length === 0) {
       return {
         fillColor: STRESS_RAMP[0]?.[1],
@@ -149,6 +219,7 @@ export function DemandLayers() {
         hoverOpacity: 0,
         noDataOpacity: 1,
         borderColor: NO_DATA_BORDER,
+        stressByCode,
       };
     }
     const codes = stressPairs.filter((_, index) => index % 2 === 0);
@@ -159,8 +230,26 @@ export function DemandLayers() {
       hoverOpacity: withData(STRESS_HOVER_OPACITY, 0),
       noDataOpacity: withData(0, 1),
       borderColor: ["match", ["get", "code"], codes, DATA_BORDER, NO_DATA_BORDER],
+      stressByCode,
     };
   }, [byCode, ts]);
+  useStressCrossfade(stressByCode, shapes);
+
+  // The selected county's tint, shadow and outline fade in rather than pop.
+  const motion = useMotionAllowed();
+  useEffect(() => {
+    if (!map || !isLoaded || !selectedCode) return;
+    return tweenPaint(
+      map,
+      [
+        { layer: SELECTED_LAYERS.fill, property: "fill-opacity", from: 0, to: SELECTED_FILL_OPACITY },
+        { layer: SELECTED_LAYERS.shadow, property: "line-opacity", from: 0, to: SHADOW_OPACITY },
+        { layer: SELECTED_LAYERS.outline, property: "line-opacity", from: 0, to: 1 },
+      ],
+      SELECT_FADE_MS,
+      motion,
+    );
+  }, [map, isLoaded, selectedCode, motion]);
 
   const selectedShape = useMemo(
     () => ({
@@ -233,7 +322,14 @@ export function DemandLayers() {
           if (county) setSelected(county.id);
         }}
       />
-      {/* Selected county: soft blurred shadow under a 2px brand outline (no glow). */}
+      {/* Selected county: a faint brand tint, then a soft blurred shadow under a 2px brand outline. */}
+      <MapGeoJSON
+        id="demand-selected-fill"
+        data={selectedCode ? selectedShape : EMPTY}
+        beforeId={beforeLabels}
+        fillPaint={{ "fill-color": SELECTED_OUTLINE, "fill-opacity": SELECTED_FILL_OPACITY }}
+        linePaint={false}
+      />
       <MapGeoJSON
         id="demand-selected-shadow"
         data={selectedCode ? selectedShape : EMPTY}
@@ -241,7 +337,7 @@ export function DemandLayers() {
         fillPaint={false}
         linePaint={{
           "line-color": SELECTED_SHADOW,
-          "line-opacity": 0.16,
+          "line-opacity": SHADOW_OPACITY,
           "line-width": 6,
           "line-blur": 5,
           "line-translate": [0, 2],

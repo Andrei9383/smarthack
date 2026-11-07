@@ -15,3 +15,8 @@ export const SENTINEL_SERIES = "var(--primary)";
 export const BASELINE_SERIES = "rgb(13 13 13 / 0.55)";
 export const LIMIT_SERIES = "var(--status-critical)";
 export const SOC_SERIES = "var(--status-soc)";
+
+// Map motion (#115): emerald charging ripples (--brand-500) and the white flow dashes on an over-limit line.
+export const CHARGE_RIPPLE = "#12B76A"; // --brand-500
+export const FLOW_DASH = "rgba(255, 255, 255, 0.95)";
+export const FLOW_GAP = "rgba(255, 255, 255, 0)";
