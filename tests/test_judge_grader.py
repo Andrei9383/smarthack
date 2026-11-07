@@ -72,7 +72,7 @@ def test_wide_bands_lose():
             mu = np.full(T, float(np.mean(y)))
             sd = float(np.std(y))
             preds.append(fc(s, d, mu - 1.28 * sd, mu, mu + 1.28 * sd, model="loadnet", version="honest"))
-            preds.append(fc(s, d, mu - 1.28 * sd, mu, mu + 1.28 * sd, model="persistence", version="ref",
+            preds.append(fc(s, d, mu - 1.28 * sd, mu, mu + 1.28 * sd, model="persistence_load", version="ref",
                             extra={"target": "load"}))
     honest = grade(preds, obs, run_id="t")
     wide = grade([fc(p.asset_id, (GR._ts(p.t0) - DAY0) // DAY, np.array(p.q50) - 50, p.q50, np.array(p.q50) + 50,
@@ -190,7 +190,7 @@ def test_gate_physics_checks():
 def test_96_readings_count_as_one_asset_day():
     obs = make_obs(n_sites=1, days=1)
     y = obs.load[0, 0]
-    p = [fc("S0", 0, y - 0.2, y, y + 0.2), fc("S0", 0, y - 0.3, y, y + 0.3, model="persistence",
+    p = [fc("S0", 0, y - 0.2, y, y + 0.2), fc("S0", 0, y - 0.3, y, y + 0.3, model="persistence_load",
                                              extra={"target": "load"})]
     rows = grade(p, obs, run_id="t")
     w = pick(rows, model="loadnet")
@@ -351,5 +351,6 @@ def test_grade_mock_week_under_5s():
     print(f"grade week: {dt:.2f}s, {len(P)} predictions, {len(rows)} rows")
     assert dt < 5.0
     assert pick(rows, model="pvnet", score_name="calibration") and pick(rows, model="sitehealth")
+    assert pick(rows, model="persistence_load", score_name="sharpness")  # internal substitute, #147 prior id
     a = pick(rows, model="sitehealth", asset_id=w.story_site, score_name="alarm_precision")
     assert a and a[0]["source"] == "crew" and a[0]["weight"] == ACTION_VISIT_WEIGHT

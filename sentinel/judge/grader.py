@@ -41,13 +41,17 @@ OUTCOME_COLUMNS = ("run_id", "model", "model_version", "asset_id", "day", "score
 BUCKET_COLUMNS = ("kind", "seen", "battery", "season", "quality", "ood_high")
 
 # witness -> substitutes in order of preference (§3); substitutes are graded against their witness
-SUBSTITUTES = {"pvnet": ("lgbm", "pvlib"), "loadnet": ("lgbm", "persistence"), "demandnet": ("persistence",),
-               "windpower": ("binned_curve", "persistence")}
+# model ids as in models/judge_priors.json (#147): lgbm_pv, lgbm_load, persistence_load, persistence_zone, ...
+SUBSTITUTES = {"pvnet": ("lgbm_pv", "lgbm", "pvlib", "persistence_pv"),
+               "loadnet": ("lgbm_load", "lgbm", "persistence_load", "persistence"),
+               "demandnet": ("persistence_zone", "persistence"), "windpower": ("binned_curve", "persistence_park")}
 WITNESS_TARGET = {"pvnet": "pv", "loadnet": "load", "demandnet": "zone", "windpower": "park", "pvlib": "pv",
-                  "lgbm": "pv", "persistence": "load", "binned_curve": "park", "mock": "pv"}
+                  "lgbm": "pv", "lgbm_pv": "pv", "lgbm_load": "load", "persistence": "load", "persistence_pv": "pv",
+                  "persistence_load": "load", "persistence_zone": "zone", "persistence_park": "park",
+                  "binned_curve": "park", "mock": "pv"}
 SITE_DETECTORS = ("sitehealth", "threshold_cusum")
 TURBINE_DETECTORS = ("windnbm", "windmon_rules")
-CLIM_MODEL, CLIM_VERSION, CLIM_DAYS = "persistence", "grader-clim7", 7  # internal substitute when none is given
+CLIM_VERSION, CLIM_DAYS = "grader-clim7", 7  # internal substitute when none is given: model persistence_<target>
 OOD_DEFAULT = 3.0  # #26 thresholds: ood_max
 GAPPY = 0.10  # §6.1 data quality
 PROD_FRAC = 0.02  # production step: pvlib clear-sky above 2 % of recorded kWp
@@ -395,10 +399,11 @@ def _grade_forecasts(groups: list[_FGroup], obs: ReplayObs, info: Mapping[str, _
                     clim = _climatology(y_all, H, obs.days)
                 q = clim[w.aidx, w.day]
                 ok = np.isfinite(q).any(axis=(1, 2))
-                if ok.any() and not any(e.model == CLIM_MODEL and e.version == CLIM_VERSION for e in extra):
-                    extra.append(_FGroup(CLIM_MODEL, CLIM_VERSION, tgt, w.aidx[ok], w.day[ok], q[ok],
+                clim_model = f"persistence_{tgt}"
+                if ok.any() and not any(e.model == clim_model and e.version == CLIM_VERSION for e in extra):
+                    extra.append(_FGroup(clim_model, CLIM_VERSION, tgt, w.aidx[ok], w.day[ok], q[ok],
                                          np.zeros(int(ok.sum())), [w.asset_ids[i] for i in np.flatnonzero(ok)]))
-                    lookup[(CLIM_MODEL, CLIM_VERSION)] = {(int(a), int(d)): i for i, (a, d) in
+                    lookup[(clim_model, CLIM_VERSION)] = {(int(a), int(d)): i for i, (a, d) in
                                                          enumerate(zip(w.aidx[ok], w.day[ok]))}
         for g in gs + extra:
             if g.model in SUBSTITUTES:
