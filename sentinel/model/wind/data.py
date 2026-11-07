@@ -402,8 +402,10 @@ def _dict_codes(col):
 
 def _scatter_telemetry(tel, tids, tmeta, t0, T):
     """Long telemetry → sensors [T, N] (mean of the readings in each 15-min bin) + err [T, N] (last code in the
-    bin; a code masks that bin's readings for the turbine). Vectorised with bincount: ~1 s for 70 M rows."""
+    bin; a code masks that bin's readings for the turbine). Binning is the scatter_telemetry kernel (#103)."""
     import polars as pl
+
+    from sentinel.kernels import scatter_telemetry
 
     N = len(tids)
     col = {tid: j for j, tid in enumerate(tids)}
@@ -421,24 +423,10 @@ def _scatter_telemetry(tel, tids, tmeta, t0, T):
     ti = ((_naive_minutes(tel["ts"]) - t0) // STEP).astype(np.int64)
     v = tel["value"].cast(pl.Float64).to_numpy()
     is_code = tel["is_code"].fill_null(False).to_numpy().astype(bool)
-    ok = (tj >= 0) & (ti >= 0) & (ti < T)
-    sensors = {}
-    scale = np.array([float(t.get("power_scale") or 1.0) for t in tmeta])
-    for s, k in sidx.items():
-        m = ok & (sk == k) & ~is_code & np.isfinite(v)
-        flat = ti[m] * N + tj[m]
-        vs = v[m] * scale[tj[m]] if s == POWER else v[m]
-        cnt = np.bincount(flat, minlength=T * N)
-        sm = np.bincount(flat, weights=vs, minlength=T * N)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            sensors[s] = np.where(cnt > 0, sm / np.maximum(cnt, 1), np.nan).reshape(T, N).astype(np.float32)
-    err = np.zeros((T, N), dtype=np.int32)
-    mc = ok & is_code
-    if mc.any():
-        flat = ti[mc] * N + tj[mc]
-        err.reshape(-1)[flat] = v[mc].astype(np.int64).astype(np.int32)  # last code in the bin wins
-        for s in SENSORS:
-            sensors[s][err != 0] = np.nan
+    scale = np.ones((len(SENSORS), N))
+    scale[sidx[POWER]] = [float(t.get("power_scale") or 1.0) for t in tmeta]
+    sens, err = scatter_telemetry(ti, tj, sk, v, is_code, scale, T)  # sentinel.kernels (Rust if built)
+    sensors = {s: sens[k] for s, k in sidx.items()}
     return sensors, err
 
 

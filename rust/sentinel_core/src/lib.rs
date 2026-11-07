@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 mod cusum;
 mod rollout;
 mod rolling;
+mod scatter;
 mod windows;
 
 /// cusum_two_sided(x: f64[m, n], k: float, h: float, cap: float | None = None)
@@ -173,6 +174,37 @@ fn rolling_mean<'py>(py: Python<'py>, x: PyReadonlyArray2<'py, f64>, w: i64) -> 
     Ok(Array2::from_shape_vec((t, m), out).map_err(|e| PyValueError::new_err(e.to_string()))?.into_pyarray(py))
 }
 
+/// scatter_telemetry(ti, tj, sk: i64[n], v: f64[n], is_code: bool[n], scale: f64[s, m], t: int)
+///   -> (sens f32[s, t, m], err i32[t, m])
+///
+/// Long telemetry rows -> bin means per (sensor, step, turbine) + last code per bin; see `scatter.rs`.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn scatter_telemetry<'py>(
+    py: Python<'py>,
+    ti: PyReadonlyArray1<'py, i64>,
+    tj: PyReadonlyArray1<'py, i64>,
+    sk: PyReadonlyArray1<'py, i64>,
+    v: PyReadonlyArray1<'py, f64>,
+    is_code: PyReadonlyArray1<'py, bool>,
+    scale: PyReadonlyArray2<'py, f64>,
+    t: usize,
+) -> PyResult<(Bound<'py, PyArray3<f32>>, Bound<'py, PyArray2<i32>>)> {
+    let contig = |_| PyValueError::new_err("inputs must be C-contiguous");
+    let (s, m) = (scale.shape()[0], scale.shape()[1]);
+    let (a, j, k, x, c, sc) = (ti.as_slice().map_err(contig)?, tj.as_slice().map_err(contig)?,
+                               sk.as_slice().map_err(contig)?, v.as_slice().map_err(contig)?,
+                               is_code.as_slice().map_err(contig)?, scale.as_slice().map_err(contig)?);
+    let n = x.len();
+    if a.len() != n || j.len() != n || k.len() != n || c.len() != n {
+        return Err(PyValueError::new_err("ti, tj, sk, v, is_code must have the same length"));
+    }
+    let (sens, err) = py.detach(|| scatter::scatter(a, j, k, x, c, sc, s, t, m));
+    let e = |e: numpy::ndarray::ShapeError| PyValueError::new_err(e.to_string());
+    Ok((Array3::from_shape_vec((s, t, m), sens).map_err(e)?.into_pyarray(py),
+        Array2::from_shape_vec((t, m), err).map_err(e)?.into_pyarray(py)))
+}
+
 /// Number of rayon worker threads (for the bench log).
 #[pyfunction]
 fn num_threads() -> usize {
@@ -187,6 +219,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(window_gather_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(window_gather_f16_f32, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
+    m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }

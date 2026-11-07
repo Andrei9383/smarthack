@@ -156,6 +156,28 @@ def _rolling_sample(args: tuple[Any, ...]) -> tuple[Any, ...]:
     return (args[0][:5000], 672)
 
 
+# ---- telemetry scatter: WindNBM load of WP1 (70 turbines x 70,176 steps x 8 sensors, one row per bin on average; 2%
+# codes, 1% NaN and some rows off the grid / unknown tags).
+def _scatter_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    S, T, N = 8, max(2, int(round(70176 * scale))), max(1, int(round(70 * scale)))
+    n = S * T * N
+    ti, tj, sk = rng.integers(-2, T + 2, n), rng.integers(-1, N, n), rng.integers(-1, S, n)
+    is_code = rng.random(n) < 0.02
+    v = np.where(is_code, rng.integers(0, 9, n), rng.standard_normal(n))
+    v[rng.random(n) < 0.01] = np.nan
+    sc = np.ones((S, N))
+    sc[0] = rng.random(N) + 0.5
+    return (np.sort(ti), tj, sk, v, is_code, sc, T)
+
+
+def _scatter_run(fn: Callable[..., Any], args: tuple[Any, ...]) -> None:
+    fn(*args)
+
+
+def _scatter_sample(args: tuple[Any, ...]) -> tuple[Any, ...]:
+    return (*(a[:200_000] for a in args[:5]), args[5], args[6])
+
+
 CASES = [
     Case("cusum_two_sided", "cusum", _cusum_make, _cusum_run, _cusum_sample, "2000 series x 35040 steps, f64, 0.2% NaN gaps"),
     Case("cusum_two_sided", "cusum_cap", _cusum_cap_make, _cusum_run, _cusum_sample,
@@ -166,6 +188,8 @@ CASES = [
          f"{_WIN_BATCHES} batches x {_WIN_B} windows: 14 d hist + 24 h target, f16 -> f32, from 600 x 140160"),
     Case("rolling_mean", "rolling", _rolling_make, _rolling_run, _rolling_sample,
          f"70176 steps x 70 turbines, f64, 10% NaN, w in {_ROLL_W} (M6 clf_features)"),
+    Case("scatter_telemetry", "scatter", _scatter_make, _scatter_run, _scatter_sample,
+         "39 M long rows (time-sorted) -> 8 sensors x 70176 steps x 70 turbines, 2% codes, 1% NaN (WindNBM load)"),
 ]
 
 
