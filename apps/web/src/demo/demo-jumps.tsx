@@ -40,25 +40,46 @@ export function DemoJumps() {
   const [summaryOpen, setSummaryOpen] = useSummaryOpen();
 
   return (
-    <div className="flex flex-wrap items-center gap-1 border-t px-2 py-1">
-      <span className="mr-1 text-xs text-muted-foreground">Demo</span>
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-sidebar px-4 py-2">
+      <span className="mr-2 text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">Demo</span>
       {JUMPS.map(({ label, state }) => (
         <Button
           key={label}
-          variant="ghost"
+          variant="outline"
           size="sm"
           onClick={() => setState({ site: null, summary: null, ...state })}
+          className={JUMP_CLASS}
         >
-          {label}
+          <JumpLabel label={label} />
         </Button>
       ))}
       <Button
-        variant={summaryOpen ? "default" : "ghost"}
+        variant="outline"
         size="sm"
+        aria-pressed={summaryOpen}
         onClick={() => setSummaryOpen(!summaryOpen)}
+        className={
+          summaryOpen
+            ? `${JUMP_CLASS} border-brand-100 bg-brand-50 text-brand-900 hover:bg-brand-100 hover:text-brand-900 [&>span:first-child]:text-brand-700`
+            : JUMP_CLASS
+        }
       >
-        6 Summary
+        <JumpLabel label="6 Summary" />
       </Button>
     </div>
+  );
+}
+
+const JUMP_CLASS =
+  "h-8 gap-1.5 rounded-md bg-background px-3 text-[13px] text-text-secondary hover:bg-muted hover:text-foreground";
+
+/** "1 Production" → a muted step number followed by the label; the text itself is unchanged. */
+function JumpLabel({ label }: { label: string }) {
+  const space = label.indexOf(" ");
+  return (
+    <>
+      <span className="font-semibold text-muted-foreground tabular-nums">{label.slice(0, space)}</span>{" "}
+      <span>{label.slice(space + 1)}</span>
+    </>
   );
 }
