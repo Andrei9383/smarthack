@@ -1,6 +1,6 @@
 # Prosumer Sentinel: clean checkout -> every number the presentation shows.
 #
-#   make reproduce        setup + tests + simulator + eval + demand + uncertainty + replay, then a provenance summary
+#   make reproduce        setup + tests + simulator + baselines + eval + demand + uncertainty + replay, then a provenance summary
 #   make help             list the targets and variables
 #
 # Offline after `make setup` (uv / pip download the Python wheels once): every raw input is committed in data/raw/.
@@ -50,15 +50,16 @@ define skip
 @mkdir -p $(LOGS); printf '\n==> %s\n' "$(1)"; echo "skipped: $(2)" | tee $(LOGS)/$(1).log; echo "-" > $(LOGS)/$(1).time
 endef
 
-.PHONY: help reproduce setup test sim eval demand uncertainty replay train app fixtures summary clean clean-venv
+.PHONY: help reproduce setup test sim baselines eval demand uncertainty replay train app fixtures summary clean clean-venv
 
 help:
 	@echo "Prosumer Sentinel"
-	@echo "  make reproduce   setup, test, sim, eval, demand, uncertainty, replay, summary (offline after setup, ~2-3 min)"
+	@echo "  make reproduce   setup, test, sim, baselines, eval, demand, uncertainty, replay, summary (~4 min)"
 	@echo "  make setup       $(VENV) with Python $(PY_VERSION) + requirements.txt (uv, else python$(PY_VERSION) -m venv)"
 	@echo "  make test        pytest tests/"
 	@echo "  make sim         RO prosumer fleet (#11) + PV fault injector (#12)        -> $(OUT)/fleet, $(OUT)/faults"
-	@echo "  make eval        eval.py --baselines, eval.py (#16)                        -> $(OUT)/eval"
+	@echo "  make baselines   pvlib / persistence / LightGBM / threshold / CUSUM (#15)  -> $(OUT)/baselines"
+	@echo "  make eval        eval.py: model test-set metrics by label (#16)            -> $(OUT)/eval"
 	@echo "  make demand      M3 DemandNet on real RO load (#44)                        -> $(OUT)/demand"
 	@echo "  make uncertainty conformal + P10 commitment demo (#27)                    -> $(OUT)/uncertainty.json"
 	@echo "  make replay      baseline vs Sentinel test week through the agent (#17)    -> $(REPLAY_OUT)"
@@ -70,7 +71,7 @@ help:
 
 reproduce:
 	@start=$$(date +%s); \
-	$(MAKE) --no-print-directory setup test sim eval demand uncertainty replay; \
+	$(MAKE) --no-print-directory setup test sim baselines eval demand uncertainty replay; \
 	mkdir -p $(LOGS); echo "$$(( $$(date +%s) - start ))" > $(LOGS)/total.time; \
 	$(MAKE) --no-print-directory summary
 
@@ -103,17 +104,29 @@ sim: setup
 	  else F=$(OUT)/fleet-quick; $(PYTHON) -m sentinel.sim.fleet --quick --no-plots --out $$F; fi && \
 	  $(PYTHON) -m sentinel.sim.faults --fleet $$F --out $(OUT)/faults)
 
+# ------------------------------------------------------------------------------------------------------ baselines
+# The numbers the models must beat (PV / load / fault: #15; wind WindMon rules: #24). Fleet cached under $(OUT)/cache.
+baselines: setup
+ifneq ($(wildcard eval.py),)
+	$(call step,baselines,mkdir -p $(OUT)/baselines && \
+	  SENTINEL_CACHE=$(abspath $(OUT))/cache LAB_OUTPUT_DIR=$(OUT)/baselines $(PYTHON) eval.py --baselines)
+else ifneq ($(wildcard sentinel/eval/baselines/pv/run.py),)
+	$(call step,baselines,mkdir -p $(OUT)/baselines && \
+	  SENTINEL_CACHE=$(abspath $(OUT))/cache $(PYTHON) -m sentinel.eval.baselines.pv.run --seed $(SEED) \
+	    --out $(OUT)/baselines && \
+	  if [ ! -d sentinel/eval/baselines/wind ]; then echo "note: wind baselines not on main yet (#24)"; fi)
+else
+	$(call skip,baselines,PV baselines not on main yet (#15))
+endif
+
 # ----------------------------------------------------------------------------------------------------------- eval
-# Model + baseline test-set metrics, grouped by label. Scores the ONNX weights committed in models/ (#29).
+# Model test-set metrics grouped by label; scores the ONNX weights committed in models/ (#29).
 eval: setup
 ifeq ($(wildcard eval.py),)
 	$(call skip,eval,eval.py not on main yet (#16); model numbers in the README cite lab train runs (#14 / #41))
 else
-	$(call step,eval,\
-	  mkdir -p $(OUT)/eval && \
-	  if [ -d sentinel/eval/baselines ]; then LAB_OUTPUT_DIR=$(OUT)/eval $(PYTHON) eval.py --baselines; \
-	  else echo "skipped: eval.py --baselines (baselines not on main yet, #15 / #24)"; fi && \
-	  LAB_OUTPUT_DIR=$(OUT)/eval $(PYTHON) eval.py $(EVAL_ARGS))
+	$(call step,eval,mkdir -p $(OUT)/eval && \
+	  SENTINEL_CACHE=$(abspath $(OUT))/cache LAB_OUTPUT_DIR=$(OUT)/eval $(PYTHON) eval.py $(EVAL_ARGS))
 endif
 
 # --------------------------------------------------------------------------------------------------------- demand
@@ -176,13 +189,14 @@ summary:
 	label() { case $$1 in \
 	  test) echo "n/a: unit + contract tests";; \
 	  sim) echo "synthetic RO (driven by real RO ERA5 in data/raw); #11, #12";; \
+	  baselines) echo "synthetic RO, validation 2024 (100-site fleet); #15";; \
 	  eval) echo "per line, as printed by eval.py (synthetic RO / real RO / non-RO); #16";; \
 	  demand) echo "real RO: Energy-Charts/ENTSO-E RO load + ERA5 temp, test 2025; #44";; \
 	  uncertainty) echo "synthetic (MockPredictor truth): method check, not a model result; #27";; \
 	  replay) echo "synthetic RO; components marked real vs FALLBACK below; #17 (lab [runs.replay])";; \
 	  *) echo "";; esac; }; \
 	echo; echo "================ make reproduce: where every number came from ================"; \
-	for s in test sim eval demand uncertainty replay; do \
+	for s in test sim baselines eval demand uncertainty replay; do \
 	  [ -f $$L/$$s.log ] || continue; t=$$(cat $$L/$$s.time 2>/dev/null || echo "?"); \
 	  if grep -q '^skipped:' $$L/$$s.log; then st="SKIPPED"; else st="ran in $${t}s"; fi; \
 	  printf '\n[%s] %s  |  %s\n' "$$s" "$$st" "$$(label $$s)"; \
