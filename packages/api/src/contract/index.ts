@@ -62,7 +62,6 @@ export const stubProductionRouter = {
 
 export const stubDemandRouter = {
   getZones: publicProcedure.handler(() => []),
-  getTopStressed: publicProcedure.handler(() => []),
 };
 
 export const stubFlexRouter = {
