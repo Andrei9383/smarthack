@@ -381,6 +381,13 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
 def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
     import argparse
 
+    pre = argparse.ArgumentParser(add_help=False)  # --mode imbalance (I6 #176): supplier portfolio replay, spec I step 8
+    pre.add_argument("--mode", choices=["agent", "imbalance"], default="agent")
+    mode, argv = pre.parse_known_args(argv)
+    if mode.mode == "imbalance":
+        from sentinel.eval.imbalance_replay import main as imbalance_main
+
+        return imbalance_main(argv)  # type: ignore[return-value]
     ap = argparse.ArgumentParser(description="Replay a test week (baseline vs Sentinel) into SQLite")
     ap.add_argument("--policy", default="baseline,sentinel", help="comma list: baseline|threshold|sentinel")
     ap.add_argument("--out", default=os.path.join(os.environ.get("LAB_OUTPUT_DIR", "."), "sentinel.sqlite"))
