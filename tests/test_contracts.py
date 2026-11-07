@@ -200,7 +200,9 @@ def test_wind_error_codes_and_units():
     assert is_error_code("act_pwt", 5021)
     assert not is_error_code("act_pwt", 1234.5)
     assert not is_error_code("act_pwt", None)
-    assert not is_error_code("status", 3)
+    assert is_error_code("gearbox_t", 5021.0)  # raw PPC values are float64
+    assert not is_error_code("act_pwt", 0.0)  # a stopped turbine, not a code
+    assert not is_error_code("act_pwt", float("nan"))
     assert kmh_to_ms(36.0) == pytest.approx(10.0)
 
 

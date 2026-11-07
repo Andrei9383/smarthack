@@ -3,3 +3,10 @@
 .venv/
 node_modules/
 __pycache__/
+.next/
+.turbo/
+dist/
+*.tsbuildinfo
+.env
+.env*.local
+local.db*
