@@ -487,3 +487,23 @@ def test_supplier_replay_mock_one_day():
     assert v["sup"]["comfort_breaches"] <= v["dso"]["comfort_breaches"]
     assert v["sup"]["supplier_planned_lei"] < v["dso"].get("supplier_planned_lei", np.inf)
     assert np.isfinite(v["sup"]["supplier_avoidable_lei"])
+
+
+def test_supplier_guard_keeps_charge_at_near_limit_steps(sunny):
+    """Stage 2 charges the feeder's batteries at least as much as the DSO-only LP wherever the no-battery worst
+    export is within supplier_guard_margin of G, so realised export there cannot rise (replay#882 lesson)."""
+    from sentinel.opt.lp import SupplierObjective
+
+    rows, fc, peak = sunny
+    G = 0.4 * peak
+    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
+    sup = SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72)
+    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, supplier=sup)
+    risk = worst_no_battery(fc) >= 0.75 * G
+    assert risk.any()
+    p_dso = sum(np.asarray(v) for v in dso.schedule.values())
+    p_sup = sum(np.asarray(v) for v in plan.schedule.values())
+    assert (p_sup[risk] >= p_dso[risk] - 1e-3).all()
+    assert (np.asarray(plan.worst_export_curve)[risk] <= np.asarray(dso.worst_export_curve)[risk] + 1e-3).all()
+    with pytest.raises(ValueError):
+        LPParams(supplier_guard_margin=1.5)

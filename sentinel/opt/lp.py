@@ -73,7 +73,14 @@ schedule, so still one LP. The intraday term `traded_id·(PI − PZU)` is a cons
 after this plan) and is left out. Hard feeder limit: with `LPParams.supplier_lexicographic` (default) the LP is solved
 twice: stage 1 = the DSO LP above (minimum slack s*), stage 2 adds `s_t ≤ s*_t` and minimises the full objective, so
 the supplier term can never buy back a kW over the limit (not even at a tie, and whatever M is); the comfort reserve is
-the hard bound `e ≥ R` in both stages. Without it, one solve with M ≫ w·a·|PZU| (checked). The supplier term is a
+the hard bound `e ≥ R` in both stages. The slack bound alone protects the *planned* worst case only: replay#882 showed
+the supplier plan spending margin the DSO plan had left under G, and +15 realised minutes over the limit when reality
+left the P10–P90 band. So stage 2 also keeps the feeder's battery charge at least stage 1's, Σ_i(c − d)_t ≥
+Σ_i(c* − d*)_t, at the near-limit steps where the no-battery worst export Σ_i worst_it + X_t^rest,worst ≥ (1 − m)·G
+(m = `supplier_guard_margin`, 0.25): the schedule's energy path does not depend on the weather (kW set-points, SoC from
+e0), so realised export at those steps can only fall vs the DSO plan. The supplier is free elsewhere (mornings,
+evenings, uncongested feeders). Without the lexicographic solve: one solve with M ≫ w·a·|PZU| (checked), no guard.
+The supplier term is a
 per-feeder share of the portfolio: Σ_f cost_f ≥ the portfolio cost (convexity), so the LP minimises an upper bound.
 
 Units: kW, kWh, prices lei/kWh. Weights must satisfy M ≫ λ ≫ π (checked loosely). LP only: no binaries.
@@ -165,7 +172,10 @@ class LPParams:
     verbose: bool = False
     # supplier objective (#162): only used when plan_feeder / solve_lp get a supplier term
     supplier_lexicographic: bool = True  # stage 2 keeps every step's slack <= the DSO-only LP's (hard limit)
-    supplier_slack_tol_kw: float = 1e-5  # numerical tolerance on that stage-2 bound
+    supplier_slack_tol_kw: float = 1e-5  # numerical tolerance on the stage-2 bounds
+    # stage 2 also keeps the feeder's battery charge >= stage 1's at steps whose no-battery worst export is within
+    # this share of G (realised export there can then only fall); None = slack bound only. See module docstring.
+    supplier_guard_margin: Optional[float] = 0.25
     bill_weight: float = 1.0  # weight of the prosumer energy bill term (1 = the #18 objective; 0 = supplier only)
 
     def __post_init__(self) -> None:
@@ -173,6 +183,8 @@ class LPParams:
             raise ValueError("need big_m > lam > 0, c_deg >= 0, 0 <= beta <= 1")
         if self.bill_weight < 0 or self.supplier_slack_tol_kw < 0:
             raise ValueError("need bill_weight >= 0 and supplier_slack_tol_kw >= 0")
+        if self.supplier_guard_margin is not None and not 0 <= self.supplier_guard_margin <= 1:
+            raise ValueError("supplier_guard_margin must be in [0, 1] or None")
         if self.beta_negative < 1:
             raise ValueError("need beta_negative >= 1 (else the LP is unbounded at negative prices)")
         if self.grid_limit_kw is not None and self.grid_limit_kw <= 0:
@@ -381,6 +393,11 @@ def solve_lp(
             _, solve_t = _solve(cp.Problem(cp.Minimize(obj), cons), params)
             s1 = np.maximum(0.0, np.asarray(s.value, float))
             sup_cons.append(s <= s1 + params.supplier_slack_tol_kw)
+            if params.supplier_guard_margin is not None:  # near-limit steps: charge at least what the DSO LP does
+                risk = np.asarray(worst, float).sum(axis=0) + rest_worst >= (1.0 - params.supplier_guard_margin) * g_kw
+                if risk.any():
+                    p1 = (np.asarray(c.value, float) - np.asarray(d.value, float)).sum(axis=0)
+                    sup_cons.append(cp.sum(c - d, axis=0)[risk] >= p1[risk] - params.supplier_slack_tol_kw)
         prob, t2 = _solve(cp.Problem(cp.Minimize(obj + sup), cons + sup_cons), params)
         solve_t += t2
         sup_lei = float(sup.value)

@@ -7,6 +7,7 @@ Same world, same forecasts, same prices for every variant; only the planner's ob
     dso        the #18 LP as in replay#506 (`plan_feeder`, supplier=None)
     sup        + the supplier term (`SupplierObjective`, weight 1, bill kept), lexicographic hard feeder limit
     sup_only   + the supplier term with the prosumer-bill term off (bill_weight 0)
+    sup_noguard as `sup` without the near-limit charge guard (slack bound only; replay#882's `sup`)
     sup_nolex  as `sup` but one solve (limit kept only through M >> supplier weights)
 
 The supplier's day-ahead position per feeder-day = I5's purchase (`sentinel.eval.portfolio.forecast_day(...).bought`,
@@ -42,6 +43,7 @@ VARIANTS = {
     "dso": None,
     "sup": dict(weight=1.0, params=dict()),
     "sup_only": dict(weight=1.0, params=dict(bill_weight=0.0)),
+    "sup_noguard": dict(weight=1.0, params=dict(supplier_guard_margin=None)),
     "sup_nolex": dict(weight=1.0, params=dict(supplier_lexicographic=False)),
 }
 
@@ -185,6 +187,8 @@ def run(world_kind: str = "sim", days: int = 7, seed: int = 0, variants: Sequenc
              "plan_status": dict(r.plan_status), "planner_errors": dict(c.errors), "seconds": 0.0}
         if r.p10_hit_rate is not None:
             m["p10_hit_rate"] = r.p10_hit_rate
+        m["feeder_days"] = {f"{f}_d{d}": [x["minutes_over"], round(x.get("kwh_over", 0.0), 3)]
+                            for (f, d), x in sorted(r.feeder_days.items())}
         m.update(score(w, realised_net_import(sink, list(w.feeders), w.days), positions, a, b))
         if plans:
             m["supplier_planned_lei"] = float(sum(plans.values()))  # P50 plan vs position, every variant alike
@@ -202,7 +206,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--scale", type=float, default=1.0)
-    ap.add_argument("--variants", default="baseline,dso,sup,sup_only,sup_nolex")
+    ap.add_argument("--variants", default="baseline,dso,sup,sup_only,sup_noguard,sup_nolex")
     a = ap.parse_args(argv)
     res = run(a.world, a.days, a.seed, [v for v in a.variants.split(",") if v], a.scale)
     run_id = os.environ.get("LAB_RUN_ID")
@@ -227,6 +231,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 d = var[v]["minutes_over_limit"] - var["dso"]["minutes_over_limit"]
                 print(f"LAB_METRIC minutes_over_limit_delta_{v}={d:.6g}")
                 print(f"LAB_METRIC minutes_not_increased_{v}={int(d <= 0)}")
+                de = var[v]["energy_over_limit_kwh"] - var["dso"]["energy_over_limit_kwh"]
+                print(f"LAB_METRIC energy_over_limit_delta_{v}={de:.6g}")
+                worse = {k: (var["dso"]["feeder_days"][k], x) for k, x in var[v]["feeder_days"].items()
+                         if x[0] > var["dso"]["feeder_days"][k][0] or x[1] > var["dso"]["feeder_days"][k][1] + 1e-3}
+                print(f"# {v}: feeder-days worse than dso [min, kWh] (dso, {v}): {json.dumps(worse)}")
                 print(f"LAB_METRIC comfort_breaches_delta_{v}="
                       f"{var[v]['comfort_breaches'] - var['dso']['comfort_breaches']:.6g}")
                 base = var["dso"]["supplier_avoidable_lei"]
