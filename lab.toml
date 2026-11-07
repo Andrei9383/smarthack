@@ -18,7 +18,7 @@ cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .ven
 timeout = "15m"
 
 [runs.preview]
-setup   = "set -e; npm ci --no-audit --no-fund && python3 demo/fixtures/make_fixtures.py && npm run build"
+setup   = "set -e; npm ci --no-audit --no-fund && { [ -f demo/sentinel.sqlite ] || python3 demo/fixtures/make_fixtures.py; } && npm run build"
 cmd     = "npm start"               # must listen on $HOST:$PORT (both set by the lab)
 keep    = true
 
