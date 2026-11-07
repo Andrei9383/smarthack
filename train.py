@@ -15,6 +15,7 @@ Registry (lazy imports, so a card's module is only imported when its model is as
   windpower   M5  sentinel.model.windpower.train:main     (#42)
   windfailure M7  sentinel.model.windfailure.train:main   (#43)
   gridtwin    M8  sentinel.gridtwin.train:main            (#13)
+  battery     I4  sentinel.model.battery.train:main       (#174, data-v2 battery behaviour)
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ REGISTRY: dict[str, str] = {
     "windpower": "sentinel.model.windpower.train:main",
     "windfailure": "sentinel.model.windfailure.train:main",
     "gridtwin": "sentinel.gridtwin.train:main",
+    "battery": "sentinel.model.battery.train:main",
 }
 
 
