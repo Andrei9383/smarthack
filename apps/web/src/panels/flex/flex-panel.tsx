@@ -13,7 +13,6 @@ import { ChartTooltip } from "@/components/charts/tooltip";
 import { timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { useSelectedFeeder } from "@/modes/feeders/use-feeder-state";
-import { Term } from "@/components/help";
 import { orpc } from "@/utils/orpc";
 
 import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
@@ -223,7 +222,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
 
         <MetricRow className="border-y border-border py-2">
           <Metric
-            label={<Term id="committed">Committed</Term>}
+            label="Committed"
             value={committed == null ? "—" : committed.toFixed(1)}
             unit={committed == null ? undefined : "kW"}
             tone="text-brand-900"
@@ -261,7 +260,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             }
           />
           <Metric
-            label={<Term id="hit-rate">Hit rate</Term>}
+            label="Hit rate"
             value={pct(dayHit)}
             tone={dayHit != null && dayHit < HIT_TARGET ? "text-status-warn" : undefined}
             sub="today"

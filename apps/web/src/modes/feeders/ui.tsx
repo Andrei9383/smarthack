@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 // Small presentational pieces shared by the Feeders and Demand panels (team/contracts/ui-style.md).
 
 export const SECTION_LABEL =
-  "text-[11px] font-medium tracking-[0.04em] text-text-secondary uppercase";
+  "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
 
 /** Plot margins: room on the left for y labels, below for time ticks. */
 export const AXIS_MARGIN = { left: 36, right: 10, top: 22, bottom: 24 };

@@ -203,7 +203,7 @@ export function ProductionPanel() {
                     ]}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    The sum of the <Term id="p50">P50</Term> forecast, 15 minutes at a time.
+                    The sum of the P50 (middle) forecast, 15 minutes at a time.
                   </p>
                 </div>
               }
@@ -218,9 +218,9 @@ export function ProductionPanel() {
                 <div className="space-y-2">
                   <PopList
                     rows={[
-                      { key: "p90", label: <Term id="p90">P90, high case</Term>, value: `${mwFmt(nowRow?.p90 ?? 0)} MW` },
-                      { key: "p50", label: <Term id="p50">P50, middle</Term>, value: `${mwFmt(nowRow?.p50 ?? 0)} MW` },
-                      { key: "p10", label: <Term id="p10">P10, low case</Term>, value: `${mwFmt(nowRow?.p10 ?? 0)} MW` },
+                      { key: "p90", label: "P90, high case", value: `${mwFmt(nowRow?.p90 ?? 0)} MW` },
+                      { key: "p50", label: "P50, middle", value: `${mwFmt(nowRow?.p50 ?? 0)} MW` },
+                      { key: "p10", label: "P10, low case", value: `${mwFmt(nowRow?.p10 ?? 0)} MW` },
                     ]}
                   />
                   <p className="text-[11px] text-muted-foreground">

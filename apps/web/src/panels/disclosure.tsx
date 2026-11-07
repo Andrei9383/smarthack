@@ -1,6 +1,5 @@
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
 import {
   Sheet,
   SheetContent,
@@ -12,6 +11,8 @@ import { cn } from "@sentinel-app/ui/lib/utils";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useRef } from "react";
 
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shell/popover";
+
 // Progressive disclosure for the mode inspectors (card #125, v3 brief): the inspector shows one
 // sentence, up to three numbers and one chart; the rest sits one click away in a popover (a
 // breakdown, a definition, the "why") or a Details sheet (tables, secondary charts, logs).
@@ -20,10 +21,6 @@ import { type ReactNode, useRef } from "react";
 
 /** 11px uppercase section label (ui-style §4). */
 export const LABEL = "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
-
-const POPUP =
-  "w-[min(18rem,calc(100vw-2rem))] origin-(--transform-origin) rounded-xl bg-popover p-3.5 text-xs leading-relaxed text-popover-foreground shadow-overlay outline-none " +
-  "transition-[opacity,scale] duration-[180ms] ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0 motion-reduce:transition-none";
 
 /** Click (or Enter/Space) opens; Esc, outside click or the trigger again closes. */
 export function Pop({
@@ -47,12 +44,10 @@ export function Pop({
   /** Accessible name when the trigger has no readable text. */
   triggerLabel?: string;
 }) {
-  // Pointer opens focus the popup itself (a term inside must not pop its definition at once);
-  // keyboard opens move focus to the first control, so Enter follows through.
-  const popupRef = useRef<HTMLDivElement>(null);
+  // The shell's popover (#124): shadow-overlay, 180 ms scale-in from the trigger, focus handling.
   return (
-    <Popover.Root>
-      <Popover.Trigger
+    <Popover>
+      <PopoverTrigger
         aria-label={triggerLabel}
         className={cn(
           "cursor-pointer rounded-md text-left transition-[background-color,box-shadow,color] duration-150 outline-none hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-sidebar",
@@ -60,18 +55,12 @@ export function Pop({
         )}
       >
         {trigger}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner side={side} align={align} sideOffset={8} collisionPadding={12} className="z-[60]">
-          <Popover.Popup ref={popupRef} initialFocus={(openType) => (openType === "keyboard" ? true : popupRef.current)} className={cn(POPUP, className)}>
-            {title ? (
-              <Popover.Title className="mb-1.5 text-[13px] leading-snug font-semibold text-foreground">{title}</Popover.Title>
-            ) : null}
-            <div className="text-text-secondary">{children}</div>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+      </PopoverTrigger>
+      <PopoverContent side={side} align={align} className={cn("w-[min(18rem,calc(100vw-2rem))] p-3.5 text-xs leading-relaxed", className)}>
+        {title ? <PopoverTitle className="mb-1.5 text-[13px] leading-snug font-semibold text-foreground">{title}</PopoverTitle> : null}
+        <div className="text-text-secondary">{children}</div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

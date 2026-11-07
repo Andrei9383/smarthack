@@ -553,7 +553,7 @@ export function OmPanel() {
 
       <MetricRow className="border-y border-border py-2">
         <Metric
-          label={<Term id="work-order">Work orders</Term>}
+          label="Work orders"
           value={orderList.length}
           sub={`${todayOrders} new today`}
           popTitle="Work orders by crew"
@@ -625,7 +625,7 @@ export function OmPanel() {
                 ]}
               />
               <p className="text-[11px] text-muted-foreground">
-                <Term id="derated">Derated</Term> turbines still turn, at reduced power.
+                Derated turbines still turn, at reduced power. Stopped ones need a crew.
               </p>
             </div>
           }

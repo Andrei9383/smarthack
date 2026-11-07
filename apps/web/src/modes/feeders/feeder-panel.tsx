@@ -348,7 +348,8 @@ export function FeederPanel() {
         </table>
 
         <section className="space-y-2 pt-4 pb-1">
-          <SectionHeader title="Export today, kW">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <SectionHeader title="Export today, kW" />
             <ChartLegend
               items={[
                 { label: "Baseline", color: BASELINE_SERIES },
@@ -356,7 +357,7 @@ export function FeederPanel() {
                 { label: "Limit", color: LIMIT_SERIES, dashed: true },
               ]}
             />
-          </SectionHeader>
+          </div>
           <div className="relative">
             <LineChart
               data={exportData}

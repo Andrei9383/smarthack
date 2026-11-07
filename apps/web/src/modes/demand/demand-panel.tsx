@@ -10,7 +10,6 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 import { StatusMark } from "@/components/brand/status-mark";
-import { Term } from "@/components/help";
 import { DetailsSheet, Metric, MetricRow, RowButton, SheetSection } from "@/panels/disclosure";
 
 import { hhmm, wallClock } from "@/panels/site/time";
@@ -217,7 +216,7 @@ export function DemandPanel() {
 
           <MetricRow className="border-y border-border py-2">
             <Metric
-              label={<Term id="stress">Stress now</Term>}
+              label="Stress now"
               value={stressNow?.toFixed(2) ?? "—"}
               sub="of 1.00"
               popTitle="What stress means"
