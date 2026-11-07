@@ -6,13 +6,34 @@
 For feeder f, steps t = 1..T (T = forecast horizon, 96 for a day), Δt = 0.25 h, controlled sites i
 (all variables >= 0):
 
-    min  Σ_t Σ_i [ π_t·m_it·Δt − β·π_t·x_it·Δt + c_deg·(c_it + d_it)·Δt ]  +  M·Σ_t s_t·Δt  +  λ·z
+    min  Σ_t Σ_i [ π_t·m_it·Δt − β_t·π_t·x_it·Δt + c_deg·(c_it + d_it)·Δt ]  +  M·Σ_t s_t·Δt  +  λ·z
          + M·w·max_t s_t          (w = slack_peak_weight; our addition: flattens unavoidable violations)
-    site balance (P50):  P̂50_it − L̂50_it − c_it + d_it = x_it − m_it
+    site balance (P50):  P̂50_it − L̂50_it − c_it + d_it = x_it − m_it        (=: g_it, net grid flow, + export)
     battery:             e_i,t+1 = e_it + η_c·c_it·Δt − d_it·Δt/η_d ;  R_i ≤ e_it ≤ E_i ;  c_it, d_it ≤ P_i ;
                          e_i,0 = e0_i ;  e_i,T ≥ e0_i
     export limit:        Σ_i (P̂90_it − L̂10_it − c_it + d_it) + X_t^rest ≤ G + s_t      (worst plausible export)
     evening peak:        z ≥ Σ_i (m_it − x_it) + M_t^rest     for t in 17:00–22:00 Europe/Bucharest
+
+Negative prices (card #80). As written in plan §3.5 (β_t = β < 1 for all t) the LP is *unbounded* whenever some
+π_t < 0 (real OPCOM days, e.g. 2025-06-07): substituting x = m + g, the energy cost of a site-step is
+(1 − β)·π_t·m − β·π_t·g, and m (with x = m + g) can grow without limit — importing and exporting the same extra
+kWh at once "earns" (1 − β)·|π_t| per kWh. Physically the site has one net flow g, with true cost
+f_t(g) = π_t·max(−g, 0) − β·π_t·max(g, 0); its slopes are −π_t (g < 0) and −β·π_t (g > 0), so f_t is convex iff
+π_t·(1 − β) ≥ 0: exact LP for π_t ≥ 0, concave (needs a binary) for π_t < 0. We stay an LP by pricing exports at
+negative-price steps with β_t = `beta_negative` ≥ 1 (default 1) instead of β:
+
+    β_t = β if π_t ≥ 0 else β⁻ (≥ 1)        cost_t(g) = −β_t·π_t·g + (1 − β_t)·π_t·max(−g, 0)      convex ∀t
+
+i.e. the LP keeps only g (an affine function of c, d) and the import epigraph m ≥ max(−g, 0) (x = m + g is implied);
+m's weight (1 − β_t)·π_t is ≥ 0, so m = max(−g, 0) at the optimum (with β⁻ = 1 the weight is 0 and m is reported as
+max(−g, 0)). For π_t ≥ 0 this is the same LP as before (a change of variables), so plans on non-negative-price days are
+unchanged. For π_t < 0 the cost is exact on the import side (charging / importing earns |π_t|) and overstates the
+cost of exporting (|π_t| instead of β·|π_t|): a convex majorant of f_t that pushes the plan to soak up surplus in the
+batteries — the intended behaviour — within power, SoC and comfort-reserve limits. Boundedness is structural: g is
+bounded by the battery power (|g − net50| ≤ P), and m is also capped at max(0, −net50) + P (the most the site can
+import). Optional `grid_limit_kw` (per-site connection / fuse limit, default None) additionally stops the battery from
+pushing |g| beyond max(limit, |net50_t|) (the forecast itself is never made infeasible). Reported import / export are
+max(−g, 0) / max(g, 0): never both at once.
 
 `R_i` is `BatterySpec.e_min = max(soc_min·E, comfort reserve)`; `E_i` is `e_max`. If a battery starts below its
 reserve, its floor is e0 (the planner never takes it lower, and is not forced up).
@@ -33,7 +54,9 @@ peak_import_kw, simultaneous_steps, solve_time_s (HiGHS, all solves), wall_time_
 Simultaneous charge/discharge: the LP 'burns' energy (c and d at once) when the battery is full and the limit still
 binds (slack > 0), or with negative prices. `solve_with_repair` then forbids discharge at those steps and re-solves
 (still an LP, ≤ `repair_iters` times); `extra["simultaneous_before_repair"]` / `simultaneous_steps` report it
-before / after. Any remainder is netted by the clip, so the reported slack is always what the battery can do.
+before / after. At negative prices c_deg > 0 and η_c·η_d < 1 make burning unprofitable for |π_t| below
+~2·c_deg/(1 − η_c·η_d) ≈ 2.5 lei/kWh (lowest OPCOM price 2023–25: −0.53). Any remainder is netted by the clip, so the
+reported slack is always what the battery can do.
 
 Units: kW, kWh, prices lei/kWh. Weights must satisfy M ≫ λ ≫ π (checked loosely). LP only: no binaries.
 Raises `LPSolveError` if HiGHS does not return an optimal solution; callers (#17) then use
@@ -114,6 +137,8 @@ class LPParams:
     slack_peak_weight: float = 1.0  # + big_m * weight * max_t s_t: flattens unavoidable violations (1 kW ~ 1 kWh)
     peak_start_h: float = 17.0
     peak_end_h: float = 22.0
+    beta_negative: float = 1.0  # export ratio at steps with π_t < 0; must be >= 1 for convexity (module docstring)
+    grid_limit_kw: Optional[float] = None  # per-site connection limit on |g| the battery may not push beyond
     simultaneous_tol_kw: float = 1e-3
     repair_iters: int = 4  # re-solves that forbid discharge at steps where the LP charged + discharged at once
     time_limit_s: float = 60.0
@@ -122,6 +147,10 @@ class LPParams:
     def __post_init__(self) -> None:
         if not (self.big_m > self.lam > 0 and self.c_deg >= 0 and 0 <= self.beta <= 1):
             raise ValueError("need big_m > lam > 0, c_deg >= 0, 0 <= beta <= 1")
+        if self.beta_negative < 1:
+            raise ValueError("need beta_negative >= 1 (else the LP is unbounded at negative prices)")
+        if self.grid_limit_kw is not None and self.grid_limit_kw <= 0:
+            raise ValueError("grid_limit_kw must be > 0 or None")
 
 
 def _local_hour(ts) -> float:
@@ -153,10 +182,19 @@ class LPSolution:
     status: str
     objective: Optional[float]
     solve_time_s: float
+    grid: Optional[np.ndarray] = None  # g = net50 − c + d [N, T], net grid flow (+ export)
 
     @property
     def simultaneous(self) -> np.ndarray:
         return np.minimum(self.c, self.d)
+
+    @property
+    def import_kw(self) -> np.ndarray:
+        return np.maximum(0.0, -self.grid)
+
+    @property
+    def export_kw(self) -> np.ndarray:
+        return np.maximum(0.0, self.grid)
 
 
 def solve_lp(
@@ -182,10 +220,11 @@ def solve_lp(
     Shared by `plan_feeder` and the aggregate fallback (N = 1)."""
     N, T = net50.shape
     col = lambda v: np.asarray(v, float).reshape(N, 1)  # noqa: E731
+    net50 = np.asarray(net50, float)
+    prices = np.asarray(prices, float)
     c = cp.Variable((N, T), nonneg=True)
     d = cp.Variable((N, T), nonneg=True)
-    x = cp.Variable((N, T), nonneg=True)
-    m = cp.Variable((N, T), nonneg=True)
+    m = cp.Variable((N, T), nonneg=True)  # import epigraph: m >= max(-g, 0); export x = m + g is implied
     e = cp.Variable((N, T + 1))
     s = cp.Variable(T, nonneg=True)
     z = cp.Variable(nonneg=True)
@@ -195,8 +234,10 @@ def solve_lp(
     ed = np.repeat(dt_h / col(eta_d), T, axis=1)
     lo = np.repeat(col(e_lo), T, axis=1)
     hi = np.repeat(col(e_hi), T, axis=1)
+    g = net50 - c + d  # net grid flow per site (+ export), affine in c, d: bounded by construction
     cons = [
-        x - m == net50 - c + d,
+        m >= -g,
+        m <= np.maximum(0.0, -net50) + P,  # physical import cap (never binds at m = max(-g, 0))
         c <= P,
         d <= (P if no_discharge is None else P * ~np.asarray(no_discharge, bool)[None, :]),
         e[:, 0] == e0,
@@ -207,13 +248,18 @@ def solve_lp(
         cp.sum(worst - c + d, axis=0) + rest_worst <= g_kw + s,
         s <= s_max,
     ]
+    if params.grid_limit_kw is not None:  # the battery may not push the connection beyond its limit
+        lim = np.maximum(params.grid_limit_kw, np.abs(net50))
+        cons += [g <= lim, g >= -lim]
     idx = np.flatnonzero(peak_mask)
     if idx.size:
-        cons.append(z >= cp.sum(m[:, idx] - x[:, idx], axis=0) - rest_net[idx])
-    pi = np.broadcast_to(prices, (N, T))
+        cons.append(z >= -cp.sum(g[:, idx], axis=0) - rest_net[idx])
+    beta_t = np.where(prices >= 0, params.beta, params.beta_negative)
+    w_imp = np.broadcast_to((1.0 - beta_t) * prices, (N, T))  # >= 0 at every step: convex
+    w_net = np.broadcast_to(beta_t * prices, (N, T))
     obj = (
-        dt_h * cp.sum(cp.multiply(pi, m))
-        - params.beta * dt_h * cp.sum(cp.multiply(pi, x))
+        dt_h * cp.sum(cp.multiply(w_imp, m))
+        - dt_h * cp.sum(cp.multiply(w_net, g))
         + params.c_deg * dt_h * cp.sum(c + d)
         + params.big_m * dt_h * cp.sum(s)
         + params.big_m * params.slack_peak_weight * s_max
@@ -228,10 +274,10 @@ def solve_lp(
         raise LPSolveError(f"LP status {prob.status}")
     st = prob.solver_stats
     solve_t = float(st.solve_time) if st is not None and st.solve_time is not None else float("nan")
+    cv, dv = np.maximum(0.0, np.asarray(c.value)), np.maximum(0.0, np.asarray(d.value))
     return LPSolution(
-        c=np.maximum(0.0, np.asarray(c.value)), d=np.maximum(0.0, np.asarray(d.value)), e=np.asarray(e.value),
-        s=np.maximum(0.0, np.asarray(s.value)), z=float(z.value), status=str(prob.status),
-        objective=float(prob.value), solve_time_s=solve_t,
+        c=cv, d=dv, e=np.asarray(e.value), s=np.maximum(0.0, np.asarray(s.value)), z=float(z.value),
+        status=str(prob.status), objective=float(prob.value), solve_time_s=solve_t, grid=net50 - cv + dv,
     )
 
 
@@ -401,7 +447,7 @@ def plan_feeder(
         applied[s.site_id], soc[s.site_id] = clip_schedule(s.battery, e0[i], sol.c[i] - sol.d[i],
                                                            floor_kwh=min(e_min[i], e0[i]))
     extra = {"lp_slack_max_kw": float(sol.s.max()), "lp_peak_kw": sol.z,
-             "n_vars": N * (5 * pp.T + 1) + pp.T + 1, **info}
+             "n_vars": N * (4 * pp.T + 1) + pp.T + 2, **info}
     if simul.any():
         extra["simultaneous_sites"] = sorted({pp.sites[i].site_id for i in np.flatnonzero(simul.any(axis=1))})
     return _finish(pp, applied, soc, method="lp", status=sol.status, objective=sol.objective,
