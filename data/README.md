@@ -38,7 +38,15 @@ training, always reported with its label (plan R13, R14). All timestamps are UTC
   the switch lands on the right day; the repeated/skipped hour is dropped. Check: system 1199's June power
   centroid is at 17:07 UTC = its solar noon. System 10's sits ~45 min early (logger clock or shading), which a
   whole-hour shift cannot fix.
-- **OPCOM DST days** have 23 or 25 hourly intervals (92 or 100 at 15-min). Timestamps are built by stepping from
+- **OPCOM PZU time zone (#183).** The CSV numbers intervals from 00:00 CET/CEST (SDAC market time), not Romanian
+  time: delivery day D = 01:00 to 01:00 Romanian time. Checked on the DST days 27 Oct 2024, 30 Mar 2025 and 26 Oct
+  2025 against the Energy-Charts RO day-ahead price (UTC): prices are identical (corr 1.000, constant lei/EUR
+  ratio) only with CET; Romanian time puts every interval 1 h early. The hour count per day cannot tell the two
+  apart (CET and EET switch at the same UTC instant). `prices.parquet` was regenerated from the committed file by
+  shifting every `ts` by +1 h (rows and values unchanged); new sha256
+  `7da555253942b283a114b520218878c890e27de6a864e73593fa1c80e595bc32` (was `ad90672abcb4add9…4f8bb4`). So the first
+  Romanian hour of 2023 (31 Dec 2022 22:00 UTC) has no price; 2024 and 2025 are complete.
+- **OPCOM DST days** have 23 or 25 hourly intervals (92 or 100 at 15-min). Timestamps are built by stepping from CET
   local midnight in UTC, so they stay correct across the change.
 - **Not committed:** CARE-to-Compare wind SCADA (downloaded in the eval run, #43), London Smart Meter (optional),
   the pandapower IEEE LV feeder (ships with pandapower).

@@ -34,6 +34,9 @@ RAW = REPO / "data" / "raw"
 CACHE = REPO / "data" / ".cache"
 UA = "prosumer-sentinel/0.1 (SmartHack 2026; research use)"
 RO_TZ = zoneinfo.ZoneInfo("Europe/Bucharest")
+# OPCOM PZU (and PI) intervals are numbered in CET/CEST, the SDAC/SIDC market time, not Romanian time: delivery
+# day D runs 00:00-24:00 CET = 01:00-01:00 Romanian time (#183).
+OPCOM_TZ = zoneinfo.ZoneInfo("Europe/Brussels")
 
 YEARS = (2022, 2025)  # train 2022-23, val 2024, test 2025 (plan §4)
 PRICE_START = dt.date(2023, 1, 1)
@@ -318,13 +321,20 @@ def job_energy_charts() -> None:
 def _opcom_day(day: dt.date) -> list[dict]:
     url = f"https://www.opcom.ro/rapoarte-pzu-raportPIP-export-csv/{day.day}/{day.month}/{day.year}/ro"
     text = fetch(url, cache=f"opcom/{day.isoformat()}.csv").decode("utf-8", errors="replace")
+    return _parse_opcom_pzu(day, text)
+
+
+def _parse_opcom_pzu(day: dt.date, text: str) -> list[dict]:
+    """Rows of one OPCOM PZU CSV export. Column 1 is the interval number of delivery day `day`, counted from
+    00:00 CET/CEST (OPCOM_TZ). Checked against the ENTSO-E/energy-charts RO day-ahead price (UTC) on the DST days
+    of Oct 2024, Mar 2025 and Oct 2025: identical prices only with CET (#183)."""
     rows = [r for r in csv.reader(io.StringIO(text)) if r and r[0] == "Romania"]
     if not rows:
         return []
     step = dt.timedelta(minutes=15) if (len(rows[0]) > 6 and rows[0][6] == "PT15M") or len(rows) > 25 \
         else dt.timedelta(hours=1)
-    # Delivery day starts at local midnight (Europe/Bucharest); stepping in UTC handles 23/25-hour DST days.
-    t0 = dt.datetime(day.year, day.month, day.day, tzinfo=RO_TZ).astimezone(dt.timezone.utc)
+    # Delivery day starts at CET midnight; stepping in UTC handles 23/25-hour DST days.
+    t0 = dt.datetime(day.year, day.month, day.day, tzinfo=OPCOM_TZ).astimezone(dt.timezone.utc)
     return [dict(ts=t0 + (int(r[1]) - 1) * step, price_lei_mwh=float(r[2]), volume_mw=float(r[3]),
                  resolution="PT15M" if step.seconds == 900 else "PT60M") for r in rows]
 
@@ -339,7 +349,7 @@ def job_prices() -> None:
                           price_eur_mwh=pl.lit(None, pl.Float64))
             .select("ts", "market", "price_lei_mwh", "price_eur_mwh", "volume_mw", "resolution")
             .sort("ts"))
-    missing = len(days) - df.select(pl.col("ts").dt.convert_time_zone("Europe/Bucharest").dt.date().n_unique()).item()
+    missing = len(days) - df.select(pl.col("ts").dt.convert_time_zone(OPCOM_TZ.key).dt.date().n_unique()).item()
     print(f"  opcom: {df.height:,} intervals, {missing} delivery days missing")
     write(df, "prices.parquet")
 
