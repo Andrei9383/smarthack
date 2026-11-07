@@ -3,7 +3,7 @@ import { parseAsBoolean, useQueryState } from "nuqs";
 import { useEffect, useState } from "react";
 
 const ONLINE_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
-const PROBE_TIMEOUT_MS = 2500;
+const PROBE_TIMEOUT_MS = 8000; // Long on purpose: a busy page must not look like an outage.
 
 // Committed Natural Earth borders, so the demo still shows Romania with no internet.
 const OFFLINE_STYLE: StyleSpecification = {
