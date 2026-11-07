@@ -1,7 +1,7 @@
 """Wind telemetry contract: PPC HackITall schema (plan §3.4, decisions 14:15). Spec: team/contracts/wind.md.
 
 Tags look like `WP<park>.TID<turbine>.<sensor>`, e.g. `WP1.TID07.act_pwt`. Power in kW, wind in km/h, temps in °C.
-Integer values on a numeric sensor are error codes, not measurements. Real PPC data must drop in unchanged, so the
+Integral values on a numeric sensor are error codes, not measurements. Real PPC data must drop in unchanged, so the
 sensor names below are the only place to rename if PPC's sample differs.
 """
 
@@ -13,24 +13,21 @@ from typing import Any, Optional
 
 TAG_RE = re.compile(r"^WP(?P<park>[A-Za-z0-9]+)\.TID(?P<turbine>[A-Za-z0-9]+)\.(?P<sensor>[A-Za-z0-9_]+)$")
 
-# sensor -> (unit, description). Names beyond act_pwt / wd_spd follow WindMon; confirm against PPC's sample.
+# sensor -> (unit, description). Exactly the sensors in PPC's DataDictionary (WindMon repo, reviewed on #7).
+# PPC data has no wind direction, yaw, rotor speed, pitch or status tags.
 SENSORS: dict[str, tuple[str, str]] = {
-    "act_pwt": ("kW", "active power at the turbine"),
+    "act_pwt": ("kW", "active power at the turbine (unit varies per turbine: see power_scale in turbine metadata)"),
     "wd_spd": ("km/h", "nacelle anemometer wind speed"),
-    "wd_dir": ("deg", "wind direction"),
-    "nac_dir": ("deg", "nacelle position (yaw)"),
-    "rot_spd": ("rpm", "rotor speed"),
-    "pitch": ("deg", "blade pitch angle"),
-    "conv_tmp": ("degC", "converter temperature"),
-    "gbx_tmp": ("degC", "gearbox oil / bearing temperature"),
-    "gen_brg_tmp": ("degC", "generator bearing temperature"),
-    "trf_tmp": ("degC", "transformer temperature"),
-    "amb_tmp": ("degC", "ambient temperature"),
-    "status": ("code", "turbine state / error code (integer)"),
+    "conv_t": ("degC", "converter temperature"),
+    "gearbox_t": ("degC", "gearbox temperature"),
+    "gen1_t": ("degC", "generator bearing 1 temperature"),
+    "gen2_t": ("degC", "generator bearing 2 temperature"),
+    "transformer_t": ("degC", "transformer temperature"),
+    "turbine_t": ("degC", "ambient temperature at the turbine"),
 }
 
-# Sensors whose values are always integer codes (never flagged as error codes).
-CODE_SENSORS = {"status"}
+# Sensors whose values are always integer codes (never flagged as error codes). None in PPC's schema.
+CODE_SENSORS: set[str] = set()
 
 KMH_TO_MS = 1 / 3.6
 
@@ -62,18 +59,33 @@ def parse_tag(tag: str, strict: bool = False) -> Tag:
 
 
 def make_tag(park: str | int, turbine: str | int, sensor: str) -> str:
+    """Build a tag. PPC ids are hex-like strings (WP98FA99B8.TID374A8025) and pass through unchanged; the
+    zero-padding of int turbine numbers is only a convenience for the synthetic parks."""
     turbine = f"{turbine:02d}" if isinstance(turbine, int) else turbine
     return f"WP{park}.TID{turbine}.{sensor}"
 
 
 def is_error_code(sensor: str, value: Any) -> bool:
-    """PPC convention: an integer on a continuous sensor is an error code, not a reading.
+    """PPC convention: an integral value on a continuous sensor is an error code, not a reading.
 
-    Ints (and floats with no fractional part that arrive typed as int) count; NaN / None are gaps, not codes.
+    PPC's raw `current_value` column is float64, so codes arrive as floats with no decimals (5021.0). Rule:
+    - temps and wd_spd: any integral value is a code;
+    - act_pwt: integral and non-zero is a code (0.0 kW is a real reading: a stopped turbine);
+    - NaN / None are gaps, not codes; bools are never codes.
     """
     if sensor in CODE_SENSORS or value is None or isinstance(value, bool):
         return False
-    return isinstance(value, int)
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return False
+    if v != v or v in (float("inf"), float("-inf")):  # NaN / inf
+        return False
+    if v != round(v):
+        return False
+    if sensor == "act_pwt":
+        return v != 0.0
+    return True
 
 
 def kmh_to_ms(v_kmh: Optional[float]) -> Optional[float]:
@@ -88,6 +100,34 @@ TELEMETRY_LONG_COLUMNS = {
     "is_code": "bool",  # True if the source value was an integer error code (value holds the code)
 }
 
+# Raw PPC exports, exactly as delivered (reader maps them to the tables above/below).
+RAW_TELEMETRY_COLUMNS = {
+    "datetime_current_value": "int64",  # epoch milliseconds, UTC
+    "current_value": "float64",  # reading, or an error code (integral value, see is_error_code)
+    "tag_name": "string",  # WP<park>.TID<turbine>.<sensor>
+}
+RAW_METEO_COLUMNS = {
+    "data_timestamp": "timestamp",  # UTC
+    "fk_wtg_id": "string",  # turbine id (meteo is per TURBINE, not per park)
+    "wind_speed_mean_5min": "string",  # m/s, arrives as a string -> cast to float64
+}
+RAW_TURBINE_COLUMNS = {
+    "pk_wtg_id": "string",
+    "fk_wtg_model_id": "string",
+    "fk_park_id": "string",
+    "fk_turbine_id": "string",
+    "lat_y": "float64",
+    "long_x": "float64",
+}
+
+# Normalised 5-min meteo wind, one series per turbine. wdir_deg is optional (ERA5 only, not in PPC data).
+METEO_COLUMNS = {
+    "ts": "timestamp[UTC]",
+    "turbine_id": "string",
+    "wind_ms": "float64",
+    "wdir_deg": "float64?",
+}
+
 TURBINE_META_COLUMNS = {
     "turbine_id": "string",  # WP<park>.TID<turbine>
     "park_id": "string",  # WP<park>
@@ -98,4 +138,6 @@ TURBINE_META_COLUMNS = {
     "lat": "float64",
     "lon": "float64",
     "county": "string",
+    "power_unit": "string",  # unit of act_pwt for this turbine (mostly "kW")
+    "power_scale": "float64",  # multiply act_pwt by this to get kW
 }
