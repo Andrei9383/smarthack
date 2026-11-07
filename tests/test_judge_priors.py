@@ -101,6 +101,7 @@ def test_apply_from_log_adds_only_the_priors_key(tmp_path):
     before = json.loads((models / "pvnet.s2.calibration.json").read_text())
     assert P.main(["--apply", str(log), "--models", str(models)]) == 0
     after = json.loads((models / "pvnet.s2.calibration.json").read_text())
+    before.pop("priors", None)  # models/ may already carry priors; apply replaces only that key
     assert set(after) - set(before) == {"priors"} and {k: after[k] for k in before} == before
     assert after["priors"]["scores"]["calibration"][ROOT]["prior"] == 0.8
     assert (models / "judge_priors.json").exists() and (models / "windnbm.priors.json").exists()
