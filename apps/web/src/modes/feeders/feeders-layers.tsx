@@ -5,6 +5,13 @@ import { useMemo } from "react";
 
 import { usePolicy } from "@/demo/use-replay";
 
+import {
+  Displaced,
+  NO_OFFSET,
+  passClicksThrough,
+  type PlacedMarker,
+  useMarkerOffsets,
+} from "../production/production-layers";
 import { useMapRightPadding } from "../use-map-right-padding";
 import { useFeederList, useOverLimit } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
@@ -14,7 +21,7 @@ const WARN_COLOR = "#f59e0b";
 const OVER_COLOR = "#ef4444";
 const LOW_TRUST_OVERLAY = "#fafafa";
 const PANEL_PADDING_PX = 452; // FeederPanel width + gutter; keeps Dobrogea clear of the panel.
-const LABEL_OFFSET_DEG = 0.42; // Feeders can share a line (#30); keep every label clickable.
+const LABEL_DIAMETER_PX = 36; // Widest label, "F10"; layout treats labels as circles.
 
 function colorFor(minutes: number) {
   if (minutes === 0) return OK_COLOR;
@@ -39,14 +46,10 @@ export function FeedersLayers() {
   const { data: overLimit } = useOverLimit();
 
   const items = useMemo(() => {
-    const seen = new Map<string, number>();
     return (feeders ?? []).flatMap((feeder) => {
       const line = lineOf(feeder.geometryJson);
       const anchor = line[Math.floor(line.length / 2)];
       if (!anchor) return [];
-      const key = anchor.join();
-      const duplicate = seen.get(key) ?? 0;
-      seen.set(key, duplicate + 1);
       const minutes =
         overLimit?.find((row) => row.feederId === feeder.id && row.policy === policy)
           ?.minutesOver ?? 0;
@@ -56,12 +59,26 @@ export function FeedersLayers() {
           line,
           lowTrust: feeder.gisTrust === "low",
           color: colorFor(minutes),
-          longitude: anchor[0] + duplicate * LABEL_OFFSET_DEG,
+          longitude: anchor[0],
           latitude: anchor[1],
         },
       ];
     });
   }, [feeders, overLimit, policy]);
+
+  // Labels are all peers, so colliding ones push each other equally.
+  const placed = useMemo<PlacedMarker[]>(
+    () =>
+      items.map((item) => ({
+        id: item.id,
+        kind: "park" as const,
+        lon: item.longitude,
+        lat: item.latitude,
+        diameter: LABEL_DIAMETER_PX,
+      })),
+    [items],
+  );
+  const offsets = useMarkerOffsets(placed);
 
   const collection = useMemo(
     () => ({
@@ -117,15 +134,18 @@ export function FeedersLayers() {
           onClick={() => setSelected(item.id)}
         >
           <MarkerContent>
-            <span
-              className={`block -translate-y-3 cursor-pointer rounded border-2 bg-background/90 px-1 text-[11px] font-semibold text-foreground ${
-                item.id === selected ? "ring-2 ring-foreground" : ""
-              } ${item.lowTrust ? "border-dashed" : ""}`}
-              style={{ borderColor: item.color }}
-              title={item.lowTrust ? `${item.id}: low GIS trust` : item.id}
-            >
-              {item.id}
-            </span>
+            <Displaced offset={offsets.get(item.id) ?? NO_OFFSET}>
+              <span
+                ref={passClicksThrough}
+                className={`pointer-events-auto block -translate-y-3 cursor-pointer rounded border-2 bg-background/90 px-1 text-[11px] font-semibold text-foreground ${
+                  item.id === selected ? "ring-2 ring-foreground" : ""
+                } ${item.lowTrust ? "border-dashed" : ""}`}
+                style={{ borderColor: item.color }}
+                title={item.lowTrust ? `${item.id}: low GIS trust` : item.id}
+              >
+                {item.id}
+              </span>
+            </Displaced>
           </MarkerContent>
         </MapMarker>
       ))}
