@@ -113,9 +113,9 @@ def _from_raw(locs: list[Locality], ts: pd.DatetimeIndex, path: Path) -> Weather
             raise ValueError(f"{path.name} has no rows for locality {loc.id}")
         step = g.index.to_series().diff().median()
         if step >= pd.Timedelta("1h"):
-            # Open-Meteo hourly radiation is the mean of the PRECEDING hour: centre it before interpolating.
+            # #9 stamps hourly radiation at the interval START (mean over [t, t+1h)): centre it before interpolating.
             ghi = g.ghi_wm2.copy()
-            ghi.index = ghi.index - step / 2
+            ghi.index = ghi.index + step / 2
             g = g.drop(columns="ghi_wm2").join(ghi, how="outer")
         g = g.reindex(g.index.union(ts)).interpolate("time", limit_direction="both").reindex(ts)
         for k in out:
