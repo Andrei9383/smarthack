@@ -24,8 +24,10 @@ The rules (§6), all evaluated causally on each day D:
   (all of the model's evidence) it reads the prior; the prior comes from the model version's own validation
   priors (`Priors`), so a new version starts from its own prior and **no record → trust = prior**;
 - 80 % interval from Beta(trust·(n0+n_eff), (1−trust)·(n0+n_eff));
-- band scale: weighted split-conformal 0.80 quantile of the normalised errors, with the same decay, bucket-day
-  units, causality and backoff, bounded to 0.5–3 (1 when there is no evidence);
+- band scale: weighted split-conformal 0.80 quantile of the normalised errors (row mass = weight × decay), with
+  the same causality and backoff (≥ 5 effective bucket-days, one unit per bucket-day with norm_err rows),
+  bounded to 0.5–3 (1 when there is no evidence);
+- `brier` rows (M7 detail, lower is better) are not trust scores and are ignored;
 - health alert per bucket series: raised when trust < prior − 0.2 for 3 consecutive days with n_eff ≥ 5, cleared
   when trust > prior − 0.1.
 
@@ -58,6 +60,7 @@ ALERT_CLEAR = 0.1       # ... clear above prior − 0.1 (§6.5)
 BAND_TARGET = 0.80
 BAND_MIN, BAND_MAX = 0.5, 3.0
 BAND_SCORE = "norm_err"
+DETAIL_SCORES = frozenset({"brier"})  # graded details (lower is better), not trust scores
 DEFAULT_PRIOR = 0.5     # only for a model with no priors at all (should not happen once #147's priors ship)
 PRIOR_MIN_N = 20        # validation asset-days for a bucket's own prior to count as "covered" (§6.2)
 INTERVAL = (0.10, 0.90)
@@ -279,7 +282,10 @@ def _band_units(c: Coded, n_buckets: int) -> pl.DataFrame | None:
     lab = np.asarray(bb_lab, np.int64)[nz // (nd * L)]
     day = (nz // L) % nd + dmin
     return pl.DataFrame({"base": (lab // n_buckets).astype(np.int32), "b": (lab % n_buckets).astype(np.int32),
-                         "day": day.astype(np.int32), "obs": (day + nz % L).astype(np.int32), "sw": sw[nz],
+                         "day": day.astype(np.int32), "obs": (day + nz % L).astype(np.int32),
+                         # norm_err rows split their asset-day's weight (J1: 1/k each), so their mean weight says
+                         # nothing about the unit: each bucket-day with band rows counts as one unit
+                         "sw": np.where(sw[nz] > 0, 1.0, 0.0) * n[nz],
                          "n": n[nz].astype(np.uint32)})
 
 
@@ -368,8 +374,10 @@ class Ledger:
             pos = {k: i for i, k in enumerate(uniq)}
             self._par.append((np.array([pos[k] for k in keys], np.int64), uniq))
         band_scores = {i for i, (_, _, s) in enumerate(c.base_labels) if s == BAND_SCORE}
+        detail = [i for i, (_, _, s) in enumerate(c.base_labels) if s in DETAIL_SCORES]
         is_band = np.isin(c.base, list(band_scores)) if band_scores else np.zeros(n, bool)
-        self.levels = self._trust_levels(c.take(~is_band))
+        is_detail = np.isin(c.base, detail) if detail else np.zeros(n, bool)
+        self.levels = self._trust_levels(c.take(~is_band & ~is_detail))
         self.bands = self._band_levels(c.take(is_band)) if is_band.any() else []
 
     def _series(self, base: np.ndarray, par: np.ndarray, n_par: int, labels) -> tuple[np.ndarray, list]:
@@ -629,3 +637,29 @@ def _daynum(d) -> int:
 def replay(outcomes, priors: Priors | None = None, run_id: str = "", start=None, end=None) -> pl.DataFrame:
     """Replay the ledger over the outcomes' days → §8 `trust` rows."""
     return Ledger(outcomes, priors, start, end, run_id).trust_rows()
+
+
+def main() -> None:
+    """python -m sentinel.judge.ledger outcomes.parquet --out trust.parquet [--models models] [--alerts a.csv]"""
+    import argparse
+    import time
+    ap = argparse.ArgumentParser(description="Replay the Judge trust ledger (§6) over graded outcome rows.")
+    ap.add_argument("outcomes", type=Path, help="parquet/csv with §8 outcomes rows + bucket columns")
+    ap.add_argument("--out", type=Path, required=True, help="trust rows (.parquet or .csv)")
+    ap.add_argument("--models", type=Path, default=Path("models"), help="dir with calibration JSONs + priors")
+    ap.add_argument("--alerts", type=Path, help="optional csv of health-alert episodes")
+    ap.add_argument("--run-id", default="")
+    a = ap.parse_args()
+    t = time.perf_counter()
+    df = pl.read_parquet(a.outcomes) if a.outcomes.suffix == ".parquet" else pl.read_csv(a.outcomes)
+    led = Ledger(df, Priors.from_dir(a.models), run_id=a.run_id)
+    rows = led.trust_rows()
+    (rows.write_parquet if a.out.suffix == ".parquet" else rows.write_csv)(a.out)
+    if a.alerts:
+        led.alerts().write_csv(a.alerts)
+    print(f"LAB_METRIC t_ledger_s={time.perf_counter() - t:.3f}")
+    print(f"{df.height} outcome rows -> {rows.height} trust rows, {led.alerts().height} alert episodes")
+
+
+if __name__ == "__main__":
+    main()

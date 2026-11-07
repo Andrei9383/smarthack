@@ -221,7 +221,7 @@ def test_alert_hysteresis():
 
 # ---------------------------------------------------------------- band scale (§6.4)
 
-def _band_rows(n_days, sites, true_sigma_ratio, rng, start=0):
+def _band_rows(n_days, sites, true_sigma_ratio, rng, start=0, weight=1.0):
     """Forecast bands built for sigma=1 while the truth has sigma=ratio → normalised errors."""
     z90 = 1.2815515655446004
     out = []
@@ -231,15 +231,16 @@ def _band_rows(n_days, sites, true_sigma_ratio, rng, start=0):
             e = np.abs(y) / z90  # q50 = 0, half-width = z90 on both sides
             for k, v in enumerate(e):
                 out.append(dict(model="pvnet", model_version="v1", asset_id=f"S{a}", day=day(start + i),
-                                score_name="norm_err", score=float(v), weight=1.0,
+                                score_name="norm_err", score=float(v), weight=weight,
                                 observed_at=day(start + i + 1), gated=0, bucket=B))
     return out
 
 
-@pytest.mark.parametrize("ratio", [0.6, 2.0])
-def test_band_scale_reaches_80pct_coverage(ratio):
+@pytest.mark.parametrize("ratio,weight", [(0.6, 1.0), (2.0, 1.0), (2.0, 1 / 24)])
+def test_band_scale_reaches_80pct_coverage(ratio, weight):
+    """weight 1/24: rows that split their asset-day's weight, as J1 emits them, still count one unit a day."""
     rng = np.random.default_rng(1)
-    led = Ledger(_band_rows(40, 6, ratio, rng), priors())
+    led = Ledger(_band_rows(40, 6, ratio, rng, weight=weight), priors())
     scale = at(led, 40)["band_scale"]
     assert 0.5 <= scale <= 3.0
     # held-out days: the rescaled band q50 ± scale·z90 covers 80 %
@@ -264,6 +265,11 @@ def test_beta_interval_narrows_with_evidence():
     lo0, hi0 = beta_interval(np.array([0.7]), np.array([0.0]))
     lo1, hi1 = beta_interval(np.array([0.7]), np.array([20.0]))
     assert lo0 < lo1 < 0.7 < hi1 < hi0
+
+
+def test_brier_detail_rows_are_not_trust_series():
+    led = Ledger(rows([0.9] * 20) + rows([0.1] * 20, score="brier"), priors())
+    assert set(led.trust_rows()["score_name"].unique()) == {"calibration"}
 
 
 def test_interpolated_beta_interval_matches_exact():
