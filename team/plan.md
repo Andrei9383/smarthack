@@ -525,6 +525,16 @@ Critical path: #21 (unblocks merges) → #38 + #7 (everyone builds on mocks) →
 | **Tudor** | App shell, contract, map, Feeders + Production, demo | #21 scaffold + preview → #38 app contract → #19 map shell + Feeders mode → #39 Production → #33 demo mode → #34 slides | #21 |
 | **Alexandra** | Fixtures, panels, O&M + Demand | #30 fixtures SQLite → #31 flex panel + site view → #32 O&M mode → #40 Demand → help on #34 | #30 (draft rows from #38's draft schema) |
 
+**Rebalance at 16:11 (#71): remaining work.** Merged cards are done; this table replaces the one above for what's left.
+
+| Person | Now | Next |
+|---|---|---|
+| **Andrei** | #22 wind sim + #23 wind faults, taken back from yolooo332 (one branch; build on #41's `sentinel/model/wind/synth.py` + ERA5 100 m from #9) | lab admin (`lab public on`, `lab freeze on` at h22) |
+| **Stefan** | #67 (review #14 vs baselines) | #24 wind baselines (move #41's `windmon_rules.py` + binned power curve) → OPTIONAL #42 · #47 and new Rust kernels only after #24 |
+| **Alexandra** | #32 O&M mode (MUST) | help on #63 |
+| **Tudor** | #40 Demand mode (moved from Alexandra) | #62 demo readiness → #63 slides final |
+| **yolooo332** | #69 physics.py on main → approve #14 after #67 → #29 promote | #70 WindNBM label-free normal → #35 README · OPTIONAL #43 |
+
 Andrei also handles lab admin: `--cpu-slots` worker if #8 finds none, `lab public on` before the demo, `lab freeze
 on` at h22.
 
