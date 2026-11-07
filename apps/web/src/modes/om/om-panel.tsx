@@ -66,10 +66,12 @@ const ACTION_WORDS: Record<string, string> = {
   remote_check: "Remote check",
   inspection: "Inspection",
 };
-const CREWS = [
-  { id: "residential", label: "Residential crew" },
-  { id: "wind", label: "Wind crew" },
-] as const;
+const CREWS: { id: string; ids: string[]; label: string }[] = [
+  // Fixtures use the short ids, replay.py the long ones.
+  { id: "residential", ids: ["residential", "residential_installer"], label: "Residential crew" },
+  { id: "wind", ids: ["wind", "wind_technician"], label: "Wind crew" },
+  { id: "remote", ids: ["remote_check"], label: "Remote checks" },
+];
 const TAB_LABELS: Record<(typeof OM_TABS)[number], string> = {
   orders: "Work orders",
   review: "Review",
@@ -316,7 +318,7 @@ function WorkOrders() {
   return (
     <div className="space-y-5">
       {CREWS.map((crew) => {
-        const rows = (data ?? []).filter((o) => o.crewType === crew.id);
+        const rows = (data ?? []).filter((o) => crew.ids.includes(o.crewType));
         const todayCount = rows.filter((o) => o.day === today).length;
         return (
           <section key={crew.id} className="space-y-2">

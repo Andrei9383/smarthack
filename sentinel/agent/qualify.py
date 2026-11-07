@@ -129,6 +129,7 @@ PV_LABEL = {
 DERATE_MIN, DERATE_MAX = 0.05, 0.99  # derated headroom stays strictly inside (0, 1)
 PRODUCTION_FRAC = 0.05  # production steps: q50 >= 5% of the day's peak q50
 EPS = 1e-3
+_HEALTHY = PvFault.HEALTHY.value
 
 
 @dataclass
@@ -201,13 +202,15 @@ def production_mask(q50: np.ndarray) -> np.ndarray:
     return q50 >= max(EPS, PRODUCTION_FRAC * peak)
 
 
-def rel_width(prediction: Prediction) -> float:
+def rel_width(prediction: Prediction, q50: Optional[np.ndarray] = None, mask: Optional[np.ndarray] = None) -> float:
     """Mean over production steps of (q90 − q10) / max(q50, eps). 0 when nothing is produced (night, calm).
 
     Shared with #27 so thresholds are tuned on the same statistic (production = q50 ≥ 5% of the day's peak).
+    q50 / mask: optional precomputed `np.asarray(prediction.q50, float)` / `production_mask(q50)` (same result).
     """
-    q50 = np.asarray(prediction.q50, dtype=float)
-    m = production_mask(q50)
+    if q50 is None:
+        q50 = np.asarray(prediction.q50, dtype=float)
+    m = production_mask(q50) if mask is None else mask
     if not m.any():
         return 0.0
     q10 = np.asarray(prediction.q10, dtype=float)[m]
@@ -221,7 +224,8 @@ def _expected_day_kwh(q50: np.ndarray, dt_h: float) -> float:
     return float(q50.mean() * 24.0)  # Σ q50·Δt scaled from the horizon to 24 h
 
 
-def _measured_loss(q50: np.ndarray, actual: Optional[np.ndarray]) -> Optional[float]:
+def _measured_loss(q50: np.ndarray, actual: Optional[np.ndarray],
+                   mask: Optional[np.ndarray] = None) -> Optional[float]:
     """Σ (q50 − actual)+ / Σ q50 over observed production steps; None if nothing to measure on."""
     if actual is None:
         return None
@@ -229,7 +233,7 @@ def _measured_loss(q50: np.ndarray, actual: Optional[np.ndarray]) -> Optional[fl
     if n == 0:
         return None
     a, e = actual[:n], q50[:n]
-    m = production_mask(q50)[:n] & np.isfinite(a)
+    m = (production_mask(q50) if mask is None else mask)[:n] & np.isfinite(a)
     if not m.any():
         return None
     exp = float(e[m].sum())
@@ -271,10 +275,14 @@ def _top_fault(prediction: Prediction) -> tuple[Optional[str], float]:
     probs = prediction.fault_probs
     if not probs:
         return None, 0.0
-    faults = {k: v for k, v in probs.items() if k != PvFault.HEALTHY.value}
-    if not faults:
+    # = max(non-healthy items, key=value)[0]: first maximal key, same strict ">" comparison as max().
+    best, best_p = None, None
+    for k, v in probs.items():
+        if k != _HEALTHY and (best is None or v > best_p):
+            best, best_p = k, v
+    if best is None:
         return None, 0.0
-    return max(faults.items(), key=lambda kv: kv[1])[0], prediction.p_fault
+    return best, prediction.p_fault
 
 
 # --- public API ---------------------------------------------------------------------------------------------
@@ -376,6 +384,46 @@ def _apply_park_consensus(items: list[Assessment], min_n: int, share: float) -> 
 
 
 # --- sites --------------------------------------------------------------------------------------------------
+class _SiteStats:
+    """Per-prediction values `_assess_site` derives from q10/q50/q90/fault_probs (the same prediction is assessed
+    at every tick of its day). Valid while the prediction still holds the same list / dict objects: Prediction
+    fields are replaced, never edited in place (e.g. world mocks reassign fault_probs), and `_site_stats` checks."""
+
+    __slots__ = ("pred", "q10l", "q50l", "q90l", "probs", "step", "q50", "exp_kwh", "peak_kw", "prod", "top", "_rw")
+
+    def __init__(self, pred: Prediction):
+        self.pred, self.q10l, self.q50l, self.q90l = pred, pred.q10, pred.q50, pred.q90
+        self.probs, self.step = pred.fault_probs, pred.step_minutes
+        self.q50 = q50 = np.asarray(pred.q50, dtype=float)
+        self.exp_kwh = _expected_day_kwh(q50, pred.step_minutes / 60.0)
+        self.peak_kw = float(q50.max()) if q50.size else 0.0
+        self.prod = production_mask(q50)
+        self.top = _top_fault(pred)
+        self._rw: Optional[float] = None
+
+    def valid_for(self, pred: Prediction) -> bool:
+        return (self.pred is pred and self.q10l is pred.q10 and self.q50l is pred.q50 and self.q90l is pred.q90
+                and self.probs is pred.fault_probs and self.step == pred.step_minutes)
+
+    def rel_width(self) -> float:
+        if self._rw is None:
+            self._rw = rel_width(self.pred, q50=self.q50, mask=self.prod)
+        return self._rw
+
+
+_SITE_STATS: dict[int, _SiteStats] = {}
+_SITE_STATS_MAX = 2048  # > sites per tick; entries hold their prediction alive, so an id cannot be reused
+
+
+def _site_stats(pred: Prediction) -> _SiteStats:
+    st = _SITE_STATS.get(id(pred))
+    if st is None or not st.valid_for(pred):
+        if len(_SITE_STATS) >= _SITE_STATS_MAX:
+            _SITE_STATS.clear()
+        st = _SITE_STATS[id(pred)] = _SiteStats(pred)
+    return st
+
+
 def _assess_site(asset, pred, age, th, actual, data_gap, sensor_fault, battery_fault, flex_override) -> Assessment:
     t = th["site"]
     aid = asset_id_of(asset, pred)
@@ -401,11 +449,9 @@ def _assess_site(asset, pred, age, th, actual, data_gap, sensor_fault, battery_f
         return out(_status(aid, Status.EXCLUDED, "no_prediction", "No model output this tick: out of the pool."),
                    mw_at_risk=batt_mw, lost_flex_mwh_day=batt_flex_mwh)
 
-    q50 = np.asarray(pred.q50, dtype=float)
-    dt_h = pred.step_minutes / 60.0
-    exp_kwh = _expected_day_kwh(q50, dt_h)
-    peak_kw = float(q50.max()) if q50.size else 0.0
-    fault, p_fault = _top_fault(pred)
+    st = _site_stats(pred)
+    q50, exp_kwh, peak_kw, prod = st.q50, st.exp_kwh, st.peak_kw, st.prod
+    fault, p_fault = st.top
     confident = fault is not None and p_fault >= t["pfault_confident"]
     base["expected_kwh_day"] = exp_kwh
 
@@ -422,7 +468,7 @@ def _assess_site(asset, pred, age, th, actual, data_gap, sensor_fault, battery_f
         return out(_status(aid, Status.HUMAN_REVIEW, "ood",
                            f"Out of distribution (score {pred.ood_score:.2f} > {t['ood_max']}): human review."),
                    p_fault=p_fault, fault=fault, threshold=float(t["ood_max"]))
-    rw = rel_width(pred)
+    rw = st.rel_width()
     if rw > t["rel_width_max"]:
         return out(_status(aid, Status.HUMAN_REVIEW, "wide_interval",
                            f"Forecast interval too wide (relative width {rw:.2f} > {t['rel_width_max']}): "
@@ -444,7 +490,7 @@ def _assess_site(asset, pred, age, th, actual, data_gap, sensor_fault, battery_f
                    threshold=float(t["pfault_confident"]), lost_flex_mwh_day=flex, mw_at_risk=batt_mw)
 
     if confident:
-        measured = _measured_loss(q50, actual)
+        measured = _measured_loss(q50, actual, prod)
         loss = measured if measured is not None else PV_DEFAULT_LOSS.get(fault, 0.1)
         loss = float(min(1.0, max(0.0, loss)))
         lost_kwh = loss * exp_kwh

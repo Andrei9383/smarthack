@@ -115,6 +115,38 @@ def rolling_mean(x: Any, w: int) -> np.ndarray:
     return get("rolling_mean")(x, w)
 
 
+# --------------------------------------------------------------------------- K5: telemetry scatter (scatter.py)
+from sentinel.kernels.scatter import scatter_telemetry_py, scatter_telemetry_rust  # noqa: E402
+
+register("scatter_telemetry", scatter_telemetry_py, scatter_telemetry_rust)
+
+
+def scatter_telemetry(ti: Any, tj: Any, sk: Any, v: Any, is_code: Any, scale: Any,
+                      T: int) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatched long-telemetry scatter to [sensor, step, turbine] bin means + last code per bin;
+    see ``sentinel.kernels.scatter`` (the reference)."""
+    return get("scatter_telemetry")(ti, tj, sk, v, is_code, scale, T)
+
+
+# --------------------------------------------------------------------------- K6: fused feature build (features.py)
+from sentinel.kernels.features import (load_features_py, load_features_rust, pv_features_py,  # noqa: E402
+                                       pv_features_rust)
+
+register("pv_features", pv_features_py, pv_features_rust)
+register("load_features", load_features_py, load_features_rust)
+
+
+def pv_features(wx: Any, geom: Any, pvclear: Any, pvlib: Any, hist_pv: Any, kwp: Any) -> tuple[np.ndarray, ...]:
+    """Dispatched PV feature build -> (seq, ref, summ, night); reference = sentinel.model.features.pv_arrays."""
+    return get("pv_features")(wx, geom, pvclear, pvlib, hist_pv, kwp)
+
+
+def load_features(wx: Any, cal: Any, hist_load: Any) -> tuple[np.ndarray, ...]:
+    """Dispatched load feature build -> (seq, ref, summ, scale); reference = sentinel.model.features.load_arrays."""
+    return get("load_features")(wx, cal, hist_load)
+
+
 __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
-           "names", "register", "rolling_mean", "rolling_mean_py", "rust_available", "window_gather",
+           "load_features", "load_features_py", "names", "pv_features", "pv_features_py", "register", "rolling_mean",
+           "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "window_gather",
            "window_gather_py"]

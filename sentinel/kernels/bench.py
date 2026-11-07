@@ -84,7 +84,52 @@ def rolling_make(scale, rng):
     return (x,)
 
 
-# (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description)
+# ---- telemetry scatter: WindNBM load of WP1 (70 turbines x 70,176 steps x 8 sensors, one row per bin on average; 2%
+# codes, 1% NaN and some rows off the grid / unknown tags).
+def scatter_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    S, T, N = 8, max(2, int(round(70176 * scale))), max(1, int(round(70 * scale)))
+    n = S * T * N
+    ti, tj, sk = rng.integers(-2, T + 2, n), rng.integers(-1, N, n), rng.integers(-1, S, n)
+    is_code = rng.random(n) < 0.02
+    v = np.where(is_code, rng.integers(0, 9, n), rng.standard_normal(n))
+    v[rng.random(n) < 0.01] = np.nan
+    sc = np.ones((S, N))
+    sc[0] = rng.random(N) + 0.5
+    return (np.sort(ti), tj, sk, v, is_code, sc, T)
+
+
+# ---- feature build: the model data path's per-batch numpy features (#94) on batches of 256 windows, the way
+# features.build sees them after the gather (float32 [B, 96, C] target-day arrays + 14-day history).
+FEAT_BATCHES, FEAT_B = 40, 256
+
+
+def feat_raw(scale: float, rng: np.random.Generator) -> list[dict]:
+    b = max(1, int(round(FEAT_B * scale)))
+    out = []
+    for _ in range(FEAT_BATCHES):
+        kwp = rng.uniform(3, 12, b).astype(np.float32)
+        tod = np.arange(96) / 96 * 2 * np.pi
+        prof = np.clip(np.sin(tod - np.pi / 2), 0, None).astype(np.float32)
+        geom = np.stack([rng.uniform(0, 180, (b, 96)), rng.uniform(0, 360, (b, 96)), rng.uniform(0, 1000, (b, 96))],
+                        -1).astype(np.float32)
+        hist = (prof[None, None] * kwp[:, None, None] * rng.uniform(0, 1, (b, 14, 1))).reshape(b, -1)
+        hist[:, ::7] = hist[:, 1::7]  # some stuck (frozen) readings
+        cal = np.tile(np.stack([np.sin(tod), np.cos(tod)], -1), (b, 1, 4)).astype(np.float32)
+        out.append({"wx": rng.random((b, 96, 7), np.float32) * 500, "geom": geom, "cal": cal,
+                    "pvclear": prof[None] * kwp[:, None], "pvlib": prof[None] * kwp[:, None] * 0.8,
+                    "hist": hist.astype(np.float32), "kwp": kwp})
+    return out
+
+
+def pv_args(r: dict) -> tuple[Any, ...]:
+    return r["wx"], r["geom"], r["pvclear"], r["pvlib"], r["hist"], r["kwp"]
+
+
+def load_args(r: dict) -> tuple[Any, ...]:
+    return r["wx"], r["cal"], r["hist"]
+
+
+# (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description[, parity atol])
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
      "2000 series x 35040 steps, f64, 0.2% NaN gaps"),
@@ -97,6 +142,13 @@ CASES = [
      f"{WIN_BATCHES} batches x {WIN_B} windows: 14 d hist + 24 h target, f16 -> f32, from 600 x 140160"),
     ("rolling_mean", "rolling", rolling_make, lambda fn, a: [fn(a[0], w) for w in ROLL_W],
      lambda a: (a[0][:5000], 672), f"70176 steps x 70 turbines, f64, 10% NaN, w in {ROLL_W} (M6 clf_features)"),
+    ("scatter_telemetry", "scatter", scatter_make, lambda fn, a: fn(*a),
+     lambda a: (*(x[:200_000] for x in a[:5]), a[5], a[6]),
+     "39 M long rows (time-sorted) -> 8 sensors x 70176 steps x 70 turbines, 2% codes, 1% NaN (WindNBM load)"),
+    ("pv_features", "features_pv", lambda sc, rng: (feat_raw(sc, rng),), lambda fn, a: [fn(*pv_args(r)) for r in a[0]],
+     lambda a: pv_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} PV windows (features.pv_inputs)", 1e-6),  # cos/sin: 1 ulp
+    ("load_features", "features_load", lambda sc, rng: (feat_raw(sc, rng),), lambda fn, a: [fn(*load_args(r)) for r in a[0]],
+     lambda a: load_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
 ]
 
 
@@ -109,9 +161,10 @@ def _best(fn, repeat: int) -> float:
     return min(ts)
 
 
-def _same(a, b) -> bool:
-    return all(x.shape == y.shape and x.dtype == y.dtype and np.array_equal(x, y, equal_nan=x.dtype.kind == "f")
-               for x, y in zip(a, b, strict=True))
+def _same(a, b, atol: float = 0.0) -> bool:
+    return all(x.shape == y.shape and x.dtype == y.dtype and (
+        np.allclose(x, y, rtol=0, atol=atol, equal_nan=True) if atol and x.dtype.kind == "f"
+        else np.array_equal(x, y, equal_nan=x.dtype.kind == "f")) for x, y in zip(a, b, strict=True))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -140,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
 
     only = set(a.only.split(",")) if a.only else None
     rng = np.random.default_rng(a.seed)
-    for kernel, key, make, run, sample, desc in CASES:
+    for kernel, key, make, run, sample, desc, *tol in CASES:
         if only and kernel not in only and key not in only:
             continue
         args = make(a.scale, rng)
@@ -155,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         t_rs = _best(lambda: run(rs_fn, args), max(1, a.repeat))
         metric(f"t_rust_{key}_s", t_rs)
         metric(f"speedup_{key}", t_py / t_rs if t_rs > 0 else float("nan"))
-        ok = _same(py_fn(*sample(args)), rs_fn(*sample(args)))
+        ok = _same(py_fn(*sample(args)), rs_fn(*sample(args)), *tol)
         metric(f"parity_{key}", int(ok))
         if not ok:
             print(f"bench: PARITY FAILURE for {kernel}: Rust output differs from the Python reference", file=sys.stderr)

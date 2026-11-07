@@ -3,13 +3,15 @@
 
 use numpy::ndarray::{Array2, Array3};
 use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
-            PyReadwriteArray2, PyUntypedArrayMethods};
+            PyReadwriteArray1, PyReadwriteArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 mod cusum;
+mod features;
 mod rollout;
 mod rolling;
+mod scatter;
 mod windows;
 
 /// cusum_two_sided(x f64[m, n], k, h, cap=None) -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
@@ -127,6 +129,113 @@ fn rolling_mean<'py>(py: Python<'py>, x: PyReadonlyArray2<'py, f64>, w: i64) -> 
     Ok(Array2::from_shape_vec((t, m), out).map_err(|e| PyValueError::new_err(e.to_string()))?.into_pyarray(py))
 }
 
+/// scatter_telemetry(ti, tj, sk: i64[n], v: f64[n], is_code: bool[n], scale: f64[s, m], t: int)
+///   -> (sens f32[s, t, m], err i32[t, m])
+///
+/// Long telemetry rows -> bin means per (sensor, step, turbine) + last code per bin; see `scatter.rs`.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn scatter_telemetry<'py>(
+    py: Python<'py>,
+    ti: PyReadonlyArray1<'py, i64>,
+    tj: PyReadonlyArray1<'py, i64>,
+    sk: PyReadonlyArray1<'py, i64>,
+    v: PyReadonlyArray1<'py, f64>,
+    is_code: PyReadonlyArray1<'py, bool>,
+    scale: PyReadonlyArray2<'py, f64>,
+    t: usize,
+) -> PyResult<(Bound<'py, PyArray3<f32>>, Bound<'py, PyArray2<i32>>)> {
+    let contig = |_| PyValueError::new_err("inputs must be C-contiguous");
+    let (s, m) = (scale.shape()[0], scale.shape()[1]);
+    let (a, j, k, x, c, sc) = (ti.as_slice().map_err(contig)?, tj.as_slice().map_err(contig)?,
+                               sk.as_slice().map_err(contig)?, v.as_slice().map_err(contig)?,
+                               is_code.as_slice().map_err(contig)?, scale.as_slice().map_err(contig)?);
+    let n = x.len();
+    if a.len() != n || j.len() != n || k.len() != n || c.len() != n {
+        return Err(PyValueError::new_err("ti, tj, sk, v, is_code must have the same length"));
+    }
+    let (sens, err) = py.detach(|| scatter::scatter(a, j, k, x, c, sc, s, t, m));
+    let e = |e: numpy::ndarray::ShapeError| PyValueError::new_err(e.to_string());
+    Ok((Array3::from_shape_vec((s, t, m), sens).map_err(e)?.into_pyarray(py),
+        Array2::from_shape_vec((t, m), err).map_err(e)?.into_pyarray(py)))
+}
+
+fn k4_len(name: &str, len: usize, n: usize) -> PyResult<()> {
+    if len == n { Ok(()) } else { Err(PyValueError::new_err(format!("{name}: expected {n} elements, got {len}"))) }
+}
+
+/// pv_features(wx f32[b, H*7], geom f32[b, H*3], pvclear f32[b, H], pvlib f32[b, H], hist f32[b, hh>=14*H],
+///             kwp f32[b], seq f32[b, H*17], ref f32[b, 168], summ f32[b, 14*5], night u8[b, H])
+///
+/// K4: fills the output buffers. The wrapper `sentinel.kernels.features.pv_features_rust` allocates and reshapes.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn pv_features<'py>(
+    py: Python<'py>,
+    wx: PyReadonlyArray2<'py, f32>,
+    geom: PyReadonlyArray2<'py, f32>,
+    pvclear: PyReadonlyArray2<'py, f32>,
+    pvlib: PyReadonlyArray2<'py, f32>,
+    hist: PyReadonlyArray2<'py, f32>,
+    kwp: PyReadonlyArray1<'py, f32>,
+    mut seq: PyReadwriteArray2<'py, f32>,
+    mut refh: PyReadwriteArray2<'py, f32>,
+    mut summ: PyReadwriteArray2<'py, f32>,
+    mut night: PyReadwriteArray2<'py, u8>,
+) -> PyResult<()> {
+    use features::{H, PV_SEQ, PV_SUM, REFH};
+    let (b, hh) = (hist.shape()[0], hist.shape()[1]);
+    if hh < 14 * H {
+        return Err(PyValueError::new_err("hist must have >= 14*96 steps"));
+    }
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let (wx, geom, clear, pvlib, hist, kwp) = (wx.as_slice().map_err(contig)?, geom.as_slice().map_err(contig)?,
+        pvclear.as_slice().map_err(contig)?, pvlib.as_slice().map_err(contig)?, hist.as_slice().map_err(contig)?,
+        kwp.as_slice().map_err(contig)?);
+    let (seq, refh, summ, night) = (seq.as_slice_mut().map_err(contig)?, refh.as_slice_mut().map_err(contig)?,
+        summ.as_slice_mut().map_err(contig)?, night.as_slice_mut().map_err(contig)?);
+    for (name, len, n) in [("wx", wx.len(), b * H * 7), ("geom", geom.len(), b * H * 3), ("pvclear", clear.len(), b * H),
+                           ("pvlib", pvlib.len(), b * H), ("kwp", kwp.len(), b), ("seq", seq.len(), b * H * PV_SEQ),
+                           ("ref", refh.len(), b * REFH), ("summ", summ.len(), b * 14 * PV_SUM),
+                           ("night", night.len(), b * H)] {
+        k4_len(name, len, n)?;
+    }
+    py.detach(|| features::pv_batch(wx, geom, clear, pvlib, hist, hh, kwp, seq, refh, summ, night));
+    Ok(())
+}
+
+/// load_features(wx f32[b, H*7], cal f32[b, H*8], hist f32[b, 14*H], seq f32[b, H*14], ref f32[b, 168],
+///               summ f32[b, 14*4], scale f32[b])
+///
+/// K4: fills the output buffers. The wrapper `sentinel.kernels.features.load_features_rust` allocates and reshapes.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn load_features<'py>(
+    py: Python<'py>,
+    wx: PyReadonlyArray2<'py, f32>,
+    cal: PyReadonlyArray2<'py, f32>,
+    hist: PyReadonlyArray2<'py, f32>,
+    mut seq: PyReadwriteArray2<'py, f32>,
+    mut refh: PyReadwriteArray2<'py, f32>,
+    mut summ: PyReadwriteArray2<'py, f32>,
+    mut scale: PyReadwriteArray1<'py, f32>,
+) -> PyResult<()> {
+    use features::{H, LOAD_SEQ, LOAD_SUM, REFH};
+    let b = hist.shape()[0];
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let (wx, cal, hist) = (wx.as_slice().map_err(contig)?, cal.as_slice().map_err(contig)?,
+                           hist.as_slice().map_err(contig)?);
+    let (seq, refh, summ, scale) = (seq.as_slice_mut().map_err(contig)?, refh.as_slice_mut().map_err(contig)?,
+        summ.as_slice_mut().map_err(contig)?, scale.as_slice_mut().map_err(contig)?);
+    for (name, len, n) in [("wx", wx.len(), b * H * 7), ("cal", cal.len(), b * H * 8), ("hist", hist.len(), b * 14 * H),
+                           ("seq", seq.len(), b * H * LOAD_SEQ), ("ref", refh.len(), b * REFH),
+                           ("summ", summ.len(), b * 14 * LOAD_SUM), ("scale", scale.len(), b)] {
+        k4_len(name, len, n)?;
+    }
+    py.detach(|| features::load_batch(wx, cal, hist, seq, refh, summ, scale));
+    Ok(())
+}
+
 /// Number of rayon worker threads (for the bench log).
 #[pyfunction]
 fn num_threads() -> usize {
@@ -140,7 +249,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(battery_rollout, m)?)?;
     m.add_function(wrap_pyfunction!(window_gather_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(window_gather_f16_f32, m)?)?;
+    m.add_function(wrap_pyfunction!(pv_features, m)?)?;
+    m.add_function(wrap_pyfunction!(load_features, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
+    m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }
