@@ -1,10 +1,10 @@
 """Time the window cache build (sentinel.data.windows) on an N-home fleet and hash its outputs (card #133).
 
-    python -m sentinel.kernels.profile_windows [--homes 5000] [--backends rust,python] [--old OLD_WINDOWS_PY]
+    python -m sentinel.kernels.profile_windows [--homes 5000] [--backends rust,python] [--old-rev SHA | --old FILE]
 
 Builds (or reuses from the cache) the fleet + faults with scripts/build_dataset.py's national config, then runs
-build_windows once per backend (SENTINEL_KERNELS) and, with --old, once with an older copy of windows.py (e.g.
-``git show <sha>:sentinel/data/windows.py > old.py``). Prints ``LAB_METRIC windows_gen_seconds_<label>`` and
+build_windows once per backend (SENTINEL_KERNELS) and, with --old-rev / --old, once with an older copy of
+windows.py. Prints ``LAB_METRIC windows_gen_seconds_<label>`` and
 ``windows_hash_equal`` (1 = every run wrote the same bytes). Each output is deleted after hashing (~3.7 GB at 5000).
 """
 
@@ -15,7 +15,9 @@ import hashlib
 import importlib.util
 import os
 import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -49,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--homes", type=int, default=5000)
     p.add_argument("--backends", default="rust,python")
     p.add_argument("--old", type=Path, help="an older windows.py to time on the same data")
+    p.add_argument("--old-rev", help="git revision to take the older sentinel/data/windows.py from (instead of --old)")
     p.add_argument("--out", type=Path, default=Path(os.environ.get("LAB_OUTPUT_DIR", ".")) / "windows-profile")
     a = p.parse_args(argv)
     feeders = round(a.homes / 25)
@@ -57,6 +60,13 @@ def main(argv: list[str] | None = None) -> int:
     fleet = generate(cfg, out_dir=cfg.out_dir(weather_key=weather_key(cfg.weather_source)), plots=False)
     faults = inject_dataset(fleet, FaultConfig())
 
+    if a.old_rev and not a.old:
+        r = subprocess.run(["git", "show", f"{a.old_rev}:sentinel/data/windows.py"], capture_output=True, text=True)
+        if r.returncode == 0:
+            a.old = Path(tempfile.mkdtemp()) / "windows_old.py"
+            a.old.write_text(r.stdout)
+        else:
+            print(f"[profile_windows] no old windows.py at {a.old_rev}: {r.stderr.strip()}", flush=True)
     runs = [(be, build_windows, be) for be in a.backends.split(",") if be]
     if a.old:
         spec = importlib.util.spec_from_file_location("windows_old", a.old)
