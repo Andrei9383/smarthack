@@ -244,7 +244,7 @@ function ActionLane({
                               onPick(group);
                             }}
                             className={cn(
-                              "grid w-full grid-cols-[38px_10px_1fr] items-start gap-x-2 px-3 py-1.5 text-left text-xs leading-snug transition-colors duration-150 hover:bg-sidebar focus-visible:bg-sidebar focus-visible:outline-none",
+                              "grid w-full grid-cols-[38px_10px_1fr] items-start gap-x-2 px-3 py-1.5 text-left text-xs leading-snug transition-colors duration-150 hover:bg-surface-raised focus-visible:bg-sidebar focus-visible:outline-none",
                               group.step > step && "text-text-secondary",
                             )}
                           >
@@ -357,7 +357,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
     <div
       data-tour="timeline"
       className={cn(
-        "flex items-center gap-2.5 rounded-xl bg-card/95 px-3 shadow-floating backdrop-blur-sm min-[1440px]:gap-4 min-[1440px]:px-4",
+        "flex items-center gap-2.5 rounded-xl bg-card px-3 shadow-floating min-[1440px]:gap-4 min-[1440px]:px-4",
         compact ? "py-2" : "pt-2.5 pb-2",
         className,
       )}
@@ -491,7 +491,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
           <span
             aria-hidden
             className={cn(
-              "absolute top-0.5 -ml-2 size-4 rounded-full border-2 border-primary bg-card shadow-[0_1px_3px_rgb(13_13_13/0.18)] transition-transform duration-150 group-hover:scale-110 motion-reduce:transition-none",
+              "absolute top-0.5 -ml-2 size-4 rounded-full border-2 border-primary bg-card shadow-floating transition-transform duration-150 group-hover:scale-110 motion-reduce:transition-none",
               dragging && "scale-110",
             )}
             style={{ left: pct(step) }}

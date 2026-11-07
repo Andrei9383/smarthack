@@ -337,7 +337,7 @@ function Results({ onClose, onTour }: { onClose: () => void; onTour: () => void 
                     onClick={item.run}
                     className={cn(
                       "flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-[background-color,box-shadow] duration-100",
-                      isActive ? "bg-sidebar shadow-raised" : "text-foreground",
+                      isActive ? "bg-surface-raised shadow-raised" : "text-foreground",
                     )}
                   >
                     <span
@@ -362,7 +362,7 @@ function Results({ onClose, onTour }: { onClose: () => void; onTour: () => void 
           ))
         )}
       </div>
-      <div className="flex items-center gap-4 border-t border-border bg-sidebar px-4 py-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-4 border-t border-border bg-surface-raised px-4 py-2 text-[11px] text-muted-foreground">
         <span>
           <kbd className="font-mono">↑↓</kbd> move
         </span>

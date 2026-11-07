@@ -20,7 +20,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 // sheets trap focus. Both lift with shadow-overlay and fade/scale in from their trigger.
 
 /** 11px uppercase section label (ui-style §4). */
-export const LABEL = "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
+export const LABEL = "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
 
 /** Click (or Enter/Space) opens; Esc, outside click or the trigger again closes. */
 export function Pop({
@@ -50,7 +50,7 @@ export function Pop({
       <PopoverTrigger
         aria-label={triggerLabel}
         className={cn(
-          "cursor-pointer rounded-md text-left transition-[background-color,box-shadow,color] duration-150 outline-none hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-sidebar",
+          "cursor-pointer rounded-md text-left transition-[background-color,box-shadow,color] duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-surface-raised",
           triggerClassName,
         )}
       >
@@ -140,7 +140,7 @@ export function RowButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "group/row -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-left text-[13px] text-foreground transition-colors duration-150 outline-none hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring",
+        "group/row -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-left text-[13px] text-foreground transition-colors duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
     >
@@ -258,7 +258,7 @@ export function Fold({
 }) {
   return (
     <details open={defaultOpen} className="group/fold border-t border-border">
-      <summary className="-mx-2 flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-3 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-sidebar focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+      <summary className="-mx-2 flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-3 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
         <ChevronRight aria-hidden className="size-4 text-muted-foreground transition-transform duration-150 group-open/fold:rotate-90" />
         <span className="min-w-0 flex-1">{title}</span>
         {aside ? <span className="shrink-0 text-xs font-normal text-text-secondary tabular-nums">{aside}</span> : null}

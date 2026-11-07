@@ -17,6 +17,7 @@ import { TimelineDock } from "@/components/shell/timeline-dock";
 import { TopBar } from "@/components/shell/top-bar";
 import { SummaryCard } from "@/demo/summary-card";
 import { useBasemapStyles, useRomaniaFocus } from "@/demo/use-basemap";
+import { useMapTheme } from "@/lib/palette";
 import { TurbineSheet } from "@/modes/om/turbine-sheet";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 import { FlexDock, useFlexOpen } from "@/panels/flex/flex-panel";
@@ -30,7 +31,7 @@ const RAIL_KEY = "sentinel.rail";
 const OWN_LEGEND = new Set<ModeId>(["feeders", "demand"]);
 // Written out in full: Tailwind only generates classes it can read literally in the source.
 const MOVE_MODE_LEGEND =
-  "[&_.maplibregl-map>div.pointer-events-none.bg-card]:top-[80px] [&_.maplibregl-map>div.pointer-events-none.bg-card]:left-4 [&_.maplibregl-map>div.pointer-events-none.bg-card]:bottom-auto [&_.maplibregl-map>div.pointer-events-none.bg-card]:rounded-xl [&_.maplibregl-map>div.pointer-events-none.bg-card]:bg-card/95";
+  "[&_.maplibregl-map>div.pointer-events-none.bg-card]:top-[80px] [&_.maplibregl-map>div.pointer-events-none.bg-card]:left-4 [&_.maplibregl-map>div.pointer-events-none.bg-card]:bottom-auto [&_.maplibregl-map>div.pointer-events-none.bg-card]:rounded-xl [&_.maplibregl-map>div.pointer-events-none.bg-card]:bg-card";
 const HIDE_MODE_LEGEND = "[&_.maplibregl-map>div.pointer-events-none.bg-card]:hidden";
 
 // Inspector width and the gap the map-side surfaces (dock, map controls) keep from it.
@@ -65,7 +66,7 @@ function useRailExpanded() {
     } catch {
       // Private mode or blocked storage: fall back to the width rule.
     }
-    setExpanded(stored ? stored === "expanded" : window.matchMedia("(min-width: 1280px)").matches);
+    setExpanded(stored ? stored === "expanded" : window.matchMedia("(min-width: 768px)").matches);
   }, []);
   const toggle = useCallback(() => {
     setExpanded((value) => {
@@ -85,6 +86,7 @@ export function AppShell() {
   const active = MODES[mode];
   const { Layers, Panel, Page } = active;
   const { offline, styles } = useBasemapStyles();
+  const mapTheme = useMapTheme();
   const [railExpanded, toggleRail] = useRailExpanded();
   const [flexOpen] = useFlexOpen();
   const hasFlex = mode === "feeders" || mode === "om";
@@ -93,7 +95,7 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   return (
-    <div className="flex h-svh w-full overflow-hidden bg-muted text-foreground">
+    <div className="flex h-svh w-full overflow-hidden bg-sidebar text-foreground">
       <Rail
         mode={mode}
         onMode={(id) => setMode(id)}
@@ -104,8 +106,8 @@ export function AppShell() {
 
       <main
         className={cn(
-          // Inset layer: the content sits on the rail's surface as a rounded card, like shadcn's inset sidebar.
-          "relative my-2 mr-2 min-w-0 flex-1 overflow-hidden rounded-2xl bg-sidebar shadow-raised",
+          // Inset layer: the content sits on the frame (--sidebar) as a bordered panel, one level up.
+          "relative my-2 mr-2 min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-background",
           flexShown ? HIDE_MODE_LEGEND : MOVE_MODE_LEGEND,
         )}
       >
@@ -124,11 +126,11 @@ export function AppShell() {
           <>
             {/* The tour's "map" target: the free map area between the floating surfaces. */}
             <div data-tour="map" aria-hidden className="pointer-events-none absolute top-[76px] bottom-[116px] left-[208px] right-[384px] min-[1440px]:right-[424px]" />
-            {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
+            {/* Remount on a basemap or theme switch so mode layers are re-added with the new colours. */}
             <Map
-              key={offline ? "offline" : "online"}
+              key={`${offline ? "offline" : "online"}-${mapTheme}`}
               styles={styles}
-              theme="light"
+              theme={mapTheme}
               center={ROMANIA_CENTER}
               zoom={5.8}
               minZoom={4}

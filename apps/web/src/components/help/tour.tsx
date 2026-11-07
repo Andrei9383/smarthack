@@ -332,7 +332,7 @@ export function Tour({
             <button
               type="button"
               onClick={back}
-              className="h-9 rounded-lg border border-border bg-background px-3.5 text-[13px] font-medium transition-colors duration-150 hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+              className="h-9 rounded-lg border border-border bg-background px-3.5 text-[13px] font-medium transition-colors duration-150 hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
             >
               Back
             </button>

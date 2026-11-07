@@ -81,13 +81,13 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
                   <PopoverTitle className="text-[13px] font-semibold">{copy.heading}</PopoverTitle>
                   <dl className="mt-2 space-y-2.5 text-[13px] leading-snug">
                     <div>
-                      <dt className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+                      <dt className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
                         The agent now
                       </dt>
                       <dd className="mt-0.5 text-text-secondary">{copy.doing}</dd>
                     </div>
                     <div>
-                      <dt className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+                      <dt className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
                         Look at
                       </dt>
                       <dd className="mt-0.5 text-text-secondary">{copy.look}</dd>
@@ -101,7 +101,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
 
         {/* #114: the agent loop for this mode, one click away so the live content stays on top. */}
         <details className="group/how border-b border-border">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-sidebar focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               className="size-4 text-muted-foreground transition-transform duration-150 group-open/how:rotate-90"

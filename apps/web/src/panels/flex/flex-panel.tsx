@@ -55,7 +55,7 @@ const SERIES = [
   },
 ] as const;
 const SECTION_LABEL =
-  "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
+  "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
 // Room for the y-axis labels on the left and the 24:00 tick on the right.
 const CHART_MARGIN = { left: 40, right: 18, top: 10, bottom: 26 };
 /** KPI 3 in team/plan.md: realised ≥ committed (P10) on ≥ 90% of feeder-steps. */

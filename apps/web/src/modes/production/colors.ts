@@ -1,25 +1,31 @@
 // Raw colour values for code that can't read CSS variables (deck.gl particle ramps, MapLibre paint).
-// These mirror the brand tokens in team/contracts/ui-style.md (§2 brand green, §3 particles) and
-// packages/ui/src/styles/globals.css. Keep them in sync with the spec; components use the Tailwind tokens.
+// The RGB source is apps/web/src/lib/palette.ts (team/contracts/ui-style.md §3 particles).
+import { onPaletteTheme, type Rgb, rgbaArray, type Rgba } from "@/lib/palette";
 
-type Rgba = [number, number, number, number];
-
-const BRAND_400 = "#6CD9A0"; // --chart-4
-const BRAND_500 = "#12B76A"; // --brand-500
-const BRAND_700 = "#0B7F48"; // --brand-700
-
-// Spec §3: production wind particles are brand-700 at 60% on the light basemap.
+// Spec §3: production wind particles are brand green at 60%, light → strong by wind speed. The slow end is a
+// mid green, not the palest tint, so it never vanishes into the land colour.
 const PARTICLE_ALPHA = 0.6;
+const RAMPS: Record<"light" | "dark", readonly [Rgb, Rgb, Rgb]> = {
+  light: [
+    [108, 217, 160], // --chart-4 (light)
+    [18, 183, 106], // --brand-500 (light)
+    [11, 127, 72], // --primary (light)
+  ],
+  // On the dark basemap the strong end is the brightest, so faster wind still reads as "more".
+  dark: [
+    [26, 127, 82], // --chart-4 (dark)
+    [47, 191, 122], // --brand-500 (dark)
+    [167, 243, 201], // --brand-900 (dark)
+  ],
+};
 
-function rgba(hex: string, alpha = 1): Rgba {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return [(value >> 16) & 255, (value >> 8) & 255, value & 255, Math.round(alpha * 255)];
-}
-
-// Light → strong green by wind speed. The slow end starts at chart-4, not brand-100, because
-// brand-100 vanishes against the #F7F8FA land.
-export const PARTICLE_COLOR_RAMP: [number, Rgba][] = [
-  [0, rgba(BRAND_400, PARTICLE_ALPHA)],
-  [0.5, rgba(BRAND_500, PARTICLE_ALPHA)],
-  [1, rgba(BRAND_700, PARTICLE_ALPHA)],
-];
+/** Theme-dependent; read when the particle layer is (re)built, and the map remounts on a theme change. */
+export let PARTICLE_COLOR_RAMP: [number, Rgba][] = [];
+onPaletteTheme((_palette, theme) => {
+  const [slow, mid, fast] = RAMPS[theme];
+  PARTICLE_COLOR_RAMP = [
+    [0, rgbaArray(slow, PARTICLE_ALPHA)],
+    [0.5, rgbaArray(mid, PARTICLE_ALPHA)],
+    [1, rgbaArray(fast, PARTICLE_ALPHA)],
+  ];
+});

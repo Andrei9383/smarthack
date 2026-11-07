@@ -6,66 +6,75 @@
 
 @custom-variant dark (&:is(.dark *));
 
-:root {
-  /* Surfaces and text: team/contracts/ui-style.md (light only) */
-  --background: #ffffff;
-  --foreground: #0d0d0d;
-  --card: #ffffff;
-  --card-foreground: #0d0d0d;
-  --popover: #ffffff;
-  --popover-foreground: #0d0d0d;
-  --primary: var(--brand-600);
-  --primary-foreground: #ffffff;
-  --secondary: #f2f3f5;
-  --secondary-foreground: #0d0d0d;
-  --muted: #f2f3f5;
-  --muted-foreground: #8a929c;
-  --accent: #f2f3f5;
-  --accent-foreground: #0d0d0d;
-  --destructive: var(--status-critical);
-  --border: #e6e8eb;
-  --input: #e6e8eb;
-  --ring: var(--brand-600);
-  --text-secondary: #4b5563;
-  --shadow-card: 0 1px 2px rgb(13 13 13 / 0.04), 0 8px 24px rgb(13 13 13 / 0.06);
-  /* Elevation (ui-style.md §5.1): a 1px contact ring + a tight key shadow + a soft ambient one.
-     raised = chips, rows on hover; floating = inspector, dock, top bar, legend; overlay = popovers,
-     dialogs, toasts. inset-hi = top highlight on raised surfaces and buttons. brand = primary CTA. */
-  --shadow-raised: 0 0 0 1px rgb(13 13 13 / 0.05), 0 1px 2px rgb(13 13 13 / 0.06), 0 2px 6px -2px rgb(13 13 13 / 0.06);
-  --shadow-floating: 0 0 0 1px rgb(13 13 13 / 0.05), 0 2px 4px -1px rgb(13 13 13 / 0.06), 0 12px 28px -6px rgb(13 13 13 / 0.12);
-  --shadow-overlay: 0 0 0 1px rgb(13 13 13 / 0.06), 0 8px 16px -4px rgb(13 13 13 / 0.1), 0 28px 56px -12px rgb(13 13 13 / 0.22);
-  --shadow-inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 rgb(13 13 13 / 0.04);
-  --shadow-brand: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(6 78 45 / 0.25), 0 8px 18px -6px rgb(14 159 90 / 0.55);
-  --radius: 0.75rem;
+/* Cockpit style (team/contracts/ui-style.md, source team/design/ui-prompt.md).
+   Two themes with the same roles: `.dark` (Cockpit, the default) and `:root` (light).
+   Hex values live here, in apps/web/src/lib/palette.ts and the per-mode colors.ts modules only. */
 
-  /* Brand */
+:root {
+  color-scheme: light;
+
+  /* Surfaces and text */
+  --background: #f4f6f8;
+  --foreground: #0d141c;
+  --card: #ffffff;
+  --card-foreground: var(--foreground);
+  --popover: #ffffff;
+  --popover-foreground: var(--foreground);
+  --surface-raised: #eef1f4;
+  --primary: #0b7f48;
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-raised);
+  --secondary-foreground: var(--foreground);
+  --muted: var(--surface-raised);
+  --muted-foreground: #5f6e7c;
+  --accent: var(--surface-raised);
+  --accent-foreground: var(--foreground);
+  --destructive: var(--status-critical);
+  --border: #d5dce3;
+  --border-strong: #b4c0cc;
+  --input: #d5dce3;
+  --ring: #0e7490;
+  --text-secondary: #3d4b59;
+
+  /* Depth: borders separate levels. In-flow panels get a 1px ring only; surfaces that float over the
+     map (top bar, inspector, dock, legend) use floating, popovers/dialogs/toasts use overlay. */
+  --shadow-card: 0 0 0 1px var(--border);
+  --shadow-raised: 0 0 0 1px var(--border);
+  --shadow-floating: 0 0 0 1px var(--border), 0 2px 4px -1px rgb(13 20 28 / 0.06), 0 10px 24px -8px rgb(13 20 28 / 0.14);
+  --shadow-overlay: 0 0 0 1px var(--border-strong), 0 8px 16px -4px rgb(13 20 28 / 0.1), 0 24px 48px -12px rgb(13 20 28 / 0.22);
+  --shadow-inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.6);
+  --shadow-brand: inset 0 1px 0 rgb(255 255 255 / 0.16);
+  --radius: 0.375rem;
+  --motion-fast: 150ms;
+
+  /* Brand (emerald action colour) */
   --brand-50: #ecfbf2;
   --brand-100: #d1f5e0;
   --brand-500: #12b76a;
-  --brand-600: #0e9f5a;
-  --brand-700: #0b7f48;
+  --brand-600: var(--primary);
+  --brand-700: #096b3c;
   --brand-900: #064e2d;
   --live: #00dc55;
 
-  /* Status */
-  --status-ok: #0e9f5a;
-  --status-warn: #d97706;
-  --status-critical: #e5484d;
-  --status-forecast: #0284c7;
-  --status-soc: #6366f1;
-  --status-review: #8b5cf6;
-  --status-unknown: #94a3b8;
-  --status-actual: #0d0d0d;
+  /* Status: text on the page and on cards, and `bg-status-x/12` tags */
+  --status-ok: var(--primary);
+  --status-warn: #b45309;
+  --status-critical: #c9353b;
+  --status-forecast: #0369a1;
+  --status-soc: #4f46e5;
+  --status-review: #7c3aed;
+  --status-unknown: #64748b;
+  --status-actual: var(--foreground);
 
-  /* Sidebar */
-  --sidebar: #f7f8fa;
-  --sidebar-foreground: #0d0d0d;
-  --sidebar-primary: var(--brand-600);
-  --sidebar-primary-foreground: #ffffff;
+  /* Frame and rail */
+  --sidebar: #ebeef2;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: var(--brand-50);
   --sidebar-accent-foreground: var(--brand-900);
-  --sidebar-border: #e6e8eb;
-  --sidebar-ring: var(--brand-600);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
 
   /* Charts */
   --chart-1: #0b7f48;
@@ -73,40 +82,92 @@
   --chart-3: #12b76a;
   --chart-4: #6cd9a0;
   --chart-5: #b7efcf;
+  --chart-grid: #e3e8ed;
+  --chart-band: color-mix(in oklab, var(--status-forecast) 14%, transparent);
+
+  /* Chart roles shared by both themes (they resolve against the theme above) */
+  --chart-crosshair: color-mix(in oklab, var(--foreground) 40%, transparent);
+  --chart-baseline: color-mix(in oklab, var(--foreground) 55%, transparent);
   --chart-positive: var(--status-ok);
   --chart-negative: var(--status-critical);
-  --chart-background: #ffffff;
-  --chart-foreground: #0d0d0d;
-  --chart-foreground-muted: #8a929c;
-  --chart-line-primary: var(--chart-2);
+  --chart-background: var(--card);
+  --chart-foreground: var(--foreground);
+  --chart-foreground-muted: var(--muted-foreground);
+  --chart-line-primary: var(--primary);
   --chart-line-secondary: var(--chart-4);
-  --chart-crosshair: rgb(13 13 13 / 0.4);
-  --chart-grid: #eef0f2;
   --chart-brush-border: var(--chart-grid);
   --chart-tooltip-background: var(--popover);
   --chart-tooltip-foreground: var(--popover-foreground);
   --chart-tooltip-muted: var(--muted-foreground);
-  --chart-marker-background: #f2f3f5;
-  --chart-marker-border: #e6e8eb;
-  --chart-marker-foreground: #4b5563;
-  --chart-label: #8a929c;
-  --chart-scale-mix: #ffffff;
-  --chart-scale-01: #e6e8eb;
+  --chart-marker-background: var(--surface-raised);
+  --chart-marker-border: var(--border);
+  --chart-marker-foreground: var(--text-secondary);
+  --chart-label: var(--muted-foreground);
+  --chart-scale-mix: var(--card);
+  --chart-scale-01: var(--border);
   --chart-scale-02: color-mix(in oklab, var(--chart-1) 35%, var(--chart-scale-mix));
   --chart-scale-03: color-mix(in oklab, var(--chart-1) 55%, var(--chart-scale-mix));
   --chart-scale-04: color-mix(in oklab, var(--chart-1) 78%, var(--chart-scale-mix));
   --chart-scale-05: var(--chart-1);
-  --chart-scale-pattern-color: #ffffff;
-  --chart-indicator-color: #0d0d0d;
-  --chart-indicator-secondary-color: #e6e8eb;
-  --chart-marker-badge-background: #0d0d0d;
-  --chart-marker-badge-foreground: #ffffff;
-  --chart-segment-background: rgb(13 13 13 / 0.04);
-  --chart-segment-line: rgb(13 13 13 / 0.2);
+  --chart-scale-pattern-color: var(--card);
+  --chart-indicator-color: var(--foreground);
+  --chart-indicator-secondary-color: var(--border);
+  --chart-marker-badge-background: var(--foreground);
+  --chart-marker-badge-foreground: var(--background);
+  --chart-segment-background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  --chart-segment-line: color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: #101720;
+  --foreground: #edf3f7;
+  --card: #182330;
+  --popover: #182330;
+  --surface-raised: #203041;
+  --primary: #3dd68c;
+  --primary-foreground: #101720;
+  --muted-foreground: #a6b7c5;
+  --border: #2b3a49;
+  --border-strong: #3d5166;
+  --input: #2b3a49;
+  --ring: #a6eaf2;
+  --text-secondary: #c3d0db;
+
+  --shadow-floating: 0 0 0 1px var(--border), 0 2px 4px -1px rgb(0 0 0 / 0.4), 0 12px 28px -8px rgb(0 0 0 / 0.55);
+  --shadow-overlay: 0 0 0 1px var(--border-strong), 0 8px 16px -4px rgb(0 0 0 / 0.45), 0 24px 48px -12px rgb(0 0 0 / 0.65);
+  --shadow-inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  --shadow-brand: inset 0 1px 0 rgb(255 255 255 / 0.2);
+
+  --brand-50: #15352a;
+  --brand-100: #1c4535;
+  --brand-500: #2fbf7a;
+  --brand-700: #6ee0a8;
+  --brand-900: #a7f3c9;
+
+  --status-warn: #f3c56a;
+  --status-critical: #ee8a91;
+  --status-forecast: #69d4e4;
+  --status-soc: #a5b4fc;
+  --status-review: #c4b5fd;
+  --status-unknown: #8796a6;
+
+  --sidebar: #0d1117;
+
+  --chart-1: #3dd68c;
+  --chart-2: #2fbf7a;
+  --chart-3: #22a066;
+  --chart-4: #1a7f52;
+  --chart-5: #145f3f;
+  --chart-grid: #1f2c3a;
+  --chart-band: color-mix(in oklab, var(--status-forecast) 22%, transparent);
 }
 
 @theme inline {
-  --font-sans: "Inter Variable", sans-serif;
+  --font-sans: "IBM Plex Sans Variable", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --default-transition-duration: var(--motion-fast);
   --shadow-card: var(--shadow-card);
   --shadow-raised: var(--shadow-raised);
   --shadow-floating: var(--shadow-floating);
@@ -114,6 +175,8 @@
   --shadow-inset-hi: var(--shadow-inset-hi);
   --shadow-brand: var(--shadow-brand);
   --color-text-secondary: var(--text-secondary);
+  --color-surface-raised: var(--surface-raised);
+  --color-border-strong: var(--border-strong);
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
   --color-brand-500: var(--brand-500);
@@ -142,6 +205,8 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  --color-chart-band: var(--chart-band);
+  --color-chart-baseline: var(--chart-baseline);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -160,13 +225,15 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) - 4px);
+  /* 6px panels and cards, 4px controls and status tags. The larger steps are compressed so the existing
+     rounded-xl / rounded-2xl panels land on the Cockpit radius without touching every component. */
+  --radius-sm: calc(var(--radius) - 2px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
+  --radius-xl: var(--radius);
+  --radius-2xl: calc(var(--radius) + 2px);
+  --radius-3xl: calc(var(--radius) + 4px);
+  --radius-4xl: calc(var(--radius) + 6px);
   --color-chart-line-primary: var(--chart-line-primary);
   --color-chart-line-secondary: var(--chart-line-secondary);
   --color-chart-brush-border: var(--chart-brush-border);
@@ -184,24 +251,14 @@
   --color-chart-indicator-secondary-color: var(--chart-indicator-secondary-color);
   --color-chart-indicator-color: var(--chart-indicator-color);
   --color-chart-scale-pattern-color: var(--chart-scale-pattern-color);
-  --chart-scale-05: var(--chart-scale-05);
-  --chart-scale-04: var(--chart-scale-04);
-  --chart-scale-03: var(--chart-scale-03);
-  --chart-scale-02: var(--chart-scale-02);
   --color-chart-scale-01: var(--chart-scale-01);
   --color-chart-scale-mix: var(--chart-scale-mix);
   --color-chart-label: var(--chart-label);
   --color-chart-marker-foreground: var(--chart-marker-foreground);
   --color-chart-marker-border: var(--chart-marker-border);
   --color-chart-marker-background: var(--chart-marker-background);
-  --chart-tooltip-muted: var(--chart-tooltip-muted);
-  --chart-tooltip-foreground: var(--chart-tooltip-foreground);
-  --chart-tooltip-background: var(--chart-tooltip-background);
-  --chart-brush-border: var(--chart-brush-border);
   --color-chart-grid: var(--chart-grid);
   --color-chart-crosshair: var(--chart-crosshair);
-  --chart-line-secondary: var(--chart-line-secondary);
-  --chart-line-primary: var(--chart-line-primary);
   --color-chart-foreground-muted: var(--chart-foreground-muted);
   --color-chart-foreground: var(--chart-foreground);
   --color-chart-background: var(--chart-background);
@@ -209,15 +266,43 @@
   --color-chart-positive: var(--chart-positive);
 }
 
+/* State changes use --motion-fast (150 ms): `duration-fast`. */
+@utility duration-fast {
+  transition-duration: var(--motion-fast);
+}
+
+/* Section label: 11px / 600, uppercase, tracking .06em, muted. */
+@utility section-label {
+  font-size: 11px;
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply font-sans bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+  }
+  body {
+    @apply font-sans bg-background text-foreground;
+    font-size: 14px;
+    line-height: 1.5;
+    /* Numbers sit in columns everywhere (Cockpit: tabular digits). */
+    font-variant-numeric: tabular-nums;
+  }
+  code,
+  kbd,
+  samp,
+  pre {
+    @apply font-mono;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 30%, transparent);
   }
   .maplibregl-popup-content {
     @apply bg-transparent! shadow-none! p-0! rounded-none!;
@@ -226,7 +311,7 @@
     @apply hidden!;
   }
   .maplibregl-ctrl-attrib {
-    @apply bg-background! text-muted-foreground! border-border! rounded-md! border! shadow-sm!;
+    @apply bg-card! text-muted-foreground! border-border! rounded-sm! border! shadow-none!;
   }
   .maplibregl-ctrl-attrib a {
     @apply text-muted-foreground!;
@@ -238,6 +323,13 @@
     @apply bg-transparent! dark:invert;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 /* Status-mark halo (components/brand/status-mark.tsx) and shader-banner fade-in. */
 @keyframes status-halo {
   0% { transform: scale(0.6); opacity: 0.35; }
