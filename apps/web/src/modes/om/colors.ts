@@ -16,8 +16,10 @@ export const OM_COLORS = {
   grid: "#EEF0F2",
   /** ring around map markers so they lift off the light basemap */
   ring: "#FFFFFF",
-  /** cluster count text, on a solid status fill */
-  onFill: "#FFFFFF",
+  /** hairline border (--border) around neutral cluster discs */
+  border: "#E6E8EB",
+  /** cluster disc fill (--card) */
+  card: "#FFFFFF",
 } as const;
 
 /** Site / turbine status → colour, same keys as the shared STATUS_COLORS, remapped to the light palette. */
