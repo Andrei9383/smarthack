@@ -31,8 +31,9 @@ def _ts_array(ts: pd.DatetimeIndex, reps: int) -> pa.Array:
 
 
 def _ids(ids: np.ndarray, T: int) -> pa.Array:
+    """Each id repeated T times, as a plain string column (the contract type); Parquet dictionary-encodes it."""
     return pa.DictionaryArray.from_arrays(pa.array(np.repeat(np.arange(len(ids), dtype=np.int32), T)),
-                                          pa.array(list(ids)))
+                                          pa.array(list(ids))).cast(pa.string())
 
 
 def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False, plots: bool = True,
@@ -118,9 +119,11 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
 
 def _write_weather(w, path: Path) -> None:
     T, n = len(w.ts), len(w.locality_ids)
-    cols = {"ts": _ts_array(w.ts, n), "locality_id": _ids(np.array(w.locality_ids), T)}
-    for k in ("ghi", "dni", "dhi", "temp_air", "wind_speed", "snow_depth_cm"):
-        cols[k] = pa.array(w.data[k].ravel())
+    cols = {"ts": _ts_array(w.ts, n), "point_id": _ids(np.array(w.locality_ids), T)}
+    for k, name in (("ghi", "ghi_wm2"), ("dni", "dni_wm2"), ("dhi", "dhi_wm2"), ("temp_air", "temp_c"),
+                    ("wind_speed", "wind10_ms"), ("snow_depth_cm", "snow_cm")):
+        cols[name] = pa.array(w.data[k].ravel())
+    cols["source"] = pa.DictionaryArray.from_arrays(pa.array(np.zeros(T * n, np.int32)), pa.array([w.source]))
     pq.write_table(pa.table(cols), path, **PQ)
 
 
@@ -129,7 +132,7 @@ def _write_telemetry(path: Path, site_ids: np.ndarray, ts: pd.DatetimeIndex, *, 
     T = len(ts)
 
     def r(x, step):  # round to the meter's resolution: smaller files, nothing a model could use is lost
-        return pa.array((np.round(x.ravel() / step) * step).astype(np.float32))
+        return pa.array((np.round(x.ravel() / step) * step).astype(np.float32), from_pandas=True)  # NaN -> null
 
     table = pa.table({
         "ts": _ts_array(ts, len(site_ids)),
@@ -152,7 +155,7 @@ def _year_stats(year, feeders, net, g_w, cal, sites, pv, load) -> pd.DataFrame:
     over_day = np.zeros((len(feeders), n_days), bool)
     np.logical_or.at(over_day.T, day, over.T)
     # A sunny summer day for a feeder: Apr-Sep, its sites' PV >= 70 % of their best day that year.
-    fidx = pd.Index(feeders.feeder_id).get_indexer(sites.true_feeder_id)
+    fidx = pd.Index(feeders.feeder_id).get_indexer(sites.feeder_id)
     onehot = np.zeros((len(feeders), len(sites)), np.float32)
     onehot[fidx, np.arange(len(sites))] = 1
     pv_f = onehot @ pv
