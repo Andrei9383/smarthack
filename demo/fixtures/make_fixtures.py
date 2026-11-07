@@ -15,12 +15,13 @@ Determinism: one fixed seed, so the same fixtures come out on every machine and 
 golden-path screenshots stay stable.
 
     python3 demo/fixtures/make_fixtures.py            # -> demo/fixtures.sqlite
-    python3 demo/fixtures/make_fixtures.py --ts-unit ms --out /tmp/f.sqlite
+    python3 demo/fixtures/make_fixtures.py --schema path/to/migration.sql --out /tmp/f.sqlite
 
-OPEN CONTRACT QUESTION (note [62] on #38): the generated schema has `ts` as INTEGER with no
-documented unit, while team/contracts/app.md says TEXT ISO-8601. Everything here goes through
-`Clock` below, so switching costs one flag, not a rewrite. Default is unix SECONDS, which is
-what #38's migration already generates and what I recommended on the card.
+Columns follow team/contracts/app.md section 2 (#38 @ d362a39): every `ts` is TEXT ISO-8601 UTC
+('2025-06-02T00:00:00Z'), `day`/`date` are 'YYYY-MM-DD', and there is no `step` column.
+
+The database is NOT committed: at full fidelity it is ~100+ MB (over GitHub's 100 MB limit and
+R18's 50 MB). Whatever needs it (the preview, a UI dev) runs this script; it takes ~5 s.
 """
 
 from __future__ import annotations
@@ -106,9 +107,8 @@ V_FLEX_LEI_PER_MWH = 180.0              # value of a committed MWh of flexibilit
 class Clock:
     """The one place that knows how a timestamp is stored.
 
-    #38's migration says `ts` INTEGER (unit undocumented); team/contracts/app.md says TEXT
-    ISO-8601. Raised as a blocker in note [62] on #38. Until it is pinned, every write goes
-    through here so the answer is a flag.
+    #38 pinned TEXT ISO-8601 UTC (note [74]). `s`/`ms` stay only for experiments against
+    older schemas; the default and the contract are `iso`.
     """
 
     def __init__(self, unit: str) -> None:
@@ -123,9 +123,10 @@ class Clock:
             return int(dt.timestamp() * 1000)
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    def day_key(self, day_idx: int):
-        """`work_orders.day` / `reports.day` — same representation as ts, at 00:00 UTC."""
-        return self(WEEK_START + timedelta(days=day_idx))
+    @staticmethod
+    def day_key(day_idx: int) -> str:
+        """`work_orders.day` / `reports.date`: 'YYYY-MM-DD' (app.md 2.5)."""
+        return (WEEK_START + timedelta(days=day_idx)).strftime("%Y-%m-%d")
 
 
 def step_times():
@@ -214,7 +215,7 @@ def build_fleet(rng: random.Random):
             "tilt": round(rng.choice([15.0, 25.0, 30.0, 35.0]), 1),
             "azimuth": round(rng.uniform(150.0, 210.0), 1),
             "phase": rng.choice(["L1", "L2", "L3"]),
-            "gis_trust": "low" if rng.random() < 0.12 else "high",
+            "gis_trust": "low" if rng.random() < 0.12 else "ok",
             "load_scale": rng.uniform(0.55, 1.45),
             "pv_scale": rng.uniform(0.92, 1.08),
         })
@@ -285,7 +286,7 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
 
     def run_policy(policy: str):
         soc_kwh = reserve + 0.25 * max(0.0, cap - reserve)
-        batt, socs = [], []
+        batt, socs, clipped = [], [], []
         for g, _d, sod, _dt in step_times():
             hour = sod * DT_H
             surplus = pv[g] - load[g]
@@ -306,19 +307,21 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
                         # so tomorrow's window starts with the full pack available
                         p = -min(pmax, max(load[g], 0.35 * pmax))
                 # clip to the energy the pack can actually take or give (R4 feasibility clip)
+                wanted = p
                 if p > 0:
                     p = min(p, max(0.0, (cap - soc_kwh)) / DT_H)
                 else:
                     p = -min(-p, max(0.0, (soc_kwh - reserve)) / DT_H)
                 soc_kwh = min(cap, max(reserve, soc_kwh + p * DT_H))
+                clipped.append(1 if abs(wanted - p) > 1e-6 else 0)
+            else:
+                clipped.append(0)
             batt.append(round(p, 4))
             socs.append(round(soc_kwh / cap, 4) if cap else None)
-        return batt, socs
+        return batt, socs, clipped
 
-    b_batt, b_soc = run_policy("baseline")
-    s_batt, s_soc = run_policy("sentinel")
-    return {"pv": pv, "load": load, "baseline": (b_batt, b_soc), "sentinel": (s_batt, s_soc),
-            "fault_from": fault_from}
+    return {"pv": pv, "load": load, "baseline": run_policy("baseline"),
+            "sentinel": run_policy("sentinel"), "fault_from": fault_from}
 
 
 def fault_window(curves: dict) -> tuple[int, int, int]:
@@ -338,7 +341,8 @@ def turbine_series(turb: dict, curves: dict, rng: random.Random,
     """Power, wind speed and component temperatures for one turbine, for the week."""
     rated, wind, temp = turb["rated_kw"], curves["wind"], curves["temp"]
     scale = turb["wind_scale"]
-    power, spd, gearbox, conv, gen, transf, quality = [], [], [], [], [], [], []
+    power, free, spd, meteo, wdir, err = [], [], [], [], [], []
+    gearbox, conv, gen, transf, quality = [], [], [], [], []
 
     fault_from = fault_g if turb["id"] == FAULT_TURBINE else None
     curtailed = turb["park"] == CURTAILED_PARK
@@ -349,16 +353,22 @@ def turbine_series(turb: dict, curves: dict, rng: random.Random,
         # cubic-ish power curve, flat above rated
         frac = 0.0 if v < 3.5 else min(1.0, ((v - 3.5) / 9.0) ** 3)
         p = rated * frac
-        q = "ok"
+        free.append(round(p, 2))
+        q, code = "ok", None
 
         if curtailed and curt_lo <= g < curt_hi:
             p = min(p, rated * 0.35)                          # whole park capped at one level
         if fault_from is not None and g >= fault_from:
             p = 0.0                                           # high wind, zero power
-            q = "suspect"
+            q, code = "suspect", 312
 
         power.append(round(p, 2))
-        spd.append(round(v * 3.6, 2))                         # wd_spd is km/h (§3.4)
+        meteo.append(round(v * 3.6, 2))                       # wd_spd / meteo are km/h (§3.4)
+        # the anemometer fault on WP02.T07: nacelle reads low from day 3, power tracks meteo
+        nacelle = v * 0.55 if (turb["id"] == "WP02.T07" and g >= 2 * STEPS_PER_DAY) else v
+        spd.append(round(nacelle * 3.6, 2))
+        wdir.append(round((110.0 + 50.0 * math.sin(g / 17.0)) % 360.0, 1))
+        err.append(code)
         amb = temp[g]
         heat = 18.0 * frac
         # the drifting gearbox: a residual that grows a few degrees across the week
@@ -369,7 +379,8 @@ def turbine_series(turb: dict, curves: dict, rng: random.Random,
         transf.append(round(amb + heat * 0.6 + 10.0, 2))
         quality.append(q)
 
-    return {"power": power, "spd": spd, "gearbox": gearbox, "conv": conv, "gen": gen,
+    return {"power": power, "free": free, "spd": spd, "meteo": meteo, "wdir": wdir, "err": err,
+            "gearbox": gearbox, "conv": conv, "gen": gen,
             "transf": transf, "quality": quality, "fault_from": fault_from,
             "curt": (curt_lo, curt_hi) if curtailed else None}
 
@@ -404,38 +415,37 @@ def apply_schema(con: sqlite3.Connection, files: list[str]) -> None:
 
 def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     cur = con.cursor()
-    ins = lambda sql, rows: cur.executemany(sql, rows)
     counts: dict[str, int] = {}
 
-    def record(table: str, rows: list) -> None:
+    def put(table: str, cols: str, rows: list) -> None:
+        n = cols.count(",") + 1
+        cur.executemany(f"INSERT INTO {table} ({cols}) VALUES ({','.join(['?'] * n)})", rows)
         counts[table] = counts.get(table, 0) + len(rows)
 
     curves = build_week_curves(rng)
     homes, turbines, by_feeder = build_fleet(rng)
     home_by_id = {h["id"]: h for h in homes}
-    now = clock(WEEK_START)
+    week_end = WEEK_START + timedelta(days=DAYS)
 
     # ---- runs ------------------------------------------------------------------
-    run_row = (RUN_ID, "fixtures", None, LABEL, "fixtures-no-commit",
-               json.dumps({"note": "no models; hand-written fixtures"}),
-               clock(WEEK_START), clock(WEEK_START + timedelta(days=DAYS)),
-               "Mock replay week for UI development (card #30). Not a result.")
-    ins("INSERT INTO runs (id,kind,policy,label,git_commit,model_versions_json,"
-        "started_at,finished_at,notes) VALUES (?,?,?,?,?,?,?,?,?)", [run_row])
-    record("runs", [run_row])
+    put("runs", "id,kind,policy,label,week_start,git_sha,model_versions_json,created_at,"
+        "finished_at,notes",
+        [(RUN_ID, "fixtures", None, LABEL, clock(WEEK_START), "fixtures-no-commit",
+          json.dumps({"note": "no models; hand-written fixtures"}),
+          clock(WEEK_START), clock(week_end),
+          "Mock replay week for UI development (card #30). Not a result.")])
 
     # ---- topology --------------------------------------------------------------
-    park_rows = [(pid, name, county, loc, lat, lon, n, mw, yr)
-                 for pid, name, county, loc, lat, lon, n, mw, yr in PARKS]
-    ins("INSERT INTO parks (id,name,county,locality,lat,lon,n_turbines,rated_mw,"
-        "commissioned_year) VALUES (?,?,?,?,?,?,?,?,?)", park_rows)
-    record("parks", park_rows)
+    put("parks", "id,name,county,lat,lon,rated_mw,turbine_count",
+        [(pid, name, county, lat, lon, mw, n)
+         for pid, name, county, _loc, lat, lon, n, mw, _yr in PARKS])
 
     # ---- per-site and per-turbine series --------------------------------------
     series = {h["id"]: site_series(h, curves, rng) for h in homes}
     fault_g, curt_lo, curt_hi = fault_window(curves)
     tseries = {t["id"]: turbine_series(t, curves, rng, fault_g, curt_lo, curt_hi)
                for t in turbines}
+    ts_of = [clock(dt) for _g, _d, _s, dt in step_times()]     # one string per step, reused
 
     # ---- feeder aggregation ----------------------------------------------------
     # export is positive when the feeder pushes power up into the grid
@@ -453,8 +463,9 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     # non-eligible sites keep running their own rule and still push onto the feeder (R3)
     rest = {fid: [0.22 * v for v in feeder_curve[fid]["baseline"]] for fid in by_feeder}
 
+    HAIRCUT = 0.15
     feeder_rows, curve_rows, commit_rows = [], [], []
-    for fid, name, substation, county, locality in FEEDERS:
+    for fid, name, _substation, county, locality in FEEDERS:
         base = [feeder_curve[fid]["baseline"][g] + rest[fid][g] for g in range(TOTAL_STEPS)]
         sent = [feeder_curve[fid]["sentinel"][g] + rest[fid][g] for g in range(TOTAL_STEPS)]
         peak_b, peak_s = max(base), max(sent)
@@ -463,21 +474,24 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
             limit = round((peak_b + peak_s) / 2.0, 1)
         else:
             limit = round(max(peak_b, peak_s) * 1.25, 1)
-        sids = by_feeder[fid]
-        pv_kw = sum(home_by_id[s]["kwp"] for s in sids)
-        batt_kwh = sum(home_by_id[s]["batt_kwh"] or 0.0 for s in sids)
-        feeder_rows.append((fid, name, substation, county, locality, limit,
-                            round(limit * 0.88, 1), 0.62 if fid in ("F2", "F10") else 0.95,
-                            "low" if fid in ("F2", "F10") else "high",
-                            len(sids), round(pv_kw, 1), round(batt_kwh, 1)))
+        low_trust = fid in ("F2", "F10")
+        lat0, lon0 = COUNTY_CENTRES[county]
+        geometry = {"type": "LineString",
+                    "coordinates": [[round(lon0 - 0.05, 5), round(lat0 - 0.03, 5)],
+                                    [round(lon0, 5), round(lat0, 5)],
+                                    [round(lon0 + 0.06, 5), round(lat0 + 0.02, 5)]]}
+        feeder_rows.append((fid, name, county, locality, limit, limit, round(limit * 0.88, 1),
+                            0.62 if low_trust else 0.95, "low" if low_trust else "ok",
+                            json.dumps(geometry)))
 
-        for g, day_idx, sod, dt in step_times():
+        for g, day_idx, sod, _dt in step_times():
+            ts = ts_of[g]
             for pol, series_vals in (("baseline", base), ("sentinel", sent)):
                 exp_kw = round(max(0.0, series_vals[g]), 3)
                 imp_kw = round(max(0.0, -series_vals[g]), 3)
                 slack = round(limit - exp_kw, 3)
-                curve_rows.append((RUN_ID, fid, pol, clock(dt), sod, exp_kw, imp_kw,
-                                   limit, slack, 1 if slack < 0 else 0))
+                curve_rows.append((RUN_ID, fid, pol, ts, exp_kw, imp_kw, limit, slack,
+                                   1 if slack < 0 else 0))
             # commitments: the four numbers, never conflated (§3.5)
             nominal = round(max(0.0, base[g] - sent[g]) + 0.6 * limit * 0.25, 3)
             headroom = 0.82
@@ -486,95 +500,99 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                                        or (day_idx == FAULT_DAY and sod >= 48)):
                 headroom = 0.71
             available = round(nominal * headroom, 3)
-            committed = round(available * 0.85, 3)            # (1-h) * Q10
+            committed = round(available * (1 - HAIRCUT), 3)   # (1-h) * Q10
             realised = round(committed * rng.uniform(0.99, 1.14), 3)
-            commit_rows.append((RUN_ID, fid, clock(dt), sod, nominal, available,
-                                committed, realised, 1 if realised >= committed else 0))
+            commit_rows.append((RUN_ID, fid, ts, nominal, available, committed, realised,
+                                HAIRCUT, 1 if realised >= committed else 0))
 
-    ins("INSERT INTO feeders (id,name,substation,county,locality,limit_kw,limit_conservative_kw,"
-        "tau,gis_trust,n_sites,installed_pv_kw,installed_batt_kwh) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", feeder_rows)
-    record("feeders", feeder_rows)
+    put("feeders", "id,name,county,locality,limit_kw,g_max_kw,g_conservative_kw,tau,gis_trust,"
+        "geometry_json", feeder_rows)
 
     # ---- assets ----------------------------------------------------------------
+    # recorded_* is what the registry says, true_* is what is on the roof. For low-trust sites
+    # the registry is wrong (kWp off by a quarter, a flat default tilt, due south), which is
+    # what the grid-twin and #31's site view have to surface.
     asset_rows = []
     for h in homes:
-        asset_rows.append((h["id"], "prosumer", f"Site {h['id']} {h['locality']}", h["lat"],
-                           h["lon"], h["county"], h["locality"], h["feeder"], None,
-                           h["kwp"], 1 if h["batt_kwh"] else 0, h["batt_kwh"], h["batt_kw"],
-                           h["reserve_pct"], h["kwp"], h["tilt"], h["azimuth"], h["phase"],
-                           h["gis_trust"], None, None, None,
+        wrong = h["gis_trust"] == "low"
+        reserve_kwh = (round(h["batt_kwh"] * h["reserve_pct"] / 100.0, 2)
+                       if h["batt_kwh"] else None)
+        asset_rows.append((h["id"], "prosumer", f"Site {h['id']} {h['locality']}", h["county"],
+                           h["locality"], h["lat"], h["lon"], h["feeder"], None, h["phase"],
+                           h["gis_trust"], h["kwp"], 1 if h["batt_kwh"] else 0, h["batt_kwh"],
+                           h["batt_kw"], reserve_kwh,
+                           round(h["kwp"] * 1.25, 1) if wrong else h["kwp"], h["kwp"],
+                           30.0 if wrong else h["tilt"], h["tilt"],
+                           180.0 if wrong else h["azimuth"], h["azimuth"],
+                           None, None, None,
                            json.dumps({"archetype": "ro_detached", "label": LABEL})))
     for t in turbines:
-        asset_rows.append((t["id"], "turbine", t["id"], t["lat"], t["lon"], t["county"],
-                           t["locality"], None, t["park"], t["rated_kw"], 0, None, None, None,
-                           None, None, None, None, "high", t["model"], t["rotor_m"],
-                           t["hub_m"], json.dumps({"label": LABEL})))
-    ins("INSERT INTO assets (id,asset_kind,name,lat,lon,county,locality,feeder_id,park_id,"
-        "rated_kw,has_battery,battery_kwh,battery_kw,comfort_reserve_pct,pv_kwp,tilt_deg,"
-        "azimuth_deg,gis_phase,gis_trust,turbine_model,rotor_diameter_m,hub_height_m,"
-        "metadata_json) VALUES (" + ",".join(["?"] * 23) + ")", asset_rows)
-    record("assets", asset_rows)
+        asset_rows.append((t["id"], "turbine", t["id"], t["county"], t["locality"], t["lat"],
+                           t["lon"], None, t["park"], None, "ok", t["rated_kw"], 0, None, None,
+                           None, None, None, None, None, None, None,
+                           t["model"], t["hub_m"], t["rotor_m"], json.dumps({"label": LABEL})))
+    put("assets", "id,asset_kind,name,county,locality,lat,lon,feeder_id,park_id,gis_phase,"
+        "gis_trust,rated_kw,has_battery,battery_kwh,battery_kw,comfort_reserve_kwh,recorded_kwp,"
+        "true_kwp,recorded_tilt_deg,true_tilt_deg,recorded_azimuth_deg,true_azimuth_deg,"
+        "turbine_model,hub_height_m,rotor_diameter_m,metadata_json", asset_rows)
 
-    ins("INSERT INTO feeder_curves (run_id,feeder_id,policy,ts,step,export_kw,import_kw,"
-        "limit_kw,slack_kw,is_violation) VALUES (?,?,?,?,?,?,?,?,?,?)", curve_rows)
-    record("feeder_curves", curve_rows)
-    ins("INSERT INTO commitments (run_id,feeder_id,ts,step,nominal_kw,available_kw,"
-        "committed_kw,realised_kw,hit_p10) VALUES (?,?,?,?,?,?,?,?,?)", commit_rows)
-    record("commitments", commit_rows)
+    put("feeder_curves", "run_id,feeder_id,policy,ts,export_kw,import_kw,limit_kw,slack_kw,"
+        "is_violation", curve_rows)
+    put("commitments", "run_id,feeder_id,ts,nominal_kw,available_kw,committed_kw,realised_kw,"
+        "haircut_h,hit", commit_rows)
 
-    # ---- measurements, predictions, statuses, schedules ------------------------
-    meas, preds, stats, sched = [], [], [], []
+    # ---- measurements, predictions, asset_steps, statuses, schedules ----------
+    # predictions are day-ahead: t0 is midnight UTC of the day, horizon_idx the step within it
+    meas, preds, steps, stats, sched = [], [], [], [], []
     for h in homes:
         sid = h["id"]
         s = series[sid]
         pv, load = s["pv"], s["load"]
         fault_from = s["fault_from"]
-        for g, day_idx, sod, dt in step_times():
-            ts = clock(dt)
-            b_batt, b_soc = s["baseline"][0][g], s["baseline"][1][g]
-            s_batt, s_soc = s["sentinel"][0][g], s["sentinel"][1][g]
-            meas.append((RUN_ID, sid, ts, sod, pv[g], load[g], s_batt, s_soc,
+        s_batt, s_soc, s_clip = s["sentinel"]
+        reserve_kwh = (round(h["batt_kwh"] * h["reserve_pct"] / 100.0, 2)
+                       if h["batt_kwh"] else None)
+        for g, day_idx, sod, _dt in step_times():
+            ts, t0 = ts_of[g], ts_of[day_idx * STEPS_PER_DAY]
+            meas.append((RUN_ID, sid, ts, pv[g], load[g], s_batt[g], s_soc[g],
                          round(231.0 + 4.0 * math.sin(g / 9.0), 2), "ok",
-                         None, None, round(curves["temp"][g], 2), None, None, None, None,
-                         "ok"))
+                         None, None, None, None, round(curves["temp"][g], 2),
+                         None, None, None, None, None, "ok"))
             # the forecast does NOT know about the string failure: that divergence is the story
             expected = pv[g] / 0.58 if (fault_from is not None and g >= fault_from) else pv[g]
             spread = 0.08 + 0.10 * curves["clear"][g]
-            preds.append((RUN_ID, sid, "M1", "pvnet@fixtures", ts, sod,
-                          round(expected * (1 - spread), 4), round(expected, 4),
-                          round(expected * (1 + spread), 4),
+            q10, q50, q90 = (round(expected * (1 - spread), 4), round(expected, 4),
+                             round(expected * (1 + spread), 4))
+            preds.append((RUN_ID, sid, "M1", "pvnet@fixtures", t0, ts, sod, q10, q50, q90,
                           None, None, round(rng.uniform(0.01, 0.18), 4),
-                          round(expected * spread * 0.4, 4), now))
+                          round(expected * spread * 0.4, 4), 0))
+            steps.append((RUN_ID, sid, ts, pv[g], q10, q50, q90))
             # status: derated after the failure, OOD site in review, everyone else eligible
+            age = 60.0
             if sid == HERO_SITE and fault_from is not None and g >= fault_from:
                 st, hf, reason = "derated", 0.58, "pv_fault"
             elif sid == OOD_SITE and day_idx >= 2:
                 st, hf, reason = "human_review", 0.0, "ood"
             elif h["gis_trust"] == "low" and sod < 4:
-                st, hf, reason = "excluded", 0.0, "stale_telemetry"
+                st, hf, reason, age = "excluded", 0.0, "stale_telemetry", 5400.0
             else:
                 st, hf, reason = "eligible", 1.0, "ok"
-            stats.append((RUN_ID, sid, ts, st, hf, reason))
+            stats.append((RUN_ID, sid, ts, st, hf, reason, age))
             if h["batt_kwh"]:
-                sched.append((RUN_ID, sid, "baseline", ts, sod, b_batt, b_soc,
-                              h["reserve_pct"], 0))
-                sched.append((RUN_ID, sid, "sentinel", ts, sod, s_batt, s_soc,
-                              h["reserve_pct"], 0))
+                sched.append((RUN_ID, sid, "sentinel", ts, s_batt[g], s_soc[g], reserve_kwh, 0,
+                              s_clip[g]))
 
     for t in turbines:
         tid = t["id"]
         ts_ = tseries[tid]
-        for g, day_idx, sod, dt in step_times():
-            ts = clock(dt)
-            meas.append((RUN_ID, tid, ts, sod, None, None, None, None, None, None,
-                         ts_["power"][g], ts_["spd"][g], round(curves["temp"][g], 2),
-                         ts_["conv"][g], ts_["gearbox"][g], ts_["gen"][g], ts_["transf"][g],
-                         ts_["quality"][g]))
+        for g, day_idx, sod, _dt in step_times():
+            ts, t0 = ts_of[g], ts_of[day_idx * STEPS_PER_DAY]
+            meas.append((RUN_ID, tid, ts, None, None, None, None, None, None,
+                         ts_["power"][g], ts_["spd"][g], ts_["wdir"][g], ts_["meteo"][g],
+                         round(curves["temp"][g], 2), ts_["conv"][g], ts_["gearbox"][g],
+                         ts_["gen"][g], ts_["transf"][g], ts_["err"][g], ts_["quality"][g]))
             # M6 expects normal behaviour; the fault and the curtailment both sit below it
-            w = curves["wind"][g] * t["wind_scale"]
-            frac = 0.0 if (4.0 + 18.0 * w) < 3.5 else min(1.0, (((4.0 + 18.0 * w) - 3.5) / 9.0) ** 3)
-            expect = t["rated_kw"] * frac
+            expect = ts_["free"][g]
             anomaly = None
             if ts_["fault_from"] is not None and g >= ts_["fault_from"]:
                 anomaly = "fault_stop"
@@ -582,41 +600,37 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                 anomaly = "curtailment"
             elif tid == DRIFT_TURBINE and day_idx >= 4:
                 anomaly = "overheating"
-            preds.append((RUN_ID, tid, "M6", "windnbm@fixtures", ts, sod,
-                          round(expect * 0.88, 3), round(expect, 3), round(expect * 1.12, 3),
+            q10, q50, q90 = round(expect * 0.88, 3), round(expect, 3), round(expect * 1.12, 3)
+            preds.append((RUN_ID, tid, "M6", "windnbm@fixtures", t0, ts, sod, q10, q50, q90,
                           None, anomaly, round(rng.uniform(0.01, 0.2), 4),
-                          round(expect * 0.05, 3), now))
+                          round(expect * 0.05, 3), 0))
+            steps.append((RUN_ID, tid, ts, ts_["power"][g], q10, q50, q90))
+            age = 60.0
             if anomaly == "fault_stop":
-                st, hf, reason = "excluded", 0.0, "sensor_fault"
+                st, hf, reason, age = "excluded", 0.0, "sensor_fault", 900.0
             elif anomaly == "curtailment":
                 st, hf, reason = "eligible", 1.0, "curtailment"
             elif anomaly == "overheating":
                 st, hf, reason = "derated", 0.9, "ok"
             else:
                 st, hf, reason = "eligible", 1.0, "ok"
-            stats.append((RUN_ID, tid, ts, st, hf, reason))
+            stats.append((RUN_ID, tid, ts, st, hf, reason, age))
 
-    ins("INSERT INTO measurements (run_id,asset_id,ts,step,pv_ac_kw,load_kw,batt_kw,soc,"
-        "inv_voltage_v,inv_status,act_pwt_kw,wd_spd_kmh,ambient_temp_c,conv_temp_c,"
-        "gearbox_temp_c,gen_temp_c,transformer_temp_c,data_quality) "
-        "VALUES (" + ",".join(["?"] * 18) + ")", meas)
-    record("measurements", meas)
-    ins("INSERT INTO predictions (run_id,asset_id,model,model_version,ts,step,q10_kw,q50_kw,"
-        "q90_kw,fault_probs_json,anomaly_class,ood_score,member_std,created_at) "
-        "VALUES (" + ",".join(["?"] * 14) + ")", preds)
-    record("predictions", preds)
-    ins("INSERT INTO statuses (run_id,asset_id,ts,status,headroom_factor,reason) "
-        "VALUES (?,?,?,?,?,?)", stats)
-    record("statuses", stats)
-    ins("INSERT INTO schedules (run_id,asset_id,policy,ts,step,batt_kw,soc,"
-        "comfort_reserve_pct,comfort_breached) VALUES (?,?,?,?,?,?,?,?,?)", sched)
-    record("schedules", sched)
+    put("measurements", "run_id,asset_id,ts,pv_ac_kw,load_kw,batt_kw,soc,inv_voltage_v,"
+        "inv_status,act_pwt_kw,wd_spd_kmh,wd_dir_deg,meteo_wind_kmh,ambient_temp_c,conv_temp_c,"
+        "gearbox_temp_c,gen_temp_c,transformer_temp_c,error_code,data_quality", meas)
+    put("predictions", "run_id,asset_id,model,model_version,t0,ts,horizon_idx,q10,q50,q90,"
+        "fault_probs_json,anomaly_class,ood_score,member_std,is_fallback", preds)
+    put("asset_steps", "run_id,asset_id,ts,actual_kw,q10_kw,q50_kw,q90_kw", steps)
+    put("statuses", "run_id,asset_id,ts,status,headroom_factor,reason,telemetry_age_s", stats)
+    put("schedules", "run_id,asset_id,policy,ts,batt_kw,soc,comfort_reserve_kwh,"
+        "comfort_breached,clipped", sched)
 
     # ---- park forecasts --------------------------------------------------------
     pf = []
     for pid, _n, _c, _l, _lat, _lon, _nt, rated_mw, _yr in PARKS:
         tids = [t["id"] for t in turbines if t["park"] == pid]
-        for g, _d, sod, dt in step_times():
+        for g in range(TOTAL_STEPS):
             tot = sum(tseries[tid]["power"][g] for tid in tids) / 1000.0
             curt = 0.0
             if tseries[tids[0]]["curt"] and tseries[tids[0]]["curt"][0] <= g < tseries[tids[0]]["curt"][1]:
@@ -624,12 +638,11 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
             avail = 100.0 * sum(1 for tid in tids
                                 if not (tseries[tid]["fault_from"] is not None
                                         and g >= tseries[tid]["fault_from"])) / len(tids)
-            pf.append((RUN_ID, pid, clock(dt), sod, round(tot * 0.86, 4), round(tot, 4),
+            pf.append((RUN_ID, pid, ts_of[g], round(tot * 0.86, 4), round(tot, 4),
                        round(tot * 1.14, 4), round(tot * DT_H, 4), round(avail, 2), curt,
                        round(rng.uniform(96.0, 100.0), 2)))
-    ins("INSERT INTO park_forecasts (run_id,park_id,ts,step,p10_mw,p50_mw,p90_mw,expected_mwh,"
-        "availability_pct,curtailed_mwh,data_quality_pct) VALUES (?,?,?,?,?,?,?,?,?,?,?)", pf)
-    record("park_forecasts", pf)
+    put("park_forecasts", "run_id,park_id,ts,p10_mw,p50_mw,p90_mw,expected_mwh,availability_pct,"
+        "curtailed_mwh,data_quality_pct", pf)
 
     # ---- zone demand: county -> locality -> feeder ----------------------------
     zd = []
@@ -642,16 +655,16 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                 acc[g] += load[g]
         feeder_load[fid] = [v / 1000.0 for v in acc]           # MW
 
-    def zone_rows(zone_type, zid, zname, parent, mw_series, stressed):
+    def zone_rows(level, zid, zname, parent, mw_series, stressed):
         peak = max(mw_series) or 1.0
         # headroom is what makes a zone red: a stressed zone is near its local capacity at the
         # evening peak, a comfortable one is only around half of it.
         capacity = peak * (1.03 if stressed else 1.85)
-        for g, _d, sod, dt in step_times():
+        for g, _d, sod, _dt in step_times():
             hour = sod * DT_H
             mw = mw_series[g]
             stress = min(1.0, mw / capacity)
-            zd.append((RUN_ID, zone_type, zid, zname, parent, clock(dt), sod,
+            zd.append((RUN_ID, zid, level, zname, parent, ts_of[g],
                        round(mw * 0.9, 5), round(mw, 5), round(mw * 1.12, 5),
                        round(stress, 4), 1 if 18.0 <= hour < 22.0 else 0, LABEL))
 
@@ -665,44 +678,41 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
             lf = [f[0] for f in FEEDERS if f[4] == loc]
             lagg = [sum(feeder_load[f][g] for f in lf) for g in range(TOTAL_STEPS)]
             zone_rows("locality", loc, loc, county, lagg, county in STRESSED_COUNTIES)
-    ins("INSERT INTO zone_demand (run_id,zone_type,zone_id,zone_name,parent_zone_id,ts,step,"
-        "p10_mw,p50_mw,p90_mw,peak_stress,is_peak_hour,label) "
-        "VALUES (" + ",".join(["?"] * 13) + ")", zd)
-    record("zone_demand", zd)
+    put("zone_demand", "run_id,zone_id,level,zone_name,parent_zone_id,ts,q10_mw,q50_mw,q90_mw,"
+        "peak_stress,is_peak_hour,label", zd)
 
     # ---- actions: work orders, alerts, review queue, gis flags ----------------
     wo, alerts, review, gis, audit = [], [], [], [], []
     fault_dt = WEEK_START + timedelta(days=FAULT_DAY, minutes=STEP_MINUTES * 48)
+    WO_COLS = ("action_id,run_id,asset_id,asset_kind,crew_type,action,ts,day,fault,confidence,"
+               "lost_kwh_day,lost_flex_mwh_day,lost_lei_day,mw_at_risk,days_to_visit,score,rank,"
+               "status,evidence_json")
 
     # 1042: the string failure. Residential crew, a truck.
-    wo.append(("wo-1042-string", RUN_ID, HERO_SITE, "prosumer", "truck", clock(fault_dt),
-               clock.day_key(FAULT_DAY), "string_failure", None, 0.91, 14.6, None, 0.34,
-               round(14.6 * PRICE_LEI_PER_KWH * 3, 2), 0.34, 2, 0.88, 1, "open",
-               json.dumps({"evidence": "actual below P10 for 9 consecutive steps",
-                           "diverged_at": clock(fault_dt)})))
+    wo.append(("wo-1042-string", RUN_ID, HERO_SITE, "prosumer", "residential", "truck",
+               clock(fault_dt), clock.day_key(FAULT_DAY), "string_failure", 0.91, 14.6, 0.34,
+               round(14.6 * PRICE_LEI_PER_KWH + 0.34 * V_FLEX_LEI_PER_MWH, 2), 0.34, 2, 0.88, 1,
+               "open", json.dumps({"evidence": "actual below P10 for 9 consecutive steps",
+                                   "diverged_at": clock(fault_dt)})))
     # the faulted turbine: wind crew, a truck
     tfault_dt = WEEK_START + timedelta(minutes=STEP_MINUTES * fault_g)
-    wo.append(("wo-wp01t04-stop", RUN_ID, FAULT_TURBINE, "turbine", "truck", clock(tfault_dt),
-               clock.day_key(FAULT_DAY), None, "fault_stop", 0.95, None, 18.4, None,
-               round(18.4 * 1000 * PRICE_LEI_PER_KWH, 2), 2.5, 1, 0.96, 1, "open",
+    wo.append(("wo-wp01t04-stop", RUN_ID, FAULT_TURBINE, "turbine", "wind", "truck",
+               clock(tfault_dt), clock.day_key(FAULT_DAY), "fault_stop", 0.95, 18400.0, None,
+               round(18400.0 * PRICE_LEI_PER_KWH, 2), 2.5, 1, 0.96, 1, "open",
                json.dumps({"evidence": "zero power above cut-in while 14 neighbours produce"})))
     # the drifting gearbox: inspection, not a truck, and no score (M7 did not ship — R12)
     drift_dt = WEEK_START + timedelta(days=5)
-    wo.append(("wo-wp03t02-gearbox", RUN_ID, DRIFT_TURBINE, "turbine", "inspection",
-               clock(drift_dt), clock.day_key(5), None, "overheating", 0.64, None, 3.1, None,
-               round(3.1 * 1000 * PRICE_LEI_PER_KWH, 2), 0.0, 7, 0.41, 2, "open",
+    wo.append(("wo-wp03t02-gearbox", RUN_ID, DRIFT_TURBINE, "turbine", "wind", "inspection",
+               clock(drift_dt), clock.day_key(5), "overheating", 0.64, 3100.0, None,
+               round(3100.0 * PRICE_LEI_PER_KWH, 2), 0.0, 7, 0.41, 2, "open",
                json.dumps({"evidence": "gearbox residual +9 C vs own baseline over 7 days",
                            "risk_score": None, "note": "M7 not shipped; trend only (R12)"})))
     # a sensor fault: remote check, never a truck (§3.5)
-    wo.append(("wo-wp02t07-anem", RUN_ID, "WP02.T07", "turbine", "remote_check",
-               clock(WEEK_START + timedelta(days=2)), clock.day_key(2), None,
-               "anemometer_fault", 0.72, None, 0.0, None, 0.0, 0.0, 14, 0.18, 3, "open",
+    wo.append(("wo-wp02t07-anem", RUN_ID, "WP02.T07", "turbine", "wind", "remote_check",
+               clock(WEEK_START + timedelta(days=2)), clock.day_key(2), "anemometer_fault",
+               0.72, 0.0, None, 0.0, 0.0, 14, 0.18, 3, "open",
                json.dumps({"evidence": "nacelle wind disagrees with meteo while power matches meteo"})))
-    ins("INSERT INTO work_orders (id,run_id,asset_id,asset_kind,action,created_at,day,"
-        "fault_class,anomaly_class,confidence,lost_kwh_day,lost_mwh_day,lost_flex_mwh_day,"
-        "lei_at_risk,mw_at_risk,days_to_visit,score,rank_k,status,evidence_json) "
-        "VALUES (" + ",".join(["?"] * 20) + ")", wo)
-    record("work_orders", wo)
+    put("work_orders", WO_COLS, wo)
 
     # the park-wide curtailment: logged, and explicitly NOT a work order (§3.5, R12)
     curt_dt = WEEK_START + timedelta(minutes=STEP_MINUTES * curt_lo)
@@ -717,26 +727,22 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     alerts.append(("al-f2-gap", RUN_ID, None, None, "F2", clock(WEEK_START + timedelta(days=1)),
                    "data_gap", "warn", 0, None, "F2: 3 sites offline for 2 h, telemetry gap",
                    json.dumps({"sites": 3})))
-    ins("INSERT INTO alerts (id,run_id,asset_id,park_id,feeder_id,ts,kind,severity,"
-        "creates_work_order,curtailed_mwh,message,evidence_json) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", alerts)
-    record("alerts", alerts)
+    put("alerts", "action_id,run_id,asset_id,park_id,feeder_id,ts,code,severity,"
+        "creates_work_order,curtailed_mwh,message,evidence_json", alerts)
 
     review.append(("rv-1177-ood", RUN_ID, OOD_SITE, clock(WEEK_START + timedelta(days=2)),
-                   "ood", "pending", None))
+                   "ood", 0.93, 1.8, 0.41, 0))
     review.append(("rv-1203-wide", RUN_ID, "1203", clock(WEEK_START + timedelta(days=3)),
-                   "wide_interval", "pending", None))
-    ins("INSERT INTO review_queue (id,run_id,asset_id,ts,reason,status,decision) "
-        "VALUES (?,?,?,?,?,?,?)", review)
-    record("review_queue", review)
+                   "wide_interval", 0.22, 4.6, 0.95, 0))
+    put("review_queue", "action_id,run_id,asset_id,ts,reason,ood_score,interval_width,"
+        "member_std,resolved", review)
 
-    gis.append(("gf-f2-s17", RUN_ID, "F2-S17", "F2", "L1", "L3", 0.62, 0.81,
+    gis.append(("gf-f2-s17", RUN_ID, "F2-S17", "F2", "L1", "F2", "L3", 0.62,
                 json.dumps({"type": "LineString", "coordinates": [[28.26, 44.24], [28.27, 44.25]]})))
-    gis.append(("gf-f10-s04", RUN_ID, "F10-S04", "F10", "L2", "L1", 0.58, 0.74,
+    gis.append(("gf-f10-s04", RUN_ID, "F10-S04", "F10", "L2", "F9", "L1", 0.58,
                 json.dumps({"type": "LineString", "coordinates": [[23.78, 46.56], [23.79, 46.57]]})))
-    ins("INSERT INTO gis_flags (id,run_id,section_id,feeder_id,recorded_phase,suggested_phase,"
-        "tau,confidence,geometry_json) VALUES (?,?,?,?,?,?,?,?,?)", gis)
-    record("gis_flags", gis)
+    put("gis_flags", "action_id,run_id,section_id,recorded_feeder,recorded_phase,"
+        "suggested_feeder,suggested_phase,tau,geometry_json", gis)
 
     # ---- daily park reports ----------------------------------------------------
     reports = []
@@ -745,57 +751,67 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
         for d in range(DAYS):
             lo, hi = d * STEPS_PER_DAY, (d + 1) * STEPS_PER_DAY
             mwh = sum(sum(tseries[tid]["power"][g] for tid in tids) for g in range(lo, hi))
-            mwh = round(mwh * DT_H / 1000.0, 3)
-            reports.append((f"rep-{pid}-d{d}", RUN_ID, pid, clock.day_key(d), mwh,
+            exp = sum(sum(tseries[tid]["free"][g] for tid in tids) for g in range(lo, hi))
+            issues = []
+            if pid == CURTAILED_PARK and d >= FAULT_DAY:
+                issues.append({"asset_id": FAULT_TURBINE, "code": "fault_stop"})
+            if pid == CURTAILED_PARK and d == FAULT_DAY:
+                issues.append({"code": "curtailment", "curtailed_mwh": 13.1})
+            if pid == "WP02" and d >= 2:
+                issues.append({"asset_id": "WP02.T07", "code": "anemometer_fault"})
+            if pid == "WP03" and d >= 4:
+                issues.append({"asset_id": DRIFT_TURBINE, "code": "overheating"})
+            reports.append((f"rep-{pid}-d{d}", RUN_ID, pid, clock.day_key(d),
+                            round(mwh * DT_H / 1000.0, 3), round(exp * DT_H / 1000.0, 3),
                             round(rng.uniform(94.0, 100.0), 2),
                             13.1 if (pid == CURTAILED_PARK and d == FAULT_DAY) else 0.0,
-                            round(rng.uniform(96.0, 100.0), 2),
-                            json.dumps({"label": LABEL, "turbines": len(tids)})))
-    ins("INSERT INTO reports (id,run_id,park_id,day,production_mwh,availability_pct,"
-        "curtailed_mwh,data_quality_pct,body_json) VALUES (?,?,?,?,?,?,?,?,?)", reports)
-    record("reports", reports)
+                            round(rng.uniform(96.0, 100.0), 2), json.dumps(issues)))
+    put("reports", "action_id,run_id,park_id,date,energy_mwh,expected_mwh,availability_pct,"
+        "curtailed_mwh,data_quality_pct,issues_json", reports)
 
     # ---- audit: one row per action, plus the hourly feeder commitment ---------
     def h(*parts) -> str:
         return hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()[:16]
 
     for row in wo:
-        audit.append((f"au-{row[0]}", RUN_ID, row[5], "agent", "work_order", row[0], row[2],
-                      None, None, "M4" if row[3] == "prosumer" else "M6",
-                      "sitehealth@fixtures" if row[3] == "prosumer" else "windnbm@fixtures",
-                      h(row[0], row[2]), json.dumps({"confidence": row[9]}), 0.70,
-                      row[18], None, None, "top-K triage (§3.5)"))
+        prosumer = row[3] == "prosumer"
+        audit.append((f"au-{row[0]}", RUN_ID, row[0], "work_order", row[6], None, "agent",
+                      row[2], None, None, "M4" if prosumer else "M6",
+                      "sitehealth@fixtures" if prosumer else "windnbm@fixtures",
+                      h(row[0], row[2]), json.dumps({"confidence": row[9]}), 0.70, row[17],
+                      None, None, None, "top-K triage (§3.5)"))
     for row in alerts:
-        audit.append((f"au-{row[0]}", RUN_ID, row[5], "agent", "alert", row[0], row[2],
+        audit.append((f"au-{row[0]}", RUN_ID, row[0], "alert", row[5], None, "agent", row[2],
                       row[4], row[3], "M6", "windnbm@fixtures", h(row[0]),
-                      json.dumps({"kind": row[6]}), 0.60, row[7], None, None,
+                      json.dumps({"code": row[6]}), 0.60, row[7], None, None, None,
                       "curtailment logged, no work order" if row[6] == "curtailment" else None))
     for row in review:
-        audit.append((f"au-{row[0]}", RUN_ID, row[3], "agent", "human_review", row[0], row[2],
-                      None, None, "M1", "pvnet@fixtures", h(row[0]),
-                      json.dumps({"reason": row[4]}), 0.50, "pending", None, None,
+        audit.append((f"au-{row[0]}", RUN_ID, row[0], "human_review", row[3], None, "agent",
+                      row[2], None, None, "M1", "pvnet@fixtures", h(row[0]),
+                      json.dumps({"reason": row[4]}), 0.50, "pending", None, None, None,
                       "out of the pool until a human decides"))
     # one commitment audit row per feeder per hour, so #32's audit panel has volume to page
+    commit_at = {(r[1], r[2]): r for r in commit_rows}
     for fid, _n, _s, _c, _l in FEEDERS:
         for d in range(DAYS):
             for hour in range(24):
-                g = d * STEPS_PER_DAY + hour * 4
-                dt = WEEK_START + timedelta(days=d, hours=hour)
-                audit.append((f"au-commit-{fid}-{d}-{hour}", RUN_ID, clock(dt), "agent",
-                              "feeder_commitment", None, None, fid, None, "M1",
-                              "pvnet@fixtures", h(fid, d, hour), None, 0.10, "committed",
-                              None, None, None))
-    ins("INSERT INTO audit_log (id,run_id,ts,actor,action_type,ref_id,asset_id,feeder_id,"
-        "park_id,model,model_version,input_hash,prediction_json,threshold,status,committed_kw,"
-        "realised_kw,note) VALUES (" + ",".join(["?"] * 18) + ")", audit)
-    record("audit_log", audit)
+                ts = ts_of[d * STEPS_PER_DAY + hour * 4]
+                c = commit_at[(fid, ts)]
+                audit.append((f"au-commit-{fid}-{d}-{hour}", RUN_ID, None, "feeder_commitment",
+                              ts, "sentinel", "agent", None, fid, None, "M1", "pvnet@fixtures",
+                              h(fid, d, hour), None, 0.10, "committed", None, c[5], c[6], None))
+    put("audit_log", "id,run_id,action_id,action_type,ts,policy,actor,asset_id,feeder_id,park_id,"
+        "model,model_version,input_hash,prediction_json,threshold,status,schedule_json,"
+        "committed_kw,realised_kw,note", audit)
 
     # ---- KPIs: the demo strip and the closing summary -------------------------
+    # curve row: (run, feeder, policy, ts, export, import, limit, slack, is_violation)
+    # commit row: (run, feeder, ts, nominal, available, committed, realised, haircut, hit)
     hero_base = [r for r in curve_rows if r[1] == HERO_FEEDER and r[2] == "baseline"]
     hero_sent = [r for r in curve_rows if r[1] == HERO_FEEDER and r[2] == "sentinel"]
-    over_base = sum(1 for r in hero_base if r[9]) * STEP_MINUTES
-    over_sent = sum(1 for r in hero_sent if r[9]) * STEP_MINUTES
-    peak_base, peak_sent = max(r[5] for r in hero_base), max(r[5] for r in hero_sent)
+    over_base = sum(1 for r in hero_base if r[8]) * STEP_MINUTES
+    over_sent = sum(1 for r in hero_sent if r[8]) * STEP_MINUTES
+    peak_base, peak_sent = max(r[4] for r in hero_base), max(r[4] for r in hero_sent)
     hits = [r for r in commit_rows if r[1] == HERO_FEEDER]
     kpis = [
         (RUN_ID, "baseline", "minutes_over_limit", float(over_base), "min", LABEL),
@@ -808,15 +824,15 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
          round(100.0 * sum(r[8] for r in hits) / len(hits), 2), "%", LABEL),
         (RUN_ID, "sentinel", "comfort_breaches", 0.0, "count", LABEL),
         (RUN_ID, "sentinel", "lei_per_home",
-         round(sum(r[6] for r in hits) * DT_H * PRICE_LEI_PER_KWH / N_HOMES, 2), "lei", LABEL),
+         round(sum(r[5] for r in hits) * DT_H * PRICE_LEI_PER_KWH / N_HOMES, 2), "lei", LABEL),
         (RUN_ID, "sentinel", "alerts_per_turbine_day",
          round(len(alerts) / (len(turbines) * DAYS), 4), "count", LABEL),
-        (RUN_ID, "both", "homes", float(N_HOMES), "count", LABEL),
-        (RUN_ID, "both", "feeders", float(len(FEEDERS)), "count", LABEL),
-        (RUN_ID, "both", "turbines", float(len(turbines)), "count", LABEL),
+        # fleet counts are policy-independent; filed under sentinel to stay in the enum
+        (RUN_ID, "sentinel", "homes", float(N_HOMES), "count", LABEL),
+        (RUN_ID, "sentinel", "feeders", float(len(FEEDERS)), "count", LABEL),
+        (RUN_ID, "sentinel", "turbines", float(len(turbines)), "count", LABEL),
     ]
-    ins("INSERT INTO kpis (run_id,policy,name,value,unit,label) VALUES (?,?,?,?,?,?)", kpis)
-    record("kpis", kpis)
+    put("kpis", "run_id,policy,name,value,unit,label", kpis)
 
     con.commit()
     return counts
@@ -829,7 +845,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
 # at peak_stress 1.0. Both looked fine in the row counts. So the beats are asserted here.
 
 
-def verify(con: sqlite3.Connection) -> list[str]:
+def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
     q = lambda sql, *a: con.execute(sql, a).fetchall()
     out, fail = [], []
 
@@ -838,7 +854,7 @@ def verify(con: sqlite3.Connection) -> list[str]:
         if not ok:
             fail.append(name)
 
-    start = q("select started_at from runs")[0][0]
+    at = lambda **kw: clock(WEEK_START + timedelta(**kw))
 
     # 1. the hero feeder: baseline crosses its limit, Sentinel never does
     v = dict((p, (n, mx)) for p, n, mx in
@@ -855,10 +871,10 @@ def verify(con: sqlite3.Connection) -> list[str]:
             HERO_FEEDER)[0][0] == 0, "only F7 is congested")
 
     # 2. site 1042: the actual falls below its own forecast band on day 4
-    row = q("""select m.pv_ac_kw, p.q10_kw from measurements m
+    row = q("""select m.pv_ac_kw, p.q10 from measurements m
                join predictions p on p.asset_id=m.asset_id and p.ts=m.ts and p.model='M1'
                where m.asset_id=? and m.ts=?""", HERO_SITE,
-            start + FAULT_DAY * 86400 + 13 * 3600)
+            at(days=FAULT_DAY, hours=13))
     check("1042 diverges below P10 on day 4", bool(row) and row[0][0] < row[0][1],
           f"actual {row[0][0]:.2f} < P10 {row[0][1]:.2f}" if row else "no row")
     check("1042 is derated, not excluded",
@@ -867,9 +883,9 @@ def verify(con: sqlite3.Connection) -> list[str]:
 
     # 3. the derating costs F7 committed MW
     before = q("select avg(committed_kw) from commitments where feeder_id=? and ts<?",
-               HERO_FEEDER, start + FAULT_DAY * 86400)[0][0]
+               HERO_FEEDER, at(days=FAULT_DAY))[0][0]
     after = q("select avg(committed_kw) from commitments where feeder_id=? and ts>?",
-              HERO_FEEDER, start + (FAULT_DAY + 1) * 86400)[0][0]
+              HERO_FEEDER, at(days=FAULT_DAY + 1))[0][0]
     check("F7 commitment drops after the derating", after < before,
           f"{before:.1f} -> {after:.1f} kW")
 
@@ -894,12 +910,12 @@ def verify(con: sqlite3.Connection) -> list[str]:
           f"{nb[0]} neighbours at {nb[1]:.0f} kW")
 
     # 6. the park-wide curtailment is logged and must NOT be a work order (§3.5, R12)
-    cu = q("select creates_work_order from alerts where kind='curtailment'")
+    cu = q("select creates_work_order from alerts where code='curtailment'")
     check("curtailment is logged", bool(cu), f"{len(cu)} alert(s)")
     check("curtailment creates no work order", all(r[0] == 0 for r in cu),
           "no truck for a market instruction")
     check("sensor fault is a remote check, not a truck",
-          q("select action from work_orders where anomaly_class='anemometer_fault'")
+          q("select action from work_orders where fault='anemometer_fault'")
           == [("remote_check",)], "remote check")
 
     # 7. the gearbox residual drifts, and ships without a risk score (R12: M7 did not land)
@@ -907,8 +923,8 @@ def verify(con: sqlite3.Connection) -> list[str]:
                         where asset_id=? and ts=?),
                       (select gearbox_temp_c-ambient_temp_c from measurements
                         where asset_id=? and ts=?)""",
-            DRIFT_TURBINE, start + 12 * 3600,
-            DRIFT_TURBINE, start + 6 * 86400 + 12 * 3600)[0]
+            DRIFT_TURBINE, at(hours=12),
+            DRIFT_TURBINE, at(days=6, hours=12))[0]
     check("gearbox residual drifts across the week", res[1] - res[0] > 5.0,
           f"+{res[1] - res[0]:.1f} C")
     ev = q("select evidence_json from work_orders where asset_id=?", DRIFT_TURBINE)[0][0]
@@ -917,15 +933,30 @@ def verify(con: sqlite3.Connection) -> list[str]:
 
     # 8. Demand mode: 2-3 red counties at the evening peak, the rest comfortable
     stress = q("""select zone_id, max(peak_stress) from zone_demand
-                  where zone_type='county' and is_peak_hour=1 group by zone_id""")
+                  where level='county' and is_peak_hour=1 group by zone_id""")
     red = [z for z, v in stress if v > 0.85]
     check("2-3 counties are red in the evening", 2 <= len(red) <= 3,
           f"{sorted(red)} of {len(stress)}")
 
-    # 9. every mode has rows to read, and everything is labelled
+    # 9. the sensor fault is visible in the data: nacelle wind well below meteo, power normal
+    an = q("select avg(wd_spd_kmh / meteo_wind_kmh) from measurements "
+           "where asset_id='WP02.T07' and ts>=?", at(days=2))[0][0]
+    check("WP02.T07 nacelle wind reads low vs meteo", an is not None and an < 0.7,
+          f"ratio {an:.2f}" if an is not None else "no rows")
+
+    # 10. timestamps are what the contract pins (app.md: ISO-8601 UTC, 'Z')
+    if clock.unit == "iso":
+        bad = q("select count(*) from feeder_curves where ts not glob "
+                "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'")
+        check("ts is ISO-8601 UTC", bad[0][0] == 0, f"{bad[0][0]} malformed")
+    check("work_orders.day is a date",
+          all(len(d) == 10 for (d,) in q("select day from work_orders")), "YYYY-MM-DD")
+
+    # 11. every mode has rows to read, and everything is labelled
     for table in ("feeder_curves", "commitments", "statuses", "work_orders", "alerts",
                   "review_queue", "zone_demand", "park_forecasts", "reports", "audit_log",
-                  "kpis", "measurements", "predictions", "schedules", "gis_flags"):
+                  "kpis", "measurements", "predictions", "schedules", "gis_flags",
+                  "asset_steps"):
         n = q(f"select count(*) from {table}")[0][0]
         check(f"{table} has rows", n > 0, f"{n:,}")
     check("the run is labelled synthetic RO",
@@ -946,8 +977,8 @@ def main() -> int:
     ap.add_argument("--out", default=os.path.join(repo_root, "demo", "fixtures.sqlite"))
     ap.add_argument("--schema", default=None,
                     help="SQL file to apply instead of autodiscovering packages/db/drizzle")
-    ap.add_argument("--ts-unit", default="s", choices=["s", "ms", "iso"],
-                    help="how ts/day are stored; see note [62] on #38 (default: unix seconds)")
+    ap.add_argument("--ts-unit", default="iso", choices=["iso", "s", "ms"],
+                    help="how ts is stored (default iso: the contract, app.md section 2)")
     ap.add_argument("--no-verify", action="store_true",
                     help="skip the demo-story assertions (they are the acceptance for #30)")
     args = ap.parse_args()
@@ -969,9 +1000,10 @@ def main() -> int:
     con.execute("PRAGMA cache_size=-64000")
     try:
         apply_schema(con, files)
-        counts = seed(con, Clock(args.ts_unit), random.Random(SEED))
+        clock = Clock(args.ts_unit)
+        counts = seed(con, clock, random.Random(SEED))
         con.execute("PRAGMA optimize")
-        report = [] if args.no_verify else verify(con)
+        report = [] if args.no_verify else verify(con, clock)
     finally:
         con.close()
 
