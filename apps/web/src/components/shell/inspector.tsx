@@ -10,6 +10,7 @@ import { ProvenancePill } from "@/components/provenance-pill";
 import { useOverview } from "@/demo/kpi-strip";
 import { MODES, type ModeId } from "@/modes/registry";
 
+import { InspectorEmbedded } from "./inspector-embedded";
 import { MODE_COPY } from "./mode-copy";
 
 const plural = (n: number, noun: string, many = `${noun}s`) => `${n} ${n === 1 ? noun : many}`;
@@ -61,7 +62,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base leading-tight font-semibold text-foreground">{copy.heading}</h2>
-            {subline ? <p className="mt-0.5 truncate text-xs text-text-secondary tabular-nums">{subline}</p> : null}
+            {subline ? <p className="mt-0.5 text-xs leading-snug text-pretty text-text-secondary tabular-nums">{subline}</p> : null}
             {runLabel ? <ProvenancePill label={runLabel} className="mt-1.5" /> : null}
           </div>
         </header>
@@ -91,7 +92,9 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
           <HowItDecides mode={mode} title="The agent's loop" className="px-5 pt-1 pb-4" />
         </details>
 
-        <div className={PANEL_IN_INSPECTOR}>{children}</div>
+        <div className={PANEL_IN_INSPECTOR}>
+          <InspectorEmbedded runLabel={runLabel ?? null}>{children}</InspectorEmbedded>
+        </div>
       </div>
     </aside>
   );

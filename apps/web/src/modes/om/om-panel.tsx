@@ -16,7 +16,10 @@ import {
   UserRoundCheck,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+
+import { Term } from "@/components/help";
+import { useInspectorEmbedded, useShowOwnPill } from "@/components/shell/inspector-embedded";
 
 import { dayLabel, dayOfStep, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
@@ -134,13 +137,14 @@ function useOpenAsset() {
 }
 
 /** One compact stat: dot + label above, value below. Zero reads quiet; a problem count reads in colour. */
+/** One stat in a hairline-separated row: the number carries the weight, a dot and a word below it. */
 function Stat({
   label,
   value,
   tone,
   problem,
 }: {
-  label: string;
+  label: ReactNode;
   value: number;
   tone?: Tone;
   problem?: boolean;
@@ -152,20 +156,30 @@ function Stat({
         ? TONE_TEXT[tone]
         : "text-foreground";
   return (
-    <div className="shrink-0 grow basis-auto rounded-lg border border-border bg-card px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[11px] leading-tight whitespace-nowrap text-text-secondary">
+    <div className="px-2.5 py-1 first:pl-0 last:pr-0 min-[1440px]:px-3">
+      <div
+        className={`text-[22px] leading-none font-semibold tracking-tight tabular-nums ${valueClass}`}
+      >
+        {value}
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5 text-[11px] leading-tight whitespace-nowrap text-text-secondary">
         {tone ? (
           <span
+            aria-hidden
             className={`inline-block size-1.5 shrink-0 rounded-full ${TONE_BG[tone]}`}
           />
         ) : null}
         <span>{label}</span>
       </div>
-      <div
-        className={`mt-1 text-lg leading-none font-semibold tabular-nums ${valueClass}`}
-      >
-        {value}
-      </div>
+    </div>
+  );
+}
+
+/** A row of stats split by hairlines, no boxes (anti-AI rule: no cards inside cards). */
+function StatRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid auto-cols-fr grid-flow-col divide-x divide-border">
+      {children}
     </div>
   );
 }
@@ -545,6 +559,8 @@ export function OmPanel() {
   const [park, setPark] = useFocusedPark();
   const [selectedTurbine, setTurbine] = useSelectedTurbine();
   const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
+  const embedded = useInspectorEmbedded();
+  const showPill = useShowOwnPill(run.data?.label);
   const { data: assets } = useOmAssets();
   const { data: orders } = useWorkOrders();
   const { data: review } = useReviewQueue();
@@ -567,14 +583,19 @@ export function OmPanel() {
   return (
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-5 overflow-y-auto rounded-xl border border-border bg-card p-4 text-foreground shadow-card">
       <header className="space-y-1">
-        <h2 className="text-base font-semibold text-foreground">
-          O&amp;M · operations and maintenance
-        </h2>
+        {embedded ? null : (
+          <h2 className="text-base font-semibold text-foreground">
+            O&amp;M · operations and maintenance
+          </h2>
+        )}
         <p className="text-xs leading-relaxed text-text-secondary tabular-nums">
-          As of {dayLabel(dayOfStep(step))} {timeLabel(step)} ·{" "}
-          {(orders ?? []).length} work orders · {(review ?? []).length} in
+          As of{" "}
+          <span className="font-mono text-[11px]">
+            {dayLabel(dayOfStep(step))} · {timeLabel(step)}
+          </span>{" "}
+          · {(orders ?? []).length} work orders · {(review ?? []).length} in
           review
-          {run.data ? (
+          {run.data && showPill ? (
             <>
               {" "}
               · <ProvenancePill label={run.data.label} />
@@ -583,16 +604,12 @@ export function OmPanel() {
         </p>
       </header>
 
-      <section className="space-y-2">
+      <section className="space-y-2.5">
         <h3 className={SECTION_LABEL}>Residential sites</h3>
-        <div className="flex flex-wrap gap-1.5">
+        <StatRow>
+          <Stat label="Eligible" value={count(sites, "eligible")} tone="ok" />
           <Stat
-            label="Sites eligible"
-            value={count(sites, "eligible")}
-            tone="ok"
-          />
-          <Stat
-            label="Derated"
+            label={<Term id="derated">Derated</Term>}
             value={count(sites, "derated")}
             tone="warn"
             problem
@@ -609,17 +626,22 @@ export function OmPanel() {
             tone="unknown"
             problem
           />
-        </div>
+        </StatRow>
       </section>
 
-      <section className="space-y-2">
+      <section className="space-y-2.5 border-t border-border pt-4">
         <h3 className={SECTION_LABEL}>Wind turbines</h3>
-        <div className="flex flex-wrap gap-1.5">
-          <Stat label="Turbines ok" value={tOk} tone="ok" />
-          <Stat label="Derated" value={tDerated} tone="warn" problem />
+        <StatRow>
+          <Stat label="Working" value={tOk} tone="ok" />
+          <Stat
+            label={<Term id="derated">Derated</Term>}
+            value={tDerated}
+            tone="warn"
+            problem
+          />
           <Stat label="Stopped" value={tStopped} tone="critical" problem />
-          <Stat label="Total turbines" value={turbines.length} />
-        </div>
+          <Stat label="Total" value={turbines.length} />
+        </StatRow>
         <AvailabilityBar
           total={turbines.length}
           parts={[

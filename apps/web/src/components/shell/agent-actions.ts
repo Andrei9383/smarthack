@@ -189,6 +189,40 @@ export function groupMarkers(actions: AgentAction[]) {
   return [...groups.values()];
 }
 
+export type ActionMarker = ReturnType<typeof groupMarkers>[number];
+
+export type ActionBucket = {
+  /** First step of the bucket (inclusive) and the step after it. */
+  start: number;
+  end: number;
+  /** The markers (one per kind and step) inside, in time order. */
+  groups: ActionMarker[];
+  /** The kind with the most markers; ties go to the one a person should notice first. */
+  kind: ActionKind;
+};
+
+// Tie-break for the bucket's colour: a hand-off to a person outranks a truck, a truck a remote check.
+const KIND_RANK: Record<ActionKind, number> = { review: 0, workorder: 1, remote: 2, dispatch: 3 };
+
+/** Dock lane: markers bucketed into fixed spans (a day, or half a day) so a busy week reads as a row of counts. */
+export function bucketMarkers(markers: ActionMarker[], size: number): ActionBucket[] {
+  const buckets = new Map<number, ActionMarker[]>();
+  for (const marker of markers) {
+    const start = Math.floor(marker.step / size) * size;
+    buckets.set(start, [...(buckets.get(start) ?? []), marker]);
+  }
+  return [...buckets.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([start, groups]) => {
+      const tally = new Map<ActionKind, number>();
+      for (const group of groups) tally.set(group.kind, (tally.get(group.kind) ?? 0) + 1);
+      const [kind] = [...tally.entries()].sort((a, b) => b[1] - a[1] || KIND_RANK[a[0]] - KIND_RANK[b[0]])[0] ?? [
+        "dispatch",
+      ];
+      return { start, end: start + size, groups: [...groups].sort((a, b) => a.step - b.step), kind };
+    });
+}
+
 const WHY_PARSERS = {
   mode: parseAsString,
   feeder: parseAsString,
