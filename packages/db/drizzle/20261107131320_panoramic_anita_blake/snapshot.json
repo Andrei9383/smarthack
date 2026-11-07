@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "065007e8-e362-4fed-999d-65bff8a78a39",
+  "id": "f68223d6-aac5-4f22-aab0-8bb1580a2ea6",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -784,7 +784,7 @@
     },
     {
       "table": "assets",
-      "name": "comfort_reserve_pct",
+      "name": "comfort_reserve_kwh",
       "type": "real",
       "notNull": false,
       "autoincrement": false,
@@ -1164,7 +1164,17 @@
     },
     {
       "table": "commitments",
-      "name": "hit_p10",
+      "name": "haircut_h",
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "commitments",
+      "name": "hit",
       "type": "integer",
       "notNull": false,
       "autoincrement": false,
@@ -1624,6 +1634,26 @@
     },
     {
       "table": "measurements",
+      "name": "wd_dir_deg",
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "measurements",
+      "name": "meteo_wind_kmh",
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "measurements",
       "name": "ambient_temp_c",
       "type": "real",
       "notNull": false,
@@ -1666,6 +1696,16 @@
       "table": "measurements",
       "name": "transformer_temp_c",
       "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "measurements",
+      "name": "error_code",
+      "type": "integer",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -2354,7 +2394,7 @@
     },
     {
       "table": "schedules",
-      "name": "comfort_reserve_pct",
+      "name": "comfort_reserve_kwh",
       "type": "real",
       "notNull": false,
       "autoincrement": false,
@@ -2365,6 +2405,16 @@
     {
       "table": "schedules",
       "name": "comfort_breached",
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "0",
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "schedules",
+      "name": "clipped",
       "type": "integer",
       "notNull": true,
       "autoincrement": false,
@@ -2427,6 +2477,16 @@
       "name": "reason",
       "type": "text",
       "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "entityType": "columns"
+    },
+    {
+      "table": "statuses",
+      "name": "telemetry_age_s",
+      "type": "real",
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,

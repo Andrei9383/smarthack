@@ -2,10 +2,11 @@ import { oc } from "@orpc/contract";
 import { z } from "zod";
 
 export const windfieldMetaSchema = z.object({
+  source: z.string(), // 'mock' until real ERA5/ICON hours replace it (#55)
   bounds: z.tuple([z.number(), z.number(), z.number(), z.number()]),
-  particlesUrl: z.string(),
-  uMax: z.number(),
-  vMax: z.number(),
+  imageUnscale: z.tuple([z.number(), z.number()]),
+  speedMax: z.number(),
+  hours: z.array(z.object({ ts: z.string() })), // index = NN in /windfield/NN.png and NN-speed.png
 });
 export type WindfieldMeta = z.infer<typeof windfieldMetaSchema>;
 

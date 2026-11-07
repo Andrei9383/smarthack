@@ -32,9 +32,22 @@ export const commitmentPointSchema = z.object({
   availableKw: z.number(),
   committedKw: z.number(),
   realisedKw: z.number().nullable().optional(),
-  hitP10: z.number().nullable().optional(),
+  haircutH: z.number().nullable().optional(),
+  hit: z.number().nullable().optional(),
 });
 export type CommitmentPoint = z.infer<typeof commitmentPointSchema>;
+
+export const gisFlagItemSchema = z.object({
+  actionId: z.string(),
+  sectionId: z.string(),
+  recordedFeeder: z.string().nullable().optional(),
+  recordedPhase: z.string().nullable().optional(),
+  suggestedFeeder: z.string().nullable().optional(),
+  suggestedPhase: z.string().nullable().optional(),
+  tau: z.number().nullable().optional(),
+  geometryJson: z.string().nullable().optional(),
+});
+export type GisFlagItem = z.infer<typeof gisFlagItemSchema>;
 
 export const feedersContract = {
   list: oc
@@ -46,4 +59,7 @@ export const feedersContract = {
   getCommitments: oc
     .input(z.object({ feederId: z.string(), runId: z.string().optional() }))
     .output(z.array(commitmentPointSchema)),
+  listGisFlags: oc
+    .input(z.object({ runId: z.string().optional() }).optional())
+    .output(z.array(gisFlagItemSchema)),
 };

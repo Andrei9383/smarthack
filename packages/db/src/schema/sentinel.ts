@@ -84,7 +84,7 @@ export const assets = sqliteTable(
     hasBattery: integer("has_battery").default(0).notNull(),
     batteryKwh: real("battery_kwh"),
     batteryKw: real("battery_kw"),
-    comfortReservePct: real("comfort_reserve_pct"),
+    comfortReserveKwh: real("comfort_reserve_kwh"),
     recordedKwp: real("recorded_kwp"), // what the GIS says
     trueKwp: real("true_kwp"), // what M8 / grid-twin estimates
     recordedTiltDeg: real("recorded_tilt_deg"),
@@ -123,11 +123,14 @@ export const measurements = sqliteTable(
     invStatus: text("inv_status"),
     actPwtKw: real("act_pwt_kw"),
     wdSpdKmh: real("wd_spd_kmh"),
+    wdDirDeg: real("wd_dir_deg"),
+    meteoWindKmh: real("meteo_wind_kmh"),
     ambientTempC: real("ambient_temp_c"),
     convTempC: real("conv_temp_c"),
     gearboxTempC: real("gearbox_temp_c"),
     genTempC: real("gen_temp_c"),
     transformerTempC: real("transformer_temp_c"),
+    errorCode: integer("error_code"), // PPC integral fault code, see sentinel/contracts/wind.py
     dataQuality: text("data_quality").default("ok"),
   },
   (table) => [
@@ -205,6 +208,7 @@ export const statuses = sqliteTable(
     status: text("status").notNull(), // eligible | derated | excluded | human_review
     headroomFactor: real("headroom_factor").default(1.0).notNull(),
     reason: text("reason").notNull(),
+    telemetryAgeS: real("telemetry_age_s"),
   },
   (table) => [
     primaryKey({ columns: [table.runId, table.assetId, table.ts] }),
@@ -249,7 +253,8 @@ export const commitments = sqliteTable(
     availableKw: real("available_kw").notNull(),
     committedKw: real("committed_kw").notNull(),
     realisedKw: real("realised_kw"),
-    hitP10: integer("hit_p10"),
+    haircutH: real("haircut_h"), // telemetry-loss haircut h, 0..1 (plan 3.5)
+    hit: integer("hit"),
   },
   (table) => [
     primaryKey({ columns: [table.runId, table.feederId, table.ts] }),
@@ -270,8 +275,9 @@ export const schedules = sqliteTable(
     ts: text("ts").notNull(), // ISO-8601 UTC
     battKw: real("batt_kw").notNull(),
     soc: real("soc").notNull(),
-    comfortReservePct: real("comfort_reserve_pct"),
+    comfortReserveKwh: real("comfort_reserve_kwh"),
     comfortBreached: integer("comfort_breached").default(0).notNull(),
+    clipped: integer("clipped").default(0).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.runId, table.assetId, table.policy, table.ts] }),

@@ -33,12 +33,14 @@ export const stubFeedersRouter = {
   list: publicProcedure.handler(() => []),
   getCurves: publicProcedure.handler(() => []),
   getCommitments: publicProcedure.handler(() => []),
+  listGisFlags: publicProcedure.handler(() => []),
 };
 
 export const stubOmRouter = {
   listAssets: publicProcedure.handler(() => []),
   listAlerts: publicProcedure.handler(() => []),
   listWorkOrders: publicProcedure.handler(() => []),
+  listReviewQueue: publicProcedure.handler(() => []),
   getTurbineDrawer: publicProcedure.handler(({ input }) => ({
     assetId: (input as any)?.assetId || "",
     name: "",
@@ -50,10 +52,11 @@ export const stubOmRouter = {
 
 export const stubProductionRouter = {
   getWindfield: publicProcedure.handler(() => ({
-    bounds: [20.2, 43.6, 29.7, 48.3] as [number, number, number, number],
-    particlesUrl: "/windfield/latest.json",
-    uMax: 25,
-    vMax: 25,
+    source: "stub",
+    bounds: [20.0, 43.4, 30.0, 48.5] as [number, number, number, number],
+    imageUnscale: [-30, 30] as [number, number],
+    speedMax: 20,
+    hours: [],
   })),
   getParkForecasts: publicProcedure.handler(() => []),
   getCountyTotals: publicProcedure.handler(() => []),
@@ -96,4 +99,5 @@ export const stubAuditRouter = {
 
 export const stubManifestRouter = {
   getRuns: publicProcedure.handler(() => []),
+  getKpis: publicProcedure.handler(() => []),
 };

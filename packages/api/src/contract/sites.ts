@@ -36,10 +36,18 @@ export type AssetStepPoint = z.infer<typeof assetStepPointSchema>;
 
 export const sitePredictionPointSchema = z.object({
   ts: z.string(),
-  q10Kw: z.number(),
-  q50Kw: z.number(),
-  q90Kw: z.number(),
+  t0: z.string(),
+  horizonIdx: z.number(),
+  model: z.string(),
+  modelVersion: z.string(),
+  q10: z.number().nullable().optional(),
+  q50: z.number().nullable().optional(),
+  q90: z.number().nullable().optional(),
+  faultProbsJson: z.string().nullable().optional(),
   anomalyClass: z.string().nullable().optional(),
+  oodScore: z.number().nullable().optional(),
+  memberStd: z.number().nullable().optional(),
+  isFallback: z.number(),
 });
 export type SitePredictionPoint = z.infer<typeof sitePredictionPointSchema>;
 
@@ -54,6 +62,6 @@ export const sitesContract = {
     .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
     .output(z.array(assetStepPointSchema)),
   getPredictions: oc
-    .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
+    .input(z.object({ assetId: z.string(), runId: z.string().optional(), model: z.string().optional() }))
     .output(z.array(sitePredictionPointSchema)),
 };

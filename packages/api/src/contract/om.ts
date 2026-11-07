@@ -23,7 +23,9 @@ export const alertItemSchema = z.object({
   code: z.string(),
   message: z.string(),
   ts: z.string(),
+  createsWorkOrder: z.number(),
   curtailedMwh: z.number().nullable().optional(),
+  evidenceJson: z.string().nullable().optional(),
 });
 export type AlertItem = z.infer<typeof alertItemSchema>;
 
@@ -37,7 +39,15 @@ export const workOrderItemSchema = z.object({
   score: z.number(),
   day: z.string(),
   rank: z.number().nullable().optional(),
+  ts: z.string(),
+  fault: z.string().nullable().optional(),
+  confidence: z.number(),
+  lostKwhDay: z.number().nullable().optional(),
+  lostFlexMwhDay: z.number().nullable().optional(),
   lostLeiDay: z.number().nullable().optional(),
+  mwAtRisk: z.number().nullable().optional(),
+  daysToVisit: z.number().nullable().optional(),
+  evidenceJson: z.string().nullable().optional(),
 });
 export type WorkOrderItem = z.infer<typeof workOrderItemSchema>;
 
@@ -46,17 +56,18 @@ export const turbineDrawerSchema = z.object({
   name: z.string(),
   powerCurve: z.array(
     z.object({
-      wdSpd: z.number(),
-      actPwt: z.number(),
-      expectedPwt: z.number().optional(),
+      wdSpdKmh: z.number(),
+      actPwtKw: z.number(),
+      expectedPwtKw: z.number().nullable().optional(),
     }),
   ),
   tempTrends: z.array(
     z.object({
       ts: z.string(),
-      convTemp: z.number().optional(),
-      gearboxTemp: z.number().optional(),
-      genTemp: z.number().optional(),
+      convTempC: z.number().nullable().optional(),
+      gearboxTempC: z.number().nullable().optional(),
+      genTempC: z.number().nullable().optional(),
+      transformerTempC: z.number().nullable().optional(),
     }),
   ),
 });
@@ -72,6 +83,18 @@ export const parkReportItemSchema = z.object({
   curtailedMwh: z.number().nullable().optional(),
 });
 export type ParkReportItem = z.infer<typeof parkReportItemSchema>;
+
+export const reviewItemSchema = z.object({
+  actionId: z.string(),
+  assetId: z.string(),
+  ts: z.string(),
+  reason: z.string(),
+  oodScore: z.number().nullable().optional(),
+  intervalWidth: z.number().nullable().optional(),
+  memberStd: z.number().nullable().optional(),
+  resolved: z.number(),
+});
+export type ReviewItem = z.infer<typeof reviewItemSchema>;
 
 export const omContract = {
   listAssets: oc
@@ -105,6 +128,16 @@ export const omContract = {
         .optional(),
     )
     .output(z.array(workOrderItemSchema)),
+  listReviewQueue: oc
+    .input(
+      z
+        .object({
+          runId: z.string().optional(),
+          resolved: z.boolean().optional(),
+        })
+        .optional(),
+    )
+    .output(z.array(reviewItemSchema)),
   getTurbineDrawer: oc
     .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
     .output(turbineDrawerSchema),
