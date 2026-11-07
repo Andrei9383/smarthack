@@ -34,7 +34,7 @@ def sanity_plots(out: Path, feeders: pd.DataFrame, ts: pd.DatetimeIndex, net_w: 
         ax.plot(local[m].hour + local[m].minute / 60, x[m] / 1000, color="#3b5bdb", lw=1.4, label="net export")
         ax.axhline(f.g_max_kw, color="#c92a2a", lw=1, label="G_max")
         ax.axhline(f.g_conservative_kw, color="#b7791f", lw=1, ls="--", label="G_conservative")
-        ax.set_title(f"{f.feeder_id} {f.locality} ({f.n_prosumers} PV)", fontsize=9)
+        ax.set_title(f"{f.feeder_id} {f.locality} ({f.n_sites} PV)", fontsize=9)
         ax.tick_params(labelsize=7)
     axes.flat[0].legend(fontsize=7)
     fig.supxlabel("local hour, peak summer day")

@@ -48,17 +48,21 @@ def _feeders(cfg: FleetConfig, rng) -> pd.DataFrame:
         # Voltage rise per kW of net export on a phase, at the far end of the feeder.
         "v_sens_v_per_kw": np.where(congested, rng.uniform(0.16, 0.24, cfg.n_feeders),
                                     rng.uniform(0.08, 0.14, cfg.n_feeders)).round(4),
-        "true_designed_congested": congested,
+        "congested": congested,  # design flag, for reporting only
     })
 
 
 def _sites(cfg: FleetConfig, feeders: pd.DataFrame, rng) -> pd.DataFrame:
     n, nf = cfg.n_sites, len(feeders)
     share = rng.dirichlet(np.full(nf, 4.0))
-    counts = np.maximum(np.round(share * n).astype(int), 12)
-    while counts.sum() != n:  # fix rounding while keeping every feeder >= 12 sites
-        j = rng.integers(nf)
-        counts[j] += 1 if counts.sum() < n else (-1 if counts[j] > 12 else 0)
+    if n < 2 * nf:
+        raise ValueError(f"need at least 2 sites per feeder ({n} sites, {nf} feeders)")
+    floor = min(12, n // nf)
+    counts = np.maximum(np.round(share * n).astype(int), floor)
+    while counts.sum() > n:  # fix rounding while keeping every feeder >= floor sites
+        counts[np.argmax(counts)] -= 1
+    while counts.sum() < n:
+        counts[rng.integers(nf)] += 1
     f_idx = np.repeat(np.arange(nf), counts)
 
     kwp = np.round(3 + 7 * rng.beta(2, 3, n), 2)
@@ -79,6 +83,7 @@ def _sites(cfg: FleetConfig, feeders: pd.DataFrame, rng) -> pd.DataFrame:
     batt = rng.random(n) < cfg.battery_share
     e_kwh = np.where(batt, np.round(rng.uniform(5, 15, n) * 2) / 2, 0.0)
     heating = rng.choice(["gas", "electric", "heat_pump"], n, p=[0.55, 0.2, 0.25])
+    has_ac = rng.random(n) < 0.55
 
     phase = rng.choice(np.array(list("ABC")), n)
     phase_gis = np.where(rng.random(n) < cfg.gis_wrong_phase_share,
@@ -92,34 +97,42 @@ def _sites(cfg: FleetConfig, feeders: pd.DataFrame, rng) -> pd.DataFrame:
     return pd.DataFrame({
         "site_id": [f"S{i + 1:04d}" for i in range(n)],
         "locality_id": feeders.locality_id.to_numpy()[f_idx],
+        "locality": feeders.locality.to_numpy()[f_idx],
+        "siruta": pd.array([None] * n, dtype="Int32"),  # RO locality code: unknown here (nullable in data.md)
         "county": feeders.county.to_numpy()[f_idx],
         "lat": (flat + rng.normal(0, 0.006, n)).round(5),
         "lon": (flon + rng.normal(0, 0.008, n)).round(5),
-        # What the GIS / installer records (visible to models)
-        "feeder_id": feeder_ids[f_gis],
-        "phase": phase_gis,
-        "kwp": kwp_rec,
-        "tilt_deg": tilt_rec,
-        "azimuth_deg": az_rec,
-        "inverter_ac_kw": ac_kw,
+        # Physical connection (truth) and what the GIS records (data.md: consumers must read gis_*)
+        "feeder_id": feeder_ids[f_idx],
+        "phase": phase,
+        "gis_feeder_id": feeder_ids[f_gis],
+        "gis_phase": phase_gis,
+        # PV metadata: pvlib and models only ever see *_recorded
+        "kwp_true": kwp,
+        "kwp_recorded": kwp_rec,
+        "tilt_true": tilt,
+        "tilt_recorded": tilt_rec,
+        "azimuth_true": az,
+        "azimuth_recorded": az_rec,
+        "inverter_kw": ac_kw,
         "install_year": rng.integers(2017, 2022, n),
+        "archetype": np.where(heating == "electric", "electric_heating",
+                              np.where(heating == "heat_pump", "heat_pump", np.where(has_ac, "ac", "base"))),
+        # Battery -> BatterySpec (contracts/opt.py); battery_kwh 0 = no battery
         "battery_kwh": e_kwh,
         "battery_kw": np.where(batt, rng.choice([3.0, 3.6, 5.0], n), 0.0),
-        "battery_eta_charge": np.where(batt, 0.95, 0.0),
-        "battery_eta_discharge": np.where(batt, 0.95, 0.0),
-        "battery_soc_min": np.where(batt, 0.10, 0.0),
+        "eta_charge": 0.95,
+        "eta_discharge": 0.95,
+        "soc_min": 0.10,
+        "soc_max": 1.0,
         "comfort_reserve_kwh": np.round(e_kwh * rng.uniform(0.10, 0.30, n), 2),
+        "split": np.where(rng.random(n) < cfg.unseen_share, "unseen", "train"),
         "heating": heating,
-        "has_ac": rng.random(n) < 0.55,
+        "has_ac": has_ac,
         "has_ev": rng.random(n) < 0.12,
         "has_electric_boiler": rng.random(n) < 0.25,
         "works_from_home": rng.random(n) < 0.30,
         # Hidden truth
-        "true_feeder_id": feeder_ids[f_idx],
-        "true_phase": phase,
-        "true_kwp": kwp,
-        "true_tilt_deg": tilt,
-        "true_azimuth_deg": az,
         "true_metadata_wrong": wrong | wrong_kwp,
         "true_feeder_position": rng.uniform(0.15, 1.0, n).round(3),   # 0 = transformer, 1 = far end
         "true_degradation_per_year": rng.uniform(0.005, 0.01, n).round(4),
@@ -135,8 +148,8 @@ def _sites(cfg: FleetConfig, feeders: pd.DataFrame, rng) -> pd.DataFrame:
 
 
 def _set_feeder_limits(cfg: FleetConfig, feeders: pd.DataFrame, sites: pd.DataFrame, rng) -> None:
-    ac = sites.groupby("true_feeder_id").inverter_ac_kw.sum().reindex(feeders.feeder_id).to_numpy()
-    cong = feeders.true_designed_congested.to_numpy()
+    ac = sites.groupby("feeder_id").inverter_kw.sum().reindex(feeders.feeder_id).to_numpy()
+    cong = feeders.congested.to_numpy()
     nf = len(feeders)
     # Congested feeders: limit well below the PV that can export at noon; the others have headroom.
     g = np.where(cong, ac * rng.uniform(0.50, 0.65, nf), ac * rng.uniform(1.0, 1.4, nf))
@@ -144,4 +157,4 @@ def _set_feeder_limits(cfg: FleetConfig, feeders: pd.DataFrame, sites: pd.DataFr
     feeders["g_max_kw"] = g.round(1)
     feeders["g_conservative_kw"] = (g * rng.uniform(0.75, 0.85, nf)).round(1)
     feeders["tau"] = 1.0  # trust in the GIS; the grid-twin (#13) estimates it
-    feeders["n_prosumers"] = sites.groupby("true_feeder_id").size().reindex(feeders.feeder_id).to_numpy()
+    feeders["n_sites"] = sites.groupby("feeder_id").size().reindex(feeders.feeder_id).to_numpy().astype("int32")
