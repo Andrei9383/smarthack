@@ -92,7 +92,7 @@ CPU never runs torch or the LP.
 | Per-feeder LP + baseline policies | `sentinel/opt/` | forecasts + status + limits → schedules | #18 |
 | Agent loop + replay + audit | `sentinel/agent/{loop,audit,replay}.py`, `replay.py` | all of the above → actions, audit log, replay metrics | #17 |
 | Grid-twin | `sentinel/gridtwin/` | IEEE feeder → flags, trust τ, effective limit G | #13 |
-| API + UI (Windmon frontend) | `sentinel/api/`, `web/` | `demo/replay/` → dashboard | #21, #19 |
+| API + UI (Windmon frontend) | `sentinel/api/`, `web/`, `demo/fixtures/` | `demo/replay/` or fixtures → dashboard | #21, #30, #19, #31, #32, #33 |
 | Robustness drills | `sentinel/data/drills.py` | test set → drill variants | #28 |
 | Promote | `models/`, `demo/` | chosen runs → committed weights + replay outputs | #29 |
 
@@ -233,12 +233,12 @@ the work order.
 
 | Phase | Hours | Cards | Gate |
 |---|---|---|---|
-| 1. Setup & contracts | 0–2 | **#21** preview fix (Windmon UI + FastAPI) · **#6** skeleton + run types · **#7** contracts (review) · **#8** cache + CPU-slot probe | preview passes; contracts merged; cache result on all 3 workers |
+| 1. Setup & contracts | 0–2 | **#21** preview fix (Windmon UI + FastAPI) · **#6** skeleton + run types · **#7** contracts (review) · **#8** cache + CPU-slot probe · **#30** UI fixtures | preview passes; contracts merged; cache result on all 3 workers |
 | 2. Data, baselines, LP on mock | 2–7 | #9 raw data · #11 simulator on feeders · #12 PV injector · #10 windows/splits · #15 baselines · #18 LP + baseline policies · #17 agent loop + replay on mock | data committed; data-v1 cached; baselines in `lab top`; LP solves one feeder from mock forecasts; baseline violations visible |
-| 3. Model v1 + full loop | 7–12 | #14 SentinelNet · #16 eval.py · #26 qualify + triage · #27 conformal + P10 rollout · #19 UI panels | SentinelNet beats LightGBM on val (or fallback declared); qualify + LP on all feeders; P10 rollout runs |
+| 3. Model v1 + full loop | 7–12 | #14 SentinelNet · #16 eval.py · #26 qualify + triage · #27 conformal + P10 rollout · #19 #31 #32 UI pages | SentinelNet beats LightGBM on val (or fallback declared); qualify + LP on all feeders; P10 rollout runs |
 | 4. Sweeps + integration (night) | 12–17 | #14 sweeps (`--grid`), 4-seed ensemble · #29 promote · #13 grid-twin | 2–3 grid rounds; ensemble; promoted ONNX; full replay with the real model logged |
 | 5. Evaluation & robustness | 17–21 | #16 PVDAQ + faults on real data · #28 drills · tuned-rule comparison · grid-twin keep/drop | error analysis in `team/insights.md` |
-| 6. Demo freeze | 21–24 | README, slides, rehearsal | `lab freeze on` at h22; `make reproduce` on a clean checkout; slides from `lab report --out`; rehearse ×2 |
+| 6. Demo freeze | 21–24 | #35 README · #34 slides + rehearsal · #33 demo mode | `lab freeze on` at h22; `make reproduce` on a clean checkout; slides from `lab report --out`; rehearse ×2 |
 
 Optional, only when MUST is on track: #22 wind data, #23 wind faults, #24 wind baselines.
 
@@ -356,14 +356,34 @@ Postgres, Redis, Python ingestion with quality and anomaly rules.
 - Until #21 lands, a failed preview blocks auto-merge: submit with `lab submit <id> --run check`.
 - Keep a phone hotspot ready: every submit and worker fetch goes through GitHub.
 
-## 13. Areas and owners
+## 13. Who does what
 
-| Area | Paths | Cards | Owner |
+Each person filters their cards with `lab cards --tag <name>`. Do your cards in this order; the first one is for
+right now. Critical path: #21 (unblocks merges) → #7 (everyone builds on its mock) → #9 → #11 (data for everything).
+
+| Person | Area | Cards, in order | Start now |
 |---|---|---|---|
-| P1 Data | `sentinel/data/**`, `data/**` | #8 #9 #10 #28 (+ #22 optional) | tbd |
-| P2 Physics & synthetic, grid-twin | `sentinel/sim/**`, `sentinel/gridtwin/**` | #11 #12 #13 (+ #23 optional) | tbd |
-| P3 ML lead / training infra | `sentinel/model/**`, `train.py`, `lab.toml`, `requirements*.txt`, `models/**` | #6 #14 #29 | Stefan |
-| P4 Evaluation & uncertainty | `sentinel/eval/**`, `eval.py`, `sentinel/opt/commit.py` | #15 #16 #27 (+ #24 optional) | tbd |
-| P5 Agent & optimiser | `sentinel/contracts/**`, `sentinel/agent/**`, `sentinel/opt/**`, `replay.py` | #7 #17 #18 #26 | tbd |
-| UI | `web/**`, `sentinel/api/**`, `demo/**` | #21 #19 | Andrei? |
-| Plan / docs | `team/plan.md`, `team/decisions.md` | #25 | yolooo332 |
+| **Andrei** | Data + simulation + grid-twin; lab admin | #8 cache/CPU probe → #11 fleet simulator → #12 PV fault injector → #10 windows/splits → #13 grid-twin (phase 4) → #28 drills (phase 5) → OPTIONAL #22 #23 #24 wind | #8, then #11 (stub weather until #9 lands) |
+| **Stefan** | ML + training infra + baselines + eval | #6 skeleton → #9 raw data → #15 baselines + LightGBM fallback → #14 SentinelNet (on the #7 mock, then real windows) → #16 eval.py → sweeps + ensemble → #29 promote | #6, then #9 |
+| **yolooo332** | Contracts, optimiser, agent, uncertainty, README | #7 contracts → #18 per-feeder LP + baseline policies → #17 agent loop + replay → #26 qualify + triage → #27 conformal + P10 → #35 README + make reproduce | #7 |
+| **Tudor** | Front-end: shell, map, feeder view, demo | #21 Windmon port + FastAPI preview → #19 fleet map + feeder view → #33 demo mode → #34 slides + rehearsal | #21 |
+| **Alexandra** | Front-end: data fixtures, flexibility, site, queues | #30 UI fixtures → #31 flexibility panel + site view → #32 O&M queue, review queue, audit → help on #34 slides | #30 |
+
+Andrei also handles lab admin: start a worker with `--cpu-slots` if #8 finds none, `lab public on` before the
+demo, `lab freeze on` at h22, and revoking the Windmon keys.
+
+Hand-offs to agree early:
+- yolooo332 ↔ Alexandra: the `demo/replay` format (`team/contracts/replay.md` in #7 = the shape of #30's fixtures).
+- Andrei ↔ yolooo332: the battery model and self-consumption rule are shared by #11 (simulator) and #18 (LP baseline).
+- Stefan ↔ yolooo332: the `predict()` contract (#7), implemented by both SentinelNet (#14) and the LightGBM fallback (#15).
+- Tudor ↔ Alexandra: Tudor owns layout, navigation and `web/src/components/**`; each page card adds its own
+  folder under `web/src/pages/` and its own route file under `sentinel/api/routes/`.
+
+| Area | Paths | Owner |
+|---|---|---|
+| Data, simulation, grid-twin | `sentinel/data/**` (except `download.py`), `sentinel/sim/**`, `sentinel/gridtwin/**` | Andrei |
+| ML, training, baselines, eval, promote | `sentinel/model/**`, `train.py`, `sentinel/eval/{baselines,metrics,report}*`, `eval.py`, `sentinel/data/download.py`, `data/raw/**`, `lab.toml`, `requirements*.txt`, `models/**`, `demo/replay/**` | Stefan |
+| Contracts, optimiser, agent, uncertainty | `team/contracts/**`, `sentinel/contracts/**`, `sentinel/opt/**`, `sentinel/agent/**`, `sentinel/eval/uncertainty/**`, `replay.py`, `README.md`, `Makefile` | yolooo332 |
+| UI shell, map, feeder view, demo, slides | `web/` (shell, `components/`, `pages/fleet`, `pages/feeder`, `src/demo`), `sentinel/api/main.py`, `sentinel/api/routes/{fleet,feeders}.py`, `slides/**` | Tudor |
+| UI fixtures, flexibility, site, queues | `demo/fixtures/**`, `web/src/pages/{flex,site,queue,audit}/**`, `sentinel/api/routes/{flex,sites,queue,audit}.py` | Alexandra |
+| Plan / docs | `team/plan.md`, `team/decisions.md` | yolooo332 |
