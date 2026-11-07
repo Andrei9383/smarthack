@@ -14,7 +14,7 @@ Registry (lazy imports, so a card's module is only imported when its model is as
   demandnet   M3  sentinel.demand.train:main              (#44)
   windpower   M5  sentinel.model.windpower.train:main     (#42)
   windfailure M7  sentinel.model.windfailure.train:main   (#43)
-  gridtwin    M8  sentinel.gridtwin.train:main            (#13)
+  gridtwin    M8  sentinel.gridtwin.run:main              (#13)
   judge       J3  sentinel.judge.train:main               (#148, Judge validity models; team/judge-design.md §7)
 """
 
@@ -31,7 +31,7 @@ REGISTRY: dict[str, str] = {
     "demandnet": "sentinel.demand.train:main",
     "windpower": "sentinel.model.windpower.train:main",
     "windfailure": "sentinel.model.windfailure.train:main",
-    "gridtwin": "sentinel.gridtwin.train:main",
+    "gridtwin": "sentinel.gridtwin.run:main",
     "judge": "sentinel.judge.train:main",
 }
 

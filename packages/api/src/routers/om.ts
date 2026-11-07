@@ -3,6 +3,7 @@
 import { implement } from "@orpc/server";
 import {
   alerts,
+  assetColumns,
   assets,
   measurements,
   predictions,
@@ -246,7 +247,7 @@ export const omRouter = os.router({
         tempTrends: [],
       };
       const [asset] = await emptyIfNoTables(() =>
-        db.select().from(assets).where(eq(assets.id, input.assetId)).limit(1),
+        db.select(assetColumns).from(assets).where(eq(assets.id, input.assetId)).limit(1),
       );
       const runId = await resolveRunId(db, input.runId);
       if (!asset || !runId) return empty;

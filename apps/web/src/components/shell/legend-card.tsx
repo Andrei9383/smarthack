@@ -9,6 +9,7 @@ import { STRESS_RAMP } from "@/modes/demand/colors";
 import type { ModeId } from "@/modes/registry";
 
 import { StatusMark } from "@/components/brand/status-mark";
+import { SparkKey } from "@/components/map-spark/map-spark";
 import { Term } from "@/components/help";
 
 // One legend card per mode, top-left under the top bar as in the prototype. Colours are the
@@ -112,6 +113,12 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
         <Row swatch={<Line tone="bg-brand-700/60" />}>Wind at 100 m, moving</Row>
         <Row swatch={<Dot tone="bg-primary" />}>Wind park, MWh next 24 h</Row>
         <Row swatch={<Sun aria-hidden className="size-3 text-text-secondary" />}>County rooftop solar, MWh</Row>
+        <li className="mt-1 border-t border-border/70 pt-1.5 text-[10px] text-muted-foreground">
+          Small chart under each point, next 24 h
+        </li>
+        <li>
+          <SparkKey className="text-[10.5px]" />
+        </li>
       </>
     );
   } else {

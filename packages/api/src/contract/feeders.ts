@@ -77,6 +77,78 @@ export const absorbingSiteSchema = z.object({
 });
 export type AbsorbingSite = z.infer<typeof absorbingSiteSchema>;
 
+// Feature G (grid) results, read from the JSON documents G1 #159 / G2 #160 / G3 #161 write (no DB table).
+const nn = z.number().nullable();
+export const voltagePolicySchema = z.object({
+  violations: z.number(),
+  minutes: z.number(),
+  tripKwh: z.number(),
+  tripLei: z.number(),
+  vMax: z.number(),
+});
+export const gridResultsSchema = z.object({
+  hosting: z
+    .object({
+      label: z.string(),
+      runId: z.string(),
+      tolMin: z.number(),
+      variant: z.string(),
+      totalWithout: z.number(),
+      totalThreshold: nn,
+      totalWith: z.number(),
+      feeders: z.array(
+        z.object({
+          feederId: z.string(),
+          nHomes: z.number(),
+          without: z.number(),
+          threshold: nn,
+          with: z.number(),
+          censored: z.boolean(),
+        }),
+      ),
+    })
+    .nullable(),
+  voltage: z
+    .object({
+      label: z.string(),
+      runId: z.string(),
+      vLimit: z.number(),
+      nHomes: z.number(),
+      baseline: voltagePolicySchema,
+      sentinel: voltagePolicySchema,
+    })
+    .nullable(),
+  value: z
+    .object({
+      label: z.string(),
+      labelDeo: z.string(),
+      runId: z.string(),
+      deferredCapexLei: z.number(),
+      deoBasisLei: z.array(z.number()),
+      gain: z.number(),
+      feeders: z.array(z.object({ feederId: z.string(), gain: z.number(), yearsDeferred: z.number(), lei: z.number() })),
+      assumptions: z.array(z.object({ label: z.string(), value: z.string() })),
+    })
+    .nullable(),
+  twin: z
+    .object({
+      recoveryRate: nn,
+      nCorrupted: nn,
+      moved: z
+        .object({
+          siteId: z.string(),
+          recordedFeeder: z.string(),
+          suggestedFeeder: z.string(),
+          peakGisKw: nn,
+          peakM8Kw: nn,
+          sitesChanged: z.number(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+});
+export type GridResults = z.infer<typeof gridResultsSchema>;
+
 export const feedersContract = {
   list: oc
     .input(z.object({ runId: z.string().optional() }).optional())
@@ -100,4 +172,5 @@ export const feedersContract = {
   listGisFlags: oc
     .input(z.object({ runId: z.string().optional() }).optional())
     .output(z.array(gisFlagItemSchema)),
+  getGrid: oc.input(z.object({}).optional()).output(gridResultsSchema),
 };
