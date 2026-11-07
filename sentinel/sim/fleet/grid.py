@@ -37,8 +37,8 @@ def feeder_flows(sites: pd.DataFrame, feeders: pd.DataFrame, grid_w: np.ndarray,
                  w: Weather, rng) -> tuple[pd.DataFrame, np.ndarray]:
     """Return (feeder time series as long DataFrame, inverter voltage (n_sites, T))."""
     nf, T = len(feeders), grid_w.shape[1]
-    fidx = pd.Index(feeders.feeder_id).get_indexer(sites.true_feeder_id)
-    pidx = np.searchsorted(np.array(list(PHASES)), sites.true_phase.to_numpy())
+    fidx = pd.Index(feeders.feeder_id).get_indexer(sites.feeder_id)
+    pidx = np.searchsorted(np.array(list(PHASES)), sites.phase.to_numpy())
     group = fidx * 3 + pidx
     onehot = np.zeros((nf * 3, len(sites)), np.float32)
     onehot[group, np.arange(len(sites))] = 1
