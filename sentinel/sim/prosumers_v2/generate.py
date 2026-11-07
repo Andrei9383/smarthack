@@ -108,6 +108,7 @@ def generate(cfg: ProsumerConfig, out_dir: Path | None = None, force: bool = Fal
         acc = _accumulate(map(_simulate_chunk, range(len(chunks))), years, log)
     else:
         import multiprocessing as mp
+        _CTX["forked"] = True
         with mp.get_context("fork").Pool(n_workers) as pool:
             acc = _accumulate(pool.imap_unordered(_simulate_chunk, range(len(chunks))), years, log)
     _CTX = {}
@@ -209,13 +210,18 @@ _CTX: dict = {}
 
 def _default_workers() -> int:
     env = os.environ.get("SENTINEL_PV2_WORKERS")
-    return int(env) if env else max(1, min(8, (os.cpu_count() or 2) - 1))
+    return int(env) if env else max(1, min(4, (os.cpu_count() or 2) // 4))
+
+
+WRITE_SLICE = 100  # homes per write call: keeps each process's Arrow buffers small (output bytes unchanged)
 
 
 def _simulate_chunk(ci: int) -> tuple[int, dict]:
     """One chunk of homes through all years (SoC carries over): writes its truth and meter parts, returns the sums
     the parent needs (monthly totals per home, group and county curves)."""
     c = _CTX
+    if c.get("forked"):
+        os.environ.setdefault("RAYON_NUM_THREADS", "2")  # before the first kernel call starts rayon's pool
     cfg, homes, weather = c["cfg"], c["homes"], c["weather"]
     n = len(homes)
     i0, i1 = ci * cfg.chunk_homes, min(n, (ci + 1) * cfg.chunk_homes)
@@ -255,22 +261,29 @@ def _simulate_chunk(ci: int) -> tuple[int, dict]:
             soc_state = soc[:, -1].copy()
         net = load - pv + batt  # kW, > 0 import
         imp, exp = np.maximum(net, 0) * DT_H, np.maximum(-net, 0) * DT_H
+        del net
         soc = np.where(has_batt[:, None], soc, np.nan)
-        pq.write_table(pa.table({
-            "ts": _ts_array(ts, m), "home_id": _ids(ids, T),
-            "pv_kw": _r(pv), "load_kw": _r(load), "batt_kw": _r(batt), "soc_kwh": _r(soc),
-            "import_kwh": _r(imp), "export_kwh": _r(exp)}, schema=_TRUTH_SCHEMA),
-            c["tmp"] / "truth/home_15min" / f"year={year}" / f"part-{ci:03d}.parquet", row_group_size=T * 32,
-            **_pq(_TRUTH_SCHEMA.names))
+        with pq.ParquetWriter(c["tmp"] / "truth/home_15min" / f"year={year}" / f"part-{ci:03d}.parquet",
+                              _TRUTH_SCHEMA, **_pq(_TRUTH_SCHEMA.names)) as wr:
+            for a in range(0, m, WRITE_SLICE):
+                b = slice(a, min(m, a + WRITE_SLICE))
+                k = b.stop - b.start
+                wr.write_table(pa.table({
+                    "ts": _ts_array(ts, k), "home_id": _ids(ids[b], T), "pv_kw": _r(pv[b]), "load_kw": _r(load[b]),
+                    "batt_kw": _r(batt[b]), "soc_kwh": _r(soc[b]), "import_kwh": _r(imp[b]),
+                    "export_kwh": _r(exp[b])}, schema=_TRUTH_SCHEMA), row_group_size=T * 32)
         if sm.any():
-            gone = missing[sm][:, day]
-            k = int(sm.sum())
-            pq.write_table(pa.table({
-                "ts": _ts_array(ts, k), "home_id": _ids(ids[sm], T),
-                "import_kwh": _r(np.where(gone, np.nan, imp[sm])), "export_kwh": _r(np.where(gone, np.nan, exp[sm])),
-                "available_at": _ts_array(yi["avail"], k)}, schema=_METER_SCHEMA),
-                c["tmp"] / "meter_observed" / f"year={year}" / f"part-{ci:03d}.parquet", row_group_size=T * 32,
-                **_pq(_METER_SCHEMA.names))
+            rows = np.flatnonzero(sm)
+            with pq.ParquetWriter(c["tmp"] / "meter_observed" / f"year={year}" / f"part-{ci:03d}.parquet",
+                                  _METER_SCHEMA, **_pq(_METER_SCHEMA.names)) as wr:
+                for a in range(0, len(rows), WRITE_SLICE):
+                    rr = rows[a:a + WRITE_SLICE]
+                    gone = missing[rr][:, day]
+                    wr.write_table(pa.table({
+                        "ts": _ts_array(ts, len(rr)), "home_id": _ids(ids[rr], T),
+                        "import_kwh": _r(np.where(gone, np.nan, imp[rr])),
+                        "export_kwh": _r(np.where(gone, np.nan, exp[rr])),
+                        "available_at": _ts_array(yi["avail"], len(rr))}, schema=_METER_SCHEMA), row_group_size=T * 32)
         r = {"mon_imp": metering.monthly_sums(imp, yi["midx"], len(yi["mlab"])),
              "mon_exp": metering.monthly_sums(exp, yi["midx"], len(yi["mlab"])),
              "smart_import": C @ imp, "smart_export": C @ exp}
