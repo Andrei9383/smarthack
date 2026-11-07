@@ -7,17 +7,23 @@ import { FeederPanel } from "./feeders/feeder-panel";
 import { FeedersLayers } from "./feeders/feeders-layers";
 import { OmLayers } from "./om/om-layers";
 import { OmPanel } from "./om/om-panel";
-import { OverviewLayers } from "./overview/overview-layers";
-import { OverviewPanel } from "./overview/overview-panel";
+import { OverviewPage } from "./overview/overview-page";
 import { ProductionLayers } from "./production/production-layers";
 import { ProductionPanel } from "./production/production-panel";
 
-// Overview comes first and is the default when `?mode` is missing (#113).
+// Overview comes first and is the default when `?mode` is missing (#113). Since #124 it is a page
+// (briefing, mini map, glance sections), not a full-screen map.
 export const MODE_IDS = ["overview", "feeders", "om", "production", "demand"] as const;
 export type ModeId = (typeof MODE_IDS)[number];
 
 // Align with ModeConfig in ./types.ts when #38 merges. Layers render inside <Map>, so switching
 // modes keeps the basemap and never refetches it.
+/** What the shell hands a full-page mode (one without the map and inspector). */
+export type ModePageProps = {
+  /** Opens the guided tour (#114). */
+  onTour: () => void;
+};
+
 export type ModeEntry = {
   label: string;
   icon: LucideIcon;
@@ -25,16 +31,20 @@ export type ModeEntry = {
   card: string;
   Layers?: ComponentType;
   Panel?: ComponentType;
+  /**
+   * A full page instead of map + inspector (#124: Overview). The shell keeps the rail, the top bar
+   * and a compact dock, and renders this in the map area.
+   */
+  Page?: ComponentType<ModePageProps>;
 };
 
 export const MODES: Record<ModeId, ModeEntry> = {
   overview: {
     label: "Overview",
     icon: LayoutDashboard,
-    blurb: "Every asset at once: what needs attention, what the agent did, one line per mode.",
-    card: "#113",
-    Layers: OverviewLayers,
-    Panel: OverviewPanel,
+    blurb: "The shift briefing: what needs attention, today against no Sentinel, what the agent did.",
+    card: "#124",
+    Page: OverviewPage,
   },
   feeders: {
     label: "Feeders",

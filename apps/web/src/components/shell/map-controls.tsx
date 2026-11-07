@@ -45,7 +45,7 @@ export function ShellMapControls({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "flex flex-col overflow-hidden rounded-xl border border-border bg-card/95 shadow-card",
+        "flex flex-col overflow-hidden rounded-xl bg-card/95 shadow-floating backdrop-blur-sm",
         className,
       )}
     >

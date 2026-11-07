@@ -8,6 +8,7 @@ import { usePolicy } from "@/demo/use-replay";
 import { STRESS_RAMP } from "@/modes/demand/colors";
 import type { ModeId } from "@/modes/registry";
 
+import { StatusMark } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
 
 // One legend card per mode, top-left under the top bar as in the prototype. Colours are the
@@ -93,15 +94,15 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
     body = (
       <>
         <Title>Turbines and home solar</Title>
-        <Row swatch={<Dot tone="bg-status-ok" />}>Working normally</Row>
-        <Row swatch={<Dot tone="bg-status-warn" />}>
+        <Row swatch={<StatusMark kind="ok" size="sm" />}>Working normally</Row>
+        <Row swatch={<StatusMark kind="warn" size="sm" />}>
           <span>
             Working, but <Term id="derated">derated</Term>
           </span>
         </Row>
-        <Row swatch={<Dot tone="bg-status-critical" />}>Stopped</Row>
-        <Row swatch={<Dot tone="bg-status-review" />}>Waiting for a person</Row>
-        <Row swatch={<Dot tone="bg-status-unknown" />}>Left out, no data</Row>
+        <Row swatch={<StatusMark kind="critical" size="sm" />}>Stopped</Row>
+        <Row swatch={<StatusMark kind="review" size="sm" />}>Waiting for a person</Row>
+        <Row swatch={<StatusMark kind="unknown" size="sm" />}>Left out, no data</Row>
       </>
     );
   } else if (mode === "production") {
@@ -130,7 +131,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-card/95 px-3 py-2.5 text-xs text-text-secondary shadow-card",
+        "rounded-xl bg-card/95 px-3 py-2.5 text-xs text-text-secondary shadow-floating backdrop-blur-sm",
         className,
       )}
     >

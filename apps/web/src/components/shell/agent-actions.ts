@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useCallback, useMemo } from "react";
 
+import type { StatusKind } from "@/components/brand/status-mark";
 import { STEPS_IN_WEEK, tsToStep } from "@/demo/replay";
 import { orpc } from "@/utils/orpc";
 
@@ -28,6 +29,8 @@ export type AgentAction = {
   /** URL state that answers "why?": the right mode with the asset selected. */
   target: Record<string, string | null>;
   count: number;
+  /** Battery plans only: how many home batteries the plan schedules. */
+  homes?: number;
 };
 
 export const ACTION_LABEL: Record<ActionKind, string> = {
@@ -35,6 +38,14 @@ export const ACTION_LABEL: Record<ActionKind, string> = {
   workorder: "Work order",
   review: "Human review",
   remote: "Remote check",
+};
+
+// The status mark each action type wears in the lane key, lane popovers, toasts and Overview.
+export const ACTION_MARK: Record<ActionKind, StatusKind> = {
+  dispatch: "ok",
+  workorder: "warn",
+  review: "review",
+  remote: "forecast",
 };
 
 const FOREVER = Number.POSITIVE_INFINITY;
@@ -128,6 +139,7 @@ export function useAgentActions() {
           decided: `Plan: charge ${homes} batteries when export would cross ${limit} kW`,
           target: { mode: "feeders", feeder: row.feederId ?? null, site: null, turbine: null },
           count: rows.length,
+          homes,
         });
       }
     }

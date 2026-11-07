@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { HowItDecides } from "@/components/help";
@@ -12,6 +12,7 @@ import { MODES, type ModeId } from "@/modes/registry";
 
 import { InspectorEmbedded } from "./inspector-embedded";
 import { MODE_COPY } from "./mode-copy";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "./popover";
 
 const plural = (n: number, noun: string, many = `${noun}s`) => `${n} ${n === 1 ? noun : many}`;
 
@@ -48,7 +49,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
       aria-label={`${MODES[mode].label} details`}
       data-tour="inspector"
       className={cn(
-        "flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_2px_rgb(13_13_13/0.05),0_16px_40px_rgb(13_13_13/0.10)]",
+        "flex flex-col overflow-hidden rounded-xl bg-card shadow-floating",
         className,
       )}
     >
@@ -57,7 +58,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-3 motion-safe:duration-250"
       >
         <header className="flex items-start gap-3 border-b border-border px-5 pt-[18px] pb-3.5">
-          <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-primary text-primary-foreground">
+          <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-primary text-primary-foreground shadow-brand">
             <Icon aria-hidden className="size-5" />
           </span>
           <div className="min-w-0 flex-1">
@@ -68,14 +69,33 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
         </header>
 
         {copy.what ? (
-          <section className="border-b border-border px-5 pt-3.5 pb-3">
+          <section className="border-b border-border px-5 pt-3.5 pb-2.5">
             <p className="text-[13px] leading-snug text-foreground">{copy.what}</p>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs leading-snug">
-              <dt className="text-muted-foreground">Agent now</dt>
-              <dd className="text-text-secondary">{copy.doing}</dd>
-              <dt className="text-muted-foreground">Look at</dt>
-              <dd className="text-text-secondary">{copy.look}</dd>
-            </dl>
+            {copy.doing || copy.look ? (
+              <Popover>
+                <PopoverTrigger className="mt-1.5 -ml-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-brand-700 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-900 focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-brand-50">
+                  <Info aria-hidden className="size-3.5" />
+                  What am I looking at?
+                </PopoverTrigger>
+                <PopoverContent side="left" align="start" sideOffset={14} className="w-[288px]">
+                  <PopoverTitle className="text-[13px] font-semibold">{copy.heading}</PopoverTitle>
+                  <dl className="mt-2 space-y-2.5 text-[13px] leading-snug">
+                    <div>
+                      <dt className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+                        The agent now
+                      </dt>
+                      <dd className="mt-0.5 text-text-secondary">{copy.doing}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+                        Look at
+                      </dt>
+                      <dd className="mt-0.5 text-text-secondary">{copy.look}</dd>
+                    </div>
+                  </dl>
+                </PopoverContent>
+              </Popover>
+            ) : null}
           </section>
         ) : null}
 
