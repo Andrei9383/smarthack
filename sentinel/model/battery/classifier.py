@@ -59,7 +59,7 @@ class StrategyClassifier:
         booster = lgb.train({**base, "objective": "multiclass", "num_class": len(STRATEGIES),
                              "metric": "multi_logloss"}, dtr, rounds, valid_sets=valid, callbacks=cb)
         log(f"[battery] strategy classifier: {booster.best_iteration or booster.current_iteration()} rounds, "
-            f"class counts {dict(zip(STRATEGIES, counts.astype(int)))}")
+            f"class counts {dict(zip(STRATEGIES, counts.astype(int).tolist()))}")
         params = {}
         if P is not None:
             for name in PARAMS:

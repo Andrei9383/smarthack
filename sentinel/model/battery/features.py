@@ -39,7 +39,10 @@ CLS_FEATURES = SPEC_FEATURES + EXTRA_FEATURES + PUBLIC_FEATURES
 ROW_FEATURES = ["pv_exp", "load_exp", "net_fo", "pzu", "price", "day_rank", "qh", "dow", "month", "off_day",
                 "kwp", "contract_maxcontrol", "battery_declared", "enrolled",
                 "lag2_net", "lag7_net", "lag2_exp", "lag7_exp",
-                "share_exp_top_price", "exp_nosun_per_kwp", "share_exp_18_21", "exp_ratio", "m_exp_ratio"]
+                "share_exp_top_price", "exp_nosun_per_kwp", "share_exp_18_21", "exp_ratio", "m_exp_ratio",
+                "sim_self", "sim_price"]
+# sim_self / sim_price: K8 net import (kWh/15 min) of the home's expected PV / load if it ran self-consumption /
+# price-driven with prior battery parameters (no classifier involved): the kernel's physics as a feature.
 METER_ROW_FEATURES = ["lag2_net", "lag7_net", "lag2_exp", "lag7_exp", "share_exp_top_price", "exp_nosun_per_kwp",
                       "share_exp_18_21", "exp_ratio"]
 
@@ -258,7 +261,7 @@ def stack_features(f: dict[str, np.ndarray], names: Sequence[str] = CLS_FEATURES
 # =============================================================================================== quantile rows
 def row_features(world: World, homes: pd.DataFrame, rows: np.ndarray, steps: np.ndarray, pv: np.ndarray,
                  load: np.ndarray, imp: np.ndarray, exp: np.ndarray, sfeat_daily: dict[str, np.ndarray],
-                 mask_meter: np.ndarray | None = None) -> np.ndarray:
+                 mask_meter: np.ndarray | None = None, sims: dict[str, np.ndarray] | None = None) -> np.ndarray:
     """(len(rows), len(ROW_FEATURES)) for (home row, step) pairs. ``sfeat_daily`` = strategy_features for ALL days
     (n, D). ``mask_meter`` (len(rows),) bool blanks meter features (trains the profile-meter path)."""
     day = world.cal["day_index"][steps]
@@ -277,6 +280,8 @@ def row_features(world: World, homes: pd.DataFrame, rows: np.ndarray, steps: np.
         "lag2_exp": lag(exp, LAG_DAYS * 96), "lag7_exp": lag(exp, 7 * 96),
     }
     cols["net_fo"] = cols["load_exp"] - cols["pv_exp"]
+    for k in ("sim_self", "sim_price"):
+        cols[k] = sims[k][rows, steps] * DT_H if sims is not None else np.full(len(rows), np.nan)
     for k in ("share_exp_top_price", "exp_nosun_per_kwp", "share_exp_18_21", "exp_ratio", "m_exp_ratio"):
         cols[k] = sfeat_daily[k][rows, day]
     X = np.stack([np.asarray(cols[k], np.float32) for k in ROW_FEATURES], axis=1)

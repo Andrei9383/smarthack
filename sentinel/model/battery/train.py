@@ -30,8 +30,8 @@ import pandas as pd
 
 from . import data as D
 from . import features as F
-from .classifier import PARAMS, STRATEGIES, StrategyClassifier, macro_f1
-from .net_model import NetQuantileModel, mix, simulate_guess
+from .classifier import PARAMS, PRIOR, STRATEGIES, StrategyClassifier, macro_f1
+from .net_model import NetQuantileModel, mix, simulate, simulate_guess
 
 LABEL = "synthetic RO homes (data-v2) / real RO ERA5 weather + OPCOM PZU / proxy M1-M2 (physics + profile)"
 
@@ -86,6 +86,12 @@ class Chunk:
         self.pv, self.load = F.expected_pv_load(world, self.homes, self.imp_m)
         self.daily = F.daily_stats(world, self.imp, self.exp, self.pv, self.load, self.homes["kwp"].to_numpy(float))
         self.sf = F.strategy_features(world, self.daily, self.homes, np.arange(world.n_days), self.imp_m, self.exp_m)
+        n = len(self.homes)
+        prior = {k: np.full(n, PRIOR[k]) for k in PARAMS}
+        prior["k_top"] = prior["k_top"].astype(np.int32)
+        self.sims = {name: simulate(self.pv, self.load, np.full(n, code, np.int8), prior, world.price, world.rank,
+                                    world.med, world.cal["day_index"])[0]
+                     for name, code in (("sim_self", 1), ("sim_price", 2))}
 
     def cls_rows(self, rows: np.ndarray, days: np.ndarray) -> np.ndarray:
         return F.stack_features({k: v[np.ix_(rows, days)] for k, v in self.sf.items()})
@@ -130,7 +136,7 @@ def forecast_chunk(world: D.World, ch: Chunk, years, clf: StrategyClassifier, ne
         for s in range(0, n, batch):
             rows = np.repeat(np.arange(s, min(s + batch, n)), len(steps))
             st = np.tile(steps, min(s + batch, n) - s)
-            X = F.row_features(world, ch.homes, rows, st, ch.pv, ch.load, ch.imp, ch.exp, ch.sf)
+            X = F.row_features(world, ch.homes, rows, st, ch.pv, ch.load, ch.imp, ch.exp, ch.sf, sims=ch.sims)
             q[s:s + batch] = netq.predict(X).reshape(-1, len(steps), 3)
         out["lgbm_q"] = q
         out["lgbm"] = q[..., 1]
@@ -243,7 +249,8 @@ def run(argv=None) -> dict:
             yy = (ch.imp - ch.exp)[rows, st]
             ok = np.flatnonzero(np.isfinite(yy))[:nrows]
             rows, st = rows[ok], st[ok]
-            XX.append(F.row_features(world, hdf, rows, st, ch.pv, ch.load, ch.imp, ch.exp, ch.sf, masked[rows]))
+            XX.append(F.row_features(world, hdf, rows, st, ch.pv, ch.load, ch.imp, ch.exp, ch.sf, masked[rows],
+                                      sims=ch.sims))
             YY.append(yy[ok])
         print(f"[battery] pass 1 chunk {ci}: {n} homes, {time.perf_counter() - t:.0f}s", flush=True)
         del ch
