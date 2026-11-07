@@ -51,16 +51,67 @@ def _predictor_report(preds: dict[str, Any]) -> dict[str, Any]:
     return predictor_report({k: v for k, v in preds.items() if k != "zone"})
 
 
+def feeder_line(head: tuple[float, float], points: Sequence[tuple[float, float]], max_points: int = 200
+                ) -> dict[str, Any]:
+    """GeoJSON LineString ([lon, lat]) for a radial LV feeder: a minimum spanning tree over the substation head and
+    the feeder's sites (Prim, local equirectangular distance), walked depth-first from the head so one line draws
+    every branch (back along a branch before the next). Falls back to sites ordered by distance from the head when
+    the walk would exceed `max_points`. Deterministic (ties by input order)."""
+    pts = [tuple(map(float, head))] + [tuple(map(float, p)) for p in points]
+    n = len(pts)
+    if n == 1:
+        return {"type": "LineString", "coordinates": [list(pts[0]), list(pts[0])]}
+    kx = math.cos(math.radians(pts[0][1]))
+
+    def d2(a: int, b: int) -> float:
+        return ((pts[a][0] - pts[b][0]) * kx) ** 2 + (pts[a][1] - pts[b][1]) ** 2
+
+    parent = [-1] * n
+    best = [d2(0, j) for j in range(n)]
+    done = [False] * n
+    done[0] = True
+    children: dict[int, list[int]] = {i: [] for i in range(n)}
+    for j in range(1, n):
+        parent[j] = 0
+    for _ in range(n - 1):
+        j = min((k for k in range(n) if not done[k]), key=lambda k: best[k])
+        done[j] = True
+        children[parent[j]].append(j)
+        for k in range(n):
+            if not done[k] and d2(j, k) < best[k]:
+                best[k], parent[k] = d2(j, k), j
+    walk: list[int] = []
+
+    def dfs(i: int) -> None:
+        walk.append(i)
+        for c in sorted(children[i], key=lambda c: d2(i, c)):
+            dfs(c)
+            walk.append(i)
+
+    sys.setrecursionlimit(max(1000, 4 * n))
+    dfs(0)
+    while len(walk) > 1 and walk[-1] == walk[-2]:
+        walk.pop()
+    if len(walk) > max_points:
+        walk = sorted(range(n), key=lambda k: d2(0, k))[:max_points]
+    # trim the final return to the head: the line ends at the last branch tip
+    while len(walk) > 2 and walk[-1] in walk[:-1]:
+        walk.pop()
+    return {"type": "LineString", "coordinates": [[round(pts[k][0], 5), round(pts[k][1], 5)] for k in walk]}
+
+
 def write_topology(db: AuditDB, world: World) -> None:
     for fid, f in world.feeders.items():
         sites = [world.sites[s] for s in f.site_ids]
+        geom = feeder_line((f.lon, f.lat), [(float(s.row["lon"]), float(s.row["lat"])) for s in sites])
         db.add("feeders", {
             "id": fid, "name": f"{fid} {f.locality}", "county": f.county,
             "locality": f.locality, "limit_kw": f.spec.g_kw, 
             "tau": f.spec.tau, "gis_trust": "low" if f.spec.tau < 0.8 else "ok", "n_sites": len(sites),
             "g_max_kw": f.spec.g_max_kw, "g_conservative_kw": f.spec.g_conservative_kw,
             "installed_pv_kw": round(sum(float(s.row.get("kwp_recorded") or 0) for s in sites), 2),
-            "installed_batt_kwh": round(sum(s.battery.capacity_kwh for s in sites if s.battery), 2)})
+            "installed_batt_kwh": round(sum(s.battery.capacity_kwh for s in sites if s.battery), 2),
+            "geometry_json": geom})
     for pid, p in world.parks.items():
         rated = sum(world.turbines[t].rated_kw for t in p.turbine_ids)
         db.add("parks", {"id": pid, "name": p.name, "county": p.county, "lat": p.lat,

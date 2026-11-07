@@ -3,8 +3,8 @@
 `World` is the interface the loop reads. Two implementations:
 
 - `MockWorld`: deterministic small Romanian world built from `MockPredictor` (no files, no RNG state). Truth is
-  derived from the mock envelopes plus a few scripted demo stories (plan §7): congested feeder F07 on sunny days,
-  site S1042 with a string outage mid-week, one OOD site, one sensor dropout, wind park WP1 with one stopped turbine
+  derived from the mock envelopes plus a few scripted demo stories (plan §7): congested feeder F7 on sunny days,
+  site 1042 with a string outage mid-week, one OOD site, one sensor dropout, wind park WP01 with one stopped turbine
   and a park-wide curtailment, a data gap in WP2. Label: synthetic RO.
 - `SimWorld` (card #29): the demo week 2025-06-02..08 (Europe/Bucharest) on #11's fleet with #12's faults, read
   from #10's window cache, real OPCOM prices (#9), #22/#23's ERA5-driven wind park, the promoted ONNX models
@@ -158,7 +158,10 @@ class World:
 
     @property
     def week_start(self) -> str:
-        return self.start.date().isoformat()
+        """Local (Europe/Bucharest) date of the first day: the app buckets ts in local time."""
+        from .audit import local_dt
+
+        return local_dt(self.day_ts(0)).date().isoformat()
 
     # data
     def prices(self, d: int) -> list[float]:
@@ -190,17 +193,18 @@ class World:
 
 # --------------------------------------------------------------------------------------------- MockWorld
 # Feeder designs: id, locality, county, lat, lon, sites, limit factor vs forecast baseline peak, tau.
-# F07 is the demo feeder (plan §7): high PV penetration, limit well under its sunny-day export.
+# F7 is the demo feeder (plan §7): high PV penetration, limit well under its sunny-day export. Ids follow the app
+# (apps/web demo-jumps.tsx): feeders F<n>, sites as plain numbers (1042), parks WP0<n>, turbines WP0<n>.TIDxx.
 _FEEDERS = [
-    ("F07", "Cumpana", "Constanta", 44.115, 28.556, 44, 0.62, 1.0),
-    ("F05", "Otopeni", "Ilfov", 44.550, 26.070, 30, 1.35, 1.0),
-    ("F06", "Medgidia", "Constanta", 44.250, 28.270, 26, 1.50, 1.0),
-    ("F08", "Floresti", "Cluj", 46.745, 23.490, 34, 0.80, 0.6),
+    ("F7", "Cumpana", "Constanta", 44.115, 28.556, 44, 0.62, 1.0),
+    ("F5", "Otopeni", "Ilfov", 44.550, 26.070, 30, 1.35, 1.0),
+    ("F6", "Medgidia", "Constanta", 44.250, 28.270, 26, 1.50, 1.0),
+    ("F8", "Floresti", "Cluj", 46.745, 23.490, 34, 0.80, 0.6),
 ]
 _PARKS = [
     # id, name, county, lat, lon, turbines, rated kW, hub m, model
-    ("WP1", "Fantanele-Cogealac (synthetic)", "Constanta", 44.530, 28.580, 12, 2500.0, 85.0, "generic-2.5MW"),
-    ("WP2", "Deleni (synthetic)", "Vaslui", 46.620, 27.640, 8, 6100.0, 120.0, "generic-6.1MW"),
+    ("WP01", "Fantanele-Cogealac (synthetic)", "Constanta", 44.530, 28.580, 12, 2500.0, 85.0, "generic-2.5MW"),
+    ("WP02", "Deleni (synthetic)", "Vaslui", 46.620, 27.640, 8, 6100.0, 120.0, "generic-6.1MW"),
 ]
 # County / locality demand zones (homes are rough synthetic scales, not census numbers).
 _COUNTY_HOMES = {"Constanta": 290_000, "Ilfov": 160_000, "Cluj": 270_000, "Vaslui": 140_000}
@@ -209,7 +213,8 @@ _ARCHETYPES = ("base", "ac", "heat_pump", "electric_heating", "ac", "base")
 _FAULT_LOSS = {"soiling": 0.15, "shading": 0.2, "string_outage": 0.35, "clipping": 0.1, "overvoltage_trip": 0.3,
                "battery_fade": 0.0, "sensor_fault": 0.0}
 
-DEFAULT_START = datetime(2025, 6, 16, tzinfo=timezone.utc)  # Mon; no DST change in the week (R19)
+# Mon 2 June 2025 00:00 Europe/Bucharest (EEST) = 2025-06-01 21:00 UTC: the app's WEEK_START_UTC, no DST change (R19)
+DEFAULT_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
 
 
 class MockWorld(World):
@@ -238,13 +243,13 @@ class MockWorld(World):
 
     # -- construction -------------------------------------------------------------------------------
     def _build_sites(self, scale: float) -> None:
-        num = 1031  # F07 is built first, so its 12th site is S1042 (plan §7 story)
+        num = 1031  # F7 is built first, so its 12th site is 1042 (plan §7 story)
         for fid, loc, county, lat, lon, n, _, tau in _FEEDERS:
             n = max(12, int(round(n * scale)))
             feeder = Feeder(FeederSpec(fid, 1.0, 1.0, 1.0), loc, county, lat, lon)
-            hi_pen = fid in ("F07", "F08")
+            hi_pen = fid in ("F7", "F8")
             for _ in range(n):
-                sid = f"S{num}"
+                sid = str(num)
                 num += 1
                 k = (self.seed, sid)
                 kwp = round((5.0 + 5.0 * _u(*k, "kwp")) if hi_pen else (3.0 + 7.0 * _u(*k, "kwp")), 1)
@@ -286,22 +291,22 @@ class MockWorld(World):
             p = self._health.predict(site.row, t0=self.day_t0(0), horizon=1)
             if p.p_fault > 0.5:
                 f = p.top_fault
-                self.faults[sid] = {"fault": f, "onset_ts": week0, "end_ts": None,
+                self.faults[sid] = {"fault": f, "onset_ts": week0 - 86400, "end_ts": None,  # pre-existing
                                     "severity": _FAULT_LOSS.get(f, 0.2), "p": p.fault_probs[f]}
-        f07 = self.feeders["F07"].site_ids
-        story = "S1042" if "S1042" in f07 else f07[min(11, len(f07) - 1)]
+        f07 = self.feeders["F7"].site_ids
+        story = "1042" if "1042" in f07 else f07[min(11, len(f07) - 1)]
         self.story_site = story
-        mid = max(1, self.days // 2)
-        self.faults[story] = {"fault": PvFault.STRING_OUTAGE.value, "onset_ts": self.day_ts(mid) + 40 * STEP_S,
+        mid = min(3, self.days - 1) if self.days > 1 else 0  # FAULT_DAY of the app (replay.ts), 05:00 local
+        self.faults[story] = {"fault": PvFault.STRING_OUTAGE.value, "onset_ts": self.day_ts(mid) + 20 * STEP_S,
                               "end_ts": None, "severity": 0.35, "p": 0.9}
         if self.sites[story].battery is None:  # the story needs a battery that stays in the pool
             self.sites[story].battery = BatterySpec(10.0, 4.0, comfort_reserve_kwh=2.0)
             self.sites[story].row.update(battery_kwh=10.0, battery_kw=4.0, comfort_reserve_kwh=2.0)
-        f05 = self.feeders["F05"].site_ids
+        f05 = self.feeders["F5"].site_ids
         self.ood_site = f05[min(4, len(f05) - 1)]
         self.ood_sites.add(self.ood_site)
         self.faults.pop(self.ood_site, None)
-        f08 = self.feeders["F08"].site_ids
+        f08 = self.feeders["F8"].site_ids
         self.stale_site = f08[min(2, len(f08) - 1)]
         self.faults.pop(self.stale_site, None)
         d1 = min(1, self.days - 1)
@@ -347,9 +352,9 @@ class MockWorld(World):
                 park.turbine_ids.append(tid)
             self.parks[pid] = park
         # Scripted wind stories. Park expected energy per day decides when they happen (deterministic).
-        wp1 = self.parks["WP1"].turbine_ids
+        wp1 = self.parks["WP01"].turbine_ids
         exp = {d: self._wind.predict(self.turbines[wp1[0]].row, t0=self.day_t0(d)).q50 for d in range(self.days)}
-        stop_t = wp1[2]  # WP1.TID03 stops (fault) from day 1 06:00 for 30 h
+        stop_t = wp1[2]  # WP01.TID03 stops (fault) from day 1 06:00 for 30 h
         d_stop = min(1, self.days - 1)
         self.faults[stop_t] = {"fault": "fault_stop", "onset_ts": self.day_ts(d_stop) + 24 * STEP_S,
                                "end_ts": self.day_ts(d_stop) + 24 * STEP_S + 30 * 3600, "severity": 1.0}
@@ -357,8 +362,8 @@ class MockWorld(World):
         d_cur = max(cands, key=lambda d: sum(exp[d]))
         k_max = max(range(8, DAY_STEPS - 8), key=lambda k: exp[d_cur][k])
         start = self.day_ts(d_cur) + (k_max - 8) * STEP_S
-        self.curtailment = {"park_id": "WP1", "from_ts": start, "to_ts": start + 4 * 3600, "cap_frac": 0.0}
-        gap_t = self.parks["WP2"].turbine_ids[4]
+        self.curtailment = {"park_id": "WP01", "from_ts": start, "to_ts": start + 4 * 3600, "cap_frac": 0.0}
+        gap_t = self.parks["WP02"].turbine_ids[4]
         d_gap = min(2, self.days - 1)
         self.faults[gap_t] = {"fault": "data_gap", "onset_ts": self.day_ts(d_gap) + 24 * STEP_S,
                               "end_ts": self.day_ts(d_gap) + 48 * STEP_S, "severity": 0.0}
@@ -376,8 +381,10 @@ class MockWorld(World):
         """Synthetic OPCOM-PZU-like hourly prices (lei/MWh): cheap solar noon, expensive evening (local time)."""
         out = []
         lvl = 1.0 + 0.15 * _s(self.seed, d, "plvl")
+        from .audit import local_dt
+
         for h in range(24):
-            local = (h + 3) % 24  # June: Bucharest = UTC+3
+            local = local_dt(self.day_ts(d) + h * 3600).hour
             base = 380 + 260 * math.exp(-((local - 8) ** 2) / 4) + 620 * math.exp(-((local - 20.5) ** 2) / 4.5)
             base -= 300 * math.exp(-((local - 13) ** 2) / 6)
             p = max(10.0, lvl * base * (1 + 0.08 * _s(self.seed, d, h, "pn")))
@@ -521,11 +528,14 @@ class MockWorld(World):
 class _WorldAwareHealthMock:
     """M4 stand-in: MockPredictor('sitehealth') whose fault head reports the world's faults.
 
-    Scripted faults become visible one day after onset (the residual has to build up), the OOD site always
+    Scripted faults become visible `delay_s` after onset (the residual has to build up), at the next assessment:
+    day start or one of the intraday re-checks (`reassess_ticks`, as the real M4 adapter); the OOD site always
     reports a high ood_score. Model id stays `sitehealth`, version `mock-1`, like MockPredictor.
     """
 
-    def __init__(self, world: MockWorld, delay_s: int = 86400 // 2):
+    reassess_ticks = (40, 48, 56, 64)
+
+    def __init__(self, world: MockWorld, delay_s: int = 4 * 3600):
         self.world = world
         self.inner = MockPredictor("sitehealth")
         self.model = self.inner.model
@@ -537,9 +547,11 @@ class _WorldAwareHealthMock:
         p = self.inner.predict(asset, window, t0=t0, horizon=horizon)
         sid = p.asset_id
         t = int(datetime.fromisoformat(p.t0.replace("Z", "+00:00")).timestamp())
+        if window is not None and window.meta:
+            t += int(window.meta.get("tick", 0)) * STEP_S
         f = self.world.faults.get(sid)
         classes = [c.value for c in PvFault]
-        if f and f["onset_ts"] + self.delay_s <= t + DAY_STEPS * STEP_S // 2:
+        if f and f["onset_ts"] + self.delay_s <= t:
             top, conf = f["fault"], float(f.get("p", 0.85))
         else:
             top, conf = PvFault.HEALTHY.value, 0.93 + 0.05 * _u(sid, p.t0, "hc")

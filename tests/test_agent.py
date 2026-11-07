@@ -178,12 +178,12 @@ def test_feasibility_clip_holds_against_an_adversarial_planner():
 def test_sentinel_not_worse_on_congested_feeder(small):
     rep, _ = small
     b, s = rep.results["baseline"], rep.results["sentinel"]
-    mb = sum(v["minutes_over"] for (f, _), v in b.feeder_days.items() if f == "F07")
-    ms = sum(v["minutes_over"] for (f, _), v in s.feeder_days.items() if f == "F07")
-    assert mb > 0, "F07 must congest under the baseline in the mock world"
+    mb = sum(v["minutes_over"] for (f, _), v in b.feeder_days.items() if f == "F7")
+    ms = sum(v["minutes_over"] for (f, _), v in s.feeder_days.items() if f == "F7")
+    assert mb > 0, "F7 must congest under the baseline in the mock world"
     assert ms <= mb
-    pb = max(v["peak_export"] for (f, _), v in b.feeder_days.items() if f == "F07")
-    ps = max(v["peak_export"] for (f, _), v in s.feeder_days.items() if f == "F07")
+    pb = max(v["peak_export"] for (f, _), v in b.feeder_days.items() if f == "F7")
+    ps = max(v["peak_export"] for (f, _), v in s.feeder_days.items() if f == "F7")
     assert ps < pb
 
 
@@ -201,9 +201,9 @@ def test_kpis_and_commitment_invariants(small):
 def test_mock_world_is_deterministic_and_has_the_demo_stories():
     a, b = MockWorld(days=7), MockWorld(days=7)
     sid = a.story_site
-    assert sid == "S1042" and a.sites[sid].feeder_id == "F07" and a.faults[sid]["fault"] == "string_outage"
+    assert sid == "1042" and a.sites[sid].feeder_id == "F7" and a.faults[sid]["fault"] == "string_outage"
     assert input_hash(a.site_day(sid, 3).pv_kw) == input_hash(b.site_day(sid, 3).pv_kw)
-    assert a.feeders["F07"].congested and a.curtailment["park_id"] == "WP1"
+    assert a.feeders["F7"].congested and a.curtailment["park_id"] == "WP01"
     assert any(f["fault"] == "fault_stop" for f in a.faults.values())
 
 
