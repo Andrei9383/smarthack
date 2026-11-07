@@ -214,3 +214,20 @@ def test_table_schemas():
     tel = ["ts", "site_id", "pv_ac_w", "inv_voltage_v", "inv_status", "soc", "batt_w", "load_w"]
     assert check_columns("telemetry", tel) == []
     assert check_columns("telemetry", tel[:-1]) == ["telemetry: missing column 'load_w'"]
+
+
+def test_mock_window_caches_match_uncached_path():
+    """#98: predict() caches per-window clear-sky / load terms; a plain list of times takes the uncached path."""
+    from datetime import timedelta
+
+    from sentinel.contracts import parse_utc
+
+    t0 = "2025-10-26T00:00:00Z"  # DST change day
+    times = [parse_utc(t0) + timedelta(minutes=15 * k) for k in range(96)]
+    row = {"site_id": "S1", "zone_id": "Z1", "kwp_true": 6.3, "lat": 44.7, "archetype": "heat_pump", "n_homes": 800}
+    for kind in ("pv", "load", "sitehealth", "zone"):
+        m = MockPredictor(kind)
+        for _ in range(2):  # second call hits the caches
+            p = m.predict(row, t0=t0)
+            q10, q50, q90, _ = getattr(m, f"_{kind}")(row, p.asset_id, times)
+            assert (p.q10, p.q50, p.q90) == (q10, q50, q90)
