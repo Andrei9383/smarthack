@@ -136,6 +136,26 @@ def _windows_sample(args: tuple[Any, ...]) -> tuple[Any, ...]:
     return (pv, sites[0, :256], starts[0, :256], -_HIST, _HIST + 96, np.float32)
 
 
+# ---- rolling mean: M6 clf_features for one park over the full span (70 turbines x 70,176 steps, 2 years of
+# 15-min data); one call per window size it uses (4, 16, 96, 672, 2016), 10% NaN.
+_ROLL_W = (4, 16, 96, 672, 2016)
+
+
+def _rolling_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    x = rng.standard_normal((max(2, int(round(70176 * scale))), max(1, int(round(70 * scale)))))
+    x[rng.random(x.shape) < 0.1] = np.nan
+    return (x, 96)
+
+
+def _rolling_run(fn: Callable[..., Any], args: tuple[Any, ...]) -> None:
+    for w in _ROLL_W:
+        fn(args[0], w)
+
+
+def _rolling_sample(args: tuple[Any, ...]) -> tuple[Any, ...]:
+    return (args[0][:5000], 672)
+
+
 CASES = [
     Case("cusum_two_sided", "cusum", _cusum_make, _cusum_run, _cusum_sample, "2000 series x 35040 steps, f64, 0.2% NaN gaps"),
     Case("cusum_two_sided", "cusum_cap", _cusum_cap_make, _cusum_run, _cusum_sample,
@@ -144,6 +164,8 @@ CASES = [
          f"{_ROLLOUT_CALLS} feeder-days x 200 scenarios x 50 sites x 96 steps"),
     Case("window_gather", "windows", _windows_make, _windows_run, _windows_sample,
          f"{_WIN_BATCHES} batches x {_WIN_B} windows: 14 d hist + 24 h target, f16 -> f32, from 600 x 140160"),
+    Case("rolling_mean", "rolling", _rolling_make, _rolling_run, _rolling_sample,
+         f"70176 steps x 70 turbines, f64, 10% NaN, w in {_ROLL_W} (M6 clf_features)"),
 ]
 
 

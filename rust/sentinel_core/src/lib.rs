@@ -12,6 +12,7 @@ use pyo3::prelude::*;
 
 mod cusum;
 mod rollout;
+mod rolling;
 mod windows;
 
 /// cusum_two_sided(x: f64[m, n], k: float, h: float, cap: float | None = None)
@@ -157,6 +158,21 @@ fn window_gather_f16_f32<'py>(
     py.detach(|| windows::gather_f16_f32(s, r, w, ro, st, step, offset, length, o)).map_err(PyValueError::new_err)
 }
 
+/// rolling_mean(x: f64[t, m], w: int) -> f64[t, m]
+///
+/// Causal NaN-aware rolling mean over the last w rows; the Python wrapper
+/// `sentinel.kernels.rolling.rolling_mean_rust` reshapes (T, ...) input to 2-D.
+#[pyfunction]
+fn rolling_mean<'py>(py: Python<'py>, x: PyReadonlyArray2<'py, f64>, w: i64) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    if w < 0 {
+        return Err(PyValueError::new_err("w must be >= 0"));
+    }
+    let (t, m) = (x.shape()[0], x.shape()[1]);
+    let xs = x.as_slice().map_err(|_| PyValueError::new_err("x must be C-contiguous"))?;
+    let out = py.detach(|| rolling::rolling_mean_2d(xs, t, m, w as usize));
+    Ok(Array2::from_shape_vec((t, m), out).map_err(|e| PyValueError::new_err(e.to_string()))?.into_pyarray(py))
+}
+
 /// Number of rayon worker threads (for the bench log).
 #[pyfunction]
 fn num_threads() -> usize {
@@ -170,6 +186,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(battery_rollout, m)?)?;
     m.add_function(wrap_pyfunction!(window_gather_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(window_gather_f16_f32, m)?)?;
+    m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }

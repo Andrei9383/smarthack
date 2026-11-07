@@ -39,7 +39,8 @@ async function latestStatuses(
     .where(
       and(
         eq(statuses.runId, runId),
-        sql`${statuses.ts} = (select max(ts) from statuses where run_id = ${runId})`,
+        // Replay writes a status on change and at day start, so read each asset's latest row.
+        sql`${statuses.ts} = (select max(s2.ts) from statuses s2 where s2.run_id = ${runId} and s2.asset_id = ${statuses.assetId})`,
       ),
     );
 }

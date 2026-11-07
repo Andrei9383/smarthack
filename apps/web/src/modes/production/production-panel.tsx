@@ -15,7 +15,10 @@ import { useProductionData } from "./use-production-data";
 import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta } from "./wind-field";
 
-const FAN_COLOR = "#2dd4bf";
+// Sentinel's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
+const FAN_FILL = "var(--brand-500)";
+const FAN_LINE = "var(--primary)";
+const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase";
 const CHART_MARGIN = { left: 8, right: 8, top: 8, bottom: 24 };
 const BEST_HOURS = 3;
 
@@ -78,28 +81,32 @@ export function ProductionPanel() {
   const windLabel = meta?.source === "mock" ? "mock wind field" : "real RO, ERA5 100 m wind";
 
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
-      <header>
-        <h2 className="font-semibold">
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-5 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-card">
+      <header className="space-y-1.5">
+        <h2 className="text-base font-semibold text-foreground">
           {park ? `${park.id} · ${park.name}` : "Production"}
         </h2>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[13px] leading-relaxed text-text-secondary tabular-nums">
           {park && `${park.county} · ${park.ratedMw} MW rated · ${Math.round(parkMwh)} MWh next 24 h · `}
-          <span className="font-medium text-amber-400">{label ?? (isLoading ? "loading" : "no run loaded")}</span>
+          <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-px text-[11px] font-medium text-text-secondary">
+            {label ?? (isLoading ? "loading" : "no run loaded")}
+          </span>
         </p>
       </header>
 
       {/* Neighbouring parks stack at country zoom, so their markers alone can't select them all. */}
       {parks.length > 1 && (
-        <nav className="flex flex-wrap gap-1" aria-label="Parks">
+        <nav className="flex flex-wrap gap-1.5" aria-label="Parks">
           {parks.map((p) => (
             <button
               key={p.id}
               type="button"
               aria-pressed={p.id === park?.id}
               onClick={() => setSelected(p.id)}
-              className={`rounded border px-2 py-0.5 text-xs ${
-                p.id === park?.id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+              className={`rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors ${
+                p.id === park?.id
+                  ? "border-brand-100 bg-brand-50 text-brand-900"
+                  : "border-border bg-card text-text-secondary hover:bg-muted hover:text-foreground"
               }`}
             >
               {p.id}
@@ -108,48 +115,58 @@ export function ProductionPanel() {
         </nav>
       )}
 
-      <p className="flex justify-between text-sm font-medium">
-        <span>Wind at 100 m</span>
-        <span className="text-xs font-normal text-muted-foreground">
+      <p className="flex items-baseline justify-between gap-3">
+        <span className={SECTION_LABEL}>Wind at 100 m</span>
+        <span className="text-xs text-text-secondary tabular-nums">
           {hourTs ? `${localLabel(hourTs)} Bucharest` : "—"} · {meta ? windLabel : "loading"}
         </span>
       </p>
 
       {fan.length === 0 ? (
         !isLoading && (
-          <p className="rounded border p-3 text-sm text-muted-foreground">
+          <p className="rounded-lg bg-muted p-4 text-[13px] text-text-secondary">
             No park forecast rows for this time in the loaded run.
           </p>
         )
       ) : (
         <>
-          <section className="space-y-1">
-            <h3 className="text-sm font-medium">Park output, P10–P90 (MW)</h3>
+          <section className="space-y-2">
+            <h3 className={SECTION_LABEL}>Park output, P10–P90 (MW)</h3>
             <LineChart data={fan} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
               <Grid />
-              <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill={FAN_COLOR} curve={curveMonotoneX} />
-              <Line dataKey="p50" stroke={FAN_COLOR} curve={curveMonotoneX} fadeEdges={false} />
+              <Band
+                upperKey="p90"
+                lowerKey="p10"
+                label="P10–P90"
+                fill={FAN_FILL}
+                fillOpacity={0.16}
+                strokeOpacity={0.5}
+                curve={curveMonotoneX}
+              />
+              <Line dataKey="p50" stroke={FAN_LINE} curve={curveMonotoneX} fadeEdges={false} />
               <XAxis numTicks={5} labels={labels} />
               <ChartTooltip />
             </LineChart>
           </section>
 
-          <section className="grid grid-cols-2 gap-2 rounded border p-2">
+          <section className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg bg-sidebar p-4">
             {windCounties.map(({ county, windMwh }) => (
-              <div key={county}>
-                <div className="text-[11px] text-muted-foreground">{county} wind, next 24 h</div>
-                <div className="text-base font-semibold">{Math.round(windMwh)} MWh</div>
+              <div key={county} className="space-y-1">
+                <div className={SECTION_LABEL}>{county} wind, next 24 h</div>
+                <div className="text-[28px] leading-none font-semibold text-foreground tabular-nums">
+                  {Math.round(windMwh)} <span className="text-[13px] font-normal text-muted-foreground">MWh</span>
+                </div>
               </div>
             ))}
           </section>
 
-          <section className="space-y-1">
-            <h3 className="text-sm font-medium">Best production hours, all parks</h3>
-            <ul className="space-y-1 text-sm">
+          <section className="space-y-2">
+            <h3 className={SECTION_LABEL}>Best production hours, all parks</h3>
+            <ul className="divide-y divide-border text-[13px] tabular-nums">
               {bestHours.map(({ ts, p50 }) => (
-                <li key={ts} className="flex justify-between">
-                  <span>{localLabel(ts)}</span>
-                  <span className="text-muted-foreground">{Math.round(p50)} MW</span>
+                <li key={ts} className="flex justify-between py-1.5">
+                  <span className="font-medium text-foreground">{localLabel(ts)}</span>
+                  <span className="text-text-secondary">{Math.round(p50)} MW</span>
                 </li>
               ))}
             </ul>
