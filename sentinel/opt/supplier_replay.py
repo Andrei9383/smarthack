@@ -6,8 +6,8 @@ Same world, same forecasts, same prices for every variant; only the planner's ob
     baseline   the self-consumption rule (no plan), for reference
     dso        the #18 LP as in replay#506 (`plan_feeder`, supplier=None)
     sup        + the supplier term (`SupplierObjective`, weight 1, bill kept), lexicographic hard feeder limit
-    sup_only   + the supplier term with the prosumer-bill term off (bill_weight 0)
-    sup_noguard as `sup` without the near-limit charge guard (slack bound only; replay#882's `sup`)
+    sup_only   + the supplier term with the prosumer-bill term off (bill_weight 0; stage 1 keeps the bill, #188)
+    sup_noguard as `sup` without the near-limit guard (slack bound only; replay#882's `sup`)
     sup_nolex  as `sup` but one solve (limit kept only through M >> supplier weights)
 
 The supplier's day-ahead position per feeder-day = I5's purchase (`sentinel.eval.portfolio.forecast_day(...).bought`,
