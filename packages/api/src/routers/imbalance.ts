@@ -1,8 +1,10 @@
 import { implement } from "@orpc/server";
-import type { Database } from "@sentinel-app/db";
+import { createDb, type Database } from "@sentinel-app/db";
 import { portfolioForecast, positions, siteStrategy } from "@sentinel-app/db/schema/imbalance";
 import { assets } from "@sentinel-app/db/schema/sentinel";
 import { and, asc, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 import type { Context } from "../context";
 import { imbalanceContract, type PolicyTotals } from "../contract/imbalance";
@@ -11,6 +13,17 @@ import { emptyIfNoTables } from "./runs";
 const os = implement(imbalanceContract).$context<Context>();
 const DAY_MS = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
+
+// The imbalance replay's tables (positions, portfolio_forecast) live in their own file when one exists:
+// SENTINEL_IMBALANCE_DB, else demo/imbalance.sqlite (#193; kept out of demo/sentinel.sqlite so replay#506's file
+// stays byte-identical and under R18's 50 MB). Otherwise they are read from the app DB.
+const IMBALANCE_FILE = [process.env.SENTINEL_IMBALANCE_DB, "demo/imbalance.sqlite"]
+  .filter((p): p is string => Boolean(p))
+  .flatMap((p) => [resolve(p), resolve("../..", p)])
+  .find(existsSync);
+let imbalanceDb: Database | undefined;
+const store = (db: Database): Database =>
+  IMBALANCE_FILE ? (imbalanceDb ??= createDb({ DATABASE_URL: `file:${IMBALANCE_FILE}` })) : db;
 
 // Bucharest local hour in SQL: EEST (+3) between the last Sundays of March and October, approximated by
 // 30 Mar - 25 Oct (exact in 2025, the replayed year), else EET (+2).
@@ -53,7 +66,8 @@ async function nearestWindow(db: Database, from: string) {
 }
 
 export const imbalanceRouter = os.router({
-  getImbalanceDay: os.getImbalanceDay.handler(async ({ context: { db }, input }) => {
+  getImbalanceDay: os.getImbalanceDay.handler(async ({ context, input }) => {
+    const db = store(context.db);
     const from = input.from ?? "2025-06-02T21:00:00Z";
     let win = { from, to: input.to ?? iso(Date.parse(from) + DAY_MS) };
     const has = await emptyIfNoTables(() =>
@@ -91,8 +105,8 @@ export const imbalanceRouter = os.router({
     return { ...win, steps, totals: tot };
   }),
 
-  getPolicyComparison: os.getPolicyComparison.handler(({ context: { db }, input }) =>
-    totals(db, inWindow(input?.from, input?.to)),
+  getPolicyComparison: os.getPolicyComparison.handler(({ context, input }) =>
+    totals(store(context.db), inWindow(input?.from, input?.to)),
   ),
 
   getStrategyBreakdown: os.getStrategyBreakdown.handler(async ({ context: { db } }) => {
