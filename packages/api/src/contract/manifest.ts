@@ -25,7 +25,23 @@ export const kpiItemSchema = z.object({
 });
 export type KpiItem = z.infer<typeof kpiItemSchema>;
 
+export const overviewSchema = z.object({
+  homes: z.number(),
+  feeders: z.number(),
+  turbines: z.number(),
+  parks: z.number(),
+  productionMwh: z.number().nullable(),
+  avgWindKmh: z.number().nullable(),
+  availabilityPct: z.number().nullable(),
+  activeIssues: z.number().nullable(),
+});
+export type Overview = z.infer<typeof overviewSchema>;
+
 export const manifestContract = {
+  // KPI strip for one replay window; from/to are ISO-8601 UTC, `now` is the replay time.
+  getOverview: oc
+    .input(z.object({ from: z.string(), to: z.string(), now: z.string() }))
+    .output(overviewSchema),
   getRuns: oc
     .input(z.object({}).optional())
     .output(z.array(runItemSchema)),
