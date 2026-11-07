@@ -8,9 +8,11 @@ import {
   schedules,
 } from "@sentinel-app/db/schema/sentinel";
 import { and, asc, eq, gt, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import type { Context } from "../context";
-import { feedersContract } from "../contract/feeders";
+import { feedersContract, type GridResults } from "../contract/feeders";
 import { currentRunIds, emptyIfNoTables } from "./runs";
 
 const os = implement(feedersContract).$context<Context>();
@@ -35,7 +37,134 @@ function quantile(sorted: number[], q: number): number {
   return a + (b - a) * (position - low);
 }
 
+// Feature G documents: SENTINEL_GRID_DIR holds hosting_capacity.json (G1), voltage.json (G2) and
+// dso_value.json (G3); also tried: each writer's default --out, from the repo root or apps/web.
+type Doc = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+const GRID_DIRS = [process.env.SENTINEL_GRID_DIR, "out/grid", "out/grid/g1", "out/hosting_capacity", ".lab-out/voltage", "."]
+  .filter((d): d is string => Boolean(d))
+  .flatMap((d) => [resolve(d), resolve("../..", d)]);
+
+function readDoc(name: string): Doc | null {
+  const path = GRID_DIRS.map((dir) => join(dir, name)).find(existsSync);
+  if (!path) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Doc;
+  } catch {
+    return null;
+  }
+}
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+const pct = (x: unknown) => (typeof x === "number" ? `${(x * 100).toFixed(1)}%` : "—");
+const lei = (x: unknown) => (typeof x === "number" ? `${Math.round(x).toLocaleString("en-GB")} lei` : "—");
+
+function hostingOf(doc: Doc | null, variant = "batteries", tol = "30"): GridResults["hosting"] {
+  if (doc?.schema !== "hosting_capacity/v1") return null;
+  const total = doc.total?.capacity?.[variant]?.[tol] ?? {};
+  return {
+    label: String(doc.label ?? "synthetic RO"),
+    runId: String(doc.run_id ?? "local"),
+    tolMin: Number(tol),
+    variant,
+    totalWithout: Number(total.self_consumption ?? 0),
+    totalThreshold: num(total.threshold),
+    totalWith: Number(total.sentinel ?? 0),
+    feeders: (doc.feeders as Doc[]).map((f) => {
+      const cap = f.capacity?.[variant]?.[tol] ?? {};
+      return {
+        feederId: String(f.feeder_id),
+        nHomes: Number(f.n_homes ?? 0),
+        without: Number(cap.self_consumption ?? 0),
+        threshold: num(cap.threshold),
+        with: Number(cap.sentinel ?? 0),
+        censored: Boolean(f.censored?.[variant]?.[tol]?.sentinel),
+      };
+    }),
+  };
+}
+
+function voltageOf(doc: Doc | null): GridResults["voltage"] {
+  const bySource = (doc?.by_v_source ?? {}) as Record<string, Doc>;
+  const r = bySource["1.03"] ?? Object.values(bySource)[0];
+  if (!doc || !r?.baseline || !r?.sentinel) return null;
+  const pol = (p: Doc) => ({
+    violations: Number(p.voltage_violations ?? 0),
+    minutes: Number(p.voltage_violation_minutes ?? 0),
+    tripKwh: Number(p.inverter_trip_kwh ?? 0),
+    tripLei: Number(p.inverter_trip_lei ?? 0),
+    vMax: Number(p.v_max ?? 0),
+  });
+  return {
+    label: String(doc.label ?? "non-RO topology"),
+    runId: String(doc.run_id ?? "local"),
+    vLimit: Number(doc.v_limit ?? 253),
+    nHomes: Number(doc.n_unique_homes ?? 55),
+    baseline: pol(r.baseline),
+    sentinel: pol(r.sentinel),
+  };
+}
+
+function valueOf(doc: Doc | null): Pick<GridResults, "value" | "twin"> {
+  if (!doc) return { value: null, twin: null };
+  const v = doc.dso_value as Doc | undefined;
+  const a = (v?.assumptions ?? {}) as Doc;
+  const deo = (a.deo_cost_per_prosumer_lei ?? []) as number[];
+  const m = doc.moved_home as Doc | undefined;
+  return {
+    value: v
+      ? {
+          label: String(v.label ?? "proxy"),
+          labelDeo: String(v.label_deo ?? ""),
+          runId: String(doc.run_id ?? "local"),
+          deferredCapexLei: Number(v.deferred_capex_lei ?? 0),
+          deoBasisLei: ((v.deferred_capex_lei_deo_basis ?? []) as number[]).map(Number),
+          gain: Number(v.hosting_capacity_gain ?? 0),
+          feeders: ((v.feeders ?? []) as Doc[]).map((f) => ({
+            feederId: String(f.feeder_id),
+            gain: Number(f.hosting_capacity_gain ?? 0),
+            yearsDeferred: Number(f.years_deferred ?? 0),
+            lei: Number(f.deferred_capex_lei ?? 0),
+          })),
+          assumptions: [
+            {
+              label: "Reinforcement cost per feeder",
+              value: `${lei(a.reinforcement_cost_lei)}${a.cost_is_placeholder ? " (placeholder)" : ""}`,
+            },
+            { label: "Discount rate", value: pct(a.discount_rate) },
+            { label: "Prosumer growth per year", value: pct(a.growth_rate) },
+            { label: "Hosting capacity from", value: String(a.hosting_capacity ?? "—") },
+            {
+              label: "DEO cost per prosumer (other operator)",
+              value: deo.length === 2 ? `${lei(deo[0])} – ${lei(deo[1])}` : "—",
+            },
+            { label: "Formula", value: "cost × (1 − 1 / (1 + r)^years deferred)" },
+          ],
+        }
+      : null,
+    twin: {
+      recoveryRate: num(doc.recovery?.gis_recovery_rate),
+      nCorrupted: num(doc.recovery?.n_corrupted),
+      moved: m?.found
+        ? {
+            siteId: String(m.site_id),
+            recordedFeeder: String(m.recorded_feeder),
+            suggestedFeeder: String(m.suggested_feeder),
+            peakGisKw: num(m.planned_peak_gis_kw),
+            peakM8Kw: num(m.planned_peak_m8_kw),
+            sitesChanged: Number(m.n_sites_changed ?? 0),
+          }
+        : null,
+    },
+  };
+}
+
 export const feedersRouter = os.router({
+  getGrid: os.getGrid.handler(() => ({
+    hosting: hostingOf(readDoc("hosting_capacity.json")),
+    voltage: voltageOf(readDoc("voltage.json")),
+    ...valueOf(readDoc("dso_value.json")),
+  })),
+
   list: os.list.handler(({ context }) =>
     emptyIfNoTables(async () => {
       const rows = await context.db.select().from(feeders).orderBy(asc(feeders.id));

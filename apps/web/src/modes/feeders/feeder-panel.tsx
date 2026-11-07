@@ -27,6 +27,7 @@ import {
   SectionHeader,
   yAxisFor,
 } from "./ui";
+import { GridRow } from "./grid-section";
 import { NoticeRow } from "./notice-section";
 import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
@@ -385,6 +386,7 @@ export function FeederPanel() {
 
         <div className="mt-2 border-t border-border pb-2">
           <NoticeRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
+          <GridRow feederId={feederId} feederName={name} />
           <RowButton
             onClick={() => setDetailsOpen(true)}
             className="border-t border-border"

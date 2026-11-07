@@ -31,6 +31,8 @@ import { useSelectedFeeder } from "./use-feeder-state";
 const PANEL_PADDING_PX = 452; // FeederPanel width + gutter; keeps Dobrogea clear of the panel.
 const LINE_WIDTH = 4;
 const SELECTED_LINE_WIDTH = 7;
+// GridTwin (G5 #163): feeders whose M8 map confidence tau is below this get a hatched halo (the LP tightens G there).
+const LOW_TAU = 0.6;
 const CASING_PX = 2; // white casing on each side of the line
 const NEAR_LIMIT = 0.9; // export above 90 % of the limit reads amber
 const FEEDER_MAX_ZOOM = 15;
@@ -81,6 +83,7 @@ type Item = {
   id: string;
   line: [number, number][];
   lowTrust: boolean;
+  lowTau: boolean;
   status: Status;
   color: string;
   charging: boolean;
@@ -127,6 +130,9 @@ function FeedersLegend({ charging }: { charging: boolean }) {
         <LegendRow label="Low GIS trust">
           <span className="block w-5 border-t-[3px] border-dashed border-text-secondary" />
         </LegendRow>
+        <LegendRow label="Low map confidence (τ)">
+          <span className="block h-2.5 w-5 bg-[repeating-linear-gradient(135deg,var(--status-warn)_0_2px,transparent_2px_5px)] opacity-60" />
+        </LegendRow>
         {charging && (
           <LegendRow label="Batteries charging">
             <span className="block size-3 rounded-full border-[1.5px] border-brand-500" />
@@ -162,6 +168,7 @@ export function FeedersLayers() {
             id: feeder.id,
             line,
             lowTrust: feeder.gisTrust === "low",
+            lowTau: (feeder.tau ?? 1) < LOW_TAU,
             status,
             color: STATUS_COLOR[status],
             charging: policy === "sentinel" && Boolean(current?.charging),
@@ -219,6 +226,7 @@ export function FeedersLayers() {
           color: item.color,
           width: item.id === selected ? SELECTED_LINE_WIDTH : LINE_WIDTH,
           lowTrust: item.lowTrust,
+          lowTau: item.lowTau,
         },
         geometry: { type: "LineString" as const, coordinates: item.line },
       })),
@@ -232,9 +240,25 @@ export function FeedersLayers() {
     }),
     [collection],
   );
+  const lowTau = useMemo(
+    () => ({ ...collection, features: collection.features.filter((feature) => feature.properties.lowTau) }),
+    [collection],
+  );
 
   return (
     <>
+      {/* GridTwin: a wide, short-dashed amber halo reads as a hatched zone around low-tau feeders. */}
+      <MapGeoJSON
+        id="feeders-low-tau"
+        data={lowTau}
+        fillPaint={false}
+        linePaint={{
+          "line-color": FEEDER_WARN,
+          "line-width": ["+", ["get", "width"], 16],
+          "line-opacity": 0.28,
+          "line-dasharray": [0.15, 0.2],
+        }}
+      />
       {/* White casing lifts the status colour off the light basemap's roads and borders. */}
       <MapGeoJSON
         id="feeders-casing"
