@@ -32,6 +32,7 @@ from scipy.special import ndtri
 
 from sentinel.contracts import DAY_STEPS, DT_H, BatterySpec, Commitment, FeederPlan, FeederSpec, Prediction
 from sentinel.eval.uncertainty.conformal import ConformalCalibration, members_of, quantile_at, sort_quantiles
+from sentinel.kernels import battery_rollout
 
 N_SCENARIOS = 200
 DEFAULT_HAIRCUT = 0.05
@@ -267,11 +268,38 @@ def _direction(direction: Any, t: int) -> np.ndarray:
     return d
 
 
+def _net_export(req: np.ndarray, soc0: np.ndarray, bp: BatteryParams, pv: np.ndarray,
+                load: np.ndarray) -> np.ndarray:
+    """Third output of `rollout` (pv - load - batt) via the dispatched K1 kernel (Rust if built, else `rollout`).
+
+    Bit-identical to `rollout(req, soc0, bp, pv, load)[2]`. A request shared by every scenario ((S, T) with soc0
+    (S,)) is rolled out once and broadcast: the battery does not see pv/load, so each scenario would repeat it.
+    Not dispatched inside `rollout` itself: the kernel's Python reference calls `rollout`.
+    """
+    req = np.asarray(req, dtype=float)
+    pv = np.asarray(pv, dtype=float)
+    load = np.asarray(load, dtype=float)
+    s0 = np.asarray(soc0, dtype=float)
+    shape = np.broadcast_shapes(req.shape, pv.shape, load.shape)
+    if req.ndim == 2 and s0.ndim <= 1:
+        _, batt = battery_rollout(np.broadcast_to(req, shape[-2:]), np.broadcast_to(s0, shape[-2:-1]), *bp,
+                                  dt_h=DT_H)
+    else:
+        r3 = np.broadcast_to(req, shape).reshape((-1,) + shape[-2:])
+        _, batt = battery_rollout(r3, np.broadcast_to(s0, shape[:-1]).reshape(r3.shape[:-1]), *bp, dt_h=DT_H)
+        batt = batt.reshape(shape)
+    return np.broadcast_to(pv, shape) - np.broadcast_to(load, shape) - np.broadcast_to(batt, shape)
+
+
 def _deliverable(sched: np.ndarray, soc0: np.ndarray, specs: Sequence[Optional[BatterySpec]],
                  pv: np.ndarray, load: np.ndarray) -> np.ndarray:
-    """Sum over sites of baseline export - planned export, shape pv.shape[:-2] + (T,)."""
-    _, _, x_plan = rollout(sched, soc0, battery_params(specs, respect_reserve=True), pv, load)
-    _, _, x_base = rollout_baseline(soc0, battery_params(specs, respect_reserve=False), pv, load)
+    """Sum over sites of baseline export - planned export, shape pv.shape[:-2] + (T,).
+
+    Same result as `rollout` / `rollout_baseline`, through the K1 kernel (sentinel.kernels.battery_rollout)."""
+    pv = np.asarray(pv, dtype=float)
+    load = np.asarray(load, dtype=float)
+    x_plan = _net_export(sched, soc0, battery_params(specs, respect_reserve=True), pv, load)
+    x_base = _net_export(pv - load, soc0, battery_params(specs, respect_reserve=False), pv, load)
     return (x_base - x_plan).sum(axis=-2)
 
 
