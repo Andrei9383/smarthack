@@ -13,7 +13,10 @@ Metrics (LAB_METRIC, label: synthetic RO homes / real RO ERA5 weather and OPCOM 
   strategy_f1 (macro, unseen homes x test days), strategy_f1_home (one guess per home: the most frequent),
   net_nmae / net_nmae_17_21 (the two-stage model, home level: sum|pred - y| / sum|y| over homes x steps),
   *_portfolio (on the sum over homes), and the same for lgbm (5a P50), fo (forecast_only = load - pv, no battery)
-  and persist (same step a week earlier from the meter; forecast_only for profile homes). t_<stage>_s per stage.
+  and persist (same step a week earlier from the meter; forecast_only for profile homes). The two-stage model is
+  sim_soft (probability-weighted strategies), sim_hard (most likely strategy) or sim_cal (sim_soft + the home's mean
+  residual per clock hour over meter days D-29..D-2), whichever is best on validation (``sim_mode``).
+  t_<stage>_s per stage.
 Outputs ($LAB_OUTPUT_DIR or --out): battery/ (models + battery_report.json), battery_guesses_test.parquet.
 """
 
