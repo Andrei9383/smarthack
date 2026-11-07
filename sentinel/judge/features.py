@@ -66,10 +66,11 @@ COMMON = ["witness", "battery", "seen", "month_sin", "month_cos", "sky", "ood_sc
 FEATURES: dict[str, list[str]] = {
     "forecast": COMMON + ["trust_cal", "trust_sharp", "band_rel", "member_std_rel", "energy_rel", "rel_vs_sub",
                           "abs_rel_vs_sub", "sub_band_rel", "rel_vs_yday", "band_vs_hist7", "band_vs_hist28",
-                          "energy_vs_hist7", "energy_vs_hist28", "repeat_prev"],
+                          "energy_vs_hist7", "energy_vs_hist28", "band_vs_hist_ext", "energy_vs_hist_ext",
+                          "repeat_prev"],
     "detector": COMMON + ["trust_ap", "trust_ms", "alarm", "p_fault", "p_fault_std", "p_top", "top_class",
                           "abn_share", "resid_yday", "park_consensus", "member_std_rel", "pfault_vs_hist7",
-                          "pfault_vs_hist28", "hist_alarm7", "repeat_prev"],
+                          "pfault_vs_hist28", "pfault_vs_hist_ext", "hist_alarm7", "repeat_prev"],
 }
 CATEGORICAL = ["witness", "top_class"]
 
@@ -114,6 +115,11 @@ def build(rows: pd.DataFrame, family: str) -> pd.DataFrame:
         f[f"band_vs_hist{w}"] = f["band_rel"] / hb.where(hb > EPS)
         f[f"energy_vs_hist{w}"] = (e50 - he) / np.maximum(he.abs(), 0.1)
         f[f"pfault_vs_hist{w}"] = f["p_fault"] - _col(r, f"hist_p_fault{w}")
+    # the larger deviation of the two windows: a fresh drift shows in both, an older one only against days 8-28 back
+    # (2024 has 6 drift episodes, so the model must not depend on which window still holds the healthy outputs)
+    f["band_vs_hist_ext"] = _extreme(np.log(f["band_vs_hist7"]), np.log(f["band_vs_hist28"]))
+    f["energy_vs_hist_ext"] = _extreme(f["energy_vs_hist7"], f["energy_vs_hist28"])
+    f["pfault_vs_hist_ext"] = _extreme(f["pfault_vs_hist7"], f["pfault_vs_hist28"])
     tc = r["top_class"] if "top_class" in r else pd.Series(np.nan, index=r.index)
     f["top_class"] = pd.to_numeric(tc.map(lambda v: CLASS_CODE.get(v, np.nan) if isinstance(v, str) else v),
                                    errors="coerce").astype(float)
@@ -191,6 +197,13 @@ def detector_summary(probs: np.ndarray, threshold: float, classes: Sequence[str]
     return {"alarm": alarm.astype(float), "p_fault": p_fault, "p_top": p[np.arange(len(p)), j],
             "top_class": top, "p_fault_std": (np.asarray(p_fault_std, float) if p_fault_std is not None
                                               else np.full(len(p), np.nan))}
+
+
+def _extreme(a: pd.Series, b: pd.Series) -> pd.Series:
+    """Element-wise value of larger magnitude (NaN-aware)."""
+    a, b = a.replace([np.inf, -np.inf], np.nan), b.replace([np.inf, -np.inf], np.nan)
+    pick_b = a.isna() | (b.abs() > a.abs())
+    return a.where(~pick_b, b)
 
 
 def history_features(daily: Mapping[str, np.ndarray], d: int) -> dict[str, np.ndarray]:

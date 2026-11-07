@@ -187,8 +187,8 @@ def _lgb_dataset(X: pd.DataFrame, y: np.ndarray, cat: Sequence[str], ref=None):
 def fit_family(X: pd.DataFrame, y: np.ndarray, groups: np.ndarray, family: str, seeds: Sequence[int] = range(5),
                params: Optional[dict] = None, rounds: int = 600, threads: int = 0, device: str = "cpu",
                early_stop: int = 50, log=print) -> tuple[list, dict]:
-    """Train one booster per seed on (X, y). 15 % of the training assets (by `groups`) are held out for early
-    stopping. Returns (boosters, info)."""
+    """Train one booster per seed on (X, y). 15 % of the `groups` (at least one; the trainer passes sampled weeks)
+    are held out for early stopping. Returns (boosters, info)."""
     import lightgbm as lgb
     groups = np.asarray(groups)
     uniq = np.unique(groups)

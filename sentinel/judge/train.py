@@ -127,7 +127,10 @@ def cal_assets(asset_ids: pd.Series, share: float = 0.3) -> np.ndarray:
 def fit_and_calibrate(tr: pd.DataFrame, fam: str, args, device: str, log=print) -> tuple[JM.FamilyModel, dict]:
     X, y = F.build(tr, fam), tr["valid"].to_numpy(float)
     cal = cal_assets(tr["asset_id"], args.cal_share)
-    boosters, info = JM.fit_family(X[~cal], y[~cal], tr.loc[~cal, "asset_id"].to_numpy(), fam,
+    # early stopping on whole held-out weeks (one sampled week per month): with 6 drift episodes, held-out assets of
+    # the same weeks reward memorising each week (train#908 ran to the 1500-round cap and lost test AUC)
+    es_groups = tr.loc[~cal, "month"].to_numpy() if "month" in tr else tr.loc[~cal, "asset_id"].to_numpy()
+    boosters, info = JM.fit_family(X[~cal], y[~cal], es_groups, fam,
                                    seeds=range(args.seeds), rounds=args.rounds, threads=args.threads, device=device,
                                    log=log)
     fm = JM.FamilyModel(fam, boosters, list(X.columns), JM.Isotonic())
