@@ -2,9 +2,8 @@
 
     python -m sentinel.eval.dso_value [--world sim|mock] [--days 7] [--out DIR] [--skip-replay]
 
-Lab (needs the fleet / windows / grid-twin caches, same chain as `make replay-demo`):
-    lab submit 161 --run replay --cmd "sh rust/build.sh status && .venv/bin/python -m sentinel.data.windows && \
-        .venv/bin/python -m sentinel.gridtwin.run && .venv/bin/python -m sentinel.eval.dso_value --world sim"
+Lab: `--build-caches` first builds (or reuses) the fleet / windows / grid-twin caches, as `make replay-demo` does:
+    lab submit 161 --run replay --cmd ".venv/bin/python -m sentinel.eval.dso_value --world sim --build-caches"
 
 Deferred capex (step 3), per feeder that Sentinel lets take more prosumers:
     value = cost x (1 - 1 / (1 + r)^years)
@@ -173,8 +172,16 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--out", type=Path, default=Path(os.environ.get("LAB_OUTPUT_DIR", ".")))
     ap.add_argument("--skip-replay", action="store_true", help="only the recovery rate and the lei (no replays)")
+    ap.add_argument("--build-caches", action="store_true",
+                    help="build / reuse the #10 windows and the #13 grid-twin cache first (sim world)")
     a = ap.parse_args(argv)
     t0 = time.perf_counter()
+    if a.build_caches and a.world == "sim":
+        from sentinel.data.windows import main as windows_main
+        from sentinel.gridtwin.run import main as twin_main
+
+        windows_main([])
+        twin_main([])
     run_id = os.environ.get("LAB_RUN_ID") or "local"
     rid = f"{a.world}#{run_id}"
     from sentinel.agent.loop import default_components
