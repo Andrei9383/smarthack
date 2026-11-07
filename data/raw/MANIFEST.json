@@ -1,5 +1,5 @@
 {
- "total_bytes": 31548736,
+ "total_bytes": 31549870,
  "files": {
   "entsoe_ro.parquet": {
    "bytes": 7700015,
@@ -40,8 +40,8 @@
    "rows": 4
   },
   "validation/pvdaq_weather.parquet": {
-   "bytes": 486382,
-   "sha256": "b73bc494031c776ac87cd694dd51d38c0a0a1821726af0b22018c55c939db277",
+   "bytes": 487516,
+   "sha256": "2822e3b3cf82b26b2fdfc254b2d7cece2f8f585ad85f98df8afd784cc1d651e6",
    "rows": 35040
   },
   "weather.parquet": {

@@ -63,3 +63,28 @@ export function countyOf(zone: Zone | undefined, zones: Map<string, Zone>): Zone
 export function formatPower(mw: number) {
   return Math.abs(mw) < 1 ? `${Math.round(mw * 1000)} kW` : `${mw.toFixed(1)} MW`;
 }
+
+const normalized = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+// Fixtures identify counties by code ('CT'), replay by name ('Constanta'); the shapes carry both.
+export function zonesByCountyCode(
+  counties: Zone[],
+  shapes: { code: string; name: string }[],
+): Map<string, Zone> {
+  const codeOf = new Map(
+    shapes.flatMap(({ code, name }) => [
+      [normalized(code), code],
+      [normalized(name), code],
+    ]),
+  );
+  return new Map(
+    counties.flatMap((county) => {
+      const code = codeOf.get(normalized(county.id));
+      return code ? [[code, county] as const] : [];
+    }),
+  );
+}
