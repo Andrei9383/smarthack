@@ -67,6 +67,7 @@ def main(argv=None) -> None:
     for k, val in m.items():
         print(f"LAB_METRIC {k}={val}")
     print(f"LAB_METRIC gridtwin_seconds={time.perf_counter() - t0:.1f}")
+    print(f"LAB_METRIC t_total_s={time.perf_counter() - t0:.1f}")
     print(f"wrote {out}")
 
 
