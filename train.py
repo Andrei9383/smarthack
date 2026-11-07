@@ -15,6 +15,7 @@ Registry (lazy imports, so a card's module is only imported when its model is as
   windpower   M5  sentinel.model.windpower.train:main     (#42)
   windfailure M7  sentinel.model.windfailure.train:main   (#43)
   gridtwin    M8  sentinel.gridtwin.train:main            (#13)
+  judge       J3  sentinel.judge.train:main               (#148, Judge validity models; team/judge-design.md §7)
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ REGISTRY: dict[str, str] = {
     "windpower": "sentinel.model.windpower.train:main",
     "windfailure": "sentinel.model.windfailure.train:main",
     "gridtwin": "sentinel.gridtwin.train:main",
+    "judge": "sentinel.judge.train:main",
 }
 
 
@@ -47,6 +49,11 @@ PRESETS: dict[str, list[str]] = {
     "pv_fc": ["--model", "pvnet", "--mode", "forecast", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20"],
     "load": ["--model", "loadnet", "--epochs", "100", "--lr", "1e-3", "--max-minutes", "20"],
     "sh": ["--model", "sitehealth", "--epochs", "200", "--patience", "15", "--max-minutes", "25"],
+    # #140 experiment: 2x batch, half the steps (same samples per epoch); the step is launch-bound, so ~2x samples/s
+    "pv_now_b512": ["--model", "pvnet", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20", "--batch", "512",
+                    "--steps-per-epoch", "150"],
+    # M6 as promoted on #99 (train#593/594): label-free normal selection, 40 epochs
+    "wind": ["--model", "windnbm", "--epochs", "40", "--normal-select", "label_free"],
 }
 
 

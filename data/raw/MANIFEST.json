@@ -1,5 +1,5 @@
 {
- "total_bytes": 31558172,
+ "total_bytes": 32112860,
  "files": {
   "entsoe_ro.parquet": {
    "bytes": 7700015,
@@ -23,6 +23,11 @@
    "bytes": 309727,
    "sha256": "7da555253942b283a114b520218878c890e27de6a864e73593fa1c80e595bc32",
    "rows": 32931
+  },
+  "prices_pi.parquet": {
+   "bytes": 554688,
+   "sha256": "daf274be5ce8417822e9d472559f0169c44edaca6815a60aa0c90008cb8f7a1d",
+   "rows": 35040
   },
   "ro_installed_capacity.parquet": {
    "bytes": 1681,

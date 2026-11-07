@@ -90,6 +90,15 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
       ["real", "Romanian county shapes"],
     ],
   },
+  imbalance: {
+    descriptor: "Stop paying for prosumer imbalance",
+    heading: "Imbalance · supplier position",
+    sources: [
+      ["synthetic", "Homes, batteries and meters (prosumer fleet, ERA5 weather)"],
+      ["real", "OPCOM PZU and PI prices, DEER standard profile"],
+      ["non", "Imbalance penalty a, b: a proxy calibrated to 200–375 lei/MWh injected"],
+    ],
+  },
 };
 
 export const PROVENANCE_TEXT: Record<Provenance, { label: string; detail: string }> = {

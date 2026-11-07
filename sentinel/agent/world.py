@@ -127,6 +127,51 @@ class TurbineDay:
     error_code: list[int]  # 0 = none; PPC sends codes as integral floats on a sensor (wind.is_error_code)
 
 
+# --------------------------------------------------------------------------------------------- crew / audit (Judge)
+MISREPORT_RATE = 0.05  # judge-design §5.1 (my call): a technician gets the class wrong 1 visit in 20
+ACTION_VISIT_WEIGHT = 0.5  # §5.6: visits caused by actions are not a random sample
+AUDIT_PER_CREW = 2  # §5.6: Judge audit budget per crew type per day, outside any action budget
+AUDIT_LOCAL_HOUR = 13  # remote audit checks run at 13:00 local (day_ts is local midnight)
+_SITE_FAULTS = tuple(f.value for f in PvFault if f is not PvFault.HEALTHY)
+_TURBINE_FAULTS = ("fault_stop", "curtailment", "icing", "underperformance", "overheating", "anemometer_fault")
+
+
+@dataclass(frozen=True)
+class CrewReport:
+    """What a technician (or a remote audit check) finds on one asset at one moment (judge-design §5.1, §5.6).
+
+    The ONLY route by which simulator truth (fault_labels) reaches the live loop: the true state at `visit_ts`, for
+    this asset only, misreported with probability MISREPORT_RATE (deterministic by world seed). `found` is a
+    PvFault / WindAnomaly value, "healthy" / "normal" when nothing is found; `onset_ts` is the technician's estimate
+    of when the fault began (inverter / SCADA log), None when nothing is found.
+    """
+
+    asset_id: str
+    asset_kind: str  # site | turbine
+    crew_type: str  # CrewType value
+    visit_ts: int  # UTC unix s; the report is known from this moment (= observed_at)
+    found: str
+    onset_ts: Optional[int] = None
+    gis_wrong: Optional[bool] = None  # sites: the field feeder / phase differ from the GIS record (M8 grading)
+    source: str = "crew"  # crew (visit caused by an action) | audit (the Judge's own random sample)
+    weight: float = 1.0  # audit: 1 / P(sampled); action visit: ACTION_VISIT_WEIGHT
+    p_sampled: Optional[float] = None  # audit inclusion probability (None for action visits)
+
+    @property
+    def observed_at(self) -> int:
+        return self.visit_ts
+
+    @property
+    def is_fault(self) -> bool:
+        return self.found not in ("healthy", "normal")
+
+
+def audit_weight(p: float, thresholds: Sequence[float] = (0.5,), width: float = 0.15, floor: float = 0.1) -> float:
+    """Sampling weight for an audit candidate: high when P(valid) (or P(fault)) is near a decision threshold."""
+    near = max((math.exp(-(((p - t) / width) ** 2)) for t in thresholds), default=0.0)
+    return floor + near
+
+
 # --------------------------------------------------------------------------------------------- interface
 class World:
     """What the loop needs. Subclasses fill the dicts and implement the per-day accessors."""
@@ -212,6 +257,98 @@ class World:
     def fault_truth(self) -> list[dict[str, Any]]:
         """fault_labels rows (data.md) — for evaluation and the UI only, never read by the agent."""
         return []
+
+    # -- crew reports and audit checks (judge-design §5.1, §5.6) ------------------------------------
+    def _truth_index(self) -> dict[str, list[tuple[int, Optional[int], str]]]:
+        """asset -> [(onset_ts, end_ts, fault)] from fault_truth(), cached. Read ONLY by crew_report()."""
+        idx = getattr(self, "_truth_idx", None)
+        if idx is None:
+            idx = {}
+            for r in self.fault_truth():
+                on = int(datetime.fromisoformat(str(r["onset"]).replace("Z", "+00:00")).timestamp())
+                en = r.get("end")
+                en = int(datetime.fromisoformat(str(en).replace("Z", "+00:00")).timestamp()) if en else None
+                idx.setdefault(str(r["asset_id"]), []).append((on, en, str(r["fault"])))
+            self._truth_idx = idx
+        return idx
+
+    def crew_report(self, asset_id: str, visit_ts: int, *, source: str = "crew", weight: Optional[float] = None,
+                    p_sampled: Optional[float] = None, crew_type: Optional[str] = None) -> CrewReport:
+        """Simulated visit: the asset's true state at `visit_ts` (this asset only), 5 % misreported.
+
+        Deterministic by (world seed, asset, visit time). Action visits default to weight 0.5 (§5.6).
+        """
+        is_turbine = asset_id in self.turbines
+        kind = "turbine" if is_turbine else "site"
+        ok = "normal" if is_turbine else "healthy"
+        crew_type = crew_type or ("wind_technician" if is_turbine else "residential_installer")
+        ts = int(visit_ts)
+        active = [(on, f) for on, en, f in self._truth_index().get(str(asset_id), ())
+                  if on <= ts and (en is None or ts < en)]
+        found, onset = (ok, None)
+        if active:
+            on, found = min(active)  # the earliest still-active episode is what the technician finds first
+            onset = on - on % (STEP_MINUTES * 60)
+        u = _u(self.seed, asset_id, ts, "misreport")
+        if u < MISREPORT_RATE:
+            classes = _TURBINE_FAULTS if is_turbine else _SITE_FAULTS
+            v = u / MISREPORT_RATE
+            if found == ok:  # false find: a fault that 'just started'
+                found, onset = classes[int(v * len(classes)) % len(classes)], ts
+            elif v < 0.5:  # missed it
+                found, onset = ok, None
+            else:  # wrong class
+                others = [c for c in classes if c != found] or list(classes)
+                found = others[int((v - 0.5) * 2 * len(others)) % len(others)]
+        gis_wrong = None
+        if not is_turbine and asset_id in self.sites:
+            r = self.sites[asset_id].row
+            gis_wrong = bool(r.get("gis_feeder_id", r.get("feeder_id")) != r.get("feeder_id")
+                             or r.get("gis_phase", r.get("phase")) != r.get("phase"))
+            if _u(self.seed, asset_id, ts, "gis-misreport") < MISREPORT_RATE:
+                gis_wrong = not gis_wrong
+        w = (ACTION_VISIT_WEIGHT if source == "crew" else 1.0) if weight is None else float(weight)
+        return CrewReport(str(asset_id), kind, crew_type, ts, found, onset, gis_wrong, source, w, p_sampled)
+
+    def audit_pools(self) -> dict[str, list[str]]:
+        """Default audit populations per crew type: homes for installers, turbines for wind technicians."""
+        pools = {"residential_installer": sorted(self.sites)}
+        if self.turbines:
+            pools["wind_technician"] = sorted(self.turbines)
+        return pools
+
+    def audit_checks(self, d: int, weights: Optional[dict[str, float]] = None,
+                     pools: Optional[dict[str, Sequence[str]]] = None, per_crew: int = AUDIT_PER_CREW
+                     ) -> list[CrewReport]:
+        """The Judge's own audit sample for day d (§5.6): `per_crew` draws per crew type, with replacement, with
+        P(draw i) proportional to weights[i] (default 1; use `audit_weight` to favour uncertain predictions).
+
+        The inclusion probability is exact, pi_i = 1 - (1 - p_i)^per_crew, and each report carries weight 1/pi_i
+        (inverse-probability weight), so the ledger's estimate stays unbiased. Deterministic by (seed, day).
+        """
+        import numpy as np
+
+        out: list[CrewReport] = []
+        weights = weights or {}
+        visit = self.day_ts(d) + AUDIT_LOCAL_HOUR * 3600
+        for crew, ids in sorted((pools or self.audit_pools()).items()):
+            ids = list(ids)
+            if not ids or per_crew <= 0:
+                continue
+            w = np.array([max(float(weights.get(a, 1.0)), 1e-9) for a in ids])
+            p = w / w.sum()
+            cdf = np.cumsum(p)
+            picked: list[int] = []
+            for j in range(per_crew):
+                i = int(min(np.searchsorted(cdf, _u(self.seed, d, crew, j, "audit") * cdf[-1], side="right"),
+                            len(ids) - 1))
+                if i not in picked:
+                    picked.append(i)
+            for j, i in enumerate(picked):
+                pi = float(1.0 - (1.0 - p[i]) ** per_crew)
+                out.append(self.crew_report(ids[i], visit + 60 * j, source="audit", weight=1.0 / pi, p_sampled=pi,
+                                            crew_type=crew))
+        return out
 
     def describe(self) -> dict[str, Any]:
         return {"world": self.name, "label": self.label, "seed": self.seed, "days": self.days,

@@ -3,6 +3,11 @@
 Same world, same predictions, same prices and limits for every policy; only decide/act differ. One `runs` row per
 policy (label from the world, e.g. "synthetic RO"; components real vs fallback in `notes`), topology once
 (feeders, parks, assets), then every row the loop writes. Prints the plan §2 replay metrics as LAB_METRIC lines.
+
+Judge (#149): on by default for the Sentinel policy (`--judge off` to skip). It writes judge_verdicts (+ trust, and
+outcomes once the J1 grader is in) and logs `t_judge_s` per replay day. `--judge-check` replays Sentinel a second
+time with the judge off (rows discarded) and fails unless every KPI and every action id is identical: the judge only
+records verdicts until the actions are specified (judge-design §10).
 """
 
 from __future__ import annotations
@@ -26,6 +31,53 @@ METRICS = ("peak_reduction", "minutes_over_limit", "p10_hit_rate", "comfort_brea
            "alerts_per_turbine_day")
 
 
+class JudgeChangedDecisions(RuntimeError):
+    """--judge-check: the Sentinel run with the judge on differs from the run with it off."""
+
+
+class _NullSink:
+    """Discards every row (the judge-off comparison run of --judge-check)."""
+
+    def add(self, table, row):
+        pass
+
+    def add_many(self, table, rows):
+        pass
+
+    def has_table(self, table):
+        return True
+
+    def write_action(self, action, rows=None, *, ts=None, extra=None):
+        pass
+
+
+def _emit(name: str, value: float) -> None:
+    from sentinel.infra.metrics import emit
+
+    emit(name, value)
+
+
+def _judge_metrics(summary: dict[str, Any], days: int) -> None:
+    if not summary:
+        return
+    per_day = summary.get("t_judge_day_s") or {}
+    total = float(summary.get("t_judge_s") or 0.0)
+    _emit("t_judge_s", total)
+    _emit("t_judge_per_day_s", total / max(1, days))
+    for d, v in sorted(per_day.items()):
+        _emit(f"t_judge_d{d}_s", v)
+    counts = summary.get("verdicts") or {}
+    n = sum(v for k, v in counts.items() if not k.startswith("rule:"))
+    _emit("judge_verdicts", n)
+    for v in ("use", "widen", "dont_use"):
+        _emit(f"judge_{v}_share", counts.get(v, 0) / n if n else 0.0)
+    _emit("judge_trust_rows", summary.get("trust_rows", 0))
+    _emit("judge_outcomes", summary.get("outcomes", 0))
+    _emit("judge_ledger_only", float(summary.get("mode") == "ledger-only"))
+    print(f"# judge: {json.dumps({k: summary[k] for k in ('mode', 'source', 'ledger', 'verdicts', 'errors', 'tables_missing') if k in summary})}",
+          file=sys.stderr)
+
+
 @dataclass
 class ReplayReport:
     out: Path
@@ -35,6 +87,7 @@ class ReplayReport:
     components: dict[str, str]
     seconds: float
     run_ids: dict[str, str] = field(default_factory=dict)
+    judge_check: Optional[dict[str, Any]] = None
 
 
 def _git_sha() -> Optional[str]:
@@ -196,7 +249,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
            schema_dir: Optional[Path] = None, resolve_hourly: bool = False,
            force_fallback: bool | Sequence[str] = False, run_id: Optional[str] = None,
            comps: Optional[Components] = None, print_metrics: bool = True, full: bool = False,
-           strict: bool = True) -> ReplayReport:
+           strict: bool = True, judge: bool = True, judge_check: bool = False) -> ReplayReport:
     """Default output is the demo DB (R18 < 50 MB): no per-step pv/load prediction rows (asset_steps keeps the PV
     quantiles) and schedules only for Sentinel (baseline battery rows are not shown by the UI). `full=True`
     stores both. `strict=True` raises `audit.SchemaMismatch` on any field the schema cannot hold that is not in
@@ -210,7 +263,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             raise ValueError(f"unknown policy {p!r}")
         if BASELINE_ALIASES[p] not in pols:
             pols.append(BASELINE_ALIASES[p])
-    comps = comps or default_components(w, force_fallback=force_fallback)
+    comps = comps or default_components(w, force_fallback=force_fallback, judge=judge)
     base_id = run_id or os.environ.get("LAB_RUN_ID") or f"{w.name}-s{w.seed}"
     db = AuditDB(out, schema_dir=schema_dir, strict=strict, vacuum=not full)
     log(f"world: {json.dumps(w.describe())}; schema: {db.schema_source}; out: {db.path}")
@@ -225,10 +278,14 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
         t0 = time.perf_counter()
         cfg = LoopConfig(policy=pol, run_id=rid, resolve_hourly=resolve_hourly, seed=seed,
                          write_inputs=(pol == first_inputs), step_predictions=full,
-                         write_schedules=full or pol == "sentinel")
+                         write_schedules=full or pol == "sentinel", judge=judge)
         res = run_policy(w, comps, cfg, sink=db)
         results[pol] = res
-        log(f"policy {pol}: {time.perf_counter() - t0:.1f}s, actions {res.n_actions}, plans {res.plan_status}")
+        t_pol = time.perf_counter() - t0
+        if print_metrics:
+            _emit(f"t_policy_{pol}_s", t_pol)
+        log(f"policy {pol}: {t_pol:.1f}s, actions {res.n_actions}, plans {res.plan_status}"
+            + (f", judge {res.judge.get('t_judge_s')}s {res.judge.get('verdicts')}" if res.judge else ""))
         db.add("runs", {
             "id": rid, "kind": "replay", "policy": pol, "label": w.label, "git_sha": _git_sha(),
             "model_versions_json": {k: f"{getattr(p, 'model', k)}:{getattr(p, 'model_version', '?')}"
@@ -239,6 +296,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
                       "predictors": _predictor_report(comps.predictors),
                       **(w.replay_notes() if hasattr(w, "replay_notes") else {}),
                       "world": w.describe(), "resolve_hourly": resolve_hourly, "schema": db.schema_source,
+                      "judge": res.judge or {"mode": "off" if not judge or pol != "sentinel" else "unavailable"},
                       "inputs_hash": __import__("sentinel.contracts", fromlist=["input_hash"]).input_hash(
                           res.day_hashes), "plan_status": res.plan_status,
                       "commit_calibration": {d: {k: {"method": "online split conformal, past replay days",
@@ -248,6 +306,22 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
                                                  for k, v in c.items()} for d, c in res.conformal.items()},
                       "warning": ("FALLBACK components: " + ", ".join(comps.fallbacks)) if comps.fallbacks else ""}})
     metrics = compute_metrics(w, results)
+    check = None
+    if judge_check and "sentinel" in results:
+        t0 = time.perf_counter()
+        on = results["sentinel"]
+        cfg = LoopConfig(policy="sentinel", run_id=run_ids["sentinel"], resolve_hourly=resolve_hourly, seed=seed,
+                         write_inputs=(first_inputs == "sentinel"), step_predictions=full, write_schedules=True,
+                         judge=False)
+        off = run_policy(w, comps, cfg, sink=_NullSink())
+        m_off = compute_metrics(w, {**results, "sentinel": off})
+        diffs = {k: (metrics.get(k), m_off.get(k)) for k in set(metrics) | set(m_off)
+                 if metrics.get(k) != m_off.get(k)}
+        same_actions = on.action_ids == off.action_ids and on.n_actions == off.n_actions
+        check = {"identical": not diffs and same_actions, "kpi_diffs": diffs, "actions_identical": same_actions,
+                 "n_kpis": len(metrics), "n_actions": len(on.action_ids), "seconds": time.perf_counter() - t0}
+        log(f"judge check (judge on vs off, Sentinel): {'IDENTICAL' if check['identical'] else 'DIFFERENT'}; "
+            f"{len(metrics)} KPIs, {len(on.action_ids)} actions; diffs {diffs}")
     for pol, rid in run_ids.items():
         for name in METRICS + ("peak_reduction_congested", "clip_rate"):
             key = name if pol == "sentinel" else f"{name}_{pol}"
@@ -271,7 +345,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
     summary = db.summary()
     db.close()
     secs = time.perf_counter() - t_start
-    report = ReplayReport(Path(out), results, metrics, summary, dict(comps.sources), secs, run_ids)
+    report = ReplayReport(Path(out), results, metrics, summary, dict(comps.sources), secs, run_ids, check)
     if print_metrics:
         if comps.fallbacks:
             print(f"# FALLBACK components: {', '.join(comps.fallbacks)} (label: {w.label}; see runs.notes)")
@@ -283,18 +357,37 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
         for k in dict.fromkeys(order):
             if k in metrics:
                 print(f"LAB_METRIC {k}={metrics[k]:.4g}")
+        if "sentinel" in results:
+            _judge_metrics(results["sentinel"].judge, w.days)
+        if check is not None:
+            _emit("judge_kpi_identical", float(check["identical"]))
+            _emit("judge_kpi_diffs", float(len(check["kpi_diffs"])))
+            _emit("t_judge_check_s", check["seconds"])
+        for t in ("judge_verdicts", "trust", "outcomes"):
+            if t in summary["rows"]:
+                _emit(f"rows_{t}", summary["rows"][t])
         print(f"# replay: {secs:.1f}s, {sum(summary['rows'].values())} rows -> {out}", file=sys.stderr)
         if summary["dropped_fields"]:
             print(f"# not stored (audit.ALLOWED_DROPS): {json.dumps(summary['dropped_fields'])}", file=sys.stderr)
         if summary["unexpected_drops"] or summary["missing_tables"] or summary["filled_not_null"]:
             print("# SCHEMA GAPS (non-strict run): " + json.dumps(
                 {k: summary[k] for k in ("unexpected_drops", "missing_tables", "filled_not_null")}), file=sys.stderr)
+    if check is not None and not check["identical"]:
+        raise JudgeChangedDecisions(f"judge on vs off changed the Sentinel run: KPI diffs {check['kpi_diffs']}, "
+                                    f"actions identical: {check['actions_identical']}")
     return report
 
 
 def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
     import argparse
 
+    pre = argparse.ArgumentParser(add_help=False)  # --mode imbalance (I6 #176): supplier portfolio replay, spec I step 8
+    pre.add_argument("--mode", choices=["agent", "imbalance"], default="agent")
+    mode, argv = pre.parse_known_args(argv)
+    if mode.mode == "imbalance":
+        from sentinel.eval.imbalance_replay import main as imbalance_main
+
+        return imbalance_main(argv)  # type: ignore[return-value]
     ap = argparse.ArgumentParser(description="Replay a test week (baseline vs Sentinel) into SQLite")
     ap.add_argument("--policy", default="baseline,sentinel", help="comma list: baseline|threshold|sentinel")
     ap.add_argument("--out", default=os.path.join(os.environ.get("LAB_OUTPUT_DIR", "."), "sentinel.sqlite"))
@@ -311,8 +404,12 @@ def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
     ap.add_argument("--strict", dest="strict", action="store_true", default=True,
                     help="raise if a produced field has no column and is not in audit.ALLOWED_DROPS (default)")
     ap.add_argument("--no-strict", dest="strict", action="store_false", help="warn and drop instead")
+    ap.add_argument("--judge", default="on", choices=["on", "off"],
+                    help="Judge verdicts for the Sentinel policy (#149): judge_verdicts / trust / outcomes rows")
+    ap.add_argument("--judge-check", action="store_true",
+                    help="replay Sentinel again with the judge off and fail unless KPIs and actions are identical")
     a = ap.parse_args(argv)
     ff: bool | list[str] = True if a.fallback == "all" else [x for x in a.fallback.split(",") if x]
     return replay([p for p in a.policy.split(",") if p], a.out, world=a.world, days=a.days, seed=a.seed,
                   scale=a.scale, resolve_hourly=a.resolve_hourly, force_fallback=ff, run_id=a.run_id,
-                  full=a.full and not a.lite, strict=a.strict)
+                  full=a.full and not a.lite, strict=a.strict, judge=a.judge == "on", judge_check=a.judge_check)

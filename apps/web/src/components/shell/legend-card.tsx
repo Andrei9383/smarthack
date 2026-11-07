@@ -9,6 +9,7 @@ import { STRESS_RAMP } from "@/modes/demand/colors";
 import type { ModeId } from "@/modes/registry";
 
 import { StatusMark } from "@/components/brand/status-mark";
+import { SparkKey } from "@/components/map-spark/map-spark";
 import { Term } from "@/components/help";
 
 // One legend card per mode, top-left under the top bar as in the prototype. Colours are the
@@ -55,7 +56,7 @@ function Ramp({ low, high }: { low: string; high: string }) {
 
 function Title({ children }: { children: ReactNode }) {
   return (
-    <li className="mb-0.5 text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase">
+    <li className="mb-0.5 text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
       {children}
     </li>
   );
@@ -112,6 +113,12 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
         <Row swatch={<Line tone="bg-brand-700/60" />}>Wind at 100 m, moving</Row>
         <Row swatch={<Dot tone="bg-primary" />}>Wind park, MWh next 24 h</Row>
         <Row swatch={<Sun aria-hidden className="size-3 text-text-secondary" />}>County rooftop solar, MWh</Row>
+        <li className="mt-1 border-t border-border/70 pt-1.5 text-[10px] text-muted-foreground">
+          Small chart under each point, next 24 h
+        </li>
+        <li>
+          <SparkKey className="text-[10.5px]" />
+        </li>
       </>
     );
   } else {
@@ -121,7 +128,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
           Evening <Term id="stress">stress</Term>
         </Title>
         <Ramp low="low" high="at capacity" />
-        <Row swatch={<span aria-hidden className="block size-[9px] rounded-[2px] border border-border bg-sidebar" />}>
+        <Row swatch={<span aria-hidden className="block size-[9px] rounded-[2px] border border-border-strong bg-surface-raised" />}>
           No data
         </Row>
       </>
@@ -131,7 +138,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
   return (
     <div
       className={cn(
-        "rounded-xl bg-card/95 px-3 py-2.5 text-xs text-text-secondary shadow-floating backdrop-blur-sm",
+        "rounded-xl bg-card px-3 py-2.5 text-xs text-text-secondary shadow-floating",
         className,
       )}
     >

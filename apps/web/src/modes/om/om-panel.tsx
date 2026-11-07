@@ -40,12 +40,15 @@ const SEVERITY_TONE: Record<string, Tone> = {
   warn: "warn",
   info: "info",
 };
-// a truck roll is the costly, urgent one; an inspection is planned; a remote check is informational
+// A truck roll costs the most, so it is amber; it turns red only when the visit is due within a day.
+// An inspection is planned, a remote check is informational.
 const ACTION_TONE: Record<string, Tone> = {
-  truck: "critical",
+  truck: "warn",
   inspection: "warn",
   remote_check: "info",
 };
+const orderTone = (o: { action: string; daysToVisit?: number | null }): Tone =>
+  o.action === "truck" && o.daysToVisit != null && o.daysToVisit <= 1 ? "critical" : (ACTION_TONE[o.action] ?? "unknown");
 const ACTION_WORDS: Record<string, string> = {
   truck: "Truck",
   remote_check: "Remote check",
@@ -76,7 +79,7 @@ const turbineChip = (status: string) => TURBINE_CHIP[status] ?? "bg-muted text-t
 
 const ROW = "-mx-2 w-[calc(100%+1rem)] cursor-pointer rounded-md px-2 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const ROW_SELECTED = "bg-brand-50";
-const ROW_IDLE = "hover:bg-sidebar";
+const ROW_IDLE = "hover:bg-surface-raised";
 
 const words = (s: string | null | undefined) => (s ? s.replaceAll("_", " ") : "—");
 // MW at risk can be tiny for a home: two significant digits read cleanly
@@ -88,6 +91,9 @@ const lostLabel = (o: { assetKind: string; lostKwhDay?: number | null }) =>
   o.assetKind === "turbine" ? `${((o.lostKwhDay ?? 0) / 1000).toFixed(1)} MWh` : `${(o.lostKwhDay ?? 0).toFixed(1)} kWh`;
 
 type Order = NonNullable<ReturnType<typeof useWorkOrders>["data"]>[number];
+// W4: lei/day ranks the queue; older runs only have lost_lei_day
+const leiDay = (o: Order) => o.leiPerDay ?? o.lostLeiDay ?? 0;
+const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
 
 function parseJson(text: string | null | undefined): Record<string, unknown> | null {
   if (!text) return null;
@@ -165,7 +171,7 @@ function AvailabilityBar({ parts, total }: { parts: { key: string; label: string
 
 /** One line per order on the glance list: rank, asset, fault, money lost, action. */
 function TopOrderRow({ o, index, selected, onOpen }: { o: Order; index: number; selected: boolean; onOpen: () => void }) {
-  const tone = ACTION_TONE[o.action] ?? "unknown";
+  const tone = orderTone(o);
   return (
     <li>
       <button
@@ -180,7 +186,7 @@ function TopOrderRow({ o, index, selected, onOpen }: { o: Order; index: number; 
             <span className="truncate text-xs text-text-secondary">{words(o.fault)}</span>
           </span>
           <span className="block text-[11px] text-muted-foreground tabular-nums">
-            {Math.round(o.lostLeiDay ?? 0).toLocaleString("en-GB")} lei/day · {lostLabel(o)} lost
+            {lei(leiDay(o))} lei/day · {lostLabel(o)} lost
           </span>
         </span>
         <Status tone={tone}>{ACTION_WORDS[o.action] ?? o.action}</Status>
@@ -214,7 +220,7 @@ const reviewReason = (reason: string) =>
 /** Full work-order row for the Details sheet: the per-row metadata and the "why" live here. */
 function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number; selected: boolean; onOpen: () => void }) {
   const [why, setWhy] = useState(false);
-  const tone = ACTION_TONE[o.action] ?? "unknown";
+  const tone = orderTone(o);
   const detail = evidenceText(o);
   return (
     <li className={`${ROW} py-2.5 ${selected ? ROW_SELECTED : ROW_IDLE}`} onClick={onOpen}>
@@ -236,8 +242,18 @@ function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number;
         </span>
         <span className="whitespace-nowrap tabular-nums">
           Lost/day <span className="font-medium text-foreground">{lostLabel(o)}</span> ·{" "}
-          {Math.round(o.lostLeiDay ?? 0).toLocaleString("en-GB")} lei
+          <span className="font-mono font-medium text-foreground">{lei(leiDay(o))}</span> lei
         </span>
+        {o.triageScore != null ? (
+          <span className="whitespace-nowrap tabular-nums">
+            Triage <span className="font-mono font-medium text-foreground">{lei(o.triageScore)}</span>
+          </span>
+        ) : null}
+        {o.bestRepairDay ? (
+          <span className="whitespace-nowrap tabular-nums">
+            Cheapest repair <span className="font-mono font-medium text-status-ok">{dayName(o.bestRepairDay)}</span>
+          </span>
+        ) : null}
         <span className="whitespace-nowrap tabular-nums">
           MW at risk <span className="font-medium text-foreground">{o.mwAtRisk ? mw(o.mwAtRisk) : "—"}</span>
         </span>
@@ -514,7 +530,7 @@ export function OmPanel() {
   const orderList = orders ?? [];
   const reviewList = review ?? [];
   const todayOrders = orderList.filter((o) => o.day === today).length;
-  const top = [...orderList].sort((a, b) => (b.lostLeiDay ?? 0) - (a.lostLeiDay ?? 0)).slice(0, TOP_N);
+  const top = [...orderList].sort((a, b) => leiDay(b) - leiDay(a)).slice(0, TOP_N);
   const listTab = tab === "review" ? "review" : "orders";
 
   const sentence = (
@@ -662,7 +678,7 @@ export function OmPanel() {
                 type="button"
                 onClick={() => setPark(null)}
                 aria-label="Close park"
-                className="grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-sidebar hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
                 <X className="size-4" />
               </button>

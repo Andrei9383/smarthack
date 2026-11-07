@@ -7,12 +7,15 @@ import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
 import { parseAsString, useQueryState } from "nuqs";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+import { MapSpark } from "@/components/map-spark/map-spark";
+
 import { useCameraFocus, useFocusIntent } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
-import { PARTICLE_COLOR_RAMP } from "./colors";
+import { PARTICLE_COLOR_RAMP, RASTER_OPACITY } from "./colors";
 import { expectedMwh } from "./data";
 import { type MarkerCircle, type MarkerOffset, resolveCollisions } from "./marker-layout";
 import { useProductionData } from "./use-production-data";
+import { sparkTime, useProductionSparks } from "./use-spark-series";
 import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field";
 
@@ -20,8 +23,6 @@ const PANEL_PADDING_PX = 452;
 const PARK_ZOOM = 9; // the park and its neighbouring county markers, readable
 const SOURCE_ID = "wind-speed";
 const LAYER_ID = "wind-speed-raster";
-// The speed PNGs bake a light → emerald ramp (scripts/windfield.py, card #92) under the particles.
-const RASTER_OPACITY = 0.45;
 
 function imageCoordinates([west, south, east, north]: WindMeta["bounds"]) {
   return [
@@ -139,11 +140,179 @@ function useWindParticles(meta: WindMeta | undefined, hour: number) {
 }
 
 // Each marker is a dot on its point with a label chip below it. Collisions are resolved on a
-// circle around the chip: its radius and how far its centre sits below the point.
+// circle around the chip: its radius and how far its centre sits below the point. Chips carry a
+// sparkline (#137): compact 120 × 36 under the label, 220 × 90 for the selected park. Hovering
+// expands a chip in place without a new layout, so nothing jumps under the cursor.
 const FOOTPRINT = {
-  county: { diameter: 96, below: 28 },
-  park: { diameter: 132, below: 36 },
+  county: { diameter: 132, below: 52 },
+  park: { diameter: 140, below: 58 },
+  parkExpanded: { diameter: 216, below: 96 },
 } as const;
+
+// The chip's real box around the circle's centre, for keeping it inside the visible map.
+const CHIP_BOX = {
+  county: { halfWidth: 70, halfHeight: 42 },
+  park: { halfWidth: 74, halfHeight: 46 },
+  parkExpanded: { halfWidth: 120, halfHeight: 84 },
+} as const;
+export type ChipBox = { halfWidth: number; halfHeight: number };
+
+const EDGE_PX = 8;
+
+// After the #91 layout, slide chips sideways so none hangs off the map's left edge or under the
+// zoom controls beside the inspector; the leader line still points back to the real spot.
+// Positions change on pan, so this runs on moveend, unlike the zoom-only collision layout.
+type Rect = { left: number; right: number; top: number; bottom: number };
+type ViewEdges = { width: number; controls: Rect | null; legend: Rect | null };
+
+// The zoom controls beside the inspector, and a mode legend that marks itself with data-map-legend.
+function measureView(map: MapLibreMap): ViewEdges {
+  const container = map.getContainer().getBoundingClientRect();
+  const relative = (element: Element | null | undefined): Rect | null => {
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    return {
+      left: rect.left - container.left,
+      right: rect.right - container.left,
+      top: rect.top - container.top,
+      bottom: rect.bottom - container.top,
+    };
+  };
+  return {
+    width: container.width,
+    controls: relative(document.querySelector('button[aria-label="Zoom in"]')?.parentElement),
+    legend: relative(document.querySelector("[data-map-legend]")),
+  };
+}
+
+// How far to slide a chip down so it clears the legend card in the top-left corner.
+function slideBelowLegend({ legend }: ViewEdges, x: number, halfWidth: number, top: number, bottom: number) {
+  if (!legend) return 0;
+  const overlaps = x - halfWidth < legend.right + EDGE_PX && top < legend.bottom + EDGE_PX && bottom > legend.top;
+  return overlaps ? legend.bottom + EDGE_PX - top : 0;
+}
+
+export function useKeepInView(markers: (PlacedMarker & ChipBox)[], offsets: Map<string, MarkerOffset>) {
+  const { map, isLoaded } = useMap();
+  // Edges and marker positions are read when the camera settles (moveend, idle), never mid-flight:
+  // the mode's padding ease and camera focus run several animations back to back.
+  const [view, setView] = useState<{ edges: ViewEdges; points: Map<string, { x: number; y: number }> } | null>(null);
+  const markersRef = useRef(markers);
+  markersRef.current = markers;
+
+  useEffect(() => {
+    if (!map || !isLoaded) return;
+    const sync = () => {
+      if (map.isMoving()) return;
+      setView({
+        edges: measureView(map),
+        points: new Map(markersRef.current.map((marker) => [marker.id, map.project([marker.lon, marker.lat])])),
+      });
+    };
+    sync();
+    map.on("moveend", sync);
+    map.on("idle", sync);
+    map.on("resize", sync);
+    return () => {
+      map.off("moveend", sync);
+      map.off("idle", sync);
+      map.off("resize", sync);
+    };
+  }, [map, isLoaded, markers]);
+
+  return useMemo(() => {
+    if (!view) return offsets;
+    const points = view.points;
+    const clamp = (current: Map<string, MarkerOffset>) => {
+      const kept = new Map(current);
+      for (const marker of markers) {
+        const offset = current.get(marker.id) ?? NO_OFFSET;
+        const point = points.get(marker.id);
+        // A marker whose spot is off the map stays off it: a chip pulled in would point nowhere.
+        if (!point || point.x < 0 || point.x > view.edges.width) continue;
+        const centerX = point.x + offset.dx;
+        const centerY = point.y + (marker.below ?? 0) + offset.dy;
+        const dy = slideBelowLegend(
+          view.edges,
+          centerX,
+          marker.halfWidth,
+          centerY - marker.halfHeight,
+          centerY + marker.halfHeight,
+        );
+        const dx = slideInside(
+          view.edges,
+          centerX,
+          marker.halfWidth,
+          centerY + dy - marker.halfHeight,
+          centerY + dy + marker.halfHeight,
+        );
+        if (dx !== 0 || dy !== 0) kept.set(marker.id, { dx: offset.dx + dx, dy: offset.dy + dy });
+      }
+      return kept;
+    };
+    // A chip slid in from an edge may now touch a neighbour: settle once more with the same
+    // #91 rules from the slid positions, then keep the result inside the edges.
+    const slid = clamp(offsets);
+    const settled = resolveCollisions(
+      markers.flatMap(({ id, kind, diameter, below = 0 }) => {
+        const point = points.get(id);
+        const offset = slid.get(id) ?? NO_OFFSET;
+        return point ? [{ id, kind, x: point.x + offset.dx, y: point.y + below + offset.dy, radius: diameter / 2 }] : [];
+      }),
+    );
+    const merged = new Map(
+      markers.map(({ id }) => {
+        const a = slid.get(id) ?? NO_OFFSET;
+        const b = settled.get(id) ?? NO_OFFSET;
+        return [id, { dx: a.dx + b.dx, dy: a.dy + b.dy }];
+      }),
+    );
+    return clamp(merged);
+  }, [view, markers, offsets]);
+}
+
+export type HoverPlacement = { dx: number; dy: number; up: boolean };
+
+const OPEN_CHIP = { halfWidth: 120, height: 176, restHeight: 90, centredHeight: 150 } as const;
+const CHIP_GAP_PX = 6; // dot to chip
+
+// How far to slide a box sideways so it stays inside the map and clear of the zoom controls.
+function slideInside({ width, controls }: ViewEdges, x: number, halfWidth: number, top: number, bottom: number) {
+  const besideControls = controls && bottom > controls.top - EDGE_PX && top < controls.bottom + EDGE_PX;
+  const maxRight = besideControls && controls ? controls.left - EDGE_PX : controls ? controls.right : width - EDGE_PX;
+  let dx = 0;
+  if (x + halfWidth > maxRight) dx = maxRight - (x + halfWidth);
+  if (x + dx - halfWidth < EDGE_PX) dx = EDGE_PX - (x - halfWidth);
+  return dx;
+}
+
+// A hovered chip opens to 220 × 90 in place, without a new layout. Near the zoom controls or the
+// dock it would open underneath them, so it slides sideways, or opens upwards (chips below a dot)
+// or slides up (chips centred on their point, like feeder labels).
+export function hoverPlacement(
+  map: MapLibreMap,
+  marker: PlacedMarker,
+  offset: MarkerOffset,
+  anchor: "below" | "centre" = "below",
+): HoverPlacement {
+  const view = measureView(map);
+  const height = map.getContainer().getBoundingClientRect().height;
+  const floor = view.controls ? view.controls.bottom + EDGE_PX : height - EDGE_PX;
+  const point = map.project([marker.lon, marker.lat]);
+  const x = point.x + offset.dx;
+  if (anchor === "centre") {
+    const y = point.y + offset.dy;
+    const half = OPEN_CHIP.centredHeight / 2;
+    const dy = Math.min(0, floor - (y + half));
+    return { dx: slideInside(view, x, OPEN_CHIP.halfWidth, y + dy - half, y + dy + half), dy, up: false };
+  }
+  const dotBottom = point.y + offset.dy + 14;
+  const up = dotBottom + OPEN_CHIP.height > floor;
+  // Opening upwards keeps the compact chip's bottom edge (see MarkerPin).
+  const top = up ? dotBottom + OPEN_CHIP.restHeight - OPEN_CHIP.height : dotBottom;
+  return { dx: slideInside(view, x, OPEN_CHIP.halfWidth, top, top + OPEN_CHIP.height), dy: 0, up };
+}
 
 // Feeders reuse this layout for plain labels, which sit centred on their point (no `below`).
 export type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & {
@@ -181,6 +350,25 @@ export function useMarkerOffsets(markers: PlacedMarker[]) {
   }, [map, zoom, markers]);
 }
 
+// At country zoom every chip stays compact, so Romania reads calmly; once the camera is in a region
+// the selected park opens its full sparkline. Hover always opens one in place.
+const EXPAND_SELECTED_ZOOM = 7;
+
+function useZoomAtLeast(threshold: number) {
+  const { map, isLoaded } = useMap();
+  const [above, setAbove] = useState(false);
+  useEffect(() => {
+    if (!map || !isLoaded) return;
+    const sync = () => setAbove(map.getZoom() >= threshold);
+    sync();
+    map.on("zoomend", sync);
+    return () => {
+      map.off("zoomend", sync);
+    };
+  }, [map, isLoaded, threshold]);
+  return above;
+}
+
 // The marker stays on its real point; only the circle moves, with a line back to that point.
 export function Displaced({ offset, children }: { offset: MarkerOffset; children: ReactNode }) {
   const length = Math.hypot(offset.dx, offset.dy);
@@ -205,7 +393,7 @@ export function Displaced({ offset, children }: { offset: MarkerOffset; children
 
 // The wind particles draw in a deck.gl canvas inside MapLibre's control corner (z-index 2), so
 // markers sit at 3+ to keep their chips above the particles.
-const MARKER_Z = { county: "3", park: "4" } as const;
+const MARKER_Z = { county: "3", park: "4", hovered: "6" } as const;
 
 // The marker's own box stays on the real point, where it could cover a displaced neighbour, so
 // only its visible content takes clicks; they still bubble to the marker's handler. Shared with feeders.
@@ -225,27 +413,55 @@ const countyMarker = (element: HTMLElement | null) => stackMarker(element, MARKE
 // Markers mount as their queries resolve, so DOM order can't keep parks above counties.
 const raiseMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.park);
 
-// Dot on the point, chip centred below it; the chip doesn't change the marker's box.
+// Dot on the point, chip centred below it; the chip doesn't change the marker's box. The chip is a
+// small card: the label row, then the sparkline. Hovering lifts the marker above its neighbours.
 function MarkerPin({
   dotClassName,
   chipClassName,
+  rowClassName,
   title,
   pinRef,
+  zIndex,
+  spark,
+  placement,
+  onHoverChange,
   children,
 }: {
   dotClassName: string;
   chipClassName: string;
+  rowClassName: string;
   title: string;
   pinRef: (element: HTMLElement | null) => void;
+  zIndex: string;
+  spark?: ReactNode;
+  /** Hover only: slide the opened chip sideways, or open it above the dot near the dock. */
+  placement?: HoverPlacement | null;
+  onHoverChange: (hovered: boolean) => void;
   children: ReactNode;
 }) {
+  // The compact chip's height, so a chip opening upwards keeps its bottom edge (and the cursor).
+  const [restHeight, setRestHeight] = useState(0);
+  const lift = (element: HTMLElement, hovered: boolean) => {
+    const marker = element.closest<HTMLElement>(".maplibregl-marker");
+    if (marker) marker.style.zIndex = hovered ? MARKER_Z.hovered : zIndex;
+    if (hovered) setRestHeight(element.offsetHeight);
+    onHoverChange(hovered);
+  };
+  const up = Boolean(placement?.up && restHeight > 0);
   return (
     <span ref={pinRef} className="relative block" title={title}>
       <span className={`pointer-events-auto block rounded-full ring-2 ring-card shadow-raised ${dotClassName}`} />
       <span
-        className={`pointer-events-auto absolute top-full left-1/2 mt-1.5 flex -translate-x-1/2 items-center rounded-lg bg-card whitespace-nowrap shadow-raised transition-colors duration-150 ${chipClassName}`}
+        onPointerEnter={(event) => lift(event.currentTarget, true)}
+        onPointerLeave={(event) => lift(event.currentTarget, false)}
+        style={{
+          transform: `translateX(calc(-50% + ${placement?.dx ?? 0}px))`,
+          ...(up ? { bottom: -(restHeight + CHIP_GAP_PX) } : { top: `calc(100% + ${CHIP_GAP_PX}px)` }),
+        }}
+        className={`pointer-events-auto absolute left-1/2 flex flex-col rounded-lg bg-card whitespace-nowrap shadow-floating transition-colors duration-150 ${chipClassName}`}
       >
-        {children}
+        <span className={`flex items-center ${rowClassName}`}>{children}</span>
+        {spark}
       </span>
     </span>
   );
@@ -263,32 +479,47 @@ export function ProductionLayers() {
   useWindRaster(meta, hour);
   useWindParticles(meta, hour);
   const { parks, rows, counties } = useProductionData();
+  const sparks = useProductionSparks(parks);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const zoomedIn = useZoomAtLeast(EXPAND_SELECTED_ZOOM);
+  const expandedPark = zoomedIn ? selected : null;
+  const { map } = useMap();
+  const hoverChange = (id: string) => (isHovered: boolean) =>
+    setHovered((current) => (isHovered ? id : current === id ? null : current));
 
   const solarCounties = useMemo(() => counties.filter((county) => county.solarMwh > 0), [counties]);
   const parkMwh = useMemo(
     () => new Map(parks.map((park) => [park.id, expectedMwh(rows.filter((row) => row.parkId === park.id))])),
     [parks, rows],
   );
-  const placed = useMemo<PlacedMarker[]>(
+  const placed = useMemo<(PlacedMarker & ChipBox)[]>(
     () => [
-      ...parks.map((park) => ({
-        id: park.id,
-        kind: "park" as const,
-        lon: park.lon,
-        lat: park.lat,
-        ...FOOTPRINT.park,
-      })),
+      ...parks.map((park) => {
+        const size = park.id === expandedPark ? "parkExpanded" : "park";
+        return {
+          id: park.id,
+          kind: "park" as const,
+          lon: park.lon,
+          lat: park.lat,
+          ...FOOTPRINT[size],
+          ...CHIP_BOX[size],
+        };
+      }),
       ...solarCounties.map((county) => ({
         id: `county:${county.county}`,
         kind: "county" as const,
         lon: county.lon,
         lat: county.lat,
         ...FOOTPRINT.county,
+        ...CHIP_BOX.county,
       })),
     ],
-    [parks, parkMwh, solarCounties],
+    [parks, expandedPark, solarCounties],
   );
-  const offsets = useMarkerOffsets(placed);
+  const offsets = useKeepInView(placed, useMarkerOffsets(placed));
+  const hoveredMarker = hovered && hovered !== expandedPark ? placed.find((marker) => marker.id === hovered) : undefined;
+  const placement =
+    map && hoveredMarker ? hoverPlacement(map, hoveredMarker, offsets.get(hoveredMarker.id) ?? NO_OFFSET) : null;
 
   // Picking a park (chip or link) flies to it; empty-map click or no ?park keeps Romania (#115).
   const [explicitPark] = useQueryState("park", parseAsString);
@@ -302,31 +533,55 @@ export function ProductionLayers() {
 
   return (
     <>
-      {solarCounties.map((county) => (
-        <MapMarker key={county.county} longitude={county.lon} latitude={county.lat}>
-          <MarkerContent>
-            <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
-              {/* Info only, not clickable: hollow dot, dashed chip and a sun so it never reads as a park. */}
-              <MarkerPin
-                pinRef={countyMarker}
-                dotClassName="size-2.5 border-2 border-brand-500 bg-card"
-                chipClassName="cursor-default gap-1.5 border border-dashed border-brand-500/60 py-1 pr-2 pl-1.5 leading-tight"
-                title={`${county.county} county, rooftop solar: ${county.solarMwh.toFixed(1)} MWh next 24 h`}
-              >
-                <Sun className="size-3.5 shrink-0 text-brand-700" aria-hidden />
-                <span className="flex flex-col">
-                  <span className="text-xs font-semibold text-foreground">{county.county}</span>
-                  <span className="text-[11px] text-text-secondary tabular-nums">
-                    {county.solarMwh.toFixed(1)} MWh solar
+      {solarCounties.map((county) => {
+        const id = `county:${county.county}`;
+        const points = sparks.countySparks.get(county.county);
+        return (
+          <MapMarker key={county.county} longitude={county.lon} latitude={county.lat}>
+            <MarkerContent>
+              <Displaced offset={offsets.get(id) ?? NO_OFFSET}>
+                {/* Info only, not clickable: hollow dot, dashed chip and a sun so it never reads as a park. */}
+                <MarkerPin
+                  pinRef={countyMarker}
+                  zIndex={MARKER_Z.county}
+                  onHoverChange={hoverChange(id)}
+                  placement={hovered === id ? placement : null}
+                  dotClassName="size-2.5 border-2 border-brand-500 bg-card"
+                  chipClassName="cursor-default border border-dashed border-brand-500/60 px-2 pt-1 pb-1.5"
+                  rowClassName="gap-1.5 leading-tight"
+                  title={`${county.county} county, rooftop solar: ${county.solarMwh.toFixed(1)} MWh next 24 h`}
+                  spark={
+                    points && (
+                      <MapSpark
+                        className="mt-1"
+                        points={points}
+                        now={sparks.now}
+                        from={sparks.from}
+                        to={sparks.to}
+                        unit="kW"
+                        expanded={hovered === id}
+                        formatTime={sparkTime}
+                        showKey
+                      />
+                    )
+                  }
+                >
+                  <Sun className="size-3.5 shrink-0 text-brand-700" aria-hidden />
+                  <span className="flex flex-col">
+                    <span className="text-xs font-semibold text-foreground">{county.county}</span>
+                    <span className="text-[11px] text-text-secondary tabular-nums">
+                      {county.solarMwh.toFixed(1)} MWh solar
+                    </span>
                   </span>
-                </span>
-              </MarkerPin>
-            </Displaced>
-          </MarkerContent>
-        </MapMarker>
-      ))}
+                </MarkerPin>
+              </Displaced>
+            </MarkerContent>
+          </MapMarker>
+        );
+      })}
       {parks.map((park) => {
         const mwh = parkMwh.get(park.id) ?? 0;
+        const points = sparks.parkSparks.get(park.id);
         return (
           <MapMarker
             key={park.id}
@@ -341,11 +596,30 @@ export function ProductionLayers() {
               <Displaced offset={offsets.get(park.id) ?? NO_OFFSET}>
                 <MarkerPin
                   pinRef={raiseMarker}
+                  zIndex={MARKER_Z.park}
+                  onHoverChange={hoverChange(park.id)}
+                  placement={hovered === park.id ? placement : null}
                   dotClassName="size-3.5 bg-primary"
-                  chipClassName={`cursor-pointer gap-2 border py-1.5 pr-3 pl-1.5 ${
+                  chipClassName={`cursor-pointer border px-2 pt-1.5 pb-2 ${
                     park.id === selected ? "border-primary ring-4 ring-primary/15" : "border-transparent hover:border-brand-100"
                   }`}
+                  rowClassName="gap-2 pr-1"
                   title={`${park.name}, ${Math.round(mwh)} MWh next 24 h`}
+                  spark={
+                    points && (
+                      <MapSpark
+                        className="mt-1.5"
+                        points={points}
+                        now={sparks.now}
+                        from={sparks.from}
+                        to={sparks.to}
+                        unit="MW"
+                        expanded={park.id === expandedPark || hovered === park.id}
+                        formatTime={sparkTime}
+                        showKey
+                      />
+                    )
+                  }
                 >
                   <span className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
                     <Wind className="size-4" aria-hidden />

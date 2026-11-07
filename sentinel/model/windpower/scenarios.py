@@ -78,19 +78,10 @@ def park_scenarios(q_kw: np.ndarray, rated_kw: np.ndarray, cols: np.ndarray, rat
                    p_up: Optional[np.ndarray] = None, derate: Optional[np.ndarray] = None,
                    bernoulli: bool = False, rng: Optional[np.random.Generator] = None) -> np.ndarray:
     """One park: [S, T] kW. q_kw [T, N, 3] (all turbines), cols = this park's turbine indices, ratio_t [T],
-    u [S, T] common levels; p_up / derate [T, N] (None = 1)."""
-    q = q_kw[:, cols]
-    x = quantile_at(q[None], u[..., None], rated_kw[cols][None, None])  # [S, T, n]
-    if derate is not None:
-        x = x * derate[:, cols][None]
-    if p_up is not None:
-        pu = p_up[:, cols]
-        if bernoulli:  # one draw per scenario and turbine: with p_up rising in time (repair) this is one switch-on
-            v = (rng or np.random.default_rng(0)).random((u.shape[0], 1, len(cols)))
-            x = x * (v < pu[None])
-        else:
-            x = x * pu[None]
-    return x.sum(-1) * ratio_t[None]
+    u [S, T] common levels; p_up / derate [T, N] (None = 1). Kernel K9 (reference: kernels.scenarios)."""
+    from sentinel import kernels
+
+    return kernels.park_scenarios(q_kw, rated_kw, cols, ratio_t, u, p_up, derate, bernoulli, rng)
 
 
 def scen_quantiles(scen: np.ndarray, levels: Sequence[float] = (0.1, 0.5, 0.9)) -> np.ndarray:

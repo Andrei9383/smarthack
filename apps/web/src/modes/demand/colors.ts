@@ -1,34 +1,47 @@
 // Raw colour values for MapLibre paint and SVG charts, which can't read Tailwind classes.
-// Mirrors team/contracts/ui-style.md (PPC light + emerald); keep in sync with the tokens in
-// packages/ui/src/styles/globals.css. Components must not hold hex literals of their own.
+// Mirrors team/contracts/ui-style.md (Cockpit, dark + light); the RGB source is apps/web/src/lib/palette.ts.
+// Components must not hold hex literals of their own.
+import { hex, MAP_SAFE, onPaletteTheme, rgba } from "@/lib/palette";
 
-// Stress ramp, light → strong (§3 "Map colour ramps"). Stress 1 = P90 demand at capacity.
+// Stress ramp, light → strong (§3 "Map colour ramps"). Stress 1 = P90 demand at capacity. One ramp for
+// both themes (the legend reads it at import): the low end is a mint that is still a visible tint on the
+// light land and on the dark land, unlike "no data".
 export const STRESS_RAMP: readonly (readonly [stress: number, color: string])[] = [
-  [0, "#D1F5E0"], // --brand-100: low stress is still a visible tint, unlike "no data"
-  [0.5, "#FDE68A"],
+  [0, "#A7E8C5"],
+  [0.5, "#F5D76E"],
   [0.75, "#F59E0B"],
-  [1, "#E5484D"], // --status-critical: red zones
+  [1, hex(MAP_SAFE.critical)], // red zones
 ];
-export const STRESS_FILL_OPACITY = 0.9;
 export const STRESS_HOVER_OPACITY = 1; // hover: the same colour, slightly darker
 
-// Most counties have no rows: keep them flat and quiet (basemap land) so the few with data pop.
-export const NO_DATA_FILL = "#F7F8FA"; // basemap land
-export const NO_DATA_BORDER = "#DDE1E5";
-export const DATA_BORDER = "rgba(13, 13, 13, 0.15)"; // --foreground at 15%
-
 // Feeder lines inside a selected county sit on top of the county fill, so they use the
-// stronger status colours plus a white casing instead of the pale end of the ramp. The panel's
+// stronger status colours plus a casing instead of the pale end of the ramp. The panel's
 // stress meters use the same ramp, since the pale end would vanish on a grey track.
 export const FEEDER_RAMP: readonly (readonly [stress: number, color: string])[] = [
-  [0, "#0E9F5A"], // --status-ok
-  [0.6, "#D97706"], // --status-warn
-  [1, "#E5484D"], // --status-critical
+  [0, hex(MAP_SAFE.ok)],
+  [0.6, hex(MAP_SAFE.warn)],
+  [1, hex(MAP_SAFE.critical)],
 ];
-export const FEEDER_CASING = "#FFFFFF";
 
-export const SELECTED_OUTLINE = "#0B7F48"; // --brand-700
-export const SELECTED_SHADOW = "#0D0D0D"; // drawn blurred at low opacity below the outline
+// Theme-dependent values; the map remounts on a theme change, so the layers re-read them.
+// Most counties have no rows: keep them flat and quiet (basemap land) so the few with data pop.
+export let STRESS_FILL_OPACITY = 0.9;
+export let NO_DATA_FILL = "";
+export let NO_DATA_BORDER = "";
+export let DATA_BORDER = ""; // foreground at 15%
+export let FEEDER_CASING = "";
+export let SELECTED_OUTLINE = ""; // brand green for the current basemap
+export let SELECTED_SHADOW = ""; // drawn blurred at low opacity below the outline
+onPaletteTheme((palette, theme) => {
+  // The pale end of the ramp would glare on the dark land at full strength.
+  STRESS_FILL_OPACITY = theme === "dark" ? 0.78 : 0.9;
+  NO_DATA_FILL = hex(palette.mapLand);
+  NO_DATA_BORDER = hex(palette.mapCounty);
+  DATA_BORDER = rgba(palette.foreground, 0.15);
+  FEEDER_CASING = hex(palette.mapCasing);
+  SELECTED_OUTLINE = hex(palette.mapBrand);
+  SELECTED_SHADOW = theme === "dark" ? rgba([0, 0, 0], 1) : hex(palette.foreground);
+});
 
 // Chart: zone demand is a forecast (P50 with P10–P90 band).
 export const DEMAND_SERIES = "var(--status-forecast)";

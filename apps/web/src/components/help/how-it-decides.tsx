@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 import { Term } from "./term";
 
-export type HowItDecidesMode = "overview" | "feeders" | "om" | "production" | "demand";
+export type HowItDecidesMode = "overview" | "feeders" | "om" | "production" | "demand" | "imbalance";
 
 type Step = { verb: string; text: ReactNode };
 
@@ -207,6 +207,23 @@ const LOOPS: Record<HowItDecidesMode, { aside: string; steps: Step[] }> = {
       },
     ],
   },
+  imbalance: {
+    aside: "per portfolio, 15 min",
+    steps: [
+      { verb: "Sees", text: "Smart and profile meters, weather, OPCOM day-ahead and intraday prices (real RO)." },
+      {
+        verb: "Predicts",
+        text: (
+          <>
+            The portfolio's net purchase with a calibrated <Term id="forecast-band">P10–P90 band</Term>, including what
+            each home's battery will do.
+          </>
+        ),
+      },
+      { verb: "Decides", text: "How much to buy a day ahead: the quantile that balances shortfall against surplus." },
+      { verb: "Does", text: "Buys on PZU at D-1 and corrects at 15:00 on PI, so 18–21 is no longer bought twice." },
+    ],
+  },
 };
 
 /**
@@ -229,7 +246,7 @@ export function HowItDecides({
   return (
     <section className={cn("text-[13px]", className)} aria-label={title} data-help="how-it-decides">
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <h3 className="text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase">
+        <h3 className="text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
           {title}
         </h3>
         <span className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">{loop.aside}</span>

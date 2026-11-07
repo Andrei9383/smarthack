@@ -3,12 +3,14 @@
 import { implement } from "@orpc/server";
 import {
   alerts,
+  assetColumns,
   assets,
   measurements,
   predictions,
   reports,
   reviewQueue,
   statuses,
+  turbineAvailability,
   workOrders,
 } from "@sentinel-app/db/schema/sentinel";
 import { and, asc, desc, eq, lte, sql, type SQL } from "drizzle-orm";
@@ -19,6 +21,27 @@ import { emptyIfNoTables } from "./runs";
 import { resolveRunId } from "./sites";
 
 const os = implement(omContract).$context<Context>();
+
+// DBs written before #170 lack the W4/W6 columns: retry without them and read evidence_json instead.
+async function withoutMissingColumns<T>(full: () => Promise<T[]>, base: () => Promise<T[]>) {
+  try {
+    return await full();
+  } catch (error) {
+    const cause = (error as { cause?: { message?: string } }).cause?.message ?? "";
+    if (`${(error as Error).message} ${cause}`.includes("no such column")) return base();
+    throw error;
+  }
+}
+
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+function parseEvidence(text: string | null): Record<string, unknown> | null {
+  try {
+    return text ? (JSON.parse(text) as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
 
 const defined = (clauses: (SQL | undefined)[]) =>
   clauses.filter((c): c is SQL => c !== undefined);
@@ -110,49 +133,76 @@ export const omRouter = os.router({
     }),
   ),
 
-  // Ranked per crew: score order, best first (plan §3.5 top-K triage).
+  // Per crew, the costliest first: lei/day, then triage score (W4 #167, plan §3.5 top-K).
   listWorkOrders: os.listWorkOrders.handler(({ context: { db }, input }) =>
     emptyIfNoTables(async () => {
       const runId = await resolveRunId(db, input?.runId);
       if (!runId) return [];
-      return db
-        .select({
-          actionId: workOrders.actionId,
-          assetId: workOrders.assetId,
-          assetKind: workOrders.assetKind,
-          crewType: workOrders.crewType,
-          action: workOrders.action,
-          status: workOrders.status,
-          score: workOrders.score,
-          day: workOrders.day,
-          rank: workOrders.rank,
-          ts: workOrders.ts,
-          fault: workOrders.fault,
-          confidence: workOrders.confidence,
-          lostKwhDay: workOrders.lostKwhDay,
-          lostFlexMwhDay: workOrders.lostFlexMwhDay,
-          lostLeiDay: workOrders.lostLeiDay,
-          mwAtRisk: workOrders.mwAtRisk,
-          daysToVisit: workOrders.daysToVisit,
-          evidenceJson: workOrders.evidenceJson,
+      const base = {
+        actionId: workOrders.actionId,
+        assetId: workOrders.assetId,
+        assetKind: workOrders.assetKind,
+        crewType: workOrders.crewType,
+        action: workOrders.action,
+        status: workOrders.status,
+        score: workOrders.score,
+        day: workOrders.day,
+        rank: workOrders.rank,
+        ts: workOrders.ts,
+        fault: workOrders.fault,
+        confidence: workOrders.confidence,
+        lostKwhDay: workOrders.lostKwhDay,
+        lostFlexMwhDay: workOrders.lostFlexMwhDay,
+        lostLeiDay: workOrders.lostLeiDay,
+        mwAtRisk: workOrders.mwAtRisk,
+        daysToVisit: workOrders.daysToVisit,
+        evidenceJson: workOrders.evidenceJson,
+      };
+      const where = and(
+        ...defined([
+          eq(workOrders.runId, runId),
+          input?.status ? eq(workOrders.status, input.status) : undefined,
+          input?.crewType ? eq(workOrders.crewType, input.crewType) : undefined,
+          input?.assetId ? eq(workOrders.assetId, input.assetId) : undefined,
+          input?.until ? lte(workOrders.ts, input.until) : undefined,
+        ]),
+      );
+      const baseQuery = () => db.select(base).from(workOrders).where(where);
+      type Row = Awaited<ReturnType<typeof baseQuery>>[number] & {
+        leiPerDay?: number | null;
+        triageScore?: number | null;
+        bestRepairDay?: string | null;
+      };
+      const rows: Row[] = await withoutMissingColumns<Row>(
+        () =>
+          db
+            .select({
+              ...base,
+              leiPerDay: workOrders.leiPerDay,
+              triageScore: workOrders.triageScore,
+              bestRepairDay: workOrders.bestRepairDay,
+            })
+            .from(workOrders)
+            .where(where),
+        baseQuery,
+      );
+      return rows
+        .map((row) => {
+          const ev = parseEvidence(row.evidenceJson);
+          return {
+            ...row,
+            leiPerDay: row.leiPerDay ?? num(ev?.lei_per_day) ?? row.lostLeiDay ?? null,
+            triageScore: row.triageScore ?? num(ev?.triage_score),
+            bestRepairDay:
+              row.bestRepairDay ?? (typeof ev?.best_repair_day === "string" ? ev.best_repair_day : null),
+          };
         })
-        .from(workOrders)
-        .where(
-          and(
-            ...defined([
-              eq(workOrders.runId, runId),
-              input?.status ? eq(workOrders.status, input.status) : undefined,
-              input?.crewType
-                ? eq(workOrders.crewType, input.crewType)
-                : undefined,
-              input?.assetId
-                ? eq(workOrders.assetId, input.assetId)
-                : undefined,
-              input?.until ? lte(workOrders.ts, input.until) : undefined,
-            ]),
-          ),
-        )
-        .orderBy(asc(workOrders.crewType), desc(workOrders.score));
+        .sort(
+          (a, b) =>
+            a.crewType.localeCompare(b.crewType) ||
+            (b.leiPerDay ?? -1) - (a.leiPerDay ?? -1) ||
+            b.score - a.score,
+        );
     }),
   ),
 
@@ -197,7 +247,7 @@ export const omRouter = os.router({
         tempTrends: [],
       };
       const [asset] = await emptyIfNoTables(() =>
-        db.select().from(assets).where(eq(assets.id, input.assetId)).limit(1),
+        db.select(assetColumns).from(assets).where(eq(assets.id, input.assetId)).limit(1),
       );
       const runId = await resolveRunId(db, input.runId);
       if (!asset || !runId) return empty;
@@ -230,7 +280,38 @@ export const omRouter = os.router({
           ),
         )
         .orderBy(asc(measurements.ts));
+      // the day-ahead view as of the replay clock: up to tomorrow's delivery day (sold at D-1)
+      const tomorrow = input.at
+        ? new Date(Date.parse(input.at) + 86_400_000).toISOString().slice(0, 10)
+        : undefined;
+      const [avail] = await emptyIfNoTables(() =>
+        db
+          .select()
+          .from(turbineAvailability)
+          .where(
+            and(
+              ...defined([
+                eq(turbineAvailability.runId, runId),
+                eq(turbineAvailability.assetId, input.assetId),
+                tomorrow ? lte(turbineAvailability.day, tomorrow) : undefined,
+              ]),
+            ),
+          )
+          .orderBy(desc(turbineAvailability.day))
+          .limit(1),
+      );
       return {
+        availability: avail
+          ? {
+              day: avail.day,
+              rule: avail.rule,
+              availabilityMean: avail.availabilityMean,
+              availabilityMin: avail.availabilityMin,
+              uncertain: avail.uncertain === 1,
+              m6Class: avail.m6Class,
+              m7PFail7d: avail.m7PFail7d,
+            }
+          : null,
         assetId: asset.id,
         name: asset.name,
         parkId: asset.parkId,

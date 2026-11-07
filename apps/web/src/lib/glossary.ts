@@ -245,8 +245,6 @@ export const GLOSSARY = {
 
 export type GlossaryId = keyof typeof GLOSSARY;
 
-export const GLOSSARY_IDS = Object.keys(GLOSSARY) as GlossaryId[];
-
 export function getTerm(id: GlossaryId): GlossaryEntry {
   return GLOSSARY[id];
 }

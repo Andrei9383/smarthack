@@ -23,6 +23,7 @@ import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
 import { clampStep, clockLabel, dayLabel, dayOfStep, HERO_DAY, STEPS_PER_DAY, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
+import { TrustBoard } from "@/panels/judge/trust-board";
 
 import { MiniMap } from "./mini-map";
 import { type FeederState, useOverviewData } from "./use-overview-data";
@@ -173,7 +174,7 @@ function Briefing({ onTour }: { onTour: () => void }) {
   return (
     <ShaderBanner
       tone="emerald"
-      className="flex h-full min-h-[300px] flex-col rounded-2xl shadow-floating"
+      className="flex h-full min-h-[300px] flex-col rounded-lg border border-border"
     >
       <div className="flex h-full flex-col px-7 pt-6 pb-6 min-[1440px]:px-8">
         <p className="flex items-center gap-2 text-[12px] font-medium text-foreground/70">
@@ -197,7 +198,7 @@ function Briefing({ onTour }: { onTour: () => void }) {
         <dl className="mt-auto flex flex-wrap gap-x-9 gap-y-3 pt-5">
           {numbers.map((n, index) => (
             <div key={index} className="min-w-0">
-              <dd className="text-[34px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
+              <dd className="font-mono text-[32px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
                 <CountUp value={n.value} />
                 {n.unit ? <Unit>{n.unit}</Unit> : null}
               </dd>
@@ -533,14 +534,14 @@ function TodayVsWithout() {
       >
         <span id="ov-today">Today vs. without Sentinel</span>
       </SectionHeading>
-      <ul className="flex flex-col divide-y divide-border rounded-2xl bg-card px-5 shadow-floating">
+      <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card px-5">
         {rows.map((row, index) => (
           <li key={index} className="flex items-center gap-3 py-4">
             <div className="min-w-0 flex-1">
               <p className="text-[12px] text-text-secondary">
                 {row.label} <span className="text-muted-foreground">· {row.note}</span>
               </p>
-              <p className="mt-1 text-[32px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
+              <p className="mt-1 font-mono text-[32px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
                 {row.sentinel === undefined ? (
                   <span className="text-muted-foreground">—</span>
                 ) : (
@@ -709,6 +710,9 @@ export function OverviewPage({ onTour }: ModePageProps) {
         </div>
         <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-3">
           <AgentActivity />
+        </div>
+        <div className="@min-[880px]:col-start-2 @min-[880px]:row-start-4">
+          <TrustBoard />
         </div>
       </div>
     </div>
