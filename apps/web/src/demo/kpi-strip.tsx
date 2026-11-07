@@ -11,6 +11,8 @@ import { useReplayStep } from "./use-replay";
 const format = (value: number | null | undefined, digits: number) =>
   value === null || value === undefined ? null : value.toFixed(digits);
 
+const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
 export function KpiStrip() {
   const [step] = useReplayStep();
   const { data } = useQuery(
@@ -54,7 +56,8 @@ export function KpiStrip() {
       {data && data.homes + data.turbines > 0 ? (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-6 py-2 text-xs text-text-secondary">
           <span>
-            {data.homes} homes on {data.feeders} feeders · {data.turbines} turbines in {data.parks} parks
+            {plural(data.homes, "home")} on {plural(data.feeders, "feeder")} ·{" "}
+            {plural(data.turbines, "turbine")} in {plural(data.parks, "park")}
           </span>
           {label ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2 py-0.5 font-medium text-foreground">
