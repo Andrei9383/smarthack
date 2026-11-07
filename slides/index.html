@@ -31,6 +31,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 18px; }
   th { text-align: left; color: var(--muted); font-weight: 500; font-size: 16px; }
   th, td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .results { font-size: 16px; } .results th { font-size: 14px; } .results th, .results td { padding: 5px 8px 5px 0; }
   .pending { background: var(--pending-bg); color: var(--warn); border-radius: 4px; padding: 1px 7px;
     font-size: 15px; white-space: nowrap; }
   .tag { border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; font-size: 14px; color: var(--muted); white-space: nowrap; }
@@ -131,31 +132,42 @@ nominal ≥ available ≥ committed</pre>
 </section>
 
 <section class="slide">
-  <h2>Results on the separate test set</h2>
-  <table>
-    <tr><th>Claim</th><th>Baseline</th><th>Baseline value</th><th>Ours</th><th>Label</th><th>Run ID</th></tr>
-    <tr><td>Export peak reduction</td><td>self-consumption, tuned per-home rule</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td>synthetic RO</td><td><span class="pending">pending</span></td></tr>
-    <tr><td>Minutes over limit per feeder-day</td><td>same</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td>synthetic RO</td><td><span class="pending">pending</span></td></tr>
-    <tr><td>P10 hit rate</td><td>n/a</td><td>n/a</td><td><span class="pending">pending</span></td><td>synthetic RO</td><td><span class="pending">pending</span></td></tr>
-    <tr><td>PV nowcast nMAE, coverage</td><td>pvlib, persistence, LightGBM</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td>synthetic RO + PVDAQ</td><td><span class="pending">pending</span></td></tr>
-    <tr><td>Load forecast nMAE</td><td>persistence, LightGBM</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td>synthetic RO</td><td><span class="pending">pending</span></td></tr>
-    <tr><td>Site faults PR-AUC, hours to detect</td><td>threshold, CUSUM</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td>synthetic RO + PVDAQ</td><td><span class="pending">pending</span></td></tr>
-    <tr><td>Comfort breaches, lei/home/month</td><td>default rule</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td>synthetic RO</td><td><span class="pending">pending</span></td></tr>
-    <tr><td>Wind alerts per turbine-day, recall</td><td>WindMon rules</td><td><span class="pending">pending</span></td><td><span class="pending">pending</span></td><td>synthetic RO</td><td><span class="pending">pending</span></td></tr>
+  <h2>Results on the separate test set, misses included</h2>
+  <table class="results">
+    <tr><th>Claim</th><th>Baseline</th><th>Ours</th><th>Label</th><th>Run</th></tr>
+    <tr><td><b>Energy over feeder limit</b> (week)</td><td>self-consumption 1397 kWh</td><td><b>94.5 kWh (&minus;93%)</b></td><td>synthetic RO</td><td>replay#506</td></tr>
+    <tr><td>Minutes over limit (not zero)</td><td>6645</td><td>1905</td><td>synthetic RO</td><td>replay#506</td></tr>
+    <tr><td>P10 commitment hit rate (target 90%)</td><td>n/a</td><td><b>92.0%</b></td><td>synthetic RO</td><td>replay#506</td></tr>
+    <tr><td>Comfort breaches; saving</td><td>1165 (rule has no reserve logic)</td><td>0; 23.7 lei/home/month</td><td>synthetic RO, real prices</td><td>replay#506</td></tr>
+    <tr><td>PV nMAE, seen / unseen sites</td><td>LightGBM 0.041 / 0.045; pvlib 0.083 / 0.093</td><td><b>0.015 / 0.036</b></td><td>synthetic RO</td><td>eval#521</td></tr>
+    <tr><td>PV nMAE, real US systems</td><td>LightGBM 0.283; pvlib 0.312</td><td>0.268</td><td>non-RO (PVDAQ)</td><td>eval#521</td></tr>
+    <tr><td>Load nMAE, seen / unseen</td><td>LightGBM 0.256 / 0.284; persistence 0.361 / 0.390</td><td>0.246 / 0.285 (tie unseen)</td><td>synthetic RO</td><td>eval#521</td></tr>
+    <tr><td>Site faults PR-AUC, seen / unseen</td><td>threshold + CUSUM 0.49 / 0.40</td><td><b>0.73 / 0.56</b></td><td>synthetic RO</td><td>eval#521</td></tr>
+    <tr><td>Fault episodes found; median detect</td><td>40%; 35.9 h</td><td><b>97.5%; 21.5 h</b></td><td>synthetic RO</td><td>eval#521</td></tr>
+    <tr><td>Wind: recall; precision; curtail-vs-fault F1</td><td>WindMon 0.75; 0.84; 0.39</td><td><b>0.91; 0.89; 0.62</b></td><td>synthetic RO, held-out park</td><td>train#302/303</td></tr>
+    <tr><td>National demand nMAE, day ahead</td><td>persistence 0.067</td><td><b>0.039</b></td><td>real RO</td><td>make demand</td></tr>
   </table>
-  <p class="small muted">The simulator is pvlib-based, so a synthetic win is partly circular: PVDAQ sits beside it. Misses are reported as measured.</p>
+  <p class="small muted">The simulator is pvlib-based, so a synthetic win is partly circular: PVDAQ sits beside it. Tuned per-home rule not run.</p>
 </section>
 
 <section class="slide">
   <h2>Where the models are wrong, and what we tried</h2>
   <div class="grid2">
-    <div class="card"><h3>Questions this slide must answer</h3>
-      <ul><li>Which fault classes are confused or detected late?</li>
-        <li>Which weather and sites have the worst forecast error?</li>
-        <li>Where does the P10 commitment miss, and by how much?</li>
-        <li>Curtailment vs fault: the confusion matrix, mistakes included.</li></ul></div>
-    <div class="card"><h3>Findings</h3>
-      <p><span class="pending">pending: team/insights.md and eval runs</span></p></div>
+    <div class="card"><h3>Where it is wrong</h3>
+      <ul class="small">
+        <li><b>Forecast bands don't transfer.</b> PV 10&ndash;90 coverage: 0.88 seen, 0.61 unseen, 0.10 on PVDAQ, against a 0.78&ndash;0.82 target (eval#521).</li>
+        <li><b>Load:</b> only a tie with LightGBM on unseen sites, 0.285 vs 0.284 (eval#521).</li>
+        <li><b>Real PV faults:</b> PR-AUC 0.43 vs 0.32 on PVDAQ + injected (eval#521). Soiling is hardest, AP 0.29 (train#297).</li>
+        <li><b>Minutes vs energy:</b> F7 on Monday goes 285 &rarr; 375 minutes over while energy falls 79 &rarr; 27 kWh; the plan penalises energy (replay#506).</li>
+        <li><b>Demand peak hour:</b> error 0.30 h, no better than persistence at 0.29 h (make demand).</li>
+      </ul></div>
+    <div class="card"><h3>What we tried</h3>
+      <ul class="small">
+        <li><b>Retrained on the shared fleet</b> after an independent check showed the first models lost to LightGBM (train#228 &rarr; eval#521).</li>
+        <li><b>P10 hit rate</b> rose from 82.2% to 92.0% with the fleet-trained load model (replay#380 &rarr; #506).</li>
+        <li><b>LP on negative prices:</b> fixed an unbounded case that sent 10 of 35 feeder-days to a greedy fallback; all 35 now solve (replay#322 &rarr; #380).</li>
+        <li><b>Telemetry quality gate:</b> corrupted units had dropped P10 to 0.23; the gate restores 0.97 (local drills on a mock world).</li>
+      </ul></div>
   </div>
 </section>
 
@@ -173,7 +185,7 @@ nominal ≥ available ≥ committed</pre>
         <li>Which sites carried the absorption on a feeder.</li>
         <li>Audit trail from action back to the prediction.</li></ul></div>
   </div>
-  <p class="small muted">Robustness drills on the test set: gaps, frozen sensors, unit errors. <span class="pending">pending: drill results + run ID</span></p>
+  <p class="small muted">Drills on the test set (eval#521): with 40% gaps PV nMAE is 0.058 vs LightGBM 0.096. Unit errors still break the forecast (0.76&ndash;1.15), so they are gated before any commitment.</p>
 </section>
 
 <section class="slide">
