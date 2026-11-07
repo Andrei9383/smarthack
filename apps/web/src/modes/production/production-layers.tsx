@@ -205,20 +205,22 @@ export function Displaced({ offset, children }: { offset: MarkerOffset; children
 const MARKER_Z = { county: "3", park: "4" } as const;
 
 // The marker's own box stays on the real point, where it could cover a displaced neighbour, so
-// only the dot and chip take clicks; they still bubble to the marker's handler.
+// only its visible content takes clicks; they still bubble to the marker's handler. Shared with feeders.
 export const passClicksThrough = (element: HTMLElement | null) => {
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
-  if (!marker) return;
-  marker.style.pointerEvents = "none";
-  marker.style.zIndex = MARKER_Z.county;
+  if (marker) marker.style.pointerEvents = "none";
 };
 
-// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
-const raiseMarker = (element: HTMLElement | null) => {
+const stackMarker = (element: HTMLElement | null, zIndex: string) => {
   passClicksThrough(element);
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
-  if (marker) marker.style.zIndex = MARKER_Z.park;
+  if (marker) marker.style.zIndex = zIndex;
 };
+
+const countyMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.county);
+
+// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
+const raiseMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.park);
 
 // Dot on the point, chip centred below it; the chip doesn't change the marker's box.
 function MarkerPin({
@@ -293,7 +295,7 @@ export function ProductionLayers() {
             <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
               {/* Info only, not clickable: hollow dot, dashed chip and a sun so it never reads as a park. */}
               <MarkerPin
-                pinRef={passClicksThrough}
+                pinRef={countyMarker}
                 dotClassName="size-2.5 border-2 border-brand-500 bg-card"
                 chipClassName="cursor-default gap-1.5 border border-dashed border-brand-500/60 py-1 pr-2 pl-1.5 leading-tight"
                 title={`${county.county} county, rooftop solar: ${county.solarMwh.toFixed(1)} MWh next 24 h`}

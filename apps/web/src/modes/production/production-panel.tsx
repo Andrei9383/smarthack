@@ -115,7 +115,7 @@ export function ProductionPanel() {
   const windLabel = meta?.source === "mock" ? "mock wind field" : "real RO, ERA5 100 m wind";
 
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-card">
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-3.5 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-card">
       <header className="space-y-2">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-base leading-snug font-semibold text-foreground">
@@ -194,7 +194,7 @@ export function ProductionPanel() {
                 </li>
               </ul>
             </div>
-            <LineChart data={fan} aspectRatio="9 / 4" margin={CHART_MARGIN} animationDuration={0}>
+            <LineChart data={fan} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
               <Grid numTicksRows={Y_TICKS} fadeHorizontal={false} strokeDasharray="none" />
               <Band
                 upperKey="p90"
