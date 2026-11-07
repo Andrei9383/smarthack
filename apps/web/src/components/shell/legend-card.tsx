@@ -56,7 +56,7 @@ function Ramp({ low, high }: { low: string; high: string }) {
 
 function Title({ children }: { children: ReactNode }) {
   return (
-    <li className="mb-0.5 text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
+    <li className="mb-1 text-caption font-semibold whitespace-nowrap text-foreground">
       {children}
     </li>
   );
@@ -138,7 +138,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
   return (
     <div
       className={cn(
-        "rounded-xl bg-card px-3 py-2.5 text-xs text-text-secondary shadow-floating",
+        "rounded-xl bg-card px-3.5 py-3 text-xs text-text-secondary shadow-floating",
         className,
       )}
     >

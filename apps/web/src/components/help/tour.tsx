@@ -19,9 +19,9 @@ import { cn } from "@/lib/utils";
  * Elements the tour points at. The shell marks them with `data-tour="…"` (see README.md):
  * rail = mode navigation · map = map canvas · inspector = right-hand details panel ·
  * timeline = bottom dock (play / scrubber) · policy = Baseline/Sentinel toggle ·
- * demo = Demo menu button · kpis = top-bar KPI strip.
+ * demo = Demo menu button.
  */
-export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy" | "demo" | "kpis";
+export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy" | "demo";
 
 export type TourStep = {
   id: string;
