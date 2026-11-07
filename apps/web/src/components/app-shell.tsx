@@ -24,6 +24,7 @@ import { ReplayBar } from "@/demo/replay-bar";
 import { SummaryCard } from "@/demo/summary-card";
 import { useBasemapStyles } from "@/demo/use-basemap";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
+import { TurbineSheet } from "@/modes/om/turbine-sheet";
 import { FlexDock } from "@/panels/flex/flex-panel";
 import { SiteSheet } from "@/panels/site/site-sheet";
 
@@ -96,8 +97,8 @@ export function AppShell() {
               <p className="mt-2 text-xs text-muted-foreground">Placeholder panel, see {active.card}</p>
             </aside>
           )}
-          {/* #31: flexibility panel opens from Feeders mode; O&M gets it with #32. */}
-          {mode === "feeders" ? <FlexDock /> : null}
+          {/* #31/#32: the flexibility panel opens from Feeders and O&M. */}
+          {mode === "feeders" || mode === "om" ? <FlexDock /> : null}
           <SummaryCard />
           {offline ? (
             <span className="absolute bottom-3 left-14 z-10 rounded border bg-background/90 px-2 py-1 text-xs text-muted-foreground">
@@ -108,6 +109,7 @@ export function AppShell() {
         <ReplayBar />
         <DemoJumps />
         <SiteSheet />
+        <TurbineSheet />
       </SidebarInset>
     </SidebarProvider>
   );
