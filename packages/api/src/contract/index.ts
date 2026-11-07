@@ -98,4 +98,14 @@ export const stubAuditRouter = {
 export const stubManifestRouter = {
   getRuns: publicProcedure.handler(() => []),
   getKpis: publicProcedure.handler(() => []),
+  getOverview: publicProcedure.handler(() => ({
+    homes: 0,
+    feeders: 0,
+    turbines: 0,
+    parks: 0,
+    productionMwh: null,
+    avgWindKmh: null,
+    availabilityPct: null,
+    activeIssues: null,
+  })),
 };
