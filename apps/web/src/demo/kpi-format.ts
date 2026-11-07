@@ -15,13 +15,20 @@ export function canonicalName(name: string) {
   return ALIASES[name] ?? name;
 }
 
-export function formatKpi(kpi: Kpi): string {
+/** Number and unit apart, so the unit can be rendered small and muted (and never wrap). */
+export function formatKpiParts(kpi: Kpi): { number: string; unit: string } {
   const name = canonicalName(kpi.name);
   if (FRACTIONS.has(name)) {
     const percent = kpi.unit === "%" ? kpi.value : kpi.value * 100;
-    return `${percent.toFixed(1)}%`;
+    return { number: percent.toFixed(1), unit: "%" };
   }
   const number = Number.isInteger(kpi.value) ? String(kpi.value) : kpi.value.toFixed(2);
-  const unit = kpi.unit && kpi.unit !== "count" ? ` ${kpi.unit}` : "";
-  return `${number}${unit}`;
+  const unit = kpi.unit && kpi.unit !== "count" ? kpi.unit : "";
+  return { number, unit };
+}
+
+export function formatKpi(kpi: Kpi): string {
+  const { number, unit } = formatKpiParts(kpi);
+  if (unit === "%") return `${number}%`;
+  return unit ? `${number} ${unit}` : number;
 }
