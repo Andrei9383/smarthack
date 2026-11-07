@@ -45,6 +45,14 @@ def digest(out: Path) -> str:
 
 
 def _rss_mb() -> float:
+    """Peak RSS of this process image: VmHWM resets on exec (ru_maxrss would carry the parent's peak into the
+    spawned child); falls back to ru_maxrss where /proc is missing."""
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1]) / 1024
+    except OSError:
+        pass
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # KiB on Linux
 
 
