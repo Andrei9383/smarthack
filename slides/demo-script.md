@@ -19,7 +19,8 @@ Open the shared app once beforehand (the first load is slow). The app opens on O
 - Shared app down: run the laptop copy with `npm start`.
 - SHOULD mode not ready: skip its step and add its time to Feeders.
 - Summary shows "Not a result": the app is on fixtures. Don't quote those numbers.
-- Asked about alerts: the summary's 0.70 → 0.11 per turbine-day is this replay week, raw rules vs agent. The test-set comparison after de-duplication is close, 0.074 vs 0.077 (train#302/303). Our edge is recall and telling curtailment from faults.
+- Asked about alerts: the summary's 0.70 → 0.11 per turbine-day is this replay week, raw rules vs agent. The test-set comparison after de-duplication is close, 0.074 vs 0.077 (train#302/303). Our edge is recall (0.89 vs 0.75) and telling curtailment from faults (F1 0.93 vs 0.39, train#593/594).
+- Asked how typical the feeders are: they are 5 picked feeders with 46% batteries. A whole fleet cuts energy over limit 67% at 45% batteries and 30% at the real 20% (replay#583, #568). P10 hit rate stays at 91–92% and comfort breaches at 0 in every run.
 
 ## Before presenting
 
