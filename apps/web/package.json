@@ -9,7 +9,13 @@
     "start": "next start -H \"${HOST:-0.0.0.0}\" -p \"${PORT:-3000}\""
   },
   "dependencies": {
+    "@deck.gl/core": "^9.4.1",
+    "@deck.gl/layers": "^9.4.1",
+    "@deck.gl/mapbox": "^9.4.1",
     "@libsql/client": "0.18.0",
+    "@luma.gl/core": "^9.4.2",
+    "@luma.gl/engine": "^9.4.2",
+    "@luma.gl/shadertools": "^9.4.2",
     "@number-flow/react": "^0.6.2",
     "@orpc/client": "^1.15.6",
     "@orpc/openapi": "^1.15.6",
@@ -31,6 +37,8 @@
     "d3-shape": "^3.2.1",
     "libsql": "0.5.29",
     "lucide-react": "^1.41.0",
+    "maplibre-gl": "^6.16.0",
+    "maplibre-gl-wind": "^0.2.3",
     "motion": "^14.10.1",
     "next": "^16.3.4",
     "next-themes": "^0.4.6",
