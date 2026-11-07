@@ -43,7 +43,7 @@ function RailItem({
       title={expanded ? undefined : `${label}: ${descriptor}`}
       className={cn(
         "relative flex min-h-11 w-full items-center gap-3 rounded-[10px] px-2.5 py-1.5 text-left transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
-        active ? "bg-brand-50 text-brand-900" : "text-text-secondary hover:bg-sidebar hover:text-foreground",
+        active ? "bg-brand-50 text-brand-900" : "text-text-secondary hover:bg-card hover:text-foreground",
       )}
     >
       {active ? (
@@ -142,7 +142,7 @@ export function Rail({
       aria-label="Views"
       data-tour="rail"
       className={cn(
-        "relative z-40 flex h-full shrink-0 flex-col gap-1 overflow-hidden border-r border-border bg-card px-2 py-2.5 transition-[width] duration-200 ease-out motion-reduce:transition-none",
+        "relative z-40 flex h-full shrink-0 flex-col gap-1 overflow-hidden bg-transparent px-2 py-2.5 transition-[width] duration-200 ease-out motion-reduce:transition-none",
         expanded ? "w-[232px]" : "w-14",
       )}
     >
@@ -199,7 +199,7 @@ export function Rail({
           onClick={onHelp}
           aria-label="Show the tour"
           title="Show the tour: how to read this screen"
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-sidebar hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-card hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           <CircleHelp aria-hidden className="size-[18px]" />
         </button>
@@ -208,7 +208,7 @@ export function Rail({
           onClick={onToggle}
           aria-label={expanded ? "Collapse the menu" : "Expand the menu"}
           title={expanded ? "Collapse the menu" : "Expand the menu"}
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-sidebar hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-card hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           {expanded ? <PanelLeftClose aria-hidden className="size-[18px]" /> : <PanelLeftOpen aria-hidden className="size-[18px]" />}
         </button>
