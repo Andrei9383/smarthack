@@ -61,10 +61,11 @@ def parse_args(argv=None):
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
                     help="exact data-wait vs compute split (cuda sync per step)")
     ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
-    ap.add_argument("--compile", default="auto", choices=["auto", "off", "default", "reduce-overhead",
-                                                          "max-autotune-no-cudagraphs"],
-                    help="torch.compile mode for the train forward; auto = reduce-overhead (CUDA graphs) on CUDA sm>=7.5, "
-                         "else off. Compile time is logged as t_compile_s (#140)")
+    ap.add_argument("--compile", default="off", choices=["auto", "off", "default", "reduce-overhead",
+                                                         "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the M4 train forward (t_compile_s logged). Off: reduce-overhead gave NaN "
+                         "val probabilities after epoch 0 (BatchNorm under CUDA graphs, #140 train#749). The upstream "
+                         "M1/M2 runs keep their own default (auto)")
     ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
                     help="fused AdamW kernel on CUDA")
     return ap.parse_args(argv)
