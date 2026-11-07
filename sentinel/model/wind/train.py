@@ -129,10 +129,10 @@ def parse_args(argv):
                     help="exact data-wait vs compute split (cuda sync per step)")
     ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
                     help="fused AdamW kernel on CUDA")
-    ap.add_argument("--compile", default="auto", choices=["auto", "off", "default", "reduce-overhead",
-                                                          "max-autotune-no-cudagraphs"],
-                    help="torch.compile mode for the train forward; auto = reduce-overhead (CUDA graphs) on CUDA sm>=7.5, "
-                         "else off. Compile time is logged as t_compile_s (#140)")
+    ap.add_argument("--compile", default="off", choices=["auto", "off", "default", "reduce-overhead",
+                                                         "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the train forward (t_compile_s logged). Off by default: the step is "
+                         "GPU-bound in the cuDNN GRUs (72%% util), compile measured no faster (#140 train#713-715)")
     return ap.parse_args(argv)
 
 
