@@ -1,0 +1,49 @@
+{
+ "model": "windnbm",
+ "model_version": "windnbm-r135",
+ "priors": {
+  "version": 1,
+  "split": "val-2024",
+  "source_run": "train#135",
+  "source": "report",
+  "note": "event metrics from r135 report: validation split (*, turbine), seen parks test (turbine|seen), held-out park WP2 test (turbine|unseen)",
+  "scores": {
+   "alarm_precision": {
+    "*": {
+     "prior": 0.76349,
+     "n": 974
+    },
+    "turbine": {
+     "prior": 0.76349,
+     "n": 974
+    },
+    "turbine|seen": {
+     "prior": 0.79108,
+     "n": 3574
+    },
+    "turbine|unseen": {
+     "prior": 0.71363,
+     "n": 1250
+    }
+   },
+   "miss_score": {
+    "*": {
+     "prior": 0.98963,
+     "n": 974
+    },
+    "turbine": {
+     "prior": 0.98963,
+     "n": 974
+    },
+    "turbine|seen": {
+     "prior": 0.97594,
+     "n": 3574
+    },
+    "turbine|unseen": {
+     "prior": 0.97392,
+     "n": 1250
+    }
+   }
+  }
+ }
+}
