@@ -178,6 +178,29 @@ class World:
     def turbine_day(self, turbine_id: str, d: int) -> TurbineDay:
         raise NotImplementedError
 
+    def turbine_sensors(self) -> Optional[tuple[list[str], dict[str, Any], Any, Any]]:
+        """Raw SCADA over the replay days for the baseline WindMon rules (#24): (turbine ids, {PPC sensor: [T, N]},
+        error codes [T, N], rated kW [N]), T = days x 96. Default: the TurbineDay fields (other sensors NaN)."""
+        import numpy as np
+
+        ids = sorted(self.turbines)
+        if not ids:
+            return None
+        T = self.days * DAY_STEPS
+        names = ("act_pwt", "wd_spd", "turbine_t", "gearbox_t", "conv_t", "gen1_t", "gen2_t", "transformer_t")
+        sens = {k: np.full((T, len(ids)), np.nan) for k in names}
+        err = np.zeros((T, len(ids)))
+        for j, t in enumerate(ids):
+            for d in range(self.days):
+                td = self.turbine_day(t, d)
+                sl = slice(d * DAY_STEPS, (d + 1) * DAY_STEPS)
+                for k, v in (("act_pwt", td.act_pwt_kw), ("wd_spd", td.wd_spd_kmh), ("turbine_t", td.turbine_t_c),
+                             ("gearbox_t", td.gearbox_t_c)):
+                    sens[k][sl, j] = [np.nan if x is None else float(x) for x in v]
+                err[sl, j] = td.error_code
+        rated = np.array([self.turbines[t].rated_kw for t in ids], float)
+        return ids, sens, err, rated
+
     def default_predictors(self) -> dict[str, Any]:
         """Predictors to use when no trained model is injected (kind -> Predictor)."""
         return {k: MockPredictor(k) for k in ("pv", "load", "sitehealth", "wind", "zone")}
@@ -1032,6 +1055,20 @@ class SimWorld(World):
         self.model_errors = {**bank.errors, **({"wind": werr} if werr else {})}
         self._preds = out
         return out
+
+    def turbine_sensors(self) -> Optional[tuple[list[str], dict[str, Any], Any, Any]]:
+        """All PPC sensors of the #22 cache over the replay week (the rules see what WindMon would see)."""
+        import numpy as np
+
+        if not self.turbines:
+            return None
+        wd = self._wind
+        ids = sorted(self.turbines)
+        cols = [self._wcol[t] for t in ids]
+        sl = slice(self._w0, self._w0 + self.days * DAY_STEPS)
+        sens = {k: np.asarray(v[sl][:, cols], float) for k, v in wd.sensors.items()}
+        rated = np.array([self.turbines[t].rated_kw for t in ids], float)
+        return ids, sens, np.asarray(wd.err[sl][:, cols], float), rated
 
     def _wind_arrays(self) -> dict[str, dict[str, Any]]:
         wd = self._wind

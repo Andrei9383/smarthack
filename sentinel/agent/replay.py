@@ -140,6 +140,16 @@ def write_topology(db: AuditDB, world: World) -> None:
             "rotor_diameter_m": r.get("rotor_d_m"), "hub_height_m": r.get("hub_height_m"), "metadata_json": r})
 
 
+KPI_UNITS = {"minutes_over_limit": "min", "lei_per_home": "lei/home/month", "alerts_per_turbine_day": "1/turbine-day",
+             "energy_over_limit": "kWh", "peak_overshoot": "kW"}
+
+
+def hero_feeder(world: World) -> Optional[str]:
+    from .world import HERO_FEEDER_ID
+
+    return HERO_FEEDER_ID if HERO_FEEDER_ID in world.feeders else None
+
+
 def compute_metrics(world: World, results: dict[str, PolicyResult]) -> dict[str, float]:
     m: dict[str, float] = {}
     base, sent = results.get("baseline"), results.get("sentinel")
@@ -147,6 +157,14 @@ def compute_metrics(world: World, results: dict[str, PolicyResult]) -> dict[str,
     for pol, r in results.items():
         m[f"minutes_over_limit_{pol}"] = r.minutes_over_limit
         m[f"minutes_over_limit_per_feeder_day_{pol}"] = r.minutes_over_limit / n_fd
+        m[f"energy_over_limit_{pol}"] = r.energy_over_limit_kwh
+        m[f"peak_overshoot_{pol}"] = r.peak_overshoot_kw
+        hf = hero_feeder(world)
+        for (f, d), v in sorted(r.feeder_days.items()):
+            if f == hf:  # the hero feeder day by day (minutes can rise while energy over the limit falls)
+                m[f"minutes_over_limit_{f}_d{d}_{pol}"] = v["minutes_over"]
+                m[f"energy_over_limit_{f}_d{d}_{pol}"] = v.get("kwh_over", 0.0)
+                m[f"peak_overshoot_{f}_d{d}_{pol}"] = v.get("peak_overshoot", 0.0)
         m[f"comfort_breaches_{pol}"] = float(r.comfort_breaches)
         m[f"alerts_per_turbine_day_{pol}"] = r.turbine_alerts / r.turbine_days if r.turbine_days else 0.0
         m[f"lei_cost_per_home_month_{pol}"] = r.cost_lei / max(1, r.n_homes) * 30 / max(1, world.days)
@@ -223,6 +241,11 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
                       "world": w.describe(), "resolve_hourly": resolve_hourly, "schema": db.schema_source,
                       "inputs_hash": __import__("sentinel.contracts", fromlist=["input_hash"]).input_hash(
                           res.day_hashes), "plan_status": res.plan_status,
+                      "commit_calibration": {d: {k: {"method": "online split conformal, past replay days",
+                                                     "buckets": v.get("n_buckets"),
+                                                     **{f: next(iter(v["members"].values()))[f]
+                                                        for f in ("n_cal", "raw_coverage")}}
+                                                 for k, v in c.items()} for d, c in res.conformal.items()},
                       "warning": ("FALLBACK components: " + ", ".join(comps.fallbacks)) if comps.fallbacks else ""}})
     metrics = compute_metrics(w, results)
     for pol, rid in run_ids.items():
@@ -234,8 +257,17 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             if val is None or (isinstance(val, float) and math.isnan(val)):
                 continue
             db.add("kpis", {"run_id": rid, "policy": pol, "name": name, "value": float(val), "label": w.label,
-                            "unit": {"minutes_over_limit": "min", "lei_per_home": "lei/home/month",
-                                     "alerts_per_turbine_day": "1/turbine-day"}.get(name)})
+                            "unit": KPI_UNITS.get(name)})
+        # energy over the limit + peak overshoot: all feeders x days, and the hero feeder day by day
+        hf = hero_feeder(w)
+        extra = ["energy_over_limit", "peak_overshoot"] + [f"{k}_{hf}_d{d}" for d in range(w.days) for k in
+                                                           ("minutes_over_limit", "energy_over_limit", "peak_overshoot")
+                                                           if hf]
+        for name in extra:
+            val = metrics.get(f"{name}_{pol}")
+            if val is not None:
+                db.add("kpis", {"run_id": rid, "policy": pol, "name": name, "value": float(val), "label": w.label,
+                                "unit": KPI_UNITS.get(name.split(f"_{hf}_d")[0] if hf else name)})
     summary = db.summary()
     db.close()
     secs = time.perf_counter() - t_start
@@ -246,7 +278,8 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
         order = ["peak_reduction", "peak_reduction_congested", "minutes_over_limit"] + \
                 [f"minutes_over_limit_{p}" for p in pols] + ["p10_hit_rate", "comfort_breaches"] + \
                 [f"comfort_breaches_{p}" for p in pols] + ["lei_per_home", "alerts_per_turbine_day"] + \
-                [f"alerts_per_turbine_day_{p}" for p in pols]
+                [f"alerts_per_turbine_day_{p}" for p in pols] + [f"energy_over_limit_{p}" for p in pols] + \
+                [f"peak_overshoot_{p}" for p in pols]
         for k in dict.fromkeys(order):
             if k in metrics:
                 print(f"LAB_METRIC {k}={metrics[k]:.4g}")

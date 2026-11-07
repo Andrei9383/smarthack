@@ -266,3 +266,62 @@ def test_blind_haircut_removes_the_blind_share_by_step():
     prof = L._blind_profile({"a": type("SD", (), {"telemetry_age_s": [0.0] * 40 + [4000.0] + [0.0] * 55})()},
                             L.LoopConfig())
     assert prof["a"][36:45].all() and not prof["a"][35] and not prof["a"][45]
+
+
+# --- stage 2: predictor versions, #24 WindMon baseline, energy over the limit, online conformal commitment ----
+def test_predictor_versions_ignore_the_unused_zone_mock():
+    from sentinel.contracts import MockPredictor
+
+    w = MockWorld(days=1, scale=0.4, with_wind=False)
+    real = type("P", (), {"model": "pvnet", "model_version": "pvnet-383-s0"})()
+    preds = {**w.default_predictors(), "pv": real, "load": real, "sitehealth": real, "wind": real,
+             "zone": MockPredictor("zone")}
+    src = L.default_components(w, force_fallback=True, predictors=preds).sources
+    assert src["predictors"] == "real:pvnet-383-s0" and "mock" not in src["predictors"]
+
+
+def test_baseline_wind_alerts_use_the_24_windmon_rules():
+    pytest.importorskip("sentinel.eval.baselines.wind.windmon_rules")
+    w = MockWorld(days=2, scale=0.4)
+    comps = L.default_components(w)
+    assert comps.sources["wind_baseline"].startswith("real:") and comps.windmon_flags is not None
+    ids, sens, err, rated = w.turbine_sensors()
+    assert sens["act_pwt"].shape == (2 * 96, len(ids)) == err.shape and len(rated) == len(ids)
+    b = L.run_policy(w, comps, L.LoopConfig(policy="baseline", run_id="b"))
+    s = L.run_policy(w, comps, L.LoopConfig(policy="sentinel", run_id="s"))
+    assert b.turbine_alerts > s.turbine_alerts > 0  # WindMon rules fire more than the Sentinel triage
+    assert L.default_components(w, force_fallback=True).windmon_flags is None  # built-in stand-in stays the fallback
+
+
+def test_energy_over_limit_and_overshoot_kpis(small):
+    rep, conn = small
+    rows = {(p, n): v for p, n, v in q(conn, "SELECT policy, name, value FROM kpis WHERE name LIKE 'energy_over%' "
+                                             "OR name LIKE 'peak_overshoot%' OR name LIKE 'minutes_over_limit_F7%'")}
+    for pol in ("baseline", "sentinel"):
+        assert rows[(pol, "energy_over_limit")] == pytest.approx(rep.results[pol].energy_over_limit_kwh)
+        assert sum(v for (p, n), v in rows.items() if p == pol and n.startswith("energy_over_limit_F7_d")) <= \
+            rows[(pol, "energy_over_limit")] + 1e-6
+        assert (pol, "peak_overshoot_F7_d0") in rows and (pol, "minutes_over_limit_F7_d1") in rows
+    assert rows[("sentinel", "energy_over_limit")] <= rows[("baseline", "energy_over_limit")]
+    unit = dict(q(conn, "SELECT name, unit FROM kpis WHERE policy = 'baseline' AND name IN "
+                        "('energy_over_limit', 'peak_overshoot', 'energy_over_limit_F7_d0')"))
+    assert unit == {"energy_over_limit": "kWh", "peak_overshoot": "kW", "energy_over_limit_F7_d0": "kWh"}
+
+
+def test_online_conformal_uses_only_past_days_and_widens_too_narrow_bands():
+    import numpy as np
+
+    pytest.importorskip("sentinel.eval.uncertainty.conformal")
+    cfg = L.LoopConfig()
+    assert L._fit_conformal({"pv": [], "load": []}, cfg) == {}  # day 0: nothing replayed yet
+    rng = np.random.default_rng(0)
+    rows = []
+    for _ in range(20):  # load forecast 1 kW +- 0.05, truth spread +- 0.5: the band is far too narrow
+        q50 = np.ones(96)
+        rows.append((q50 + rng.normal(0, 0.4, 96), q50 - 0.05, q50, q50 + 0.05, np.ones(96, bool)))
+    cal = L._fit_conformal({"load": rows}, cfg)["load"]
+    lo, _, hi = cal.apply(np.full(96, 0.95), np.ones(96), np.full(96, 1.05))
+    assert (lo < 0.8).mean() > 0.9 and (hi > 1.2).mean() > 0.9
+    w = MockWorld(days=2, scale=0.5, with_wind=False)
+    res = L.run_policy(w, L.default_components(w, force_fallback=True), L.LoopConfig(policy="sentinel", run_id="c"))
+    assert res.conformal[0] == {} and set(res.conformal[1]) == {"pv", "load"}

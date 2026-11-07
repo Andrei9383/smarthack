@@ -35,7 +35,7 @@ otherwise by a minimal built-in, and `Components.sources` records which (also wr
     demand     sentinel.demand.aggregate_scenarios + zone_demand_rows/actions (#44) -> fallback: summed quantiles
     predictors world.default_predictors() (MockPredictor / world-aware mock) until trained models are injected
     wind       built-in rule classifier (M6 stand-in: fault stop / underperformance / data gap from expected power);
-               baseline alerts = built-in WindMon rules (#24 stand-in)
+               baseline alerts = WindMon's four rules (#24 sentinel.eval.baselines.wind; built-in stand-in fallback)
 """
 
 from __future__ import annotations
@@ -447,6 +447,7 @@ class Components:
     threshold_step: Callable[..., tuple[float, float, float]]
     sources: dict[str, str] = field(default_factory=dict)
     errors: dict[str, int] = field(default_factory=dict)
+    windmon_flags: Optional[Callable[..., dict[str, np.ndarray]]] = None  # #24 rules (baseline policy); None = builtin
 
     @property
     def fallbacks(self) -> list[str]:
@@ -492,11 +493,11 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
                        predictors: Optional[dict[str, Any]] = None) -> Components:
     """Real modules where they import (lazy), built-in fallbacks otherwise. `force_fallback=True` or a list of
     slots (planner, qualify, triage, committer, demand) forces the built-ins (tests, A/B checks)."""
-    forced = set(["planner", "qualify", "triage", "committer", "demand"] if force_fallback is True
+    forced = set(["planner", "qualify", "triage", "committer", "demand", "wind_baseline"] if force_fallback is True
                  else (force_fallback or []))
     src: dict[str, str] = {}
     preds = predictors or world.default_predictors()
-    versions = sorted({getattr(p, "model_version", "?") for p in preds.values()})
+    versions = sorted({getattr(p, "model_version", "?") for k, p in preds.items() if k != "zone"})  # zone: unused
     src["predictors"] = ("mock:" if all(str(v).startswith("mock") for v in versions) else "real:") + ",".join(versions)
     for k, p in sorted((k, p) for k, p in preds.items() if k != "zone"):  # zone: unused by the loop
         v = str(getattr(p, "model_version", "?"))
@@ -598,6 +599,11 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
                                                                                 t=world.day_t0(d), policy=policy)
 
     comps = Components(preds, plan, backup, qmany, tri, tcfg, commit_fn, zd, rest_fn, thr_step, src)
+    wm = _try("wind_baseline", lambda: __import__("sentinel.eval.baselines.wind.windmon_rules",
+                                                  fromlist=["windmon_flags"]))
+    if wm is not None and hasattr(wm, "windmon_flags"):
+        comps.windmon_flags = wm.windmon_flags
+        src["wind_baseline"] = "real:sentinel.eval.baselines.wind.windmon_rules (#24)"
     banner = ", ".join(f"{k}={v}" for k, v in sorted(src.items()))
     log(f"components: {banner}")
     if comps.fallbacks:
@@ -622,6 +628,8 @@ class LoopConfig:
     readmit: bool = True  # re-admit a dropped pool site to the live pool once its telemetry is fresh and it re-qualifies
     hold_blind: bool = True  # a pool site dropped only for missing telemetry keeps running the schedule on its device
     blind_haircut: bool = True  # haircut committed flex by the share expected to be unobserved (trailing-day profile)
+    conformal: bool = True  # commit on PV/load quantiles conformally recalibrated on the replay's PAST days (observed)
+    conformal_buckets: int = 24  # hour-of-day buckets (t0 = local midnight): dawn load misses differ from midday PV
     n_scenarios: int = 200
     seed: int = 0
 
@@ -646,10 +654,19 @@ class PolicyResult:
     n_actions: dict[str, int] = field(default_factory=dict)
     action_ids: list[str] = field(default_factory=list)
     plan_status: dict[str, int] = field(default_factory=dict)
+    conformal: dict[int, dict[str, Any]] = field(default_factory=dict)  # day -> commit-time calibration (runs.notes)
 
     @property
     def minutes_over_limit(self) -> float:
         return sum(v["minutes_over"] for v in self.feeder_days.values())
+
+    @property
+    def energy_over_limit_kwh(self) -> float:
+        return sum(v.get("kwh_over", 0.0) for v in self.feeder_days.values())
+
+    @property
+    def peak_overshoot_kw(self) -> float:
+        return max((v.get("peak_overshoot", 0.0) for v in self.feeder_days.values()), default=0.0)
 
     @property
     def p10_hit_rate(self) -> Optional[float]:
@@ -738,6 +755,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
     under_run: dict[str, int] = {}
     curt_ep: dict[str, dict[str, Any]] = {}
     windmon_active: dict[tuple[str, str], bool] = {}
+    windmon = _windmon_precompute(world, comps) if (not sentinel and world.turbines) else None
     res.turbine_days = len(world.turbines) * world.days
 
     def act(action: Action, ts: int, rows: Optional[dict[str, list[dict[str, Any]]]] = None,
@@ -763,6 +781,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
             act(a, world.day_ts(0))
 
     prev_oday: dict[str, SiteDay] = {}  # yesterday's observation: the blind-haircut profile at commit time
+    cal_hist: dict[str, list[tuple[np.ndarray, ...]]] = {"pv": [], "load": []}  # (y, q10, q50, q90, observed)
     for d in range(world.days):
         t0 = world.day_t0(d)
         day_ts = world.day_ts(d)
@@ -826,11 +845,13 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
             for x in ass:
                 statuses[x.asset_id] = x.status
             blind = _blind_profile(prev_oday, cfg) if cfg.blind_haircut else {}
+            cal = _fit_conformal(cal_hist, cfg) if cfg.conformal else {}
+            res.conformal[d] = {k: c.to_dict() for k, c in cal.items()}
             for fid, feeder in world.feeders.items():
                 members = feeder.site_ids
                 pool[fid] = [s for s in members if s in energy and statuses[s].in_pool and statuses[s].battery_ok]
                 pl, comm = _plan_and_commit(comps, cfg, world, feeder.spec, members, pool[fid], pv_p, ld_p,
-                                            statuses, energy, prices_kwh, t0, res, blind)
+                                            statuses, energy, prices_kwh, t0, res, blind, cal)
                 plans[fid], commitments[fid] = pl, comm
                 gi = feeder.spec.g_kw
                 for s in pool[fid]:
@@ -855,7 +876,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         executed = {s: [0.0] * DAY_STEPS for s in batt_sites}
         pv_obs = {s: np.full(DAY_STEPS, np.nan) for s in sites}
         tb_obs = {t: np.full(DAY_STEPS, np.nan) for t in world.turbines}
-        fd = {f: {"peak_export": 0.0, "minutes_over": 0.0, "peak_import_evening": 0.0} for f in world.feeders}
+        fd = {f: {"peak_export": 0.0, "minutes_over": 0.0, "peak_import_evening": 0.0, "kwh_over": 0.0,
+                  "peak_overshoot": 0.0} for f in world.feeders}  # overshoot kW: max(0, export - limit)
         park_acc = {p: {"prod": 0.0, "exp": 0.0, "avail": 0.0, "curt": 0.0, "dq": 0.0, "n": 0, "issues": []}
                     for p in world.parks}
         revision = 0
@@ -948,7 +970,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 _wind_tick(world, d, k, ts, ass, wd_p, tday, park_acc, curt_ep, act, run_id, policy, sink,
                            write_inputs, res)
             elif world.turbines:
-                _windmon_tick(world, k, ts, tday, windmon_active, act, run_id, policy, res)
+                _windmon_tick(world, k, ts, tday, windmon_active, act, run_id, policy, res, windmon, d)
             # -- act: batteries
             fexp = {f: 0.0 for f in world.feeders}
             for s in sites:
@@ -1021,6 +1043,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 acc = fd[fid]
                 acc["peak_export"] = max(acc["peak_export"], x)
                 acc["minutes_over"] += 15.0 * over
+                acc["kwh_over"] += max(0.0, x - g) * DT
+                acc["peak_overshoot"] = max(acc["peak_overshoot"], x - g)
                 if 17 <= local_h < 22:
                     acc["peak_import_evening"] = max(acc["peak_import_evening"], -x)
                 sink.add("feeder_curves", {"run_id": run_id, "feeder_id": fid, "policy": policy, "ts": tsx,
@@ -1029,6 +1053,11 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                            "is_violation": int(over)})
         # ---------------------------------------------------------------- end of day: log
         prev_oday = oday
+        for s in sites:  # calibration slice for the next days: what was forecast vs what was observed
+            ok = np.asarray(oday[s].telemetry_age_s, float) == 0
+            for key, p, y in (("pv", pv_p[s], oday[s].pv_kw), ("load", ld_p[s], oday[s].load_kw)):
+                cal_hist[key].append((np.asarray(y, float), np.asarray(p.q10, float), np.asarray(p.q50, float),
+                                      np.asarray(p.q90, float), ok))
         for fid in world.feeders:
             res.feeder_days[(fid, d)] = fd[fid]
         if sentinel:
@@ -1222,8 +1251,29 @@ def _blind_haircut(c: Commitment, contrib: Mapping[str, np.ndarray], blind: Mapp
     return c
 
 
+def _fit_conformal(hist: Mapping[str, list[tuple[np.ndarray, ...]]], cfg: LoopConfig) -> dict[str, Any]:
+    """Split-conformal offsets (sentinel.eval.uncertainty.conformal, normalised asymmetric CQR) per quantity, fitted on
+    every site-day already replayed (observed steps only): no information from the day being committed. {} on day 0
+    or when the module is missing."""
+    try:
+        from sentinel.eval.uncertainty.conformal import ConformalCalibration, default_mask
+    except ImportError:
+        return {}
+    out = {}
+    for key, rows in hist.items():
+        if not rows:
+            continue
+        y, q10, q50, q90, ok = (np.stack([r[i] for r in rows]) for i in range(5))
+        m = ok & default_mask(y, q10, q90)
+        if m.sum() < 200:
+            continue
+        out[key] = ConformalCalibration.fit(y, (q10, q50, q90), mask=m, n_buckets=cfg.conformal_buckets,
+                                            model=key, model_version="online-past-days")
+    return out
+
+
 def _plan_and_commit(comps, cfg, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, prices_kwh, t0,
-                     res, blind: Optional[Mapping[str, np.ndarray]] = None):
+                     res, blind: Optional[Mapping[str, np.ndarray]] = None, cal: Optional[Mapping[str, Any]] = None):
     pl = _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, prices_kwh, t0, res)
     sites = world.sites
     pv_d = {s: _scaled(pv_p[s], _pv_factor(statuses.get(s))) for s in pool_ids}
@@ -1238,7 +1288,13 @@ def _plan_and_commit(comps, cfg, world, spec, members, pool_ids, pv_p, ld_p, sta
             p_rule, e, _ = self_consumption_step(b, e, pv_d[s].q50[t], ld_p[s].q50[t])
             r[t] = sched[t] - p_rule
         red += r
-    ctx = {"planned_reduction": red, "haircut": cfg.haircut, "pv": pv_d, "load": {s: ld_p[s] for s in pool_ids},
+    ld_c = {s: ld_p[s] for s in pool_ids}
+    if cal:  # the commitment samples calibrated bands; the plan itself stays on the models' quantiles
+        if "pv" in cal:
+            pv_d = {s: cal["pv"].apply_prediction(pv_d[s]) for s in pool_ids}
+        if "load" in cal:
+            ld_c = {s: cal["load"].apply_prediction(ld_c[s]) for s in pool_ids}
+    ctx = {"planned_reduction": red, "haircut": cfg.haircut, "pv": pv_d, "load": ld_c,
            "batteries": {s: sites[s].battery for s in pool_ids},
            "soc0": {s: energy[s] / sites[s].battery.capacity_kwh for s in pool_ids},
            "pv_cap": {s: float(sites[s].row.get("kwp_recorded") or 10.0) for s in pool_ids},
@@ -1319,22 +1375,47 @@ def _close_curtailment(pid, curt_ep, act, run_id, policy, ts, res):
     res.turbine_alerts += 1
 
 
-def _windmon_tick(world, k, ts, tday, active, act, run_id, policy, res):
-    """Baseline wind O&M: WindMon's four rules on raw SCADA, one alert per rule episode per turbine."""
+def _windmon_precompute(world, comps):
+    """#24's WindMon rules over the whole replay (causal: each step uses only past steps); None -> builtin rules."""
+    fn = comps.windmon_flags
+    if fn is None:
+        return None
+    try:
+        got = world.turbine_sensors()
+        if got is None:
+            return None
+        ids, sens, err, rated = got
+        flags = fn(sens, err, rated)
+        return {"col": {t: j for j, t in enumerate(ids)}, "flags": {r: np.asarray(f, bool) for r, f in flags.items()}}
+    except Exception as e:
+        comps.note_error("wind_baseline", e)
+        comps.sources["wind_baseline"] = "fallback:builtin_windmon_rules (#24 import ok, run failed)"
+        return None
+
+
+def _windmon_tick(world, k, ts, tday, active, act, run_id, policy, res, windmon=None, d=0):
+    """Baseline wind O&M: WindMon's four rules on raw SCADA, one alert per rule episode per turbine (#24's rules when
+    importable, else the builtin stand-in)."""
     for t, tb in world.turbines.items():
         td = tday[t]
         a, w, gb = td.act_pwt_kw[k], td.wd_spd_kmh[k], td.gearbox_t_c[k]
-        fired = {
-            "HIGH_WIND_ZERO_POWER": a is not None and w is not None and w > 15.0 and a < 10.0,
-            "DATA_GAP": a is None,
-            "TEMPERATURE_SPIKE": gb is not None and gb > 85.0,
-            "SUSPECT_DATA": td.error_code[k] != 0 and is_error_code("gearbox_t", float(td.error_code[k])),
-        }
+        if windmon is not None:
+            row, j = d * DAY_STEPS + k, windmon["col"][t]
+            fired = {r: bool(f[row, j]) for r, f in windmon["flags"].items()}
+            model, note = "windmon_rules:#24", "WindMon rule (#24, sentinel.eval.baselines.wind)"
+        else:
+            fired = {
+                "HIGH_WIND_ZERO_POWER": a is not None and w is not None and w > 15.0 and a < 10.0,
+                "DATA_GAP": a is None,
+                "TEMPERATURE_SPIKE": gb is not None and gb > 85.0,
+                "SUSPECT_DATA": td.error_code[k] != 0 and is_error_code("gearbox_t", float(td.error_code[k])),
+            }
+            model, note = "windmon_rules:builtin", "WindMon rule (builtin #24 stand-in)"
         for rule, thr in _WINDMON:
-            on = fired[rule]
+            on = fired.get(rule, False)
             if on and not active.get((t, rule)):
-                rec = A.audit("windmon_rules:builtin", {"t": t, "ts": ts, "act": a, "wd_spd": w, "gearbox_t": gb},
-                              {"act_pwt_kw": a, "wd_spd_kmh": w}, thr, "alert", note="WindMon rule (#24 stand-in)")
+                rec = A.audit(model, {"t": t, "ts": ts, "act": a, "wd_spd": w, "gearbox_t": gb},
+                              {"act_pwt_kw": a, "wd_spd_kmh": w}, thr, "alert", note=note)
                 act(A.make(ActionType.ALERT, iso(ts), policy, run_id, {
                     "asset_id": t, "asset_kind": "turbine", "park_id": tb.park_id,
                     "severity": Severity.WARNING.value, "code": rule,
