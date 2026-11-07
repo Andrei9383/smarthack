@@ -1,4 +1,6 @@
-"""K4 fused feature build: the heavy part of ``sentinel.model.features.pv_inputs`` / ``load_inputs`` (#94).
+"""K4 fused feature build: the heavy part of ``sentinel.model.features.pv_inputs`` / ``load_inputs`` (#94) and
+``site_inputs`` (#102: ``site_features(raw) -> seq [B,96,18], summ [B,14,8]``, reference ``site_arrays``; the
+degraded mode without telemetry history uses the reference).
 
 The source of truth is the numpy code in ``sentinel.model.features`` (``pv_arrays``, ``load_arrays``); the Python
 references here call it. numpy builds ~40 [B, ...] temporaries per batch; the Rust copy (``sentinel._core``) makes
@@ -70,3 +72,44 @@ def load_features_rust(wx: Any, cal: Any, hist_load: Any):
     kernels._load_core().load_features(wx.reshape(B, -1), cal.reshape(B, -1), hist_load, seq.reshape(B, -1), ref,
                                        summ.reshape(B, -1), scale)
     return seq, ref, summ, scale
+
+
+def site_features_py(raw: dict):
+    """Reference: ``sentinel.model.features.site_arrays`` (M4 SiteHealth) -> seq [B,96,18], summ [B,14,8]."""
+    from sentinel.model.features import site_arrays
+
+    return site_arrays(raw)
+
+
+def _i8(a: Any, hist: bool) -> np.ndarray:
+    """Status codes as int8 with the reference's comparisons kept: seq casts to int64 first, history compares raw."""
+    a = np.asarray(a)
+    if a.dtype == np.int8:
+        return np.ascontiguousarray(a)
+    return np.where(a == 3, 3, 0).astype(np.int8) if hist else np.clip(a.astype(np.int64), -1, 4).astype(np.int8)
+
+
+def site_features_rust(raw: dict):
+    from sentinel import kernels
+
+    B = len(raw["kwp_recorded"])
+    if raw.get("hist_volt") is None or not B:  # degraded mode (no telemetry history): reference
+        return site_features_py(raw)
+    pv, m2, pvlib, clear, volt, soc, batt, load = _f32(*(raw[k] for k in ("pv", "m2", "pvlib", "pvclear", "volt",
+                                                                          "soc", "batt", "load")))
+    m1, geom, hpv, hload, hv, hso, hb, kwp, bkw, bkwh, hasb = _f32(*(raw[k] for k in (
+        "m1", "geom", "hist_pv", "hist_load", "hist_volt", "hist_soc", "hist_batt", "kwp_recorded", "battery_kw",
+        "battery_kwh", "has_batt")))
+    valid = _f32(raw.get("valid", np.ones((B, H), np.float32)))[0]
+    st, hst = _i8(raw["status"], False), _i8(raw["hist_status"], True)
+    step = (pv, m2, pvlib, clear, volt, st, soc, batt, load, valid)
+    if any(a.shape != (B, H) for a in step) or (m1.shape, geom.shape) != ((B, H, 3), (B, H, 3)) \
+            or any(a.ndim != 2 or a.shape[0] != B or a.shape[1] < HH for a in (hpv, hv)) \
+            or any(a.shape != hv.shape for a in (hst, hso, hb)) or hload.ndim != 2 or hload.shape[0] != B \
+            or not hload.shape[1] or any(a.shape != (B,) for a in (kwp, bkw, bkwh, hasb)):
+        return site_features_py(raw)
+    seq, summ = np.empty((B, H, 18), np.float32), np.empty((B, 14, 8), np.float32)
+    kernels._load_core().site_features(pv, m1.reshape(B, -1), m2, geom.reshape(B, -1), pvlib, clear, volt, st, soc,
+                                       batt, load, valid, hpv, hload, hv, hst, hso, hb, kwp, bkw, bkwh, hasb,
+                                       seq.reshape(B, -1), summ.reshape(B, -1))
+    return seq, summ

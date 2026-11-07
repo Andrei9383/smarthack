@@ -93,7 +93,6 @@ fn pv_one(wx: &[f32], geom: &[f32], clear: &[f32], pvlib: &[f32], hist: &[f32], 
     }
     let (mut mean, mut max) = ([0f32; H], [0f32; H]);
     ref_stats(&r, &mut mean, &mut max, refh);
-    let mut am = [0f32; H];
     for t in 0..H {
         let (w, g) = (&wx[t * 7..t * 7 + 7], &geom[t * 3..t * 3 + 3]);
         let (zen, az) = (g[0] * D2R, g[1] * D2R);
@@ -105,9 +104,17 @@ fn pv_one(wx: &[f32], geom: &[f32], clear: &[f32], pvlib: &[f32], hist: &[f32], 
             cz, az.sin(), az.cos(), cs, pvlib[t] / k, pvc, mean[t], max[t], r[RD - 1][t], rcr,
         ]);
         night[t] = (cz <= 0.0 && cs <= 0.0) as u8;
-        am[t] = (g[1] < 180.0) as u8 as f32;
     }
-    // pv_summary: 14 daily stats vs today's clear-sky profile
+    pv_summ(clear, geom, hist, k, summ, PV_SUM);
+}
+
+/// pv_summary: [14, 5] daily stats of the last 14 days of power vs today's clear-sky profile, written to the
+/// first 5 columns of rows of width `w`.
+fn pv_summ(clear: &[f32], geom: &[f32], hist: &[f32], k: f32, summ: &mut [f32], w: usize) {
+    let mut am = [0f32; H];
+    for (t, a) in am.iter_mut().enumerate() {
+        *a = (geom[t * 3 + 1] < 180.0) as u8 as f32; // sun in the east = morning
+    }
     let e_clear = psum(clear) + 1e-3;
     let cmax = rmax(clear) + 1e-3;
     let mut tmp = [0f32; H];
@@ -134,7 +141,7 @@ fn pv_one(wx: &[f32], geom: &[f32], clear: &[f32], pvlib: &[f32], hist: &[f32], 
                 froz += (x == prev && x > 0.02) as u32;
             }
         }
-        summ[d * PV_SUM..(d + 1) * PV_SUM].copy_from_slice(&[
+        summ[d * w..d * w + PV_SUM].copy_from_slice(&[
             summ_val((sum / e_clear) as f64), summ_val((rmax(day) / cmax) as f64),
             summ_val((am_share - am_clear) as f64), summ_val(zero as f64 / nmask), summ_val(froz as f64 / nmask),
         ]);
@@ -214,6 +221,83 @@ pub fn load_batch(wx: &[f32], cal: &[f32], hist: &[f32], seq: &mut [f32], refh: 
             *sc = load_one(&wx[b * H * 7..(b + 1) * H * 7], &cal[b * H * 8..(b + 1) * H * 8],
                            &hist[b * HD * H..(b + 1) * HD * H], s, r, m);
         });
+}
+
+pub const SITE_SEQ: usize = 18;
+pub const SITE_SUM: usize = 8;
+
+/// M4 SiteHealth inputs for a batch (reference: `sentinel.model.features.site_arrays`). Per-step arrays are
+/// [b, H] (m1, geom: [b, H*3]); hist_pv rows have hh steps and hist_volt/status/soc/batt rows ht steps (the last
+/// 14 days are used), hist_load rows hl steps (all used); per site: kwp, bkw, bkwh (battery kW / kWh), has_batt.
+pub struct Site<'a> {
+    pub pv: &'a [f32], pub m1: &'a [f32], pub m2: &'a [f32], pub geom: &'a [f32], pub pvlib: &'a [f32],
+    pub clear: &'a [f32], pub volt: &'a [f32], pub status: &'a [i8], pub soc: &'a [f32], pub batt: &'a [f32],
+    pub load: &'a [f32], pub valid: &'a [f32], pub hist_pv: &'a [f32], pub hist_load: &'a [f32],
+    pub hist_volt: &'a [f32], pub hist_status: &'a [i8], pub hist_soc: &'a [f32], pub hist_batt: &'a [f32],
+    pub hh: usize, pub hl: usize, pub ht: usize,
+    pub kwp: &'a [f32], pub bkw: &'a [f32], pub bkwh: &'a [f32], pub has_batt: &'a [f32],
+}
+
+/// np.nan_to_num for float32: NaN -> 0, +-inf -> +-f32::MAX.
+#[inline]
+fn n2n(x: f32) -> f32 {
+    if x.is_nan() { 0.0 } else { x.clamp(f32::MIN, f32::MAX) }
+}
+
+fn site_one(x: &Site, b: usize, seq: &mut [f32], summ: &mut [f32]) {
+    let r = b * H..(b + 1) * H;
+    let (pv, m2, pvlib, volt, st, soc, batt, load, valid) = (&x.pv[r.clone()], &x.m2[r.clone()],
+        &x.pvlib[r.clone()], &x.volt[r.clone()], &x.status[r.clone()], &x.soc[r.clone()], &x.batt[r.clone()],
+        &x.load[r.clone()], &x.valid[r.clone()]);
+    let (m1, geom) = (&x.m1[b * H * 3..(b + 1) * H * 3], &x.geom[b * H * 3..(b + 1) * H * 3]);
+    let hpv = &x.hist_pv[(b + 1) * x.hh - HD * H..(b + 1) * x.hh];
+    let (k, bkw) = (x.kwp[b], nmax(x.bkw[b], 1.0));
+    let k05 = 0.05f32 * k;
+    let ls = psum(&x.hist_load[b * x.hl..(b + 1) * x.hl]) / x.hl as f32 + 0.05;
+    let mut prev = hpv[HD * H - 1];
+    for t in 0..H {
+        let (p, q10, q50, q90, s) = (pv[t], m1[t * 3], m1[t * 3 + 1], m1[t * 3 + 2], st[t]);
+        let o = &mut seq[t * SITE_SEQ..(t + 1) * SITE_SEQ];
+        o.copy_from_slice(&[
+            p / k, q10 / k, q50 / k, q90 / k, (p - q50) / k, clip((p - q50) / ((q90 - q10) + k05), -5.0, 5.0),
+            pvlib[t] / k, (geom[t * 3] * D2R).cos(), (volt[t] - 230.0) / 10.0,
+            (s == 1) as u8 as f32, (s == 2) as u8 as f32, (s == 3) as u8 as f32,
+            (p == prev && p > 0.02) as u8 as f32, soc[t], batt[t] / bkw,
+            clip((load[t] - m2[t]) / ls, -5.0, 5.0), clip(p / (q50 + k05), 0.0, 3.0), valid[t],
+        ]);
+        o.iter_mut().for_each(|v| *v = n2n(*v));
+        prev = p;
+    }
+    pv_summ(&x.clear[r], geom, hpv, k, summ, SITE_SUM);
+    let tr = (b + 1) * x.ht - HD * H..(b + 1) * x.ht;
+    let (hv, hs, hso, hb) = (&x.hist_volt[tr.clone()], &x.hist_status[tr.clone()], &x.hist_soc[tr.clone()],
+                             &x.hist_batt[tr]);
+    let bkwh = nmax(x.bkwh[b], 1e-3);
+    let z = |v: f32| if v.is_nan() { 0.0 } else { v };
+    let mut tmp = [0f32; H];
+    for d in 0..HD {
+        let day = d * H..(d + 1) * H;
+        let trips = hs[day.clone()].iter().filter(|&&s| s == 3).count();
+        for (o, &v) in tmp.iter_mut().zip(&hb[day.clone()]) {
+            *o = v.abs();
+        }
+        let thr = psum(&tmp) * 0.25 / bkwh; // full-cycle equivalents
+        let swing = if x.has_batt[b] > 0.0 {
+            (rmax(&hso[day.clone()]) - rmin(&hso[day.clone()])) / (0.5 * thr + 0.05)
+        } else { 1.0 };
+        summ[d * SITE_SUM + PV_SUM..(d + 1) * SITE_SUM].copy_from_slice(&[
+            z((rmax(&hv[day]) - 230.0) / 10.0), (trips as f64 / H as f64 * 10.0) as f32, z(clip(swing, 0.0, 5.0)),
+        ]);
+    }
+}
+
+/// Batched M4 site features: seq [b, H*18], summ [b, 14*8].
+pub fn site_batch(x: &Site, seq: &mut [f32], summ: &mut [f32]) {
+    seq.par_chunks_mut(H * SITE_SEQ)
+        .zip(summ.par_chunks_mut(HD * SITE_SUM))
+        .enumerate()
+        .with_min_len(4)
+        .for_each(|(b, (s, m))| site_one(x, b, s, m));
 }
 
 #[cfg(test)]
