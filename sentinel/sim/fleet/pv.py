@@ -9,14 +9,14 @@ import pandas as pd
 from . import solar
 from .weather import Weather
 
-INV_STANDBY, INV_PRODUCING, INV_LIMITING = 0, 1, 2
+INV_OK = 0  # data.md: 0 = ok, anything else is an inverter code (the fault injector #12 sets them)
 
 
 def simulate_pv(sites: pd.DataFrame, w: Weather) -> tuple[np.ndarray, np.ndarray]:
-    """Return (pv_ac_w, inv_status), both (n_sites, T)."""
+    """Return (pv_ac_w, inv_status), both (n_sites, T); clean data, so inv_status is always 0 (ok)."""
     n, T = len(sites), len(w.ts)
     pac = np.zeros((n, T), np.float32)
-    status = np.zeros((n, T), np.int8)
+    status = np.full((n, T), INV_OK, np.int16)
     years = (w.ts.year + (w.ts.dayofyear - 1) / 365.25).to_numpy()
     loc_index = {lid: i for i, lid in enumerate(w.locality_ids)}
 
@@ -27,8 +27,8 @@ def simulate_pv(sites: pd.DataFrame, w: Weather) -> tuple[np.ndarray, np.ndarray
         ghi, dni, dhi = w.data["ghi"][j], w.data["dni"][j], w.data["dhi"][j]
         tair, wind, snow = w.data["temp_air"][j], w.data["wind_speed"][j], w.data["snow_depth_cm"][j]
 
-        tilt = s.true_tilt_deg.to_numpy()[:, None]
-        cos_aoi = np.clip(solar.aoi_cos(tilt, s.true_azimuth_deg.to_numpy()[:, None], zen, saz), 0, 1)
+        tilt = s.tilt_true.to_numpy()[:, None]
+        cos_aoi = np.clip(solar.aoi_cos(tilt, s.azimuth_true.to_numpy()[:, None], zen, saz), 0, 1)
         iam = np.clip(1 - 0.05 * (1 / np.maximum(cos_aoi, 0.05) - 1), 0, 1)
         beam = dni * cos_aoi * iam
 
@@ -47,18 +47,16 @@ def simulate_pv(sites: pd.DataFrame, w: Weather) -> tuple[np.ndarray, np.ndarray
         cover = np.clip((snow - 1) / 8, 0, 1) * np.where(tilt < 25, 1.0, 0.6)
         t_cell = tair + poa / (25 + 6.84 * wind)
         age = np.maximum(years[None] - s.install_year.to_numpy()[:, None] - 0.5, 0)
-        pdc = (s.true_kwp.to_numpy()[:, None] * poa * (1 + s.true_temp_coeff.to_numpy()[:, None] * (t_cell - 25))
+        pdc = (s.kwp_true.to_numpy()[:, None] * poa * (1 + s.true_temp_coeff.to_numpy()[:, None] * (t_cell - 25))
                * s.true_system_losses.to_numpy()[:, None]
                * (1 - s.true_degradation_per_year.to_numpy()[:, None]) ** age * (1 - cover))
         pdc = np.maximum(pdc, 0)
 
-        ac_w = s.inverter_ac_kw.to_numpy()[:, None] * 1000
+        ac_w = s.inverter_kw.to_numpy()[:, None] * 1000
         p_norm = pdc / ac_w
         eta = np.clip(0.97 * p_norm / (p_norm + 0.008) - 0.01 * p_norm, 0, 0.975)
         p = pdc * eta
         p = np.where(pdc < 15, 0, p)  # inverter asleep
-        clipped = p > ac_w
         p = np.minimum(p, ac_w)
         pac[rows] = p
-        status[rows] = np.where(p > 0, np.where(clipped, INV_LIMITING, INV_PRODUCING), INV_STANDBY)
     return pac, status
