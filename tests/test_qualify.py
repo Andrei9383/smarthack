@@ -2,13 +2,25 @@
 
 import dataclasses
 import json
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from sentinel.agent import qualify as Q
+from sentinel.agent import triage as TR
 from sentinel.agent.qualify import DEFAULT_THRESHOLDS, assess, load_thresholds, qualify, qualify_many, rel_width
-from sentinel.agent.triage import TriageConfig, offline_windows, triage, triage_score
+from sentinel.agent.triage import (
+    TriageConfig,
+    WindInputs,
+    lei_per_day,
+    offline_windows,
+    pzu_next24_mean,
+    triage,
+    triage_score,
+    wind_triage_score,
+)
 from sentinel.contracts import (
     PAYLOAD_KEYS,
     Action,
@@ -438,3 +450,145 @@ def test_per_prediction_cache_follows_reassigned_fields():
     q50 = np.array(pred.q50)
     pred.fault_probs, pred.q10, pred.q90 = None, list(q50 * 0.4), list(q50 * 1.6)
     assert qualify(SITE_1042, pred, 0).reason == "wide_interval"
+
+
+# --- Wind D2 (card #167): turbine work orders ranked by lei per day ------------------------------------------
+def _wind_fleet():
+    """WP9 at noon on a windy mock day: T06 stopped, T03 10 % low, T11 anemometer, T05 curtailed, T09 data gap."""
+    ts = {n: turbine(n, "WP9") for n in (6, 3, 11, 5, 9)}
+    t0 = wind_q50_nonzero(ts[6])
+    tick = t0[:10] + "T12:00:00Z"
+
+    def half(x):  # observed until the tick (12:00 = step 48)
+        return np.concatenate([np.asarray(x, float)[:48], np.full(48, np.nan)])
+
+    p6 = wind_pred(ts[6], WindAnomaly.FAULT_STOP.value, day_t0=t0)
+    p3 = wind_pred(ts[3], WindAnomaly.UNDERPERFORMANCE.value, day_t0=t0)
+    p5 = wind_pred(ts[5], WindAnomaly.CURTAILMENT.value, day_t0=t0)
+    items = [
+        assess(ts[6], p6, 0, actual=half(np.zeros(96))),
+        assess(ts[3], p3, 0, actual=half(np.array(p3.q50) * 0.9)),
+        assess(ts[11], wind_pred(ts[11], WindAnomaly.ANEMOMETER_FAULT.value, day_t0=t0), 0),
+        assess(ts[5], p5, 0, actual=half(np.minimum(np.array(p5.q50), 1000.0))),
+        assess(ts[9], wind_pred(ts[9], WindAnomaly.DATA_GAP.value, day_t0=t0), 20),
+    ]
+    return items, tick, p6, p3
+
+
+def test_wind_om_queue_ranked_by_triage_score_stopped_turbine_on_top():
+    items, tick, p6, p3 = _wind_fleet()
+    res = triage(items, tick, wind=WindInputs(pzu_next24=500.0))
+    for act in res.actions:
+        check_action(act)
+    q = res.om_queue("turbine")
+    assert [r["asset_id"] for r in q][:2] == ["WP9.TID06", "WP9.TID03"]
+    assert [r["triage_score"] for r in q] == sorted([r["triage_score"] for r in q], reverse=True)
+    top = q[0]
+    # fault_stop: lost MWh = what it would produce over the next 24 h (M6 expected stands in for M5 until #164)
+    lost6 = float(np.mean(p6.q50[48:])) * 24 / 1000
+    assert top["lost_src"] == "windnbm_expected" and top["lost_mwh_24h"] == pytest.approx(lost6, rel=1e-3)
+    assert top["lei_per_day"] == pytest.approx(lost6 * 500.0, rel=1e-3)
+    assert top["lost_lei_day"] == top["lei_per_day"]
+    assert top["triage_score"] == pytest.approx(0.9 * lost6 * 500.0 * 2.0, rel=1e-3)  # P × lei/day × 2 days
+    assert top["crew_type"] == "wind_technician" and top["pzu_next24_lei_mwh"] == 500.0
+    assert top["judge_verdict"] == "use" and top["judge_rule"] == "no_judge" and top["judge_reasons"]
+    # underperformance: M6 Σ (expected − actual) over the observed last 12 h, scaled to 24 h
+    r3 = next(r for r in q if r["asset_id"] == "WP9.TID03")
+    lost3 = float(np.sum(0.1 * np.array(p3.q50[:48]))) * 0.25 / 1000 * 2
+    assert r3["lost_src"] == "windnbm_measured" and r3["lost_obs_h"] == 12.0
+    assert r3["lost_mwh_24h"] == pytest.approx(lost3, rel=1e-3)
+    # routing: sensor fault -> remote check; curtailment -> log only; data gap -> offline alert routed remote
+    crews = {r["asset_id"]: r["crew_type"] for r in q}
+    assert crews["WP9.TID11"] == "remote_check" and "WP9.TID05" not in crews and "WP9.TID09" not in crews
+    assert [c["asset_id"] for c in res.curtailment_log] == ["WP9.TID05"]
+    off = [a for a in res.alerts if a.payload["code"] == "offline"]
+    assert len(off) == 1 and off[0].payload["asset_id"] == "WP9.TID09" and off[0].payload["route"] == "remote_check"
+
+
+def test_wind_top_k_per_crew_keeps_the_most_lei():
+    items, tick, _, _ = _wind_fleet()
+    cfg = TriageConfig(k_per_crew={"residential_installer": 5, "wind_technician": 1, "remote_check": 20})
+    res = triage(items, tick, config=cfg, wind=WindInputs(pzu_next24=500.0))
+    wind_wos = [w.payload for w in res.work_orders if w.payload["crew_type"] == "wind_technician"]
+    assert [p["asset_id"] for p in wind_wos] == ["WP9.TID06"] and wind_wos[0]["rank"] == 1
+    assert [b["asset_id"] for b in res.backlog] == ["WP9.TID03"]
+
+
+def test_wind_m5_then_binned_curve_for_a_stopped_turbine():
+    items, tick, p6, _ = _wind_fleet()
+    m5 = dataclasses.replace(p6, model="windpower", t0=tick, q10=[1500.0] * 96, q50=[2000.0] * 96,
+                             q90=[2400.0] * 96, anomaly_class=None, anomaly_score=None)
+    res = triage(items, tick, wind=WindInputs(m5={"WP9.TID06": m5}, pzu_next24=400.0))
+    top = res.om_queue("turbine")[0]
+    assert top["lost_src"] == "windpower" and top["lost_mwh_24h"] == pytest.approx(48.0)
+    assert top["lei_per_day"] == pytest.approx(48.0 * 400.0)
+    binned = dataclasses.replace(m5, model="binned_curve", q50=[1000.0] * 96, q90=[1200.0] * 96, q10=[800.0] * 96)
+    top = triage(items, tick, wind=WindInputs(m5_binned={"WP9.TID06": binned}, pzu_next24=400.0)).om_queue()[0]
+    assert top["lost_src"] == "binned_curve" and top["lost_mwh_24h"] == pytest.approx(24.0)
+
+
+def test_wind_judge_unknown_is_remote_check_after_scored_orders(monkeypatch):
+    items, tick, _, _ = _wind_fleet()
+    real = TR._adapter_validated()
+
+    def judge(asset_id, model, day, *, raw, substitutes=None, judge=None):  # T06: dont_use, no substitute data
+        v = real(asset_id, model, day, raw=raw, substitutes=substitutes, judge=judge)
+        if asset_id != "WP9.TID06":
+            return v
+        return SimpleNamespace(**{**{k: getattr(v, k) for k in ("model", "day", "reasons", "judge_version")},
+                                  "known": False, "verdict": "dont_use", "rule": "r6", "q50": None, "score": None,
+                                  "source_model": None})
+
+    monkeypatch.setattr(TR, "_adapter_validated", lambda: judge)
+    res = triage(items, tick, wind=WindInputs(pzu_next24=500.0))
+    q = res.om_queue("turbine")
+    assert q[-1]["asset_id"] == "WP9.TID06" and q[-1]["judge_unknown"] and q[-1]["p_fault"] is None
+    assert q[-1]["crew_type"] == "remote_check" and q[-1]["score"] == 0.0
+    remote = [w.payload["asset_id"] for w in res.work_orders if w.payload["crew_type"] == "remote_check"]
+    assert remote == ["WP9.TID11", "WP9.TID06"]  # ranked after the scored remote check
+    assert [w.payload["asset_id"] for w in res.work_orders if w.payload["crew_type"] == "wind_technician"] \
+        == ["WP9.TID03"]
+
+
+def test_wind_reads_p_fault_through_the_c1_adapter():
+    adapter = pytest.importorskip("sentinel.judge.adapter")  # card #157
+    items, tick, _, _ = _wind_fleet()
+    day = TR.local_day(tick)
+    rules = dataclasses.replace(items[0].prediction, model="windmon_rules", anomaly_score=0.6)
+    src = adapter.MemoryVerdicts({("WP9.TID06", "windnbm", day): {
+        "verdict": "dont_use", "substitute": "windmon_rules", "reasons_json": '["disagrees with rules"]'}})
+    res = triage(items, tick, wind=WindInputs(m6_rules={"WP9.TID06": rules}, judge=src, pzu_next24=500.0))
+    r6 = next(r for r in res.om_queue() if r["asset_id"] == "WP9.TID06")
+    assert r6["p_fault"] == 0.6 and r6["p_fault_src"] == "windmon_rules" and r6["judge_verdict"] == "dont_use"
+    assert "disagrees with rules" in r6["judge_reasons"]
+    res = triage(items, tick, wind=WindInputs(judge=src, pzu_next24=500.0))  # substitute not supplied
+    r6 = next(r for r in res.om_queue() if r["asset_id"] == "WP9.TID06")
+    assert r6["judge_unknown"] and r6["crew_type"] == "remote_check"
+
+
+def test_pzu_next24_mean_real_opcom_and_fallback():
+    pl = pytest.importorskip("polars")
+    if not TR.PRICES_PATH.exists():
+        pytest.skip("data/raw/prices.parquet not present")
+    p = pl.read_parquet(TR.PRICES_PATH).filter(pl.col("market") == "opcom_pzu")
+    lo, hi = datetime(2025, 6, 21, 12, tzinfo=timezone.utc), datetime(2025, 6, 22, 12, tzinfo=timezone.utc)
+    want = p.filter((pl.col("ts") >= lo) & (pl.col("ts") < hi))["price_lei_mwh"].mean()  # 24 hourly prices
+    price, src = pzu_next24_mean("2025-06-21T12:00:00Z", 450.0)
+    assert src == "opcom_pzu" and price == pytest.approx(want, rel=1e-9)
+    assert pzu_next24_mean("2031-01-01T00:00:00Z", 450.0) == (450.0, "config")
+    # the default config prices turbines at the real PZU; wind_price="config" keeps price_lei_mwh
+    items, tick, _, _ = _wind_fleet()
+    row = triage(items, tick).om_queue("turbine")[0]
+    assert row["price_src"] == "opcom_pzu"
+    assert row["pzu_next24_lei_mwh"] == pytest.approx(pzu_next24_mean(tick, 450.0)[0], abs=0.01)
+    row = triage(items, tick, config=TriageConfig(wind_price="config", price_lei_mwh=321.0)).om_queue("turbine")[0]
+    assert row["price_src"] == "config" and row["pzu_next24_lei_mwh"] == 321.0
+
+
+def test_wind_formulas_and_site_rows_unchanged():
+    assert wind_triage_score(0.5, 1000.0, 2.0) == pytest.approx(1000.0)
+    assert lei_per_day(2.0, 450.0) == pytest.approx(900.0) and lei_per_day(-1.0, 450.0) == 0.0
+    wo = triage([assess(SITE_1042, site_pred(fault=PvFault.STRING_OUTAGE.value), 0)], TICK).work_orders[0]
+    assert set(wo.payload) == {"asset_id", "asset_kind", "fault", "crew_type", "score", "lost_kwh_day",
+                               "lost_lei_day", "lost_flex_mwh_day", "mw_at_risk", "p_fault", "visit_days", "status",
+                               "reason", "headroom_factor", "detail", "feeder_id", "rank"}
