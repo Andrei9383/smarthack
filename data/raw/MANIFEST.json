@@ -1,5 +1,5 @@
 {
- "total_bytes": 31548366,
+ "total_bytes": 31548736,
  "files": {
   "entsoe_ro.parquet": {
    "bytes": 7700015,
@@ -30,13 +30,13 @@
    "rows": 108
   },
   "validation/pvdaq_power.parquet": {
-   "bytes": 680739,
-   "sha256": "802632cfc243bb7ad5a839eff9bbe4202d248a0fa291bf76d938cca9aa45c96b",
-   "rows": 117280
+   "bytes": 680692,
+   "sha256": "7f68d115fd23a141ea2306a261ba48544352bea573b446c08a6f8f82bded0d61",
+   "rows": 117276
   },
   "validation/pvdaq_systems.parquet": {
-   "bytes": 4884,
-   "sha256": "25c2506db0c3ac88a1df1b01e4444bce241816fea7ac7f4e928d602ca1d95f48",
+   "bytes": 5301,
+   "sha256": "4d0feafd2d68bded46d7501ae472c77555c17ebe257d71916e678c711e9eba9b",
    "rows": 4
   },
   "validation/pvdaq_weather.parquet": {

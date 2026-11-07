@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Bump when the generated data changes meaning or shape; the cache key is data-v{DATA_VERSION}.
-DATA_VERSION = 3  # v3: DST-safe local day index
+DATA_VERSION = 4  # v3: DST-safe local day index; v4: 0.1 V voltage noise
 
 DT_H = 0.25  # 15-min steps
 STEPS_PER_DAY = 96

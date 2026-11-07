@@ -468,6 +468,24 @@ def _utc_offset_by_month(power: pl.DataFrame, ghi: pl.DataFrame) -> dict[int, in
     return {m: common if v is None or abs(v - common) > 1 else v for m, v in out.items()}
 
 
+# Standard UTC offset -> the US zone with that offset, for loggers whose clock follows DST.
+US_ZONES = {-5: "America/New_York", -6: "America/Chicago", -7: "America/Denver", -8: "America/Los_Angeles"}
+
+
+def _logger_zone(offsets: dict[int, int]) -> str:
+    """A logger on standard time all year gets a fixed offset ("Etc/GMT+7" = UTC-7). One whose offset changes by
+    an hour in summer follows DST: use the IANA zone, so the switch lands on the right day, not on month bounds."""
+    std = min(offsets.values())
+    if len(set(offsets.values())) > 1 and std in US_ZONES:
+        return US_ZONES[std]
+    return f"Etc/GMT{-std:+d}"
+
+
+def _local_to_utc(col: pl.Expr, tz: str) -> pl.Expr:
+    # The repeated hour in autumn and the skipped hour in spring cannot be placed: drop them (null).
+    return col.dt.replace_time_zone(tz, ambiguous="null", non_existent="null").dt.convert_time_zone("UTC")
+
+
 def job_pvdaq() -> None:
     """NREL PVDAQ (non-RO, validation only) + matching ERA5 weather, 15-min AC power in UTC."""
     systems, power_frames, weather_frames = [], [], []
@@ -487,11 +505,12 @@ def job_pvdaq() -> None:
         wx = weather_table([dict(point_id=f"pvdaq:{sid}", lat=lat, lon=lon)],
                            dt.date(year - 1, 12, 31), dt.date(year + 1, 1, 1), list(OM_VARS))
         offsets = _utc_offset_by_month(raw, wx)
+        tz = _logger_zone(offsets)
         q15 = (raw.with_columns(pl.col("ac_w").clip(lower_bound=0))
                   .group_by(pl.col("measured_on").dt.truncate("15m").alias("local"))
                   .agg(pl.col("ac_w").mean(), pl.len().alias("n_samples"))
-                  .with_columns(off=pl.col("local").dt.month().replace_strict(offsets, return_dtype=pl.Int64))
-                  .with_columns(ts=(pl.col("local") - pl.duration(hours=pl.col("off"))).dt.replace_time_zone("UTC"))
+                  .with_columns(ts=_local_to_utc(pl.col("local"), tz))
+                  .drop_nulls("ts")
                   .select("ts", pl.lit(f"pvdaq:{sid}").alias("system_id"), pl.col("ac_w").cast(pl.Float32),
                           "n_samples")
                   .sort("ts"))
@@ -501,7 +520,7 @@ def job_pvdaq() -> None:
                             elevation_m=float(site["elevation"]), kwp=float(meta["System"]["power"]),
                             tilt=float(mount["tilt"]), azimuth=float(mount["azimuth"]),
                             tracking=mount["tracking"] != "f", year=year, climate=site["climate_type"],
-                            utc_offset_h_by_month=json.dumps(offsets)))
+                            utc_offset_h_by_month=json.dumps(offsets), logger_tz=tz))
         print(f"  pvdaq {sid}: {q15.height:,} 15-min rows, offsets {sorted(set(offsets.values()))}")
     write(pl.DataFrame(systems), "validation/pvdaq_systems.parquet")
     write(pl.concat(power_frames), "validation/pvdaq_power.parquet")

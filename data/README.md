@@ -33,8 +33,11 @@ training, always reported with its label (plan R13, R14). All timestamps are UTC
   used (#10 windows, #11 simulator), not here, so the committed file stays small. ERA5 values are actuals:
   planning must use the noisy `forecast` weather, never these (plan §4).
 - **PVDAQ time zone.** PVDAQ stores local wall-clock time without a zone. The downloader finds, for each month,
-  the whole-hour shift that best lines AC power up with ERA5 GHI, and stores that shift in
-  `utc_offset_h_by_month`.
+  the whole-hour shift that best lines AC power up with ERA5 GHI (`utc_offset_h_by_month`). Loggers whose shift
+  changes in summer follow DST and are converted with their US zone (`logger_tz`, e.g. `America/New_York`), so
+  the switch lands on the right day; the repeated/skipped hour is dropped. Check: system 1199's June power
+  centroid is at 17:07 UTC = its solar noon. System 10's sits ~45 min early (logger clock or shading), which a
+  whole-hour shift cannot fix.
 - **OPCOM DST days** have 23 or 25 hourly intervals (92 or 100 at 15-min). Timestamps are built by stepping from
   local midnight in UTC, so they stay correct across the change.
 - **Not committed:** CARE-to-Compare wind SCADA (downloaded in the eval run, #43), London Smart Meter (optional),
