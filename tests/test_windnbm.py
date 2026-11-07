@@ -204,7 +204,8 @@ def test_park_capped_to_zero_is_curtailment_not_a_work_order():
     ctx = _park_ctx(T, n, cap_frac=0.0, missing_cols=range(60, 70))  # 10 turbines not reporting
     th = {c: 0.5 for c in CLASSES[1:]}
     out = decide(probs, th, curtail_mask=ctx)
-    assert (out[40:100, 10:] == ci).all()
+    assert (out[40:100, 10:60] == ci).all()
+    assert (out[:, 60:] != ci).all()  # no power reading: no vote, not released (data_gap's job)
     assert (out[:40] == 0).all() and (out[100:] == 0).all()
     assert not np.isin(out, [CLASS_INDEX[c] for c in ACTIONABLE]).any()
     truth = np.zeros((T, n), np.uint8)
@@ -215,6 +216,13 @@ def test_park_capped_to_zero_is_curtailment_not_a_work_order():
     weak = probs.copy()
     weak[40:100, :35, ci], weak[40:100, :35, 0] = 0.2, 0.8
     assert (decide(weak, th, curtail_mask=ctx) != ci).all()
+    # with a low tuned θ_curtailment, a turbine the classifier sees as iced keeps icing: only confident
+    # turbines vote, and only voting turbines are released from the veto
+    ii = CLASS_INDEX["icing"]
+    iced = probs.copy()
+    iced[40:100, 10:20, ci], iced[40:100, 10:20, ii], iced[40:100, 10:20, 0] = 0.3, 0.9, 0.0
+    out_i = decide(iced, dict(th, curtailment=0.15, icing=0.85), curtail_mask=ctx)
+    assert (out_i[40:100, 10:20] == ii).all() and (out_i[40:100, 20:60] == ci).all()
     # a park-wide cap at a common ceiling is still allowed by the ceiling test alone
     assert (decide(weak, th, curtail_mask=_park_ctx(T, n, cap_frac=0.5))[40:100, 35:] == ci).all()
 
