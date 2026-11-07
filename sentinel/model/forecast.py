@@ -391,15 +391,15 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                 if step < total - 1:
                     sched.step()
                 step += 1
-                losses.append(float(loss.detach()))
+                losses.append(loss.detach())  # no per-step GPU sync
             # validation (fixed subset) for early stopping
             c = collect(src, kind, net, *val_fixed, args.mode, stats, dev, amp)
             yv = c["y"] / c["scale"][:, None]
             vp = M.pinball(c["q"] / c["scale"][:, None, None], yv, c["w"] > 0)
             vn = M.nmae(c["q"][..., 1], c["y"], c["w"] > 0)
-            history.append({"epoch": ep, "train_loss": float(np.mean(losses)), "val_pinball": vp, "val_nmae": vn,
+            history.append({"epoch": ep, "train_loss": float(torch.stack(losses).mean()), "val_pinball": vp, "val_nmae": vn,
                             "sec": round(time.time() - t_ep, 1)})
-            print(f"[train] ep {ep} loss {np.mean(losses):.4f} val_pinball {vp:.4f} val_nmae {vn:.4f} "
+            print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_pinball {vp:.4f} val_nmae {vn:.4f} "
                   f"({time.time() - t_ep:.1f}s, {ctx.elapsed_min():.1f} min)", flush=True)
             if vp < best - 1e-5:
                 best, bad = vp, 0
