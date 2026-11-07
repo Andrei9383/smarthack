@@ -5,6 +5,7 @@ import { auditRouter } from "./audit";
 import { demandRouter } from "./demand";
 import { feedersRouter } from "./feeders";
 import { flexRouter } from "./flex";
+import { judgeRouter } from "./judge";
 import { manifestRouter } from "./manifest";
 import { notifyRouter } from "./notify";
 import { omRouter } from "./om";
@@ -21,6 +22,7 @@ export const appRouter = {
   om: omRouter,
   audit: auditRouter,
   notify: notifyRouter,
+  judge: judgeRouter,
   healthCheck: publicProcedure.handler(() => {
     return "OK";
   }),
