@@ -42,3 +42,10 @@ export function dayWindow(step: number) {
   const day = dayOfStep(step);
   return { from: stepToTs(day * STEPS_PER_DAY), to: stepToTs((day + 1) * STEPS_PER_DAY) };
 }
+
+/** Inverse of stepToTs for stored timestamps; may fall outside the week (callers clamp or filter). */
+export const tsToStep = (ts: string) =>
+  Math.round((Date.parse(ts) - WEEK_START_UTC) / (STEP_MINUTES * 60_000));
+
+/** "Wed 4 · 12:00", the SCADA-style clock label. */
+export const clockLabel = (step: number) => `${dayLabel(dayOfStep(step))} · ${timeLabel(step)}`;

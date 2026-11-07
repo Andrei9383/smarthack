@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 
-export const MODE_IDS = ["feeders", "om", "production", "demand"] as const;
+export const MODE_IDS = ["overview", "feeders", "om", "production", "demand"] as const;
 export type ModeId = (typeof MODE_IDS)[number];
 
 export interface MapLayerConfig {
