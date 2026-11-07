@@ -1,13 +1,16 @@
-"""Deterministic stand-in for the wind simulator (#22) + wind fault injector (#23), PPC schema (numpy only).
+"""Quick stand-in wind generator (no ERA5 needed), PPC schema, numpy only. M6's fallback, kept for tests.
 
-Until Andrei's #22/#23 land, M6 trains on this. Output is a `WindData` (wide view) that converts losslessly to the
-contract tables (`data.to_long`, `meteo_table`, `turbines_table`, `fault_labels_table`), so #22's files drop in via
-`data.load_wind()` with no change to M6.
+The real simulator is `python -m sentinel.sim.wind` (#22 ERA5-driven parks on real OSM positions + #23 fault
+injector in sentinel.sim.wind_faults); `data.load_wind()` reads its cache first and only falls back to this module
+when that cache is absent (or with `train --synth`). This file stays because it needs no data files and makes
+small worlds in seconds (tests/test_windnbm.py). Output is a `WindData` (wide view) that converts losslessly to
+the contract tables (`data.to_long`, `meteo_table`, `turbines_table`, `fault_labels_table`).
 
 Physics (plan §4, §3.5): stochastic 100 m wind per park (AR(1) latent → Weibull, seasonal + diurnal scale,
 correlated across parks), regime-switching direction, shear to hub height (α = 0.14), air density from T and p,
 direction-dependent Jensen wakes, turbulence noise, generic 2.5 / 6.1 MW class curves, first-order thermal model
 for the five component temperatures (ambient + load-dependent rise + lag; some turbines run hot by design).
+Shared building blocks (AR(1), thermal lag, wake table, THERMAL, ERROR_CODES) live in sentinel.sim.wind.physics.
 
 Faults with exact onset labels (WindAnomaly): fault_stop, curtailment (park-wide cap; labelled where the cap
 binds), icing (T < 1 °C and RH > 88 % spells), underperformance (sector-dependent yaw misalignment or power-curve
@@ -26,8 +29,11 @@ import json
 from dataclasses import asdict, dataclass, field
 
 import numpy as np
-from scipy.signal import lfilter
 from scipy.special import ndtr
+
+from sentinel.sim.wind.physics import ERROR_CODES, THERMAL, wake_table  # shared with the simulator (#22)
+from sentinel.sim.wind.physics import ar1 as _ar1
+from sentinel.sim.wind.physics import lag as _lag
 
 from .data import CLASS_INDEX, METEO_FIELDS, PRIORITY, WEATHER_FIELDS, WindData, _iso
 from .physics import CLASS_2500, CLASS_6100, TurbineClass, air_density, density_normalise, shear_to_hub
@@ -63,15 +69,6 @@ PARKS: tuple[ParkSpec, ...] = (
              7.0, 9.8, 12.5, ((320.0, 0.55), (140.0, 0.30), (230.0, 0.15)), layout_rot_deg=35.0),
 )
 
-# Five component temps: (base rise °C, load rise °C, time constant h, load exponent)
-THERMAL = {
-    "conv_t": (8.0, 22.0, 0.5, 1.5),
-    "gearbox_t": (15.0, 35.0, 3.0, 1.2),
-    "gen1_t": (10.0, 40.0, 2.0, 1.5),
-    "gen2_t": (8.0, 36.0, 2.0, 1.5),
-    "transformer_t": (10.0, 45.0, 2.5, 2.0),
-}
-ERROR_CODES = (5021, 9999, 32767, 1208, 3104)
 
 
 @dataclass
@@ -103,19 +100,6 @@ class SynthConfig:
 
 
 # ----------------------------------------------------------------------------------------------------------------
-def _ar1(rng, n: int, phi: float, sd: float, shape=()) -> np.ndarray:
-    """Stationary AR(1) along axis 0 with marginal std `sd`."""
-    e = rng.standard_normal((n, *shape)) * sd * np.sqrt(1 - phi**2)
-    zi = (rng.standard_normal(shape) * sd * phi)[None] if shape else np.array([rng.standard_normal() * sd * phi])
-    return lfilter([1.0], [1.0, -phi], e, axis=0, zi=zi)[0]
-
-
-def _lag(x: np.ndarray, tau_h: float) -> np.ndarray:
-    """First-order thermal lag along axis 0 (15-min steps), started at steady state."""
-    a = float(np.exp(-0.25 / tau_h))
-    return lfilter([1 - a], [1.0, -a], x, axis=0, zi=(x[:1] * a))[0]
-
-
 def _layout(spec: ParkSpec, n: int, rng) -> np.ndarray:
     """Turbine positions (m, east/north) on rotated rows: 3.5 D within a row, 7 D between rows (+ jitter)."""
     d = spec.tclass.rotor_d_m
@@ -127,26 +111,6 @@ def _layout(spec: ParkSpec, n: int, rng) -> np.ndarray:
     rot = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]])
     xy = xy @ rot.T
     return xy - xy.mean(0)
-
-
-def wake_table(xy: np.ndarray, rotor_d: float, n_bins: int = 72, k: float = 0.075, ct: float = 0.8) -> np.ndarray:
-    """Jensen wake deficit [n_bins, N] for wind FROM each direction bin (5°), smoothed ±10°."""
-    n = len(xy)
-    out = np.zeros((n_bins, n))
-    a = 1 - np.sqrt(1 - ct)
-    for b in range(n_bins):
-        th = np.deg2rad(b * 360.0 / n_bins)
-        u = np.array([np.sin(th), np.cos(th)])  # unit vector pointing to where the wind comes from
-        d = xy[None, :, :] - xy[:, None, :]  # d[i, j] = pos_j - pos_i
-        along = d @ u
-        cross = np.abs(d[..., 0] * u[1] - d[..., 1] * u[0])
-        r = rotor_d / 2 + k * along
-        inw = (along > 0) & (along < 15 * rotor_d) & (cross < r)
-        delta = np.where(inw, a * (rotor_d / (rotor_d + 2 * k * np.clip(along, 0, None))) ** 2, 0.0)
-        out[b] = np.sqrt((delta**2).sum(1))
-    kern = np.array([0.1, 0.2, 0.4, 0.2, 0.1])
-    padded = np.concatenate([out[-2:], out, out[:2]])
-    return np.stack([np.convolve(padded[:, j], kern, mode="valid") for j in range(n)], axis=1)
 
 
 def _episodes(rng, n_steps: int, rate_per_year: float, dur_lo: int, dur_hi: int, weights=None):
