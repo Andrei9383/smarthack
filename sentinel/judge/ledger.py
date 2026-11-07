@@ -39,11 +39,13 @@ arrives (a crew report after the telemetry) enters as the delta of its contribut
 
 from __future__ import annotations
 
+import datetime as dt
 import functools
 import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import polars as pl
@@ -137,16 +139,38 @@ class Priors:
 _KINDS = ("site", "turbine", "zone", "feeder")
 
 
+LOCAL_TZ = "Europe/Bucharest"  # replay days are local days
+_EPOCH = dt.date(1970, 1, 1)
+_MISSING = -(10 ** 9)
+
+
+def _local_day(v: str) -> int:
+    """'YYYY-MM-DD' → that day; an ISO timestamp → its Europe/Bucharest local date (naive = UTC)."""
+    v = v.strip()
+    if len(v) <= 10:
+        return (dt.date.fromisoformat(v) - _EPOCH).days
+    t = dt.datetime.fromisoformat(v.replace("Z", "+00:00"))
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=dt.timezone.utc)
+    return (t.astimezone(ZoneInfo(LOCAL_TZ)).date() - _EPOCH).days
+
+
 def _daynum_np(s: pl.Series) -> np.ndarray:
+    """Day numbers (days since 1970-01-01) of a date / timestamp column. Timestamps are taken in local time
+    (Europe/Bucharest): J1 writes observed_at as the UTC instant of the next local midnight, e.g.
+    2024-06-02T21:00:00Z = 2024-06-03 00:00 EEST, which must count as 06-03, not as the graded day 06-02."""
     if s.dtype == pl.Date:
-        x = s
-    elif isinstance(s.dtype, pl.Datetime):
-        x = s.dt.date()
-    elif s.dtype.is_integer():
         return s.cast(pl.Int32).to_numpy()
-    else:
-        x = s.cast(pl.Utf8).str.slice(0, 10).str.to_date("%Y-%m-%d")
-    return x.cast(pl.Int32).to_numpy()
+    if s.dtype.is_integer():
+        return s.cast(pl.Int32).to_numpy()
+    if isinstance(s.dtype, pl.Datetime):
+        if s.dtype.time_zone is None:
+            s = s.dt.replace_time_zone("UTC")
+        return s.dt.convert_time_zone(LOCAL_TZ).dt.date().cast(pl.Int32).to_numpy()
+    s = s.cast(pl.Utf8)
+    uniq = s.unique().drop_nulls().to_list()  # few distinct values (one per day or visit): parse each once
+    lut = {u: _local_day(u) for u in uniq}
+    return s.replace_strict(lut, default=None, return_dtype=pl.Int32).fill_null(_MISSING).to_numpy()
 
 
 def _cats(df: pl.DataFrame, cols: list[str]) -> dict[str, tuple[np.ndarray, list[str]]]:
@@ -217,7 +241,9 @@ def prepare(outcomes) -> Coded:
         e = np.zeros(0, np.int64)
         return Coded(e, e, e, e, e.astype(float), e.astype(float), [], [])
     day = _daynum_np(df["day"])
-    obs = _daynum_np(df["observed_at"]).copy() if "observed_at" in df.columns else day.copy()
+    # an outcome is known on its local observation day; without one, the earliest it can be known is day + 1
+    obs = _daynum_np(df["observed_at"]).copy() if "observed_at" in df.columns else day + 1
+    obs = np.where(obs <= _MISSING // 2, day + 1, obs)
     np.maximum(obs, day, out=obs)
     score = df["score"].cast(pl.Float64).to_numpy()
     w = df["weight"].cast(pl.Float64).fill_null(1.0).to_numpy() if "weight" in df.columns \
@@ -624,14 +650,15 @@ def _hist_quantile(cube: np.ndarray, q: float) -> np.ndarray:
 
 
 def _daynum(d) -> int:
-    import datetime as dt
+    """A (local) day as days since 1970-01-01; timestamps are converted to their Europe/Bucharest date."""
     if isinstance(d, (int, np.integer)):
         return int(d)
     if isinstance(d, dt.datetime):
-        d = d.date()
-    elif not isinstance(d, dt.date):
-        d = dt.date.fromisoformat(str(d)[:10])
-    return (d - dt.date(1970, 1, 1)).days
+        d = (d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)).astimezone(ZoneInfo(LOCAL_TZ)).date()
+        return (d - _EPOCH).days
+    if isinstance(d, dt.date):
+        return (d - _EPOCH).days
+    return _local_day(str(d))
 
 
 def replay(outcomes, priors: Priors | None = None, run_id: str = "", start=None, end=None) -> pl.DataFrame:

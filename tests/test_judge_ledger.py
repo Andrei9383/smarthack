@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -160,6 +161,38 @@ def test_outcomes_are_used_only_once_observed():
     for i in (31, 35, 39):  # not yet observed: identical to the ledger without them
         assert at(led, i)["trust"] == pytest.approx(at(ref, i)["trust"])
     assert at(led, 45)["trust"] < at(ref, 45)["trust"] - 0.05
+
+
+def _utc_next_local_midnight(i: int) -> str:
+    """J1's observed_at: the UTC instant of the local (Europe/Bucharest) midnight that ends day i."""
+    from zoneinfo import ZoneInfo
+    end = dt.datetime.combine(D0 + dt.timedelta(days=i + 1), dt.time(0), ZoneInfo("Europe/Bucharest"))
+    return end.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@pytest.mark.parametrize("d0", [dt.date(2024, 6, 2), dt.date(2024, 12, 2)])  # summer (UTC+3) and winter (UTC+2)
+def test_outcome_graded_on_day_d_is_visible_only_from_d_plus_1(d0, monkeypatch):
+    """No look-ahead: observed_at = 2024-06-02T21:00:00Z is local midnight 06-03, so day 06-02's outcome must not
+    affect lookup(06-02) but must affect lookup(06-03)."""
+    monkeypatch.setattr(sys.modules[__name__], "D0", d0)
+    assert _utc_next_local_midnight(0) == ("2024-06-02T21:00:00Z" if d0.month == 6 else "2024-12-02T22:00:00Z")
+    hist = [dict(r, observed_at=_utc_next_local_midnight(i)) for i, r in enumerate(rows([0.8] * 20))]
+    graded = [dict(r, observed_at=_utc_next_local_midnight(20)) for r in rows([0.0], start=20)]
+    led, ref = Ledger(hist + graded, priors(), end=day(25)), Ledger(hist, priors(), end=day(25))
+    assert at(led, 20)["trust"] == pytest.approx(at(ref, 20)["trust"])  # same day: not known yet
+    assert at(led, 21)["trust"] < at(ref, 21)["trust"] - 1e-3           # next day: known
+    # datetime-typed columns follow the same rule
+    df = pl.DataFrame(hist + graded).with_columns(pl.col("observed_at").str.to_datetime(time_zone="UTC"))
+    assert at(Ledger(df, priors(), end=day(25)), 20)["trust"] == pytest.approx(at(ref, 20)["trust"])
+
+
+def test_missing_observed_at_is_never_the_graded_day():
+    base = [{k: v for k, v in r.items() if k != "observed_at"} for r in rows([0.8] * 20)]
+    led = Ledger(base + [{k: v for k, v in r.items() if k != "observed_at"} for r in rows([0.0], start=20)],
+                 priors(), end=day(25))
+    ref = Ledger(base, priors(), end=day(25))
+    assert at(led, 20)["trust"] == pytest.approx(at(ref, 20)["trust"])
+    assert at(led, 21)["trust"] < at(ref, 21)["trust"]
 
 
 def test_late_outcome_updates_its_bucket_day():
