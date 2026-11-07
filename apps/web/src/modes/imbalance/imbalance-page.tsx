@@ -128,7 +128,7 @@ export function ImbalancePage() {
           <Legend
             items={[
               ...(band ? ([["P10–P90", "var(--chart-band)"]] as [string, string][]) : []),
-              ["Bought", sentinel ? "var(--primary)" : "var(--chart-baseline)"],
+              ["Bought", sentinel ? "var(--sentinel)" : "var(--chart-baseline)"],
               ["Actual", "var(--status-actual)"],
             ]}
           />
@@ -144,7 +144,7 @@ export function ImbalancePage() {
                 label={label}
                 value={v == null ? "—" : fmt(v)}
                 unit={unit}
-                tone={sentinel ? "text-primary" : undefined}
+                tone={sentinel ? "text-status-ok" : undefined}
                 sub={`${otherName} ${o == null ? "—" : fmt(o)}${d === null ? "" : ` · Sentinel ${signed(d)}`}`}
               />
             );
@@ -154,7 +154,7 @@ export function ImbalancePage() {
           <LineChart data={steps} aspectRatio="5 / 1.7" margin={MARGIN} animationDuration={0}>
             <Grid numTicksRows={4} fadeHorizontal={false} strokeDasharray="none" />
             {band ? <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill="var(--chart-band)" fillOpacity={1} strokeOpacity={0} curve={curveMonotoneX} /> : null}
-            <Line dataKey="bought" stroke={sentinel ? "var(--primary)" : "var(--chart-baseline)"} curve={curveStepAfter} fadeEdges={false} />
+            <Line dataKey="bought" stroke={sentinel ? "var(--sentinel)" : "var(--chart-baseline)"} curve={curveStepAfter} fadeEdges={false} />
             <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} fadeEdges={false} />
             <EveningWindow steps={steps} />
             <FanYAxis numTicks={4} unit="MWh" />
@@ -186,7 +186,7 @@ export function ImbalancePage() {
                   <div className="relative h-3 rounded-sm bg-surface-raised">
                     <span
                       className="absolute inset-y-0 left-0 rounded-sm"
-                      style={{ width: `${(f.v / max) * 100}%`, background: i ? "var(--primary)" : "var(--chart-baseline)" }}
+                      style={{ width: `${(f.v / max) * 100}%`, background: i ? "var(--sentinel)" : "var(--chart-baseline)" }}
                     />
                     {i && prev > f.v ? (
                       <span

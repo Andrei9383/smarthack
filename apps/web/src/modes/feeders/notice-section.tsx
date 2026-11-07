@@ -210,7 +210,7 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
             <button
               type="button"
               onClick={() => setShowAll((v) => !v)}
-              className="text-xs font-medium text-brand-700 hover:underline"
+              className="text-xs font-medium text-foreground underline-offset-2 hover:underline"
             >
               {showAll ? "Show fewer" : `Show all ${homes.length} homes`}
             </button>
@@ -234,7 +234,7 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
                   : "Sending is off: set RESEND_API_KEY and NOTIFY_DEMO_TO on the server."}
             </p>
             {lastSend && (
-              <p className={`flex items-center gap-1.5 text-xs ${lastSend.ok ? "text-brand-700" : "text-status-critical"}`}>
+              <p className={`flex items-center gap-1.5 text-xs ${lastSend.ok ? "text-status-ok" : "text-status-critical"}`}>
                 <MailCheck className="size-3.5" aria-hidden />
                 {lastSend.ok
                   ? `Last send: ${lastSend.count} emails at ${hm(lastSend.at)}`

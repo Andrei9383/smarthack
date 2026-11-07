@@ -566,7 +566,7 @@ export function ProductionLayers() {
                     )
                   }
                 >
-                  <Sun className="size-3.5 shrink-0 text-brand-700" aria-hidden />
+                  <Sun className="size-3.5 shrink-0 text-status-ok" aria-hidden />
                   <span className="flex flex-col">
                     <span className="text-xs font-semibold text-foreground">{county.county}</span>
                     <span className="text-[11px] text-text-secondary tabular-nums">
@@ -601,7 +601,7 @@ export function ProductionLayers() {
                   placement={hovered === park.id ? placement : null}
                   dotClassName="size-3.5 bg-primary"
                   chipClassName={`cursor-pointer border px-2 pt-1.5 pb-2 ${
-                    park.id === selected ? "border-primary ring-4 ring-primary/15" : "border-transparent hover:border-brand-100"
+                    park.id === selected ? "border-primary ring-4 ring-primary/15" : "border-transparent hover:border-border-strong"
                   }`}
                   rowClassName="gap-2 pr-1"
                   title={`${park.name}, ${Math.round(mwh)} MWh next 24 h`}
@@ -627,7 +627,7 @@ export function ProductionLayers() {
                   <span className="flex flex-col leading-tight">
                     <span className="text-[13px] font-semibold text-foreground">{park.id}</span>
                     <span className="text-[11px] text-text-secondary tabular-nums">
-                      <span className="font-semibold text-brand-700">{Math.round(mwh)} MWh</span> next 24 h
+                      <span className="font-semibold text-status-ok">{Math.round(mwh)} MWh</span> next 24 h
                     </span>
                   </span>
                 </MarkerPin>

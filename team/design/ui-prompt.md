@@ -1,5 +1,7 @@
 # UI design prompt: Cockpit (Operational Cockpit)
 
+**Superseded by the Calm style (#194, team/design/calm.md).** Kept for history.
+
 Chosen for the UI redesign card that follows #75. The concrete token translation is in
 `team/contracts/ui-style.md`; this file keeps the source prompt and the reasons for picking it.
 

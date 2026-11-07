@@ -106,7 +106,7 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
             <h3 className={SECTION_LABEL}>Last 24 h: sold vs made (MWh/h)</h3>
             <ul className="flex items-center gap-3 text-[11px] text-text-secondary">
               <li className="flex items-center gap-1.5">
-                <span className="h-0.5 w-3.5 rounded-full bg-primary" aria-hidden />
+                <span className="h-0.5 w-3.5 rounded-full bg-sentinel" aria-hidden />
                 Sold
               </li>
               <li className="flex items-center gap-1.5">
@@ -122,7 +122,7 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
           <LineChart data={hours} aspectRatio="5 / 2" margin={MARGIN} animationDuration={0}>
             <Grid numTicksRows={4} fadeHorizontal={false} strokeDasharray="none" />
             <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill="var(--brand-500)" fillOpacity={0.12} strokeOpacity={0.4} curve={curveMonotoneX} />
-            <Line dataKey="sold" stroke="var(--primary)" curve={curveStepAfter} fadeEdges={false} />
+            <Line dataKey="sold" stroke="var(--sentinel)" curve={curveStepAfter} fadeEdges={false} />
             <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} fadeEdges={false} />
             <FanYAxis numTicks={4} unit="MWh" />
             <FanHourTicks everyHours={6} />

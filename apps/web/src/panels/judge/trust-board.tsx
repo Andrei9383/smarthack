@@ -22,7 +22,7 @@ function Spark({ series }: { series: { trust: number | null; prior: number | nul
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-7 w-[120px] shrink-0 overflow-visible" aria-hidden>
       <path d={line("prior")} className="fill-none stroke-muted-foreground" strokeWidth={1} strokeDasharray="3 3" />
-      <path d={line("trust")} className="fill-none stroke-primary" strokeWidth={1.75} strokeLinejoin="round" />
+      <path d={line("trust")} className="fill-none stroke-sentinel" strokeWidth={1.75} strokeLinejoin="round" />
     </svg>
   );
 }

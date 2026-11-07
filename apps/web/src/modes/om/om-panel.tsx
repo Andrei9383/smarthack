@@ -70,7 +70,7 @@ const TOP_N = 3;
 
 // an excluded turbine is stopped (red); grey is for excluded homes
 const TURBINE_CHIP: Record<string, string> = {
-  eligible: "bg-card text-foreground hover:bg-brand-50",
+  eligible: "bg-card text-foreground hover:bg-surface-raised",
   derated: "bg-status-warn/10 text-status-warn hover:bg-status-warn/15",
   human_review: "bg-status-review/10 text-status-review hover:bg-status-review/15",
   excluded: "bg-status-critical/10 text-status-critical hover:bg-status-critical/15",
@@ -78,7 +78,7 @@ const TURBINE_CHIP: Record<string, string> = {
 const turbineChip = (status: string) => TURBINE_CHIP[status] ?? "bg-muted text-text-secondary hover:bg-muted/70";
 
 const ROW = "-mx-2 w-[calc(100%+1rem)] cursor-pointer rounded-md px-2 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const ROW_SELECTED = "bg-brand-50";
+const ROW_SELECTED = "bg-surface-raised";
 const ROW_IDLE = "hover:bg-surface-raised";
 
 const words = (s: string | null | undefined) => (s ? s.replaceAll("_", " ") : "—");
@@ -260,7 +260,7 @@ function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number;
         {detail ? (
           <button
             type="button"
-            className="ml-auto inline-flex items-center gap-0.5 rounded-sm font-medium text-brand-700 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="ml-auto inline-flex items-center gap-0.5 rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             aria-expanded={why}
             onClick={(e) => {
               e.stopPropagation();
@@ -273,7 +273,7 @@ function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number;
         ) : null}
       </div>
       {why && detail ? (
-        <p className="mt-2 ml-[1.875rem] border-l-2 border-brand-100 pl-2.5 text-xs leading-relaxed text-text-secondary">{detail}</p>
+        <p className="mt-2 ml-[1.875rem] border-l-2 border-border pl-2.5 text-xs leading-relaxed text-text-secondary">{detail}</p>
       ) : null}
     </li>
   );

@@ -43,7 +43,7 @@ function RailItem({
       title={expanded ? undefined : `${label}: ${descriptor}`}
       className={cn(
         "relative flex min-h-11 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left transition-colors duration-fast focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
-        active ? "bg-brand-50 text-brand-900" : "text-text-secondary hover:bg-surface-raised hover:text-foreground",
+        active ? "bg-surface-raised text-foreground" : "text-text-secondary hover:bg-surface-raised hover:text-foreground",
       )}
     >
       {active ? (
@@ -69,7 +69,7 @@ function RailItem({
             </span>
           ) : null}
         </b>
-        <span className={cn("block text-[11px] leading-snug", active ? "text-brand-700" : "text-muted-foreground")}>
+        <span className={cn("block text-[11px] leading-snug", active ? "text-text-secondary" : "text-muted-foreground")}>
           {descriptor}
         </span>
       </span>

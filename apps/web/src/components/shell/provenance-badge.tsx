@@ -10,7 +10,7 @@ import { PROVENANCE_TEXT, type Provenance } from "./mode-copy";
 // synthetic = dashed ring (simulated), real RO = solid LED, non-RO = hollow ring (real, elsewhere).
 const MARK: Record<Provenance, { kind: StatusKind; tone: string }> = {
   synthetic: { kind: "forecast", tone: "text-status-unknown" },
-  real: { kind: "ok", tone: "text-primary" },
+  real: { kind: "ok", tone: "text-status-ok" },
   non: { kind: "unknown", tone: "text-status-forecast" },
 };
 

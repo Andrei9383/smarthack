@@ -62,7 +62,7 @@ const LANE_KEY: Record<ActionKind, string> = {
 
 // The bucket chip takes its dominant kind's colour (remote's ring becomes a fill so the count stays legible).
 const CHIP: Record<ActionKind, string> = {
-  dispatch: "bg-primary",
+  dispatch: "bg-sentinel",
   workorder: "bg-status-warn",
   review: "bg-status-review",
   remote: "bg-status-forecast",
@@ -367,7 +367,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
         aria-label={playing ? "Pause the replay" : "Play the replay"}
         onClick={() => setPlaying((value) => !value)}
         className={cn(
-          "grid shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-fast hover:bg-brand-700 active:scale-95",
+          "grid shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-fast hover:bg-primary/85 active:scale-95",
           compact ? "size-9" : "size-10",
         )}
       >
@@ -385,7 +385,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
             <button
               type="button"
               onClick={() => setStep(NOW_STEP)}
-              className="font-medium text-brand-700 hover:underline focus-visible:underline focus-visible:outline-none"
+              className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
             >
               · back<span className="hidden min-[1440px]:inline"> to now</span>
             </button>
