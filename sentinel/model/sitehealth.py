@@ -194,7 +194,8 @@ def run(argv=None):
         src = open_source(args.data, args.synth_sites)
         sp = make_splits(src)
         m1 = upstream_predictions(src, "pvnet", *ups["pvnet"][:2], ups["pvnet"][2], dev, amp)
-        m2 = upstream_predictions(src, "loadnet", *ups["loadnet"][:2], ups["loadnet"][2], dev, amp)[..., 1]
+        # contiguous once: a strided [..., 1] view made features.gather copy all of m2 (168 MB) per batch (#185)
+        m2 = np.ascontiguousarray(upstream_predictions(src, "loadnet", *ups["loadnet"][:2], ups["loadnet"][2], dev, amp)[..., 1])
 
     n_days = src.n_days
     tr_s, tr_d = sp.site_days("train")
