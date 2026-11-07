@@ -106,6 +106,15 @@ def ensure_windows(log=print) -> Path:
     if w is None:
         raise SystemExit("judge: no window cache and it could not be built")
     log(f"[judge] windows: {w}")
+    try:  # M6 rows need #22/#23's wind data (built once, ~1 min); without it the detector family is M4 only
+        from sentinel.model.wind.data import external_wind_dir
+        if external_wind_dir() is None:
+            from sentinel.sim.wind.build import build
+            log("[judge] no wind cache: building it with sentinel.sim.wind (one-off)")
+            build(plots=False)
+        log(f"[judge] wind: {external_wind_dir()}")
+    except Exception as e:
+        log(f"[judge] wind data unavailable ({type(e).__name__}: {e}); M6 rows skipped")
     return Path(w)
 
 
@@ -304,7 +313,11 @@ def main(argv: list[str] | None = None) -> int:
     t_all = time.perf_counter()
     try:
         from sentinel.kernels import backend
-        print(f"[judge] kernels backend: {backend()}", flush=True)
+        print(f"[judge] kernels backend: {backend()}; cores {os.cpu_count()}; LAB_CACHE_DIR "
+              f"{os.environ.get('LAB_CACHE_DIR')}", flush=True)
+        mem = Path("/proc/meminfo")
+        if mem.exists():
+            print("[judge] " + " ".join(mem.read_text().splitlines()[:3]), flush=True)
     except Exception:
         pass
 
