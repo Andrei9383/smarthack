@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from ..fleet.battery import BatteryParams, apply_power
+from ... import kernels
+from ..fleet.battery import BatteryParams
 from .kinds import APPLY, STEPS_PER_DAY, Episode, overvoltage_threshold
 
 TELEMETRY_COLS = ("pv_ac_w", "inv_voltage_v", "inv_status", "soc", "batt_w", "load_w", "grid_w")
@@ -92,26 +93,11 @@ def _resimulate_battery(arrays, rows, starts, cf, pf, bp: BatteryParams) -> None
     soc0, batt0 = arrays["soc"][rows].astype(float), arrays["batt_w"][rows].astype(float)
     cap = bp.capacity_kwh[rows]
     e = np.where(t0 > 0, np.nan_to_num(soc0[:, t0 - 1]) * cap, 0.5 * cap) if t0 > 0 else 0.5 * cap
-    batt = batt0.copy()
-    soc = soc0.copy()
-    sub = BatteryParams(*(getattr(bp, f)[rows] for f in ("capacity_kwh", "p_max_kw", "eta_charge", "eta_discharge",
-                                                          "soc_min", "soc_max", "comfort_reserve_kwh")))
-    nominal_cap, nominal_p = sub.capacity_kwh.copy(), sub.p_max_kw.copy()
-    surplus = pv - load
-    prev_cap = nominal_cap * cf[rows, t0]
-    for t in range(t0, T):
-        before = t < start
-        sub.capacity_kwh = nominal_cap * cf[rows, t]
-        sub.p_max_kw = nominal_p * pf[rows, t]
-        # Fading cells lose stored energy in proportion (SoC is preserved), never gain usable energy.
-        e = e * np.divide(sub.capacity_kwh, prev_cap, out=np.ones_like(e), where=prev_cap > 0)
-        prev_cap = sub.capacity_kwh
-        b, e_new = apply_power(sub, e, surplus[:, t], 0.25)
-        # Before a row's own onset, keep the original series exactly (and follow its energy).
-        e_orig = np.nan_to_num(soc0[:, t]) * nominal_cap
-        e = np.where(before, e_orig, e_new)
-        batt[:, t] = np.where(before, batt0[:, t], b)
-        soc[:, t] = np.where(before, soc0[:, t], e / np.maximum(sub.capacity_kwh, 1e-9))
+    # The per-step loop (capacity/power derating + apply_power, original series kept before each row's onset) is
+    # kernel K7: numpy reference sentinel.kernels.battery_resim_py, Rust copy when built (#134).
+    batt, soc = kernels.battery_resim(pv - load, soc0, batt0, cf[rows], pf[rows], start, e, cap, bp.p_max_kw[rows],
+                                      bp.eta_charge[rows], bp.eta_discharge[rows], bp.soc_min[rows],
+                                      bp.soc_max[rows], t0, 0.25)
     arrays["batt_w"][rows] = batt
     arrays["soc"][rows] = soc
     arrays["grid_w"][rows] = np.where(np.arange(T)[None] >= start[:, None],
