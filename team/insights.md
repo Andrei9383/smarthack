@@ -2,3 +2,23 @@
 
 What was tried and what we learned. One line each, with the card number.
 
+## Replay (agent end to end)
+- #29 replay#322 (synthetic RO + real OPCOM prices, INTERIM synthetic-trained weights, 5 feeders / 118 sites, WP01 70 turbines, week 2025-06-02): Sentinel vs self-consumption baseline: minutes over limit 2880 vs 6645, peak reduction 13.6 % (17.8 % on congested feeder-days), P10 commitment hit rate 83.4 %, comfort breaches 0 vs 1165, 15.7 lei/home/month saved, alerts per turbine-day 0.114 vs 0.706 (WindMon rules).
+- #29 replay#322: hero feeder F7 (fleet F06) on day 2: baseline peak 90.3 kW vs limit 61.8 kW (18 steps over), Sentinel 63.9 kW (5 steps over): the P10 plan does not fully clear the hero day with the interim load model.
+- #29 replay#322: the LP (#18) returned "unbounded" on 10 of 35 feeder-days (days 4-5) with the real forecasts; those days ran on the built-in greedy plan (runs.notes.component_errors). Not seen on the mock world.
+- #29 replay#322: grid-twin (#13) tau 0.68-0.90 on the demo feeders tightens G by up to 6 % (F7 65.5 -> 61.8 kW); 11 GIS flags on demo sites.
+
+## Models on the shared fleet (the agreed comparison: eval.py, #16)
+- #67 run#228 (synthetic RO fleet test split; #14 recipe trained on #14's own synthetic data): M1 PVNet nMAE 0.080 vs LightGBM 0.041 vs pvlib 0.083 — LightGBM beats M1 on fleet nowcast by ~2x; M1 only ties pvlib.
+- #67 run#228: M2 LoadNet nMAE 0.319 vs LightGBM 0.256, 10-90 coverage 0.44 (target 0.80): synthetic-trained load intervals are far too narrow on the fleet.
+- #67 run#228: M4 SiteHealth PR-AUC 0.53 vs threshold+CUSUM 0.50; finds 97 % vs 37 % of fault episodes but median detection 43 h vs 36 h.
+- #67 run#228 (non-RO, PVDAQ): PVNet failed on PVDAQ (240 predict failures) — no real-site PV number yet.
+- #41 run#135 (synthetic RO wind stand-in, held-out park WP2, test 2025): WindNBM precision 0.854 vs WindMon 0.530, recall 0.819 vs 0.440, alerts/turbine-day 0.101 vs 0.114, curtail-vs-fault F1 0.764 vs 0.318; 171/171 stops caught, 2/990 curtailments called faults. Caveat (#41 review): NBM training masks steps with injector labels, so residuals are optimistic.
+- #44 (real RO, ENTSO-E RO load, test 2025; local CPU run on main, no lab run id): DemandNet nMAE 0.039 vs persistence-week 0.067 / national shape 0.070; peak-hour error 0.30 h; 10-90 coverage 0.74 (under target).
+
+## Error analysis (where the models fail) and what we tried
+- #29 (local diagnostic on commit cc84694, not a lab run): the interim M4 calls a 50 % string outage a **sensor fault** on 5 of 8 clean battery sites of the hero feeder and gets it right on all 7 no-battery sites: battery charge/discharge in the residual looks like a logger problem to a model trained on #14's synthetic data. Tried: nothing in the model yet; the demo pins a battery site M4 reads correctly (S0284 -> 1042) and says so. Fix belongs to the fleet retrain (#14).
+- #29 replay#322: the same site flips from string_outage (day 3) to sensor_fault (day 4) as the 24 h window fills with outage-only data -> excluded instead of derated: M4 has seen few windows that start inside a long outage.
+- #29 replay#322: #41's curtailment veto (≥ 15 % of the park at one power ceiling) misses a cap to 0 % — near-zero noisy power has no common ceiling — so a 70-turbine park-wide cap was classed normal although the classifier's p(non-normal) was ≈ 0.999. Tried: a replay-side park consensus on M6's own curtailment probabilities (≥ 50 % of the park above threshold): the cap becomes one curtailment alert (105.5 MWh, no work order). Proper fix: add the consensus feature to #41's decide().
+- #29 replay#322: M4 sends 5 sites (15 rows) to human review on OOD (robust-z ≥ 3) — sites whose recorded metadata or profile is outside #14's synthetic training range; unseen-site behaviour needs the fleet retrain.
+- #14 / #67 run#228: models trained on #14's own generator transfer poorly to the shared fleet (load coverage 0.44, PV behind LightGBM): the domain gap between two synthetic generators is already large, so real-data claims need real data (PVDAQ run failed).
