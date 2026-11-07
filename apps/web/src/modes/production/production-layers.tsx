@@ -2,7 +2,7 @@
 
 import { MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
 import { useQuery } from "@tanstack/react-query";
-import { Wind } from "lucide-react";
+import { Sun, Wind } from "lucide-react";
 import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
@@ -73,6 +73,10 @@ type Overlay = {
   finalize: () => void;
 };
 
+// A particle moves about speedFactor × 0.014 px per frame per m/s at any zoom, and lives about
+// maxAge frames, which is also its trail length: 10 m/s draws a ~40 px streak, not a ~170 px line.
+const PARTICLES = { numParticles: 3000, maxAge: 30, speedFactor: 10, width: 1.5 };
+
 // Stretch layer: loaded on demand so deck.gl never slows the first paint of the app.
 function useWindParticles(meta: WindMeta | undefined, hour: number) {
   const { map, isLoaded } = useMap();
@@ -87,27 +91,27 @@ function useWindParticles(meta: WindMeta | undefined, hour: number) {
 
     (async () => {
       try {
-        const [{ MapboxOverlay }, { WindParticleLayer }] = await Promise.all([
+        const [{ MapboxOverlay }, { SteadyWindLayer }] = await Promise.all([
           import("@deck.gl/mapbox"),
-          import("maplibre-gl-wind"),
+          import("./steady-wind-layer"),
         ]);
         if (cancelled) return;
         const control = new MapboxOverlay({ interleaved: false, layers: [] });
         map.addControl(control as never);
         overlay = control as unknown as Overlay;
+        const bounds = [...meta.bounds];
+        const imageUnscale = [...meta.imageUnscale];
+        const speedRange: [number, number] = [0, meta.speedMax];
         render.current = (nextHour) => {
           overlay?.setProps({
             layers: [
-              new WindParticleLayer({
+              new SteadyWindLayer({
                 id: "wind-particles",
                 image: textureUrl(nextHour),
-                bounds: [...meta.bounds],
-                imageUnscale: [...meta.imageUnscale],
-                speedRange: [0, meta.speedMax],
-                numParticles: 3000,
-                maxAge: 40,
-                speedFactor: 30,
-                width: 1.5,
+                bounds,
+                imageUnscale,
+                speedRange,
+                ...PARTICLES,
                 colorRamp: PARTICLE_COLOR_RAMP,
               }),
             ],
@@ -134,11 +138,11 @@ function useWindParticles(meta: WindMeta | undefined, hour: number) {
 // Each marker is a dot on its point with a label chip below it. Collisions are resolved on a
 // circle around the chip: its radius and how far its centre sits below the point.
 const FOOTPRINT = {
-  county: { diameter: 76, below: 28 },
+  county: { diameter: 96, below: 28 },
   park: { diameter: 132, below: 36 },
 } as const;
 
-// `below` defaults to 0: a footprint centred on the point (feeders labels).
+// Feeders reuse this layout for plain labels, which sit centred on their point (no `below`).
 export type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & {
   lon: number;
   lat: number;
@@ -289,15 +293,19 @@ export function ProductionLayers() {
         <MapMarker key={county.county} longitude={county.lon} latitude={county.lat}>
           <MarkerContent>
             <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
+              {/* Info only, not clickable: hollow dot, dashed chip and a sun so it never reads as a park. */}
               <MarkerPin
                 pinRef={countyMarker}
-                dotClassName="size-2.5 bg-brand-500"
-                chipClassName="flex-col px-2 py-1 leading-tight"
-                title={`${county.county} solar, ${county.solarMwh.toFixed(1)} MWh next 24 h`}
+                dotClassName="size-2.5 border-2 border-brand-500 bg-card"
+                chipClassName="cursor-default gap-1.5 border border-dashed border-brand-500/60 py-1 pr-2 pl-1.5 leading-tight"
+                title={`${county.county} county, rooftop solar: ${county.solarMwh.toFixed(1)} MWh next 24 h`}
               >
-                <span className="text-xs font-semibold text-foreground">{county.county}</span>
-                <span className="text-[11px] text-text-secondary tabular-nums">
-                  {county.solarMwh.toFixed(1)} MWh
+                <Sun className="size-3.5 shrink-0 text-brand-700" aria-hidden />
+                <span className="flex flex-col">
+                  <span className="text-xs font-semibold text-foreground">{county.county}</span>
+                  <span className="text-[11px] text-text-secondary tabular-nums">
+                    {county.solarMwh.toFixed(1)} MWh solar
+                  </span>
                 </span>
               </MarkerPin>
             </Displaced>
