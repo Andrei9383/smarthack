@@ -185,3 +185,18 @@ def battery_resim(surplus: Any, soc0: Any, batt0: Any, cf: Any, pf: Any, start: 
 
 
 __all__ += ["battery_resim", "battery_resim_py"]
+
+
+# --------------------------------------------------------------------------- K9: W2 park scenarios (#187)
+from sentinel.kernels.scenarios import park_scenarios_py, park_scenarios_rust  # noqa: E402
+
+register("park_scenarios", park_scenarios_py, park_scenarios_rust)
+
+
+def park_scenarios(q_kw: Any, rated_kw: Any, cols: Any, ratio_t: Any, u: Any, p_up: Any = None, derate: Any = None,
+                   bernoulli: bool = False, rng: Any = None) -> np.ndarray:
+    """Dispatched; see ``scenarios`` (reference = sentinel.model.windpower.scenarios.park_scenarios)."""
+    return get("park_scenarios")(q_kw, rated_kw, cols, ratio_t, u, p_up, derate, bernoulli, rng)
+
+
+__all__ += ["park_scenarios", "park_scenarios_py"]

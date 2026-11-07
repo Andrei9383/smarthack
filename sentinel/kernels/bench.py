@@ -193,6 +193,29 @@ def resim_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
             rng.uniform(2, 6, m), np.full(m, 0.95), np.full(m, 0.95), np.full(m, 0.1), np.full(m, 0.95), t0, 0.25)
 
 
+SCEN_DAYS = 40
+
+
+def scen_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """K9 (#187): W2 forecast stage, per day x 3 parks x 6 policies: 100 scenarios x 96 steps x 39 turbines."""
+    S, H, N = _sz(100, scale), 96, 117
+    rated = np.full(N, 3000.0)
+    p50 = rng.uniform(0, 1, (H, N)) * rated
+    q = np.stack([0.7 * p50, p50, np.minimum(1.3 * p50 + 50, rated)], -1).astype(np.float32)
+    u = rng.uniform(0, 1, (S, H))
+    pu, der = rng.uniform(0, 1, (H, N)), rng.uniform(0.5, 1, (H, N))
+    return q, rated, [np.arange(p, N, 3) for p in range(3)], rng.uniform(0.9, 1, H), u, pu, der
+
+
+def scen_run(fn, a):
+    q, rated, cols, r, u, pu, der = a
+    for d in range(SCEN_DAYS):
+        for c in cols:
+            for kw in ({}, dict(p_up=pu, derate=der), dict(p_up=pu, derate=der, bernoulli=True), dict(p_up=pu),
+                       dict(p_up=pu), dict(p_up=pu)):
+                fn(q, rated, c, r, u, **kw, rng=np.random.default_rng(d))
+
+
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description[, parity atol])
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
@@ -221,6 +244,9 @@ CASES = [
      1e-9),  # bit-exact where numpy's f64 cos/arccos are libm's; a few ulp on AVX-512 SVML CPUs
     ("battery_resim", "battery_resim", resim_make, lambda fn, a: fn(*a), lambda a: a,
      "fault injector battery resim (#134): 48 sites x 35040 steps, fade/underuse, 0.1% NaN"),
+    ("park_scenarios", "park_scenarios", scen_make, scen_run,
+     lambda a: (a[0], a[1], a[2][1], a[3], a[4], a[5], a[6], True, None),  # rng None: same draws per call
+     f"W2 forecast (#187): {SCEN_DAYS} days x 3 parks x 6 policies, 100 scen x 96 steps x 39 turbines, f32 q"),
 ]
 
 
