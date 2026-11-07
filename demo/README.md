@@ -7,13 +7,13 @@ the real simulator week, not model results. The fleet-retrained weights replace 
 
 | | |
 |---|---|
-| Lab run | **replay#322** (card #29, worker server-gpu, commit `cc846941ea`) |
+| Lab run | **replay#380** (card #29, worker rtx5070, commit `28f94fbf08`, `--gpu-mem 12G`) |
 | Command | `python -m sentinel.data.windows && python -m sentinel.sim.wind --no-plots && python -m sentinel.gridtwin.run && python replay.py --world sim --policy baseline,sentinel --out $LAB_OUTPUT_DIR/sentinel.sqlite` |
-| File | regenerated locally from the same commit and the same deterministic caches with `LAB_RUN_ID=322` (run 322 landed on server-gpu, whose outputs are not reachable; rtx5070 was busy with #14's retrain). Not byte-identical: the worker file's sha256 is `4323c70a…3d1f9` (printed in `lab logs 322`), this file's is `14f13d4c…01baaa`, because `runs.created_at/finished_at` are wall-clock. Verified equal instead: all 13 LAB_METRICs of run 322 and the row count (245,583) |
-| Verify | `LAB_RUN_ID=322 python replay.py --world sim --policy baseline,sentinel --out /tmp/s.sqlite` after the cache commands, then compare its LAB_METRIC lines with `lab logs 322` |
+| File | the exact worker output: `scp rtx5070:/var/lib/lab-gpu/work/outputs/380/sentinel.sqlite`, sha256 `c992a97c75abceeaf7fbb7566901eb52b7d920829d6fa30792d41f0e1d6bd8f6` (= the `sha256sum` line at the end of `lab logs 380`); 245,583 rows, `PRAGMA integrity_check` ok |
+| Verify | `shasum -a 256 demo/sentinel.sqlite` against `lab logs 380`. Rebuilding locally (`LAB_RUN_ID=380 python replay.py --world sim --policy baseline,sentinel --out /tmp/s.sqlite` after the cache commands) gives the same stories and row count but not the same bytes (wall-clock `runs.created_at`; macOS vs Linux floats move peak reduction 15.04 -> 15.02 %, lei 24.66 -> 24.65) |
 | Size | 45.7 MB (R18 < 50 MB), strict schema mode |
 | Week | `runs.week_start = 2025-06-02`: Mon 2 – Sun 8 June 2025, 00:00 Europe/Bucharest (= 2025-06-01T21:00Z, the app's `WEEK_START_UTC`); `ts` in UTC |
-| Runs | `322:baseline`, `322:sentinel` |
+| Runs | `380:baseline`, `380:sentinel` |
 | World | 5 of the fleet's 15 feeders (118 sites, the hero + 3 other congested + 1 uncongested), wind park WP01 (70 turbines, Fântânele-Cogealac area, Constanța) |
 
 ## Components (runs.notes)
@@ -22,9 +22,13 @@ the real simulator week, not model results. The fleet-retrained weights replace 
   10/12/14/16 h, expected power from the M1 nowcast ensemble `pvnet-201-s0x4`), M6 WindNBM (`windnbm-r135`,
   per-step classes), planner LP (#18) with aggregate backup, qualify + triage (#26), committer (#27), demand (#44),
   grid-twin (#13: tau + effective G per feeder, 11 GIS flags). 0 prediction fallbacks (`predictions.is_fallback`).
-- Fallback: WindMon baseline (#24 stand-in rules) for the baseline policy's wind alerts; the LP returned
-  "unbounded" on 10 of 35 feeder-days (days 4-5), which then used the built-in greedy plan (counted in
-  `runs.notes.component_errors`; follow-up for #18).
+- Fallback: WindMon baseline (#24 stand-in rules) for the baseline policy's wind alerts only. The LP (#18, with
+  #80's negative-price fix) is optimal on all 35 feeder-days (`runs.notes.plan_status`); run 322 had 10 "unbounded"
+  days on the greedy fallback.
+- Telemetry loss (#78 drills): every telemetry read goes through `World.observed_site_day` (physics stays
+  `site_day`); a pool site dropped only for missing telemetry keeps running the schedule on its device, rejoins the
+  pool when fresh, and flex expected to be blind is not committed (`commitments.haircut_h` per step; loop.py
+  docstring). On this clean sim week it changes only the P10 hit rate (82.5 -> 82.2 %, re-admission).
 - M6 park-consensus rule (replay only, `sentinel/agent/predictors.py`): #41's `decide()` vetoes curtailment unless
   15 % of the park sits at one power ceiling; a cap to 0 % leaves noisy near-zero power, so the 70-turbine cap
   below came out "normal" although the classifier gave p(non-normal) ≈ 0.999. The replay marks steps where ≥ 50 %
@@ -63,15 +67,17 @@ becomes F6), and the story site (fleet **S0284**, 6.1 kWp + 8.5 kWh battery on t
 The app's jumps: HERO_DAY = 2 and FAULT_DAY = 3 match. The O&M jump (`FAULT_STEP + 1 day` = day 4 noon) shows the
 open turbine work orders; the stop itself is best seen on day 3 noon, the curtailment on day 5 ~19:00 (Tudor: #62).
 
-## KPIs (run 322, synthetic RO, interim weights)
+## KPIs (run 380, synthetic RO, interim weights)
 | KPI | baseline | Sentinel |
 |---|---|---|
-| minutes over limit (5 feeders x 7 days) | 6645 | 2880 |
-| peak reduction (mean over feeder-days / congested feeder-days) | — | 13.6 % / 17.8 % |
-| P10 commitment hit rate | — | 83.4 % |
+| minutes over limit (5 feeders x 7 days) | 6645 | 2565 |
+| peak reduction (mean over feeder-days / congested feeder-days) | — | 15.0 % / 19.5 % |
+| P10 commitment hit rate | — | 82.2 % |
 | comfort breaches (battery below reserve, steps) | 1165 | 0 |
-| lei per home per month (vs baseline) | — | 15.7 saved |
+| lei per home per month (vs baseline) | — | 24.66 saved |
 | alerts per turbine-day | 0.706 (WindMon rules) | 0.114 |
+
+Run 322 (before #80's LP fix and the telemetry-loss fix): 2880 minutes over, 13.6 % / 17.8 %, 83.4 %, 15.7 lei.
 
 Reproduce: build the caches (commands above, ~6 min), then the replay (~20 s). `make replay REPLAY_WORLD=sim` still
 uses the old `SENTINEL_DATA` fleet path; use the command above until #35 updates the Makefile.
