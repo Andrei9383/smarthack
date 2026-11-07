@@ -147,6 +147,24 @@ def load_args(r: dict) -> tuple[Any, ...]:
     return r["wx"], r["cal"], r["hist"]
 
 
+def strategies_make(scale, rng):
+    """K8: one data-v2 chunk-year, 500 homes x 35040 steps (all four strategies), as the generator calls it."""
+    from sentinel.kernels.strategies import day_rank_median
+
+    n, days = _sz(500, scale), _sz(365, scale)
+    t = days * 96
+    hod = np.tile(np.arange(96) / 4, days)
+    pv = np.clip(np.sin((hod - 6) / 12 * np.pi), 0, None)[None] * rng.uniform(2, 8, (n, 1)) * rng.uniform(0.3, 1, (n, t))
+    strat = (np.arange(n) % 4).astype(np.int8)
+    cap = np.where(strat > 0, rng.uniform(5, 15, n), 0.0)
+    day = np.repeat(np.arange(days), 96).astype(np.int32)
+    price = 400 + 300 * np.sin((hod - 13) / 12 * np.pi) + rng.normal(0, 40, t)
+    rank, med = day_rank_median(price, day)
+    return (pv, rng.uniform(0.2, 2.5, (n, t)), strat, cap, np.where(strat > 0, 4.0, 0.0), rng.uniform(0.1, 0.4, n),
+            np.full(n, 0.95), rng.integers(8, 21, n).astype(np.int32), 0.5 * cap, price, rank, med, day,
+            rng.random((n, days)) > 0.1)
+
+
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description[, parity atol])
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
@@ -169,6 +187,9 @@ CASES = [
      lambda a: load_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
     ("site_features", "features_site", lambda sc, rng: (site_raw(sc, rng),), lambda fn, a: [fn(r) for r in a[0]],
      lambda a: (a[0][0],), f"{FEAT_BATCHES} batches x {FEAT_B} M4 site windows (features.site_inputs)", 1e-6),  # cos_zen
+    ("battery_strategies", "strategies", strategies_make, lambda fn, a: fn(*a),
+     lambda a: (a[0][:40], a[1][:40], *(x[:40] for x in a[2:9]), *a[9:13], a[13][:40]),
+     "500 homes x 35040 steps, 4 strategies (one data-v2 chunk-year, #172)"),
 ]
 
 

@@ -152,7 +152,18 @@ def site_features(raw: dict) -> tuple[np.ndarray, np.ndarray]:
     return get("site_features")(raw)
 
 
-__all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
+# --------------------------------------------------------------------------- K8: battery strategies (strategies.py)
+from sentinel.kernels.strategies import battery_strategies_py, battery_strategies_rust  # noqa: E402
+
+register("battery_strategies", battery_strategies_py, battery_strategies_rust)
+
+
+def battery_strategies(*args: Any, **kw: Any) -> tuple[np.ndarray, np.ndarray]:
+    """K8, dispatched data-v2 battery strategies; see ``sentinel.kernels.strategies`` (the reference)."""
+    return get("battery_strategies")(*args, **kw)
+
+
+__all__ = ["backend", "battery_strategies", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
            "load_features", "load_features_py", "names", "pv_features", "pv_features_py", "register", "rolling_mean",
            "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "site_features",
            "site_features_py", "window_gather", "window_gather_py"]
