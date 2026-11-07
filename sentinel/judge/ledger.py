@@ -37,6 +37,7 @@ arrives (a crew report after the telemetry) enters as the delta of its contribut
 
 from __future__ import annotations
 
+import functools
 import json
 import math
 from dataclasses import dataclass, field
@@ -145,26 +146,34 @@ def _daynum_np(s: pl.Series) -> np.ndarray:
     return x.cast(pl.Int32).to_numpy()
 
 
-def _cat(s: pl.Series) -> tuple[np.ndarray, list[str]]:
-    """Dense integer codes 0..k−1 + labels of a string column (hashing only the few distinct values)."""
-    c = s.cast(pl.Utf8).fill_null("").cast(pl.Categorical)
-    phys = c.to_physical().to_numpy().astype(np.int64)
-    u = pl.DataFrame({"c": c}).unique().with_columns(pl.col("c").to_physical().alias("p"))
-    p, lab = u["p"].to_numpy().astype(np.int64), u["c"].cast(pl.Utf8).to_list()
-    order = np.argsort(p)
-    lut = np.full(int(p.max()) + 1 if len(p) else 1, -1, np.int64)
-    lut[p[order]] = np.arange(len(p))
-    return lut[phys], [lab[i] for i in order]
+def _cats(df: pl.DataFrame, cols: list[str]) -> dict[str, tuple[np.ndarray, list[str]]]:
+    """Dense int32 codes 0..k−1 + labels for string columns; the per-row hashing runs in one parallel select
+    (a column that is already Categorical/Enum is not re-hashed)."""
+    def as_cat(c):
+        dt_ = df.schema[c]
+        e = pl.col(c)
+        return (e if dt_ in (pl.Categorical,) or isinstance(dt_, pl.Enum)
+                else e.cast(pl.Utf8).fill_null("").cast(pl.Categorical)).alias(c)
+    cat = df.select([as_cat(c) for c in cols])
+    out = {}
+    for c in cols:
+        phys = cat[c].to_physical().to_numpy()
+        u = cat.select(pl.col(c).unique()).with_columns(pl.col(c).to_physical().alias("p"))
+        p, lab = u["p"].to_numpy().astype(np.int64), u[c].cast(pl.Utf8).to_list()
+        order = np.argsort(p)
+        lut = np.full(int(p.max()) + 1 if len(p) else 1, -1, np.int32)
+        lut[p[order]] = np.arange(len(p), dtype=np.int32)
+        out[c] = (lut[phys], [lab[i] for i in order])
+    return out
 
 
 def _flag_np(df: pl.DataFrame, col: str, yes: str, default: bool) -> np.ndarray:
     if col not in df.columns:
-        return np.full(df.height, int(default), np.int64)
+        return np.full(df.height, int(default), np.int32)
     s = df[col]
     if s.dtype == pl.Utf8:
-        return s.str.to_lowercase().is_in([yes, "1", "true", "yes", "y"]).fill_null(default).to_numpy() \
-            .astype(np.int64)
-    return s.cast(pl.Boolean).fill_null(default).to_numpy().astype(np.int64)
+        s = s.str.to_lowercase().is_in([yes, "1", "true", "yes", "y"])
+    return s.cast(pl.Boolean).fill_null(default).cast(pl.Int32).to_numpy()
 
 
 def _dense(code: np.ndarray, labels_of) -> tuple[np.ndarray, list]:
@@ -172,8 +181,8 @@ def _dense(code: np.ndarray, labels_of) -> tuple[np.ndarray, list]:
     if len(code) == 0:
         return code, []
     present = np.flatnonzero(np.bincount(code))
-    lut = np.full(int(code.max()) + 1, -1, np.int64)
-    lut[present] = np.arange(len(present))
+    lut = np.full(int(code.max()) + 1, -1, np.int32)
+    lut[present] = np.arange(len(present), dtype=np.int32)
     return lut[code], [labels_of(int(c)) for c in present]
 
 
@@ -187,9 +196,12 @@ class Coded:
     score: np.ndarray
     weight: np.ndarray
     base_labels: list      # code -> (model, version, score)
-    bucket_labels: list    # code -> key
+    bucket_labels: list    # code -> key (may include buckets seen only on dropped rows)
+    keep: np.ndarray | None = None  # rows to use (not gated, finite score, weight > 0); applied by take()
 
     def take(self, m: np.ndarray) -> "Coded":
+        if self.keep is not None:
+            m = m & self.keep
         return Coded(self.base[m], self.bucket[m], self.day[m], self.obs[m], self.score[m], self.weight[m],
                      self.base_labels, self.bucket_labels)
 
@@ -201,44 +213,40 @@ def prepare(outcomes) -> Coded:
     if df.height == 0:
         e = np.zeros(0, np.int64)
         return Coded(e, e, e, e, e.astype(float), e.astype(float), [], [])
-    if "weight" not in df.columns:
-        df = df.with_columns(pl.lit(1.0).alias("weight"))
-    keep = pl.col("score").cast(pl.Float64).is_finite() & (pl.col("weight").cast(pl.Float64).fill_null(1.0) > 0)
-    if "gated" in df.columns:
-        keep = keep & (pl.col("gated").cast(pl.Int8).fill_null(0) == 0)
-    df = df.filter(keep)
     day = _daynum_np(df["day"])
     obs = _daynum_np(df["observed_at"]).copy() if "observed_at" in df.columns else day.copy()
     np.maximum(obs, day, out=obs)
     score = df["score"].cast(pl.Float64).to_numpy()
-    w = df["weight"].cast(pl.Float64).fill_null(1.0).to_numpy()
-    m, ml = _cat(df["model"])
-    v, vl = _cat(df["model_version"])
-    s, sl = _cat(df["score_name"])
+    w = df["weight"].cast(pl.Float64).fill_null(1.0).to_numpy() if "weight" in df.columns \
+        else np.ones(df.height)
+    keep = np.isfinite(score) & (w > 0)
+    if "gated" in df.columns:
+        keep &= df["gated"].cast(pl.Int8).fill_null(0).to_numpy() == 0
+    has_bucket = "bucket" in df.columns
+    cats = _cats(df, ["model", "model_version", "score_name"] + (["bucket"] if has_bucket else
+                                                                 ["kind"] if "kind" in df.columns else []))
+    (m, ml), (v, vl), (s, sl) = cats["model"], cats["model_version"], cats["score_name"]
     nv, ns = len(vl), len(sl)
     base, base_labels = _dense((m * nv + v) * ns + s,
                                lambda c: (ml[c // (nv * ns)], vl[(c // ns) % nv], sl[c % ns]))
-    if "bucket" in df.columns:
-        bucket, bucket_labels = _cat(df["bucket"])
+    if has_bucket:
+        bucket, bucket_labels = cats["bucket"]
     else:
-        if "kind" in df.columns:
-            k, kl = _cat(df["kind"])
-        else:
-            k, kl = np.zeros(df.height, np.int64), ["site"]
+        k, kl = cats.get("kind", (np.zeros(df.height, np.int32), ["site"]))
         seen = _flag_np(df, "seen", "seen", True)
         batt = _flag_np(df, "battery", "batt", False)
         if "season" in df.columns:
-            warm = (df["season"].cast(pl.Utf8).str.to_lowercase() == "warm").fill_null(False).to_numpy()
+            warm = (df["season"].cast(pl.Utf8).str.to_lowercase() == "warm").fill_null(False)
         else:
-            month = day.astype("datetime64[D]").astype("datetime64[M]").astype(np.int64) % 12 + 1
+            month = pl.Series(day).cast(pl.Date).dt.month()
             warm = (month >= 4) & (month <= 9)
+        warm = warm.cast(pl.Int32).to_numpy()
         if "quality" in df.columns and df.schema["quality"] == pl.Utf8:
-            gappy = (df["quality"].str.to_lowercase() == "gappy").fill_null(False).to_numpy()
+            gappy = (df["quality"].str.to_lowercase() == "gappy").fill_null(False).cast(pl.Int32).to_numpy()
         else:
             gappy = _flag_np(df, "quality" if "quality" in df.columns else "gappy", "gappy", False)
         ood = _flag_np(df, "ood_high", "ood_hi", False)
-        code = (((((k * 2 + seen) * 2 + batt) * 2 + warm.astype(np.int64)) * 2 + gappy.astype(np.int64)) * 2
-                + ood)
+        code = (((((k * 2 + seen) * 2 + batt) * 2 + warm) * 2 + gappy) * 2 + ood)
 
         def lab(c: int) -> str:
             bits = [(c >> i) & 1 for i in range(5)]  # ood, gappy, warm, batt, seen
@@ -246,10 +254,34 @@ def prepare(outcomes) -> Coded:
                              "warm" if bits[2] else "cold", "gappy" if bits[1] else "clean",
                              "ood_hi" if bits[0] else "ood_lo"))
         bucket, bucket_labels = _dense(code, lab)
-    return Coded(base, bucket, day.astype(np.int64), obs.astype(np.int64), score, w, base_labels, bucket_labels)
+    return Coded(base, bucket, day, obs, score, w, base_labels, bucket_labels, keep)
 
 
 # ---------------------------------------------------------------- dense causal accumulation
+
+_BAND_MAX_LAG = 16  # band evidence: observation lags beyond 15 days are counted at 15 (norm_err is telemetry, d+1)
+
+
+def _band_units(c: Coded, n_buckets: int) -> pl.DataFrame | None:
+    """(base, b, day, obs) → Σweight, row count for the band rows by one dense bincount (no row hashing)."""
+    if len(c.day) == 0:
+        return None
+    bb, bb_lab = _dense(c.base.astype(np.int64) * n_buckets + c.bucket, lambda x: x)
+    dmin = int(c.day.min())
+    di = (c.day - dmin).astype(np.int64)
+    nd, L = int(di.max()) + 1, _BAND_MAX_LAG
+    if len(bb_lab) * nd * L > 50_000_000:
+        return None  # too sparse for a dense grid: fall back to the polars group-by
+    key = (bb.astype(np.int64) * nd + di) * L + np.minimum(c.obs - c.day, L - 1)
+    n = np.bincount(key, minlength=len(bb_lab) * nd * L)
+    sw = np.bincount(key, weights=c.weight, minlength=len(n))
+    nz = np.flatnonzero(n)
+    lab = np.asarray(bb_lab, np.int64)[nz // (nd * L)]
+    day = (nz // L) % nd + dmin
+    return pl.DataFrame({"base": (lab // n_buckets).astype(np.int32), "b": (lab % n_buckets).astype(np.int32),
+                         "day": day.astype(np.int32), "obs": (day + nz % L).astype(np.int32), "sw": sw[nz],
+                         "n": n[nz].astype(np.uint32)})
+
 
 def _unit_events(agg: pl.DataFrame, value: bool) -> pl.DataFrame:
     """(sid, day, obs) sums sw, n [, sws] → delta events of one bucket-day unit: du [, dc = Δ(u·s̄)]."""
@@ -343,15 +375,16 @@ class Ledger:
     def _series(self, base: np.ndarray, par: np.ndarray, n_par: int, labels) -> tuple[np.ndarray, list]:
         return _dense(base * n_par + par, lambda x: labels(x // n_par, x % n_par))
 
-    def _level_sums(self, c: Coded, value: bool):
+    def _level_sums(self, c: Coded, value: bool, agg0: pl.DataFrame | None = None):
         """Per level: (sid, day, obs) sums of the bucket-day units → (events, series keys)."""
-        cols = {"base": c.base, "b": c.bucket, "day": c.day, "obs": c.obs, "w": c.weight}
-        if value:
-            cols["ws"] = c.weight * c.score
-        aggs = [pl.col("w").sum().alias("sw"), pl.len().alias("n")]
-        if value:
-            aggs.append(pl.col("ws").sum().alias("sws"))
-        agg0 = pl.DataFrame(cols).group_by(["base", "b", "day", "obs"]).agg(aggs)
+        if agg0 is None:
+            cols = {"base": c.base, "b": c.bucket, "day": c.day, "obs": c.obs, "w": c.weight}
+            if value:
+                cols["ws"] = c.weight * c.score
+            aggs = [pl.col("w").sum().alias("sw"), pl.len().alias("n")]
+            if value:
+                aggs.append(pl.col("ws").sum().alias("sws"))
+            agg0 = pl.DataFrame(cols).group_by(["base", "b", "day", "obs"]).agg(aggs)
         b0, base0 = agg0["b"].to_numpy(), agg0["base"].to_numpy()
         for par, uniq in self._par:
             sid, keys = self._series(base0, par[b0], len(uniq),
@@ -395,12 +428,12 @@ class Ledger:
         j = np.clip(c.obs - self.d0, 0, None)
         ok = j < D
         mass = c.weight[ok] * np.exp2((c.day[ok] - self.d0) / HALF_LIFE)
-        flat = (sid[ok] * D + j[ok]) * nb + b[ok]
+        flat = (sid[ok].astype(np.int64) * D + j[ok]) * nb + b[ok]
         cube = np.bincount(flat, weights=mass, minlength=S * D * nb).reshape(S, D, nb)
         np.cumsum(cube, axis=1, out=cube)
         out = []
         fpos = {k: i for i, k in enumerate(self.full)}
-        for (par, uniq), (ev, keys) in zip(self._par, self._level_sums(c, value=False)):
+        for (par, uniq), (ev, keys) in zip(self._par, self._level_sums(c, False, _band_units(c, len(self.full)))):
             # level series (model, version, key) and the full series that roll up into each
             lvl_keys = sorted({(m, v, uniq[par[fpos[k6]]]) for m, v, k6 in keys0})
             pos = {k: i for i, k in enumerate(lvl_keys)}
@@ -421,84 +454,88 @@ class Ledger:
         return out
 
     # ---- reading
-    def _resolve(self, model: str, version: str, score: str, bucket: str, di: np.ndarray):
-        """Backoff for one series over day indexes di → (trust, n_eff, prior, alert, read level, lo, hi)."""
-        n = len(di)
-        trust = np.full(n, np.nan)
-        n_eff, alert = np.zeros(n), np.zeros(n, np.int8)
-        prior = np.full(n, np.nan)
-        read = np.full(n, -1)
-        root_w = np.zeros(n)
-        chain = ancestors(bucket)
+    def _resolve(self, keys: list[tuple[str, str, str, str]], di: np.ndarray):
+        """Backoff for many (model, version, score, bucket) series over day indexes di, vectorised across series
+        → arrays (K, len(di)): trust, n_eff, prior, alert, read level index (−1 = prior), lo80, hi80."""
+        K, n = len(keys), len(di)
+        trust, n_eff, prior = np.full((K, n), np.nan), np.zeros((K, n)), np.full((K, n), np.nan)
+        alert, read, root_w = np.zeros((K, n), np.int8), np.full((K, n), -1), np.zeros((K, n))
         nl = len(self.levels)
-        for k in chain:
-            lv = nl - 1 - (0 if k == ROOT else len(k.split("|")))
-            L = self.levels[lv] if 0 <= lv < nl else None
-            sid = L.index.get((model, version, score, k)) if L is not None else None
-            if sid is None:
+        for lv, L in enumerate(self.levels):
+            depth = nl - 1 - lv  # conditions kept at this level
+            sid = np.array([L.index.get((m, v, s, truncate(b, depth)), -1) for m, v, s, b in keys], np.int64)
+            has = sid >= 0
+            if not has.any():
                 continue
-            w = L.n_eff[sid, di]
-            if k == ROOT:
-                root_w = w
-            take = (read < 0) & (w >= MIN_EVIDENCE)
-            trust[take], n_eff[take] = L.trust[sid, di][take], w[take]
-            prior[take], alert[take] = L.prior[sid, 0], L.alert[sid, di][take]
-            read[take] = lv
+            rows = np.flatnonzero(has)
+            w = L.n_eff[sid[rows]][:, di]
+            if depth == 0:
+                root_w[rows] = w
+            take = (read[rows] < 0) & (w >= MIN_EVIDENCE)
+            r_idx, d_idx = np.nonzero(take)
+            g = rows[r_idx]
+            trust[g, d_idx] = L.trust[sid[g], di[d_idx]]
+            n_eff[g, d_idx] = w[r_idx, d_idx]
+            prior[g, d_idx] = L.prior[sid[g], 0]
+            alert[g, d_idx] = L.alert[sid[g], di[d_idx]]
+            read[g, d_idx] = lv
         miss = read < 0
-        trust[miss] = prior[miss] = self.priors.get(model, version, score, bucket)
-        n_eff[miss] = root_w[miss]
-        return trust, n_eff, prior, alert, read, *beta_interval(trust, np.where(miss, 0.0, n_eff))
+        if miss.any():
+            p0 = np.array([self.priors.get(*k) for k in keys])[:, None]
+            trust = np.where(miss, p0, trust)
+            prior = np.where(miss, p0, prior)
+            n_eff = np.where(miss, root_w, n_eff)
+        lo, hi = beta_interval(trust, np.where(miss, 0.0, n_eff))
+        return trust, n_eff, prior, alert, read, lo, hi
 
-    def _band(self, model: str, version: str, bucket: str, di: np.ndarray) -> np.ndarray:
-        out = np.full(len(di), np.nan)
+    def _band(self, keys: list[tuple[str, str, str]], di: np.ndarray) -> np.ndarray:
+        """Band scale for many (model, version, bucket) over day indexes di, with the same backoff; 1 = none."""
+        out = np.full((len(keys), len(di)), np.nan)
         nl = len(self.bands)
-        for k in ancestors(bucket):
-            lv = nl - 1 - (0 if k == ROOT else len(k.split("|")))
-            B = self.bands[lv] if 0 <= lv < nl else None
-            r = B.index.get((model, version, k)) if B is not None else None
-            if r is None:
+        for lv, B in enumerate(self.bands):
+            depth = nl - 1 - lv
+            r = np.array([B.index.get((m, v, truncate(b, depth)), -1) for m, v, b in keys], np.int64)
+            rows = np.flatnonzero(r >= 0)
+            if len(rows) == 0:
                 continue
-            take = np.isnan(out) & (B.n_eff[r, di] >= MIN_EVIDENCE) & np.isfinite(B.scale[r, di])
-            out[take] = B.scale[r, di][take]
+            sc, w = B.scale[r[rows]][:, di], B.n_eff[r[rows]][:, di]
+            take = np.isnan(out[rows]) & (w >= MIN_EVIDENCE) & np.isfinite(sc)
+            out[rows] = np.where(take, sc, out[rows])
         return np.where(np.isnan(out), 1.0, out)
 
     def lookup(self, model: str, version: str, score: str, bucket: str, day) -> dict:
         """Trust of any (witness, version, score, bucket) on one day, including buckets with no record."""
         di = np.array([min(max(_daynum(day) - self.d0, 0), self.n_days - 1)])
-        t, n, p, a, lv, lo, hi = self._resolve(model, version, score, bucket, di)
-        return dict(model=model, model_version=version, score_name=score, bucket=bucket, prior=float(p[0]),
-                    trust=float(t[0]), n_eff=float(n[0]), lo80=float(lo[0]), hi80=float(hi[0]),
-                    band_scale=float(self._band(model, version, bucket, di)[0]), health_alert=int(a[0]),
-                    read_level=int(lv[0]))
+        t, n, p, a, lv, lo, hi = (x[0, 0] for x in self._resolve([(model, version, score, bucket)], di))
+        return dict(model=model, model_version=version, score_name=score, bucket=bucket, prior=float(p),
+                    trust=float(t), n_eff=float(n), lo80=float(lo), hi80=float(hi),
+                    band_scale=float(self._band([(model, version, bucket)], di)[0, 0]), health_alert=int(a),
+                    read_level=int(lv))
 
     def frame(self, extra: list[tuple[str, str, str, str]] = ()) -> pl.DataFrame:
         """Every graded (model, version, score, full bucket) series on every grid day, plus `extra` series
-        (e.g. a new version or a bucket with no record), with the bucket each value was read from."""
-        L = self.levels[0]
-        keys = list(L.keys) + list(extra)
-        di = np.arange(self.n_days)
+        (e.g. a new version or a bucket with no record). `read_conditions` = how many bucket conditions the value
+        was read with (6 = its own bucket, 0 = the model's root, −1 = the prior)."""
+        keys = list(self.levels[0].keys) + list(extra)
         num = ("prior", "n_eff", "trust", "lo80", "hi80", "band_scale", "health_alert", "read_level")
-        cols = {c: [] for c in num}
-        band_cache = {}
-        for m, v, s, b in keys:
-            t, n, p, a, lv, lo, hi = self._resolve(m, v, s, b, di)
-            if (m, v, b) not in band_cache:
-                band_cache[(m, v, b)] = self._band(m, v, b, di)
-            for c, x in zip(num, (p, n, t, lo, hi, band_cache[(m, v, b)], a, lv)):
-                cols[c].append(x)
         if not keys:
             return pl.DataFrame(schema={c: pl.Float64 for c in ("model", "model_version", "score_name",
                                                                 "bucket", "day", *num)})
-        lvl_name = {i: len(CONDITIONS) - i for i in range(len(self.levels))}
+        di = np.arange(self.n_days)
+        t, n, p, a, lv, lo, hi = self._resolve(keys, di)
+        bkeys = sorted({(m, v, b) for m, v, _s, b in keys})
+        bpos = {k: i for i, k in enumerate(bkeys)}
+        band = self._band(bkeys, di)[[bpos[(m, v, b)] for m, v, _s, b in keys]]
+        nl = len(self.levels)
+        read_cond = np.where(lv < 0, -1, nl - 1 - lv)
         kf = pl.DataFrame({c: [k[i] for k in keys] for i, c in enumerate(_STR)}).with_row_index("k")
         out = pl.DataFrame({"k": np.repeat(np.arange(len(keys), dtype=np.uint32), self.n_days),
-                            "day": np.tile(di + self.d0, len(keys)),
-                            **{c: np.concatenate(x) for c, x in cols.items()}})
-        out = out.join(kf, on="k", how="left").select(*_STR, "day", *num)
-        return out.with_columns(pl.col("day").cast(pl.Int32).cast(pl.Date),
-                                pl.col("read_level").replace_strict(lvl_name, default=-1)
-                                .alias("read_conditions"), pl.col("health_alert").cast(pl.Int8)) \
-            .drop("read_level")
+                            "day": np.tile(di + self.d0, len(keys)).astype(np.int32),
+                            **{c: x.ravel() for c, x in zip(num[:-1], (p, n, t, lo, hi, band, a))},
+                            "read_conditions": read_cond.ravel()})
+        return (out.join(kf, on="k", how="left")
+                .select(*_STR, pl.col("day").cast(pl.Date), *num[:-1], "read_conditions")
+                .with_columns(pl.col("health_alert").cast(pl.Int8)))
 
     def trust_rows(self, extra=()) -> pl.DataFrame:
         """The §8 `trust` table."""
@@ -526,12 +563,40 @@ class Ledger:
 
 # ---------------------------------------------------------------- helpers
 
-def beta_interval(trust: np.ndarray, n_eff: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """80 % interval of Beta(trust·(n0+n_eff), (1−trust)·(n0+n_eff))."""
-    t = np.clip(np.asarray(trust, float), 1e-6, 1 - 1e-6)
-    n = N0 + np.asarray(n_eff, float)
+def _beta_exact(t: np.ndarray, n: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    t = np.clip(t, 1e-6, 1 - 1e-6)
     a, b = t * n, (1 - t) * n
     return betaincinv(a, b, INTERVAL[0]), betaincinv(a, b, INTERVAL[1])
+
+
+_BETA_T = np.linspace(0.0, 1.0, 401)
+_BETA_N = np.arange(N0, N0 + 24.0, 0.5)  # n0 + n_eff, n_eff ≤ ≈ 20.7
+
+
+@functools.lru_cache(maxsize=1)
+def _beta_table() -> tuple[np.ndarray, np.ndarray]:
+    t, n = np.meshgrid(_BETA_T, _BETA_N, indexing="ij")
+    return _beta_exact(t, n)
+
+
+def beta_interval(trust: np.ndarray, n_eff: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """80 % interval of Beta(trust·(n0+n_eff), (1−trust)·(n0+n_eff)). Large arrays are interpolated
+    (bilinear) from a cached quantile table (error < 1e-3); small ones call betaincinv directly."""
+    t = np.asarray(trust, float)
+    n = N0 + np.asarray(n_eff, float)
+    if t.size < 5000 or (n > _BETA_N[-1]).any():
+        return _beta_exact(t, n)
+    lo_t, hi_t = _beta_table()
+    x = np.clip(t, 0.0, 1.0) * (len(_BETA_T) - 1)
+    y = (np.clip(n, _BETA_N[0], _BETA_N[-1]) - _BETA_N[0]) / 0.5
+    i0 = np.minimum(x.astype(np.int64), len(_BETA_T) - 2)
+    j0 = np.minimum(y.astype(np.int64), len(_BETA_N) - 2)
+    fx, fy = x - i0, y - j0
+
+    def interp(tab):
+        return ((1 - fx) * (1 - fy) * tab[i0, j0] + fx * (1 - fy) * tab[i0 + 1, j0]
+                + (1 - fx) * fy * tab[i0, j0 + 1] + fx * fy * tab[i0 + 1, j0 + 1])
+    return interp(lo_t), interp(hi_t)
 
 
 def _hist_quantile(cube: np.ndarray, q: float) -> np.ndarray:
