@@ -1,5 +1,5 @@
 {
- "total_bytes": 31549874,
+ "total_bytes": 31558172,
  "files": {
   "entsoe_ro.parquet": {
    "bytes": 7700015,
@@ -28,6 +28,11 @@
    "bytes": 1681,
    "sha256": "fdcb5972ea41bafe3549a2c6acb60752ea062dc3d7328e5a1b55673f3e761357",
    "rows": 108
+  },
+  "standard_profile.parquet": {
+   "bytes": 8298,
+   "sha256": "3445db1857e8f8628e6f3a57a64425e349563d318434925d7a8e1394127cdd52",
+   "rows": 768
   },
   "validation/pvdaq_power.parquet": {
    "bytes": 680692,
