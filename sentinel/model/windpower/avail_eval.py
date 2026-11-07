@@ -53,8 +53,7 @@ LABEL = "synthetic RO (ERA5-driven #22/#23 parks)"
 H = 96
 ORIGIN_LEAD = 14 * 4  # D-1 10:00 UTC = 14 h before D 00:00
 WIN = 8  # M6 steps read before the origin (2 h)
-FS, CUR, GAP, ICE, UND = (CLASS_INDEX[c] for c in ("fault_stop", "curtailment", "data_gap", "icing",
-                                                    "underperformance"))
+FS, CUR, GAP, UND = (CLASS_INDEX[c] for c in ("fault_stop", "curtailment", "data_gap", "underperformance"))
 POLICIES = ("windpower_only", "sentinel", "sentinel_bern", "sentinel_stops", "labels_origin", "oracle")
 TAUS = (0.1, 0.5, 0.9)
 

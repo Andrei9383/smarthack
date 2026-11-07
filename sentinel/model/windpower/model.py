@@ -30,7 +30,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from .binned import BinnedPower
-from .features import FEATS, build, gather, hub_wind, weather_per_turbine
+from .features import FEATS, _field, build, gather, hub_wind, weather_per_turbine
 from sentinel.eval.baselines.wind.curve import model_key
 from sentinel.model.wind.physics import air_density, density_normalise
 
@@ -121,7 +121,7 @@ class WindPowerModel:
         ts = np.asarray(ts).astype("datetime64[m]")
         T, N = len(ts), len(turbines)
         if not self.sessions:
-            rho = air_density(_w(weather, "pressure_hpa", T, N, 1013.25), _w(weather, "temp_c", T, N, 10.0))
+            rho = air_density(_field(weather, "pressure_hpa", (T, N), 1013.25), _field(weather, "temp_c", (T, N), 10.0))
             v = np.clip(np.nan_to_num(density_normalise(hub_wind(turbines, meteo, weather, T), rho)), 0, 35)
             q = self.binned.predict_frac(turbines, v)
             return q[None] if members else q
@@ -168,14 +168,6 @@ class WindPowerModel:
             r = np.asarray(ratios.get(park, pooled), np.float64)
             out[park] = park_aggregate(q_kw[:, c], None if availability is None else availability[:, c], r[sec[:, p]], mult)
         return out
-
-
-def _w(weather: Mapping, k: str, T: int, N: int, default: float) -> np.ndarray:
-    x = weather.get(k)
-    if x is None:
-        return np.full((T, N), default)
-    x = np.broadcast_to(np.asarray(x, np.float64).reshape(T, -1), (T, N))
-    return np.where(np.isfinite(x), x, default)
 
 
 def _session(path: Path):

@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -111,11 +112,7 @@ def fetch(farms=("Wind Farm A",), max_gb: float = 2.0, log=print) -> Path | None
             dest.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest.with_suffix(dest.suffix + ".part")
             with zf.open(i) as src, open(tmp, "wb") as dst:
-                while True:
-                    b = src.read(8 << 20)
-                    if not b:
-                        break
-                    dst.write(b)
+                shutil.copyfileobj(src, dst, 8 << 20)
             tmp.replace(dest)
     except Exception as e:
         log(f"[care] SKIPPED: download failed: {e!r}")

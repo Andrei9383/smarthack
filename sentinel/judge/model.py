@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -62,19 +62,23 @@ def tau_for_precision(p: np.ndarray, y: np.ndarray, target: float = PRECISION_US
     least `min_n` of them). 1.01 (never use on the model's say) when no threshold meets it."""
     p, y = np.asarray(p, float), np.asarray(y, float)
     ok = np.isfinite(p) & np.isfinite(y)
-    p, y = p[ok], y[ok]
-    if len(p) == 0:
+    if not ok.any():
         return 1.01
+    t = _lowest_cut(p[ok], y[ok], target, min_n)
+    return 1.01 if t is None else t
+
+
+def _lowest_cut(p: np.ndarray, v: np.ndarray, target: float, min_n: int) -> Optional[float]:
+    """Lowest p such that the top-k rows (p >= it, k >= min_n) have mean v >= target; None when no cut qualifies."""
     o = np.argsort(-p, kind="stable")
-    ps, ys = p[o], y[o]
-    cum = np.cumsum(ys) / np.arange(1, len(ys) + 1)  # precision of the top-k
+    ps, vs = p[o], v[o]
+    cum = np.cumsum(vs) / np.arange(1, len(vs) + 1)  # mean of the top-k
     # only cut between distinct p values (ties share a verdict)
     last_of_tie = np.r_[ps[1:] != ps[:-1], True]
     good = last_of_tie & (cum >= target) & (np.arange(1, len(ps) + 1) >= min_n)
     if not good.any():
-        return 1.01
-    k = np.max(np.nonzero(good)[0])  # the lowest p (largest k) that still meets the precision rule
-    return float(ps[k])
+        return None
+    return float(ps[np.max(np.nonzero(good)[0])])  # the lowest p (largest k) that still meets the rule
 
 
 def widened_hit(hit_m: dict[float, np.ndarray], band_scale: np.ndarray, factor: float) -> np.ndarray:
@@ -83,11 +87,10 @@ def widened_hit(hit_m: dict[float, np.ndarray], band_scale: np.ndarray, factor: 
     if not len(mults):
         return np.zeros(0)
     H = np.stack([np.asarray(hit_m[m], float) for m in mults], 1)  # [N, M]
-    m_eff = np.clip(np.nan_to_num(np.asarray(band_scale, float), nan=1.0) * factor, mults[0], mults[-1])
-    j = np.clip(np.searchsorted(mults, m_eff, side="right") - 1, 0, len(mults) - 2) if len(mults) > 1 else \
-        np.zeros(len(m_eff), int)
     if len(mults) == 1:
         return H[:, 0]
+    m_eff = np.clip(np.nan_to_num(np.asarray(band_scale, float), nan=1.0) * factor, mults[0], mults[-1])
+    j = np.clip(np.searchsorted(mults, m_eff, side="right") - 1, 0, len(mults) - 2)
     lo, hi = mults[j], mults[j + 1]
     w = np.clip((m_eff - lo) / (hi - lo), 0, 1)
     r = np.arange(len(m_eff))
@@ -117,15 +120,9 @@ def widen_choice(p: np.ndarray, hit_m: dict[float, np.ndarray], band_scale: np.n
         z = zone & np.isfinite(score)
         if z.sum() < min_n:
             continue
-        o = np.argsort(-p[z], kind="stable")
-        ps, hs = p[z][o], score[z][o]
-        cum = np.cumsum(hs) / np.arange(1, len(hs) + 1)
-        last_of_tie = np.r_[ps[1:] != ps[:-1], True]
-        good = last_of_tie & (cum >= target) & (np.arange(1, len(ps) + 1) >= min_n)
-        if good.any():
-            t = float(ps[np.max(np.nonzero(good)[0])])
-            if t < best[0] - 1e-9:
-                best = (t, float(f))
+        t = _lowest_cut(p[z], score[z], target, min_n)
+        if t is not None and t < best[0] - 1e-9:
+            best = (t, float(f))
     return best
 
 
