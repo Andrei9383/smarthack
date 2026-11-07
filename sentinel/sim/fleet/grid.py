@@ -55,7 +55,8 @@ def feeder_flows(sites: pd.DataFrame, feeders: pd.DataFrame, grid_w: np.ndarray,
     own = phase_w[fidx, pidx]
     rise = feeders.v_sens_v_per_kw.to_numpy()[fidx][:, None] * sites.true_feeder_position.to_numpy()[:, None] \
         * (own + 0.25 * (feeder_w[fidx] - own)) / 1000
-    volt = (v_mv[fidx] + rise + 0.4 * rng.standard_normal(rise.shape)).astype(np.float32)
+    # 15-min mean of RMS voltage: ~0.1 V (meter resolution), not the noise of a single sample
+    volt = (v_mv[fidx] + rise + 0.1 * rng.standard_normal(rise.shape)).astype(np.float32)
 
     ts = np.tile(w.ts.to_numpy(), nf)
     df = pd.DataFrame({
