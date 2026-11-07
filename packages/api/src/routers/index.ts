@@ -1,9 +1,14 @@
 import type { RouterClient } from "@orpc/server";
 
 import { protectedProcedure, publicProcedure } from "../index";
+import { feedersRouter } from "./feeders";
+import { manifestRouter } from "./manifest";
 import { productionRouter } from "./production";
 
 export const appRouter = {
+  feeders: feedersRouter,
+  manifest: manifestRouter,
+  production: productionRouter,
   healthCheck: publicProcedure.handler(() => {
     return "OK";
   }),
@@ -13,7 +18,6 @@ export const appRouter = {
       user: context.session?.user,
     };
   }),
-  production: productionRouter,
 };
 export type AppRouter = typeof appRouter;
 export type AppRouterClient = RouterClient<typeof appRouter>;

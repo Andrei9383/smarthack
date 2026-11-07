@@ -1,0 +1,68 @@
+{
+ "total_bytes": 31548366,
+ "files": {
+  "entsoe_ro.parquet": {
+   "bytes": 7700015,
+   "sha256": "b57d5709555890703da6f1fb3493ec70b3d2f0844ec6e6a38edff36aa8960ef6",
+   "rows": 1679934
+  },
+  "geo/ro_counties.geojson": {
+   "bytes": 512158,
+   "sha256": "2ced7740a79107b8595b3dab72711c6eac7e8c8263203f44f5225d9d2ce2d713"
+  },
+  "geo/ro_country.geojson": {
+   "bytes": 33909,
+   "sha256": "cb7e0dbaf02e03a9f085d1ce20e56be88b5fc9ec60b5f3f46258401266bf0a5d"
+  },
+  "osm_wind_turbines.parquet": {
+   "bytes": 27411,
+   "sha256": "0989b6448c4a8176d8b334ad925b3d2f6984eee0426f15c0783ea40f7148b768",
+   "rows": 1610
+  },
+  "prices.parquet": {
+   "bytes": 309723,
+   "sha256": "ad90672abcb4add9345805c03eb7d0a22d629e3e80f80367fef86c10804f8bb4",
+   "rows": 32931
+  },
+  "ro_installed_capacity.parquet": {
+   "bytes": 1681,
+   "sha256": "fdcb5972ea41bafe3549a2c6acb60752ea062dc3d7328e5a1b55673f3e761357",
+   "rows": 108
+  },
+  "validation/pvdaq_power.parquet": {
+   "bytes": 680739,
+   "sha256": "802632cfc243bb7ad5a839eff9bbe4202d248a0fa291bf76d938cca9aa45c96b",
+   "rows": 117280
+  },
+  "validation/pvdaq_systems.parquet": {
+   "bytes": 4884,
+   "sha256": "25c2506db0c3ac88a1df1b01e4444bce241816fea7ac7f4e928d602ca1d95f48",
+   "rows": 4
+  },
+  "validation/pvdaq_weather.parquet": {
+   "bytes": 486382,
+   "sha256": "b73bc494031c776ac87cd694dd51d38c0a0a1821726af0b22018c55c939db277",
+   "rows": 35040
+  },
+  "weather.parquet": {
+   "bytes": 16838939,
+   "sha256": "6a576405e4efac3d3f0e003b6a03420022cb423993f8ebd80ecd90b13ce6a795",
+   "rows": 1262304
+  },
+  "weather_grid_ro.parquet": {
+   "bytes": 4944616,
+   "sha256": "b236ba6d08f6400943d889ff096406a47451a5ef2375d8799f73f51abcdbeb5a",
+   "rows": 946080
+  },
+  "weather_points.parquet": {
+   "bytes": 3444,
+   "sha256": "3562995d1a7de1512922333892f2f8c083bd2f50d4ba8d81d2700c647a2af86b",
+   "rows": 36
+  },
+  "wind_parks.parquet": {
+   "bytes": 4465,
+   "sha256": "95f525d0113afb6ef0266fff72231e82a90958b13ca5e26b4ebab9add4b2070d",
+   "rows": 3
+  }
+ }
+}

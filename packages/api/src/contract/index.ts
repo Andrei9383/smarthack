@@ -32,6 +32,9 @@ export const appContract = {
 export const stubFeedersRouter = {
   list: publicProcedure.handler(() => []),
   getCurves: publicProcedure.handler(() => []),
+  getOverLimit: publicProcedure.handler(() => []),
+  getSocFan: publicProcedure.handler(() => []),
+  getAbsorption: publicProcedure.handler(() => []),
   getCommitments: publicProcedure.handler(() => []),
   listGisFlags: publicProcedure.handler(() => []),
 };
