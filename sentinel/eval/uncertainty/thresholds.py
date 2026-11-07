@@ -106,20 +106,6 @@ def pfault_std(member_fault_probs: Sequence[Mapping[str, float]]) -> float:
     return float(np.std(p)) if p else 0.0
 
 
-def site_review_reasons(th: Mapping[str, Any], *, pfault_std: float = 0.0, rel_width: float = 0.0,
-                        ood: float = 0.0) -> list[str]:
-    """Which 'not sure' signals fire for a site (codes match AssetStatus.reason): [] = confident."""
-    s = th["site"]
-    out = []
-    if pfault_std > s["pfault_std_max"]:
-        out.append("ensemble_disagreement")
-    if rel_width > s["rel_width_max"]:
-        out.append("wide_interval")
-    if ood > s["ood_max"]:
-        out.append("ood")
-    return out
-
-
 # --- tuning --------------------------------------------------------------------------------------------------
 def tune_upper_threshold(signal: Any, wrong: Optional[Any] = None, max_review_rate: float = 0.1,
                          default: Optional[float] = None, n_candidates: int = 200) -> float:

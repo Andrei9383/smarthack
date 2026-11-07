@@ -40,7 +40,15 @@ training, always reported with its label (plan R13, R14). All timestamps are UTC
   the switch lands on the right day; the repeated/skipped hour is dropped. Check: system 1199's June power
   centroid is at 17:07 UTC = its solar noon. System 10's sits ~45 min early (logger clock or shading), which a
   whole-hour shift cannot fix.
-- **OPCOM DST days** have 23 or 25 hourly intervals (92 or 100 at 15-min). Timestamps are built by stepping from
+- **OPCOM PZU time zone (#183).** The CSV numbers intervals from 00:00 CET/CEST (SDAC market time), not Romanian
+  time: delivery day D = 01:00 to 01:00 Romanian time. Checked on the DST days 27 Oct 2024, 30 Mar 2025 and 26 Oct
+  2025 against the Energy-Charts RO day-ahead price (UTC): prices are identical (corr 1.000, constant lei/EUR
+  ratio) only with CET; Romanian time puts every interval 1 h early. The hour count per day cannot tell the two
+  apart (CET and EET switch at the same UTC instant). `prices.parquet` was regenerated from the committed file by
+  shifting every `ts` by +1 h (rows and values unchanged); new sha256
+  `7da555253942b283a114b520218878c890e27de6a864e73593fa1c80e595bc32` (was `ad90672abcb4add9…4f8bb4`). So the first
+  Romanian hour of 2023 (31 Dec 2022 22:00 UTC) has no price; 2024 and 2025 are complete.
+- **OPCOM DST days** have 23 or 25 hourly intervals (92 or 100 at 15-min). Timestamps are built by stepping from CET
   local midnight in UTC, so they stay correct across the change.
 - **OPCOM PI.** The page lists trades *concluded on* a date: labels without a prefix are delivery that day, `T..` the next day, so delivery day D uses the pages of D-1 and D (one POST per trading date for the 15-min product; the hourly product only where the 15-min page is empty; raw HTML cached gzipped in `data/.cache/opcom_pi/`; a 403 stops the run). OPCOM answered 403 after ~37 requests at a 1.5 s pace and after ~200 at 6 s (it recovered after 10 min). So far 227 trading dates (30 Dec 2024 to 13 Aug 2025) were fetched; finishing the year means re-running with `--gap 15` or more. Labels are CET/CEST (SIDC market time), not Romanian time: on 30 Mar 2025 the missing hour is `02`, which only CET skips; so the RO year also reads the page of 30 Dec 2024. Each row is one RO participant's side of a trade. The volume column is labelled MWh but steps in 0.1 like SIDC MW quantities, so it is read as MW: energy per quarter = volume x 0.25 for both products (VWAP does not depend on this). Quarters with no 15-min trade use the hourly product's VWAP for that hour when its page was fetched, else stay null (pi = pzu). The DST repeated hour (CET 02-03) appears as a second block with the same label and maps to the second (winter-time) instance. Check against `residual_load` (2025, hourly, daily-demeaned): PI peaks at lag 0 (corr 0.80) and the old PZU timestamps at +1 h, so the PZU CSV is CET as well (fixed in #186). With PZU realigned: corr(PI, PZU) 0.83, PI - PZU median -7.6, MAE 125 lei/MWh, p5/p95 -303/+273.
 - **Not committed:** CARE-to-Compare wind SCADA (downloaded in the eval run, #43), London Smart Meter (optional),

@@ -103,12 +103,7 @@ def _num(rows: pd.DataFrame, name: str, default: float = np.nan) -> np.ndarray:
 
 
 def _flag(rows: pd.DataFrame, name: str) -> np.ndarray:
-    s = _col(rows, name, False)
-    return s.fillna(False).astype(bool).to_numpy()
-
-
-def _pct(x: float) -> str:
-    return f"{x:.2f}"
+    return _col(rows, name, False).fillna(False).astype(bool).to_numpy()
 
 
 def apply_rules(rows: pd.DataFrame, thresholds: Optional[Thresholds] = None) -> pd.DataFrame:
@@ -170,7 +165,7 @@ def apply_rules(rows: pd.DataFrame, thresholds: Optional[Thresholds] = None) -> 
         if isinstance(lr, str) and lr:
             r.append(lr)
         elif np.isfinite(trust[i]):
-            r.append(f"trust {_pct(trust[i])} over {n_eff[i]:.1f} graded days")
+            r.append(f"trust {trust[i]:.2f} over {n_eff[i]:.1f} graded days")
         reasons.append(list(dict.fromkeys(r))[:MAX_REASONS])
     idx = rows.index
 
@@ -189,15 +184,13 @@ def verdict_rows(judged: pd.DataFrame, run_id: str, out: Optional[pd.DataFrame] 
     output in one frame, or the two frames as `judged` and `out`)."""
     if out is not None:
         judged = pd.concat([judged.drop(columns=[c for c in out.columns if c in judged.columns]), out], axis=1)
-    res = []
-    for r in judged.to_dict("records"):
-        res.append({
-            "run_id": run_id, "day": r["day"], "t0": r.get("t0"), "asset_id": r["asset_id"], "model": r["witness"],
-            "model_version": r.get("model_version"), "bucket": r.get("bucket"), "verdict": r["verdict"],
-            "p_valid": _f(r["p_valid"]), "p_valid_sd": _f(r["p_valid_sd"]), "trust": _f(r["trust"]),
-            "n_eff": _f(r["n_eff"]), "band_scale": _f(r["band_scale"]), "substitute": r["substitute"],
-            "reasons_json": list(r["reasons"]), "rule": r["rule"], "judge_version": r["judge_version"]})
-    return res
+    return [{
+        "run_id": run_id, "day": r["day"], "t0": r.get("t0"), "asset_id": r["asset_id"], "model": r["witness"],
+        "model_version": r.get("model_version"), "bucket": r.get("bucket"), "verdict": r["verdict"],
+        "p_valid": _f(r["p_valid"]), "p_valid_sd": _f(r["p_valid_sd"]), "trust": _f(r["trust"]),
+        "n_eff": _f(r["n_eff"]), "band_scale": _f(r["band_scale"]), "substitute": r["substitute"],
+        "reasons_json": list(r["reasons"]), "rule": r["rule"], "judge_version": r["judge_version"]}
+        for r in judged.to_dict("records")]
 
 
 def _f(v: Any) -> Optional[float]:

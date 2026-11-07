@@ -151,7 +151,6 @@ class ModelBank:
             except Exception as e:  # missing weights -> that component falls back to the mock
                 self.errors[key] = f"{type(e).__name__}: {e}"
         self.versions = {k: _version(m, k) for k, m in self.members.items()}
-        S, T = src.n, src.n_steps
         self.q: dict[str, np.ndarray] = {}
         self.day_ood: dict[str, np.ndarray] = {}
         self.day_std: dict[str, np.ndarray] = {}

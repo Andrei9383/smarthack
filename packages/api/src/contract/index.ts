@@ -4,6 +4,7 @@ import { demandContract } from "./demand";
 import { feedersContract } from "./feeders";
 import { flexContract } from "./flex";
 import { imbalanceContract } from "./imbalance";
+import { liveContract } from "./live";
 import { manifestContract } from "./manifest";
 import { notifyContract } from "./notify";
 import { omContract } from "./om";
@@ -15,6 +16,7 @@ export * from "./demand";
 export * from "./feeders";
 export * from "./flex";
 export * from "./imbalance";
+export * from "./live";
 export * from "./manifest";
 export * from "./notify";
 export * from "./om";
@@ -32,6 +34,7 @@ export const appContract = {
   audit: auditContract,
   manifest: manifestContract,
   notify: notifyContract,
+  live: liveContract,
 };
 
 // Stub handlers returning empty arrays / placeholders so pages build and check passes

@@ -121,11 +121,8 @@ def aggregate(rows: pd.DataFrame) -> dict[str, dict[str, dict[str, dict[str, flo
         return out
     full = rows.bucket.astype(str)
     depth = int(full.str.count(r"\|").max()) + 1
-    parts = []
-    for lv in range(depth, -1, -1):
-        keys = full.map(lambda b, lv=lv: truncate(b, lv))
-        parts.append(rows.assign(key=keys.to_numpy()))
-    allr = pd.concat(parts, ignore_index=True)
+    allr = pd.concat([rows.assign(key=full.map(lambda b, lv=lv: truncate(b, lv)).to_numpy())
+                      for lv in range(depth, -1, -1)], ignore_index=True)
     g = allr.groupby(["model", "score_name", "key"]).score.agg(["mean", "size"]).reset_index()
     for r in g.itertuples(index=False):
         out.setdefault(r.model, {}).setdefault(r.score_name, {})[r.key] = {"prior": round(float(r.mean), 5),
@@ -237,7 +234,7 @@ def _quantiles(preds: list) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
     return q[0], q[1], q[2], ood
 
 
-def score_validation(args, run: str) -> tuple[dict, dict]:
+def score_validation(args) -> tuple[dict, dict]:
     """-> (scores per model id, model_version per model id)."""
     import eval as E
     clean_dir, faulty_dir = _fleet(args.quick)
@@ -346,8 +343,7 @@ def score_validation(args, run: str) -> tuple[dict, dict]:
         ood_hi = (np.nan_to_num(np.array(ood)) > thr) if thr is not None else np.zeros(len(cases), bool)
         add(name, "alarm_precision", ap, gappy_f, ood_hi)
         add(name, "miss_score", ms, gappy_f, ood_hi)
-        ok = [x for x in ps if x is not None]
-        versions[name] = ok[0].model_version if ok else ""
+        versions[name] = next((x.model_version for x in ps if x is not None), "")
         print(f"  {name}: {int(keep.sum())}/{len(ps)} predictions, {int(np.sum(alarm))} alarms, "
               f"{sum(t != 'healthy' for t in truth_lab)} faulty days in {time.time() - t:.0f}s")
     df = pd.DataFrame(rows, columns=["model", "score_name", "bucket", "score"])
@@ -379,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     run = os.environ.get("LAB_RUN_ID") or (f"eval#{Path(out_env).name}" if out_env else "local")
     args.out.mkdir(parents=True, exist_ok=True)
 
-    scored, versions = ({}, {}) if args.no_fleet else score_validation(args, run)
+    scored, versions = ({}, {}) if args.no_fleet else score_validation(args)
     emit("t_priors_score_s", time.time() - t0)
 
     # promoted models: calibration JSON copies with a `priors` key (+ the blocks alone in promoted_priors.json)
@@ -407,17 +403,15 @@ def main(argv: list[str] | None = None) -> int:
                                      "test (turbine|seen), held-out park WP2 test (turbine|unseen)")},
         indent=1) + "\n")
 
-    subs = {}
-    for m in ("pvlib", "lgbm_pv", "lgbm_load", "persistence_load", "threshold_cusum"):
-        if m in scored:
-            subs[m] = dict(model_version=versions.get(m, ""), source="validation", scores=scored[m])
+    subs = {m: dict(model_version=versions.get(m, ""), source="validation", scores=scored[m])
+            for m in ("pvlib", "lgbm_pv", "lgbm_load", "persistence_load", "threshold_cusum") if m in scored}
     subs["windmon_rules"] = dict(model_version="windmon-rules", source="report",
                                  note="r135 report baseline_windmon (test) and seen_parks_test.windmon", scores=mon)
     subs.update(ledger_only_priors(run))
     (args.out / "judge_priors.json").write_text(json.dumps(
         {"version": 1, "split": SPLIT, "source_run": run, "models": subs}, indent=1) + "\n")
 
-    allp = {**{m: s for m, s in scored.items()}, "windnbm": nbm, **{m: v["scores"] for m, v in subs.items()}}
+    allp = {**scored, "windnbm": nbm, **{m: v["scores"] for m, v in subs.items()}}
     for m, sc in allp.items():
         for s, keys in sc.items():
             if ROOT in keys:

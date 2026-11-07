@@ -25,6 +25,7 @@ import { clampStep, clockLabel, dayLabel, dayOfStep, HERO_DAY, STEPS_PER_DAY, ti
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
 import { TrustBoard } from "@/panels/judge/trust-board";
+import { useGrid } from "@/modes/feeders/grid-section";
 import { orpc } from "@/utils/orpc";
 
 import { MiniMap } from "./mini-map";
@@ -72,11 +73,11 @@ function SectionHeading({ children, aside }: { children: ReactNode; aside?: Reac
 const QUIET_LINK =
   "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium whitespace-nowrap text-brand-700 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-900 focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-brand-50";
 
-function Delta({ from, to, className }: { from?: number; to?: number; className?: string }) {
+function Delta({ from, to, up, className }: { from?: number; to?: number; up?: boolean; className?: string }) {
   if (from === undefined || to === undefined || from === 0) return null;
   const pct = Math.round(((to - from) / Math.abs(from)) * 100);
   if (pct === 0) return null;
-  const better = pct < 0;
+  const better = up ? pct > 0 : pct < 0;
   return (
     <span
       className={cn(
@@ -451,7 +452,8 @@ function TodayVsWithout() {
   const max = (pick: (f: FeederState) => number | undefined) =>
     data.feeders.every((f) => pick(f) === undefined) ? undefined : Math.max(...data.feeders.map((f) => pick(f) ?? 0));
 
-  const rows: { label: ReactNode; unit: string; sentinel?: number; baseline?: number; note: string }[] = [
+  const grid = useGrid().data?.hosting;
+  const rows: { label: ReactNode; unit: string; sentinel?: number; baseline?: number; note: string; up?: boolean }[] = [
     {
       label: (
         <>
@@ -481,6 +483,18 @@ function TodayVsWithout() {
       baseline: data.comfort.baseline,
       note: "this week",
     },
+    ...(grid
+      ? [
+          {
+            label: "Prosumers the cables can still take",
+            unit: "homes",
+            sentinel: grid.totalWith,
+            baseline: grid.totalWithout,
+            note: `all feeders, ${grid.label}`,
+            up: true,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -561,7 +575,7 @@ function TodayVsWithout() {
                 </span>
               </p>
             </div>
-            <Delta from={row.baseline} to={row.sentinel} />
+            <Delta from={row.baseline} to={row.sentinel} up={row.up} />
           </li>
         ))}
       </ul>

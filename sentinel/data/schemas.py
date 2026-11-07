@@ -76,8 +76,6 @@ def _sun_up(ts: pd.DatetimeIndex, lat: float, lon: float) -> np.ndarray:
 
 def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     """[start, end) of each run of True."""
-    if not mask.any():
-        return []
     d = np.diff(np.r_[0, mask.astype(np.int8), 0])
     return list(zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)))
 

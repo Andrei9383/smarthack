@@ -39,7 +39,6 @@ PV_CLASSES = ["healthy", "soiling", "shading", "string_outage", "clipping", "ove
 WIND_CLASSES = ["normal", "fault_stop", "curtailment", "icing", "underperformance", "overheating",
                 "anemometer_fault", "data_gap"]
 CLASS_CODE = {**{c: i for i, c in enumerate(PV_CLASSES)}, **{f"wind:{c}": 20 + i for i, c in enumerate(WIND_CLASSES)}}
-SAFETY_CLASSES = ("icing", "overheating")  # §7.5 rule 2 (J4 applies it; listed here for the reasons text)
 
 # ------------------------------------------------------------------------------------------- raw columns
 ID_COLUMNS = ["model", "model_version", "asset_id", "day", "kind", "family", "bucket"]
@@ -388,9 +387,8 @@ def reason_text(feature: str, row: Mapping[str, Any]) -> Optional[str]:
                 f"bands recently {'too narrow' if b > 1 else 'too wide'} (scale {b:.1f}x)")
         b = v("band_rel")
         return None if b is None else f"band width {b * 100:.0f} % of the forecast"
-    if feature in ("member_std_rel",):
-        m = v("member_std")
-        return None if m is None else "ensemble members disagree" if (v("member_std") or 0) > 0 else None
+    if feature == "member_std_rel":
+        return "ensemble members disagree" if (v("member_std") or 0) > 0 else None
     if feature in ("in_gap_frac",):
         x = v("in_gap_frac")
         return None if x is None or x < 0.05 else f"input has gaps ({_pct(x)} missing)"
@@ -429,8 +427,6 @@ def reason_text(feature: str, row: Mapping[str, Any]) -> Optional[str]:
         return None if s is None else ["clear sky day", "mixed sky day", "overcast day"][int(s)]
     if feature in ("battery", "seen"):
         return f"context: {_bucket_words(row)}"
-    if feature in ("energy_rel",):
-        return None
     return None
 
 
@@ -440,17 +436,15 @@ def reasons_for(contrib: np.ndarray, names: Sequence[str], rows: pd.DataFrame, p
     strongest positive contributions are named, otherwise the strongest negative ones."""
     c = np.asarray(contrib)[:, :len(names)]
     out = []
-    recs = rows.to_dict("records")
-    for i, rec in enumerate(recs):
+    for i, rec in enumerate(rows.to_dict("records")):
         sign = 1.0 if p_valid[i] >= 0.5 else -1.0
         order = np.argsort(-sign * c[i])
-        said, seen_txt = [], set()
+        said = []
         for j in order:
             if sign * c[i, j] <= 0 or len(said) >= k:
                 break
             txt = reason_text(names[j], rec)
-            if txt and txt not in seen_txt:
+            if txt and txt not in said:
                 said.append(txt)
-                seen_txt.add(txt)
         out.append(said)
     return out

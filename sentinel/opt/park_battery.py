@@ -565,7 +565,7 @@ def main(argv=None) -> dict:
     with stage("battery_nowcast"):
         betas = [fit_nowcast(s.actual - s.p50, s.ok, s.block, ~s.test) for s in series]
         skill = {s.park_id: forecast_skill(s, beta, s.test) for s, beta in zip(series, betas)}
-    print(f"[w5] nowcast beta (last step / last hour, at leads 1, 4, 24, 96 steps) per park: "
+    print("[w5] nowcast beta (last step / last hour, at leads 1, 4, 24, 96 steps) per park: "
           + "; ".join(f"{s.park_id} " + " ".join(f"{bt[i, 0]:.2f}/{bt[i, 1]:.2f}" for i in (0, 3, 23, 95))
                     for s, bt in zip(series, betas)),
           flush=True)
@@ -586,11 +586,10 @@ def main(argv=None) -> dict:
     for name, k, pid, sim in res:
         by.setdefault((name, k if name.startswith("lp") else None), {})[pid] = sim
     pids = [s.park_id for s in series]
-    sims_of = lambda key: [by[key][p] for p in pids]  # noqa: E731
 
     # ---- costs, k chosen per family on validation (net cost, all parks)
     def evaluate(key):
-        sims = sims_of(key)
+        sims = [by[key][p] for p in pids]
         costs = [step_costs(s, sim, bat, a, b) for s, sim in zip(series, sims)]
         return sims, costs
 
@@ -615,11 +614,8 @@ def main(argv=None) -> dict:
 
     t = table["test"]
     for v in variants:
-        emit(f"battery_cover_share_{v}", t[v]["cover_share"])
-        emit(f"battery_cost_cut_lei_{v}", t[v]["cost_cut_lei"])
-        emit(f"battery_cost_cut_pct_{v}", t[v]["cost_cut_pct"])
-        emit(f"battery_avoidable_cut_pct_{v}", t[v]["avoidable_cut_pct"])
-        emit(f"battery_cycles_per_day_{v}", t[v]["cycles_per_day"])
+        for key in ("cover_share", "cost_cut_lei", "cost_cut_pct", "avoidable_cut_pct", "cycles_per_day"):
+            emit(f"battery_{key}_{v}", t[v][key])
         emit(f"battery_net_cost_lei_{v}", t[v]["net"])
         emit(f"holdout_battery_cost_cut_pct_{v}", table["holdout"][v]["cost_cut_pct"])
     for f in fams:
@@ -662,7 +658,7 @@ def main(argv=None) -> dict:
               f"{r['energy'] / 1e3:,.0f}k, wear {r['wear'] / 1e3:,.0f}k) cut {r['cost_cut_lei'] / 1e3:,.0f}k lei "
               f"{r['cost_cut_pct']:.1f}% | cover {r['cover_share']:.3f} | {r['cycles_per_day']:.2f} cycles/d"
               + (f" | k={chosen[v]}" if v in chosen else ""), flush=True)
-    print(f"[w5] forecast MAE MWh/step (rest of day, test): " + ", ".join(
+    print("[w5] forecast MAE MWh/step (rest of day, test): " + ", ".join(
         f"{f} {sk[f + '_all']:.3f} (<=1h {sk[f + '_le1h']:.3f})" for f in ("da", "nowcast", "persistence")), flush=True)
     return {"results": table, "config": cfg, "skill": skill}
 

@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 import numpy as np
@@ -118,7 +117,6 @@ WIND_P_MODEL, WIND_P_SUBSTITUTE = "windnbm", "windmon_rules"  # M6 and its §3 s
 WIND_POWER_MODEL, WIND_POWER_SUBSTITUTE = "windpower", "binned_curve"  # M5 and its substitute
 LOCAL_TZ = "Europe/Bucharest"
 PRICES_PATH = Path(__file__).resolve().parents[2] / "data" / "raw" / "prices.parquet"
-_NO_JUDGE_REASON = "no Judge verdict: model used at its validated strength"
 
 
 @dataclass
@@ -142,30 +140,12 @@ def lei_per_day(lost_mwh: float, pzu_mean_lei_mwh: float) -> float:
     return float(max(0.0, lost_mwh) * pzu_mean_lei_mwh)
 
 
-# The one door to the Judge: the C1 adapter (card #157). Once #157 is on main the import succeeds by itself; to drop
-# the stand-in, make the body of `_adapter_validated` just `from sentinel.judge.adapter import validated`.
+# The one door to the Judge: the C1 adapter (card #157). A function so tests can monkeypatch it.
 @lru_cache(maxsize=1)
 def _adapter_validated() -> Callable[..., Any]:
-    try:
-        from sentinel.judge.adapter import validated  # card #157
-    except ImportError:
-        return _no_judge_validated
+    from sentinel.judge.adapter import validated  # card #157
+
     return validated
-
-
-def _no_judge_validated(asset_id: Any, model: str, day: str, *, raw: Any, substitutes: Any = None,
-                        judge: Any = None) -> SimpleNamespace:
-    """Stand-in for the adapter's no-Judge mode until #157 merges: raw passes as "use" / "no_judge" (§10.1)."""
-    base = dict(asset_id=str(asset_id), model=model, day=day, verdict="use", p_valid=None, trust=None, n_eff=0.0,
-                band_scale=1.0, substitute=None, rule="no_judge", judge_version=None, raw=raw)
-    if raw is None:
-        return SimpleNamespace(**base, source_model=None, known=False, q10=None, q50=None, q90=None, cls=None,
-                               score=None, fault_probs=None, reasons=())
-    arr = (lambda k: None if getattr(raw, k, None) is None else np.asarray(getattr(raw, k), dtype=float))
-    score = getattr(raw, "anomaly_score", None)
-    return SimpleNamespace(**base, source_model=model, known=True, q10=arr("q10"), q50=arr("q50"), q90=arr("q90"),
-                           cls=getattr(raw, "anomaly_class", None), score=None if score is None else float(score),
-                           fault_probs=getattr(raw, "fault_probs", None), reasons=(_NO_JUDGE_REASON,))
 
 
 def judge_validated(asset_id: Any, model: str, day: str, *, raw: Any,
@@ -283,11 +263,9 @@ def _pzu_mean_direct(lo: datetime, hi: datetime, path: str) -> Optional[float]:
 
 
 def _pzu_mean_module(lo: datetime, hi: datetime) -> Optional[float]:
-    """Mean PZU over [lo, hi) from sentinel.data.prices (card #158); None while that module is not on main."""
-    try:
-        from sentinel.data.prices import load_prices  # card #158
-    except ImportError:
-        return None
+    """Mean PZU over [lo, hi) from sentinel.data.prices (card #158); the caller falls back on any error."""
+    from sentinel.data.prices import load_prices  # card #158
+
     df = load_prices(lo, hi)
     if df.height < 48:  # less than half the window priced
         return None
@@ -298,7 +276,7 @@ def _pzu_mean_module(lo: datetime, hi: datetime) -> Optional[float]:
 def pzu_next24_mean(t: str, default: float = 450.0, path: str = str(PRICES_PATH)) -> tuple[float, str]:
     """Mean OPCOM PZU (lei/MWh) over the 24 h from tick t, and its source: 'opcom_pzu' (real RO) or 'config'.
 
-    Reads sentinel/data/prices.py (#158) when it is on main, else data/raw/prices.parquet directly. Dates the file
+    Reads sentinel/data/prices.py (#158), else data/raw/prices.parquet directly. Dates the file
     does not cover (synthetic years, the future) fall back to `default` (TriageConfig.price_lei_mwh).
     """
     lo = parse_utc(t)

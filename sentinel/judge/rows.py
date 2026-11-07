@@ -18,9 +18,8 @@ What one week does (`run_week`, one process each):
    Cold start (§7.6) in a quarter of the weeks: the ledger is wiped at a random day (outcomes of earlier
    predictions are dropped, as for a new model version).
 
-Grader and ledger: `sentinel.judge.grader` (J1, #146) and `sentinel.judge.ledger` (J2, #147) are used when present;
-until they land, `_Grader` / `MiniLedger` below implement the same §5.3 / §6.3 formulas behind the same calls.
-Targets come from simulator truth (perfect crew coverage) by default; the live ledger never sees truth (§5.1).
+The ledger is J2's `sentinel.judge.ledger` (#147); `MiniLedger` below is the earlier stand-in with the same §6.3
+formulas (kept for its tests). Targets come from simulator truth (perfect crew coverage) by default; the live ledger never sees truth (§5.1).
 """
 
 from __future__ import annotations
@@ -28,11 +27,10 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
-import math
 import os
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -41,6 +39,7 @@ import numpy as np
 import pandas as pd
 
 from sentinel.judge import features as F
+from sentinel.judge.buckets import bucket_key as _bucket_key
 
 H = 96
 STEP_S = 900
@@ -143,6 +142,12 @@ def _scope_mask(sites: list[dict], scope: str) -> np.ndarray:
     return np.ones(len(sites), bool)
 
 
+def _frozen(a: np.ndarray, days_on: np.ndarray, assets: np.ndarray, shape: tuple) -> np.ndarray:
+    """The drifted assets' output of the day before the drift starts, repeated over the drifted days."""
+    src = max(int(np.argmax(days_on)) - 1, 0)
+    return np.broadcast_to(a[assets][:, src:src + 1], shape).copy()
+
+
 def drift_forecast(q: np.ndarray, spec: DriftSpec, days_on: np.ndarray, assets: np.ndarray) -> np.ndarray:
     """q [S, D, 96, 3] (local days) -> degraded copy: for assets x days_on apply spec.form."""
     q = q.copy()
@@ -156,9 +161,7 @@ def drift_forecast(q: np.ndarray, spec: DriftSpec, days_on: np.ndarray, assets: 
         mid = x[..., 1:2]
         x = mid + 0.5 * (x - mid)
     elif spec.form == "frozen":
-        first = int(np.argmax(days_on))
-        src = max(first - 1, 0)
-        x = np.broadcast_to(q[assets][:, src:src + 1], x.shape).copy()
+        x = _frozen(q, days_on, assets, x.shape)
     q[sel] = x
     return q
 
@@ -191,9 +194,7 @@ def drift_detector(p: np.ndarray, spec: DriftSpec, days_on: np.ndarray, assets: 
         x[..., 1:] -= moved
         x[..., 0] += moved.sum(-1)
     elif spec.form == "frozen":
-        first = int(np.argmax(days_on))
-        src = max(first - 1, 0)
-        x = np.broadcast_to(p[assets][:, src:src + 1], x.shape).copy()
+        x = _frozen(p, days_on, assets, x.shape)
     x = np.clip(x, 0, None)
     x /= np.maximum(x.sum(-1, keepdims=True), 1e-9)
     p[sel] = x
@@ -285,27 +286,9 @@ def grade_detector(alarm: np.ndarray, called: np.ndarray, truth: np.ndarray, hea
 
 
 # ============================================================================================ buckets + ledger
-def season_of(month: int) -> str:
-    return "warm" if 4 <= int(month) <= 9 else "cold"
-
-
-def _bucket_impl():
-    try:
-        from sentinel.judge.buckets import bucket_key as bk  # J2 (#147) when merged
-        return bk
-    except ImportError:
-        return None
-
-
-_BK = _bucket_impl()
-
-
 def bucket_key(kind: str, seen: bool, battery: bool, month: int, gappy: bool, ood_high: bool) -> str:
-    """kind|seen|battery|season|quality|ood (§6.1), the same key format as J2's sentinel.judge.buckets."""
-    if _BK is not None:
-        return _BK(kind, bool(seen), bool(battery), int(month), bool(gappy), bool(ood_high))
-    return "|".join((kind, "seen" if seen else "unseen", "batt" if battery else "nobatt", season_of(month),
-                     "gappy" if gappy else "clean", "ood_hi" if ood_high else "ood_lo"))
+    """kind|seen|battery|season|quality|ood (§6.1), J2's sentinel.judge.buckets key."""
+    return _bucket_key(kind, bool(seen), bool(battery), int(month), bool(gappy), bool(ood_high))
 
 
 def ancestors(key: str) -> list[str]:
@@ -314,7 +297,7 @@ def ancestors(key: str) -> list[str]:
 
 
 class MiniLedger:
-    """Stand-in for J2's ledger (§6.3-§6.5), used until sentinel.judge.ledger lands. Outcome rows: model, day (int
+    """Stand-in for J2's ledger (§6.3-§6.5). Outcome rows: model, day (int
     day index), observed (int day index), bucket, score_name, score, weight; norm-error vigintiles for band scale."""
 
     def __init__(self, priors: Optional[dict] = None):
@@ -435,32 +418,6 @@ def lo80(trust, n_eff):
     return beta.ppf(0.1, np.maximum(t * n, 1e-3), np.maximum((1 - t) * n, 1e-3))
 
 
-def load_priors(models_dir: Path) -> dict:
-    """{model: {score: {bucket: {prior, n}}}} from J2's `priors` blocks (calibration JSONs, judge_priors.json,
-    windnbm.priors.json); {} when absent (then DEFAULT_PRIOR)."""
-    out: dict = {}
-    d = Path(models_dir)
-    for p in sorted(d.glob("*.calibration.json")):
-        try:
-            cal = json.loads(p.read_text())
-        except Exception:
-            continue
-        pr = cal.get("priors")
-        if isinstance(pr, dict) and "scores" in pr:
-            out.setdefault(str(cal.get("model") or p.name.split(".")[0]), pr["scores"])
-    for name in ("judge_priors.json", "windnbm.priors.json"):
-        p = d / name
-        if p.exists():
-            j = json.loads(p.read_text())
-            if "models" in j:
-                for m, blk in j["models"].items():
-                    out.setdefault(m, blk.get("scores", {}))
-            elif "priors" in j:
-                out.setdefault(j.get("model", "windnbm"), j["priors"].get("scores", {}))
-    return out
-
-
-
 # ============================================================================================ wind (M6)
 def drift_wind_steps(cls: np.ndarray, spec: DriftSpec, days_on: np.ndarray, assets: np.ndarray,
                      rng: np.random.Generator) -> np.ndarray:
@@ -485,8 +442,7 @@ def drift_wind_steps(cls: np.ndarray, spec: DriftSpec, days_on: np.ndarray, asse
         block = hit[..., None] & (steps >= start[..., None]) & (steps < start[..., None] + 8)
         x = np.where(block & (x == 0), ci["underperformance"], x)
     elif spec.form == "frozen":
-        first = int(np.argmax(days_on))
-        x = np.broadcast_to(cls[assets][:, max(first - 1, 0):max(first - 1, 0) + 1], x.shape).copy()
+        x = _frozen(cls, days_on, assets, x.shape)
     cls[sel] = x
     return cls
 
@@ -531,8 +487,6 @@ def wind_week(day0: int, D: int, models_dir: Path) -> Optional[dict]:
         return None
     idx = i0 + np.arange(D)[:, None] * H + np.arange(H)[None]  # [D, 96]
     N = len(wd.turbines)
-    K = len(F.WIND_CLASSES)
-    out = {k: None for k in ("cls", "probs", "pq", "pstd", "ood", "power")}
     cls = np.zeros((N, D, H), np.int64)
     pnorm = np.zeros((N, D, H))
     pq = np.zeros((N, D, H, 3))
@@ -550,7 +504,6 @@ def wind_week(day0: int, D: int, models_dir: Path) -> Optional[dict]:
             power[j] = np.concatenate([sc["power"][idx[0] - H, jj][None], sc["power"][idx, jj]])
             rated[j] = sc["rated"][jj]
     labels = wd.labels[idx].transpose(2, 0, 1).astype(np.int64) if wd.labels is not None else None
-    hist = wd.sensors.get("act_pwt", None)
     return {"turbines": wd.turbines, "cls": cls, "p_normal": pnorm, "pq": pq, "pstd": pstd, "ood": ood,
             "power": power, "rated": rated, "labels": labels, "version": bank.model_version,
             "ood_thr": 3.0, "classes": F.WIND_CLASSES}
@@ -559,9 +512,7 @@ def wind_week(day0: int, D: int, models_dir: Path) -> Optional[dict]:
 def wind_day_calls(w: dict, d: int) -> dict:
     """The daily M6 envelope's scalars (as sentinel.agent.predictors.WindAdapter builds them) for day d."""
     cls = w["cls"][:, d]
-    N = len(cls)
-    K = len(F.WIND_CLASSES)
-    counts = np.stack([(cls == c).sum(-1) for c in range(K)], -1)
+    counts = np.stack([(cls == c).sum(-1) for c in range(len(F.WIND_CLASSES))], -1)
     abn = counts[:, 1:].sum(-1)
     top_i = 1 + np.argmax(counts[:, 1:], -1)
     alarm = abn > 0
@@ -673,10 +624,11 @@ def run_week(spec: WeekSpec, cfg: RowConfig, band: tuple[float, float], threads:
     load_prev = np.asarray(src.array("load"), np.float32)[:, steps - H]
     valid_prev = (np.asarray(src.array("valid"))[:, steps - H] > 0) if src.has("valid") else np.ones_like(pv, bool)
     # the asset's own reference daily energy: median of the 14 days before local day 0 (unit-jump check)
-    hist = np.asarray(src.array("pv_ac"), np.float32)[:, s0 - 14 * H:s0].reshape(S, 14, H)
-    pv_ref_e = np.nanmedian(np.nansum(hist, -1) * 0.25, -1)
-    hist_l = np.asarray(src.array("load"), np.float32)[:, s0 - 14 * H:s0].reshape(S, 14, H)
-    load_ref_e = np.nanmedian(np.nansum(hist_l, -1) * 0.25, -1)
+    def ref_e(key: str) -> np.ndarray:
+        hist = np.asarray(src.array(key), np.float32)[:, s0 - 14 * H:s0].reshape(S, 14, H)
+        return np.nanmedian(np.nansum(hist, -1) * 0.25, -1)
+
+    pv_ref_e, load_ref_e = ref_e("pv_ac"), ref_e("load")
 
     # ---- witness predictions on local days -------------------------------------------------------------
     def wq(key: str) -> Optional[np.ndarray]:
@@ -689,12 +641,10 @@ def run_week(spec: WeekSpec, cfg: RowConfig, band: tuple[float, float], threads:
         return arr[key][:, mid].astype(np.float64)
 
     preds: dict[str, dict[str, Any]] = {}
-    if "pvnet" in cfg.witnesses and wq("pv_fc") is not None:
-        preds["pvnet"] = {"q": wq("pv_fc"), "ood": wday(bank.day_ood, "pv_fc"), "std": wday(bank.day_std, "pv_fc"),
-                          "version": bank.versions.get("pv_fc", ""), "kind": "pv"}
-    if "loadnet" in cfg.witnesses and wq("load") is not None:
-        preds["loadnet"] = {"q": wq("load"), "ood": wday(bank.day_ood, "load"), "std": wday(bank.day_std, "load"),
-                            "version": bank.versions.get("load", ""), "kind": "load"}
+    for m, key, kind in (("pvnet", "pv_fc", "pv"), ("loadnet", "load", "load")):
+        if m in cfg.witnesses and key in bank.q:
+            preds[m] = {"q": wq(key), "ood": wday(bank.day_ood, key), "std": wday(bank.day_std, key),
+                        "version": bank.versions.get(key, ""), "kind": kind}
     pv_now = wq("pv_now")
     if "sitehealth" in cfg.witnesses and "sitehealth" in bank.members and pv_now is not None:
         probs = np.zeros((S, D, len(F.PV_CLASSES)))
@@ -885,9 +835,9 @@ def _ledger_cols(m: str, fam: str, d: int, keys: list, table: dict, version, ala
     scores = FORECAST_SCORES if fam == "forecast" else DETECTOR_SCORES
     nan = np.full(S, np.nan)
 
-    def get(model, ver, sc, field, day=d):
-        return np.array([table.get((model, ver, sc, k), {}).get(field, nan)[day] if (model, ver, sc, k) in table
-                         else np.nan for k in keys], float)
+    def get(model, ver, sc, col, day=d):
+        return np.array([table[(model, ver, sc, k)][col][day] if (model, ver, sc, k) in table else np.nan
+                         for k in keys], float)
 
     t = {sc: get(m, v, sc, "trust") for sc in scores}
     pr = {sc: get(m, v, sc, "prior") for sc in scores}
@@ -1048,54 +998,27 @@ def vigintiles_from(g: dict, k: int) -> np.ndarray:
 
 
 def ledger_table(outcomes: pd.DataFrame, lookups: Sequence[tuple], day_dates: list, models_dir: Path) -> dict:
-    """{(model, version, score, bucket): {trust, prior, n_eff, health_alert, band_scale: arrays over day index}}.
-    J2's sentinel.judge.ledger when present (the live ledger, so training sees the same numbers as the loop),
-    otherwise the MiniLedger stand-in with the same §6.3 rules."""
+    """{(model, version, score, bucket): {trust, prior, n_eff, health_alert, band_scale: arrays over day index}} from
+    J2's sentinel.judge.ledger (the live ledger, so training sees the same numbers as the loop)."""
+    import polars as pl
+
+    from sentinel.judge.ledger import Ledger, Priors
+
     D = len(day_dates)
-    try:
-        from sentinel.judge.ledger import Ledger, Priors
-    except ImportError:
-        Ledger = None
     out: dict = {}
-    if Ledger is not None:
-        import polars as pl
-        L = Ledger(pl.from_pandas(outcomes), Priors.from_dir(models_dir), start=day_dates[0], end=day_dates[-1])
-        fr = L.frame(extra=list(lookups)).to_pandas()
-        fr["di"] = (pd.to_datetime(fr["day"]) - pd.Timestamp(day_dates[0])).dt.days
-        want = set(lookups)
-        for key, g in fr.groupby(["model", "model_version", "score_name", "bucket"], sort=False):
-            if key not in want:
-                continue
-            rec = {}
-            for f in ("trust", "prior", "n_eff", "health_alert", "band_scale"):
-                a = np.full(D, np.nan)
-                a[g["di"].to_numpy()] = g[f].to_numpy(float)
-                rec[f] = a
-            out[key] = rec
-        return out
-    L = MiniLedger(load_priors(models_dir))
-    oc = outcomes[outcomes["gated"] == 0]
-    d0 = pd.Timestamp(day_dates[0])
-    di = (pd.to_datetime(oc["day"]) - d0).dt.days.to_numpy()
-    ob = (pd.to_datetime(oc["observed_at"]) - d0).dt.days.to_numpy()
-    oc = oc.assign(di=di, ob=ob)
-    for (m, v, sc, d, o), g in oc.groupby(["model", "model_version", "score_name", "di", "ob"], sort=False):
-        if sc != "norm_err":
-            L.add(f"{m}::{v}", sc, g["bucket"].tolist(), int(d), int(o), g["score"].to_numpy(float),
-                  g["weight"].to_numpy(float))
-    ne = oc[oc["score_name"] == "norm_err"]
-    for (m, v, a, d, o), g in ne.groupby(["model", "model_version", "asset_id", "di", "ob"], sort=False):
-        L.err.append((f"{m}::{v}", g["bucket"].iloc[0], int(d), int(o), g["score"].to_numpy(float)))
-    L._err_arr = None
-    for (m, v, sc, k) in lookups:
-        mid = f"{m}::{v}"
-        rec = {f: np.full(D, np.nan) for f in ("trust", "prior", "n_eff", "health_alert", "band_scale")}
-        for d in range(D):
-            t = L.trust(mid, sc, k, d)
-            rec["trust"][d], rec["prior"][d], rec["n_eff"][d] = t["trust"], t["prior"], t["n_eff"]
-            rec["health_alert"][d] = float(L.alert_step(mid + sc, k, t["trust"] - t["prior"], t["n_eff"]))
-            rec["band_scale"][d] = L.band_scale(mid, k, d)
-        out[(m, v, sc, k)] = rec
+    L = Ledger(pl.from_pandas(outcomes), Priors.from_dir(models_dir), start=day_dates[0], end=day_dates[-1])
+    fr = L.frame(extra=list(lookups)).to_pandas()
+    fr["di"] = (pd.to_datetime(fr["day"]) - pd.Timestamp(day_dates[0])).dt.days
+    want = set(lookups)
+    for key, g in fr.groupby(["model", "model_version", "score_name", "bucket"], sort=False):
+        if key not in want:
+            continue
+        rec = {}
+        for f in ("trust", "prior", "n_eff", "health_alert", "band_scale"):
+            a = np.full(D, np.nan)
+            a[g["di"].to_numpy()] = g[f].to_numpy(float)
+            rec[f] = a
+        out[key] = rec
     return out
 
 

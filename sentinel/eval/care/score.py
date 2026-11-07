@@ -135,7 +135,7 @@ def dataset_to_grid(csv: Path, cmap: dict[str, str]):
     day0 = df["ts"].iloc[0].floor("D")
     day1 = df["ts"].iloc[-1].floor("D") + pd.Timedelta(days=1)
     grid = pd.date_range(day0, day1, freq="15min", inclusive="left")
-    num = df.set_index("ts")[[c for c in cmap.values()]].apply(pd.to_numeric, errors="coerce")
+    num = df.set_index("ts")[list(cmap.values())].apply(pd.to_numeric, errors="coerce")
     num["__fit"] = fit_row.to_numpy().astype(float)
     g = num.resample("15min").mean().reindex(grid)
     sensors = {s: g[c].to_numpy(np.float64)[:, None] for s, c in cmap.items()}
@@ -145,10 +145,10 @@ def dataset_to_grid(csv: Path, cmap: dict[str, str]):
     return grid.to_numpy().astype("datetime64[m]"), sensors, fit15, df[["ts", "id", "train_test", "status_type_id"]]
 
 
-def daily_scores(sensors: dict, fit15: np.ndarray, cal: dict, boosters: dict | None):
+def daily_scores(sensors: dict, fit15: np.ndarray, boosters: dict | None):
     """Residuals + features for one turbine → (dev [D, C], p14 [D, C] or None, rated)."""
     from sentinel.model.windfailure import thermal
-    from sentinel.model.windfailure.features import FEATURES, daily_features, feature_index
+    from sentinel.model.windfailure.features import daily_features, feature_index
 
     T = len(fit15)
     err = np.zeros((T, 1), np.int32)
@@ -189,7 +189,7 @@ def score_farm_a(farm_dir: Path, model_dir: Path, log=print) -> dict:
         if not csv.exists():
             continue
         ts15, sensors, fit15, rows = dataset_to_grid(csv, cmap)
-        dev, p14, rated = daily_scores(sensors, fit15, cal, boosters)
+        dev, p14, rated = daily_scores(sensors, fit15, boosters)
         day0 = ts15[0].astype("datetime64[D]")
         alarm = {"model": np.nanmax(np.nan_to_num(p14, nan=-1), 1) >= thr_m,
                  "baseline": np.nanmax(np.nan_to_num(dev, nan=-1e9), 1) >= thr_b}

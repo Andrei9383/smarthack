@@ -161,10 +161,6 @@ class Assessment:
     def needs_work_order(self) -> bool:
         return self.crew_type is not None
 
-    @property
-    def human_review(self) -> bool:
-        return self.status.status == Status.HUMAN_REVIEW.value
-
 
 # --- helpers ------------------------------------------------------------------------------------------------
 def asset_kind(asset: Mapping[str, Any], prediction: Optional[Prediction] = None) -> str:
@@ -218,7 +214,7 @@ def rel_width(prediction: Prediction, q50: Optional[np.ndarray] = None, mask: Op
     return float(np.mean((q90 - q10) / np.maximum(q50[m], EPS)))
 
 
-def _expected_day_kwh(q50: np.ndarray, dt_h: float) -> float:
+def _expected_day_kwh(q50: np.ndarray) -> float:
     if not q50.size:
         return 0.0
     return float(q50.mean() * 24.0)  # Σ q50·Δt scaled from the horizon to 24 h
@@ -250,12 +246,6 @@ def _curtailed_kwh(q50: np.ndarray, actual: Optional[np.ndarray], dt_h: float) -
     a, e = actual[:n], q50[:n]
     m = np.isfinite(a)
     return float(np.clip(e[m] - a[m], 0.0, None).sum() * dt_h)
-
-
-def _as_array(actual: Optional[Sequence[float]]) -> Optional[np.ndarray]:
-    if actual is None:
-        return None
-    return np.asarray(actual, dtype=float)
 
 
 def _status(aid: str, status: Status, reason: str, detail: str, headroom: Optional[float] = None,
@@ -311,8 +301,9 @@ def assess(
     th = resolve_thresholds(thresholds)
     kind = asset_kind(asset, prediction)
     fn = _assess_turbine if kind == "turbine" else _assess_site
-    return fn(asset, prediction, _minutes(telemetry_age), th, _as_array(actual), data_gap, sensor_fault,
-              battery_fault, lost_flex_mwh_day)
+    arr = None if actual is None else np.asarray(actual, dtype=float)
+    return fn(asset, prediction, _minutes(telemetry_age), th, arr, data_gap, sensor_fault, battery_fault,
+              lost_flex_mwh_day)
 
 
 def qualify(
@@ -395,7 +386,7 @@ class _SiteStats:
         self.pred, self.q10l, self.q50l, self.q90l = pred, pred.q10, pred.q50, pred.q90
         self.probs, self.step = pred.fault_probs, pred.step_minutes
         self.q50 = q50 = np.asarray(pred.q50, dtype=float)
-        self.exp_kwh = _expected_day_kwh(q50, pred.step_minutes / 60.0)
+        self.exp_kwh = _expected_day_kwh(q50)
         self.peak_kw = float(q50.max()) if q50.size else 0.0
         self.prod = production_mask(q50)
         self.top = _top_fault(pred)
@@ -543,7 +534,7 @@ def _assess_turbine(asset, pred, age, th, actual, data_gap, sensor_fault, batter
 
     q50 = np.asarray(pred.q50, dtype=float)
     dt_h = pred.step_minutes / 60.0
-    exp_kwh = _expected_day_kwh(q50, dt_h)
+    exp_kwh = _expected_day_kwh(q50)
     base["expected_kwh_day"] = exp_kwh
     cap_mw = (rated_kw or (float(q50.max()) if q50.size else 0.0)) / 1000.0
 
