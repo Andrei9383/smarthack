@@ -6,6 +6,7 @@ import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMapRightPadding } from "../use-map-right-padding";
+import { PARTICLE_COLOR_RAMP } from "./colors";
 import { expectedMwh } from "./data";
 import { type MarkerCircle, type MarkerOffset, resolveCollisions } from "./marker-layout";
 import { useProductionData } from "./use-production-data";
@@ -15,12 +16,10 @@ import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field
 const PANEL_PADDING_PX = 452;
 const SOURCE_ID = "wind-speed";
 const LAYER_ID = "wind-speed-raster";
-const RASTER_OPACITY = 0.45;
-const COLOR_RAMP: [number, [number, number, number, number]][] = [
-  [0, [147, 197, 253, 255]],
-  [0.5, [253, 224, 71, 255]],
-  [1, [248, 113, 113, 255]],
-];
+// The speed PNGs bake in a blue→red ramp (scripts/windfield.py), so on the light basemap they
+// stay a faint, desaturated tint and the green particles carry the wind.
+const RASTER_OPACITY = 0.22;
+const RASTER_SATURATION = -0.6;
 
 function imageCoordinates([west, south, east, north]: WindMeta["bounds"]) {
   return [
@@ -48,7 +47,11 @@ function useWindRaster(meta: WindMeta | undefined, hour: number) {
         id: LAYER_ID,
         type: "raster",
         source: SOURCE_ID,
-        paint: { "raster-opacity": RASTER_OPACITY, "raster-fade-duration": 0 },
+        paint: {
+          "raster-opacity": RASTER_OPACITY,
+          "raster-saturation": RASTER_SATURATION,
+          "raster-fade-duration": 0,
+        },
       },
       firstSymbolLayer(map),
     );
@@ -107,7 +110,7 @@ function useWindParticles(meta: WindMeta | undefined, hour: number) {
                 maxAge: 40,
                 speedFactor: 30,
                 width: 1.5,
-                colorRamp: COLOR_RAMP,
+                colorRamp: PARTICLE_COLOR_RAMP,
               }),
             ],
           });
@@ -175,13 +178,13 @@ export function Displaced({ offset, children }: { offset: MarkerOffset; children
       {length > 0 && (
         <>
           <span
-            className="pointer-events-none absolute top-1/2 left-1/2 h-px origin-left bg-foreground/70"
+            className="pointer-events-none absolute top-1/2 left-1/2 h-px origin-left bg-foreground/50"
             style={{
               width: length,
               transform: `rotate(${Math.atan2(offset.dy, offset.dx)}rad)`,
             }}
           />
-          <span className="pointer-events-none absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
+          <span className="pointer-events-none absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground ring-2 ring-card" />
         </>
       )}
       <div style={{ transform: `translate(${offset.dx}px, ${offset.dy}px)` }}>{children}</div>
@@ -250,12 +253,12 @@ export function ProductionLayers() {
             <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
               <span
                 ref={passClicksThrough}
-                className="pointer-events-auto flex flex-col items-center justify-center rounded-full border border-amber-300/70 bg-amber-950/70 text-[10px] leading-tight font-semibold text-amber-100"
+                className="pointer-events-auto flex flex-col items-center justify-center rounded-full border-[1.5px] border-brand-500/60 bg-card/85 text-[10px] leading-tight font-semibold text-foreground tabular-nums shadow-card"
                 style={{ width: diameter(county.solarMwh), height: diameter(county.solarMwh) }}
                 title={`${county.county} solar, ${county.solarMwh.toFixed(1)} MWh next 24 h`}
               >
                 {county.county}
-                <span className="font-normal whitespace-nowrap">{county.solarMwh.toFixed(1)} MWh</span>
+                <span className="font-normal whitespace-nowrap text-text-secondary">{county.solarMwh.toFixed(1)} MWh</span>
               </span>
             </Displaced>
           </MarkerContent>
@@ -274,14 +277,16 @@ export function ProductionLayers() {
               <Displaced offset={offsets.get(park.id) ?? NO_OFFSET}>
                 <span
                   ref={raiseMarker}
-                  className={`pointer-events-auto flex cursor-pointer flex-col items-center justify-center rounded-full border-2 border-teal-300 bg-teal-950/80 text-[10px] leading-tight font-semibold text-white ${
-                    park.id === selected ? "ring-2 ring-foreground" : ""
+                  className={`pointer-events-auto flex cursor-pointer flex-col items-center justify-center rounded-full border-2 text-[10px] leading-tight font-semibold text-foreground tabular-nums shadow-card transition-colors ${
+                    park.id === selected
+                      ? "border-brand-700 bg-brand-50 ring-4 ring-primary/25"
+                      : "border-primary bg-card hover:bg-brand-50"
                   }`}
                   style={{ width: diameter(mwh), height: diameter(mwh) }}
                   title={`${park.name}, ${Math.round(mwh)} MWh next 24 h`}
                 >
                   {park.id}
-                  <span className="font-normal whitespace-nowrap">{Math.round(mwh)} MWh</span>
+                  <span className="font-normal whitespace-nowrap text-text-secondary">{Math.round(mwh)} MWh</span>
                 </span>
               </Displaced>
             </MarkerContent>
