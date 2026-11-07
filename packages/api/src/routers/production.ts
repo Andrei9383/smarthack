@@ -1,5 +1,14 @@
 import { implement } from "@orpc/server";
-import { assets, assetSteps, measurements, parkForecasts, parks, runs } from "@sentinel-app/db/schema/sentinel";
+import {
+  assets,
+  assetSteps,
+  measurements,
+  parkBattery,
+  parkForecasts,
+  parks,
+  runs,
+  windPositions,
+} from "@sentinel-app/db/schema/sentinel";
 import { type AnyColumn, and, asc, desc, eq, gte, isNotNull, lt, sql, type SQL } from "drizzle-orm";
 
 import type { CountySeriesPoint } from "../contract/production";
@@ -12,7 +21,14 @@ const os = implement(productionContract).$context<Context>();
 
 const STEP_HOURS = 0.25;
 
-function inWindow(ts: typeof assetSteps.ts | typeof parkForecasts.ts | typeof measurements.ts, from?: string, to?: string) {
+type TsColumn =
+  | typeof assetSteps.ts
+  | typeof parkForecasts.ts
+  | typeof measurements.ts
+  | typeof windPositions.ts
+  | typeof parkBattery.ts;
+
+function inWindow(ts: TsColumn, from?: string, to?: string) {
   const bounds: SQL[] = [];
   if (from) bounds.push(gte(ts, from));
   if (to) bounds.push(lt(ts, to));
@@ -26,6 +42,20 @@ const hourOf = (ts: AnyColumn) => sql<string>`substr(${ts}, 1, 13) || ':00:00Z'`
 // the number of 15-min steps seen in that hour.
 const meanMw = (column: AnyColumn, ts: AnyColumn) =>
   sql<number | null>`sum(${column}) / count(distinct ${ts}) / 1000.0`;
+
+// Newest run that wrote W3/W5 rows; empty until the wind writers fill these tables.
+async function windRun(db: Context["db"], table: typeof windPositions | typeof parkBattery, runId?: string) {
+  if (runId) return runId;
+  const [run] = await emptyIfNoTables(() =>
+    db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(sql`EXISTS (SELECT 1 FROM ${table} WHERE ${table.runId} = ${runs.id})`)
+      .orderBy(desc(runs.createdAt))
+      .limit(1),
+  );
+  return run?.id;
+}
 
 export const productionRouter = os.router({
   getRun: os.getRun.handler(({ context }) => latestRunWith(context.db, parkForecasts)),
@@ -130,7 +160,7 @@ export const productionRouter = os.router({
             .orderBy(desc(runs.createdAt))
             .limit(1),
         );
-    const windRun = windRow?.runId;
+    const windRunId = windRow?.runId;
 
     const solar = solarRun
       ? await emptyIfNoTables(() =>
@@ -156,7 +186,7 @@ export const productionRouter = os.router({
         )
       : [];
 
-    const wind = windRun
+    const wind = windRunId
       ? await emptyIfNoTables(() =>
           db
             .select({
@@ -169,7 +199,7 @@ export const productionRouter = os.router({
             .innerJoin(parks, eq(parks.id, assets.parkId))
             .where(
               and(
-                eq(measurements.runId, windRun),
+                eq(measurements.runId, windRunId),
                 eq(assets.assetKind, "turbine"),
                 isNotNull(measurements.actPwtKw),
                 ...inWindow(measurements.ts, from, to),
@@ -211,5 +241,60 @@ export const productionRouter = os.router({
         points: [...hours.values()].sort((a, b) => a.ts.localeCompare(b.ts)),
       }))
       .sort((a, b) => a.county.localeCompare(b.county));
+  }),
+
+  getWindPositions: os.getWindPositions.handler(async ({ context: { db }, input }) => {
+    const runId = await windRun(db, windPositions, input?.runId);
+    if (!runId) return [];
+    return db
+      .select({
+        parkId: windPositions.parkId,
+        policy: windPositions.policy,
+        ts: windPositions.ts,
+        actualMwh: windPositions.actualMwh,
+        soldDaMwh: windPositions.soldDaMwh,
+        fcP10Mwh: windPositions.fcP10Mwh,
+        fcP50Mwh: windPositions.fcP50Mwh,
+        fcP90Mwh: windPositions.fcP90Mwh,
+        avoidableLei: windPositions.avoidableLei,
+        removedTurbines: windPositions.removedTurbines,
+      })
+      .from(windPositions)
+      .where(
+        and(
+          eq(windPositions.runId, runId),
+          eq(windPositions.policy, input?.policy ?? "sentinel"),
+          input?.parkId ? eq(windPositions.parkId, input.parkId) : undefined,
+          ...inWindow(windPositions.ts, input?.from, input?.to),
+        ),
+      )
+      .orderBy(asc(windPositions.ts));
+  }),
+
+  getParkBattery: os.getParkBattery.handler(async ({ context: { db }, input }) => {
+    const runId = await windRun(db, parkBattery, input?.runId);
+    if (!runId) return [];
+    return db
+      .select({
+        parkId: parkBattery.parkId,
+        variant: parkBattery.variant,
+        ts: parkBattery.ts,
+        chargeMwh: parkBattery.chargeMwh,
+        dischargeMwh: parkBattery.dischargeMwh,
+        socMwh: parkBattery.socMwh,
+        devNoneMwh: parkBattery.devNoneMwh,
+        devMwh: parkBattery.devMwh,
+        avoidableLei: parkBattery.avoidableLei,
+        avoidableNoneLei: parkBattery.avoidableNoneLei,
+      })
+      .from(parkBattery)
+      .where(
+        and(
+          eq(parkBattery.runId, runId),
+          input?.parkId ? eq(parkBattery.parkId, input.parkId) : undefined,
+          ...inWindow(parkBattery.ts, input?.from, input?.to),
+        ),
+      )
+      .orderBy(asc(parkBattery.variant), asc(parkBattery.ts));
   }),
 });

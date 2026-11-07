@@ -313,6 +313,9 @@ export const workOrders = sqliteTable(
     rank: integer("rank"),
     status: text("status").default("open").notNull(),
     evidenceJson: text("evidence_json"),
+    leiPerDay: real("lei_per_day"), // W4: lost MWh/day x PZU next 24 h
+    triageScore: real("triage_score"), // W4: p_fault x lei_per_day x days_to_visit
+    bestRepairDay: text("best_repair_day"), // W6: cheapest repair day, YYYY-MM-DD
   },
   (table) => [
     index("work_orders_queue_idx").on(table.runId, table.crewType, table.day, table.rank),
@@ -393,6 +396,95 @@ export const parkForecasts = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.runId, table.parkId, table.ts] }),
     index("park_forecasts_ts_idx").on(table.parkId, table.ts),
+  ],
+);
+
+// ---------------------------------------------------------------- wind actions (W2-W5, card #170)
+
+// W3: one row per policy x park x 15-min step (sentinel/eval/wind_portfolio.py).
+export const windPositions = sqliteTable(
+  "wind_positions",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    parkId: text("park_id")
+      .notNull()
+      .references(() => parks.id),
+    policy: text("policy").notNull(), // manufacturer_curve | persistence | windpower_only | sentinel | perfect
+    ts: text("ts").notNull(), // ISO-8601 UTC
+    capMw: real("cap_mw"),
+    actualMwh: real("actual_mwh"),
+    soldDaMwh: real("sold_da_mwh").notNull(),
+    soldIdMwh: real("sold_id_mwh"),
+    fcP10Mwh: real("fc_p10_mwh"),
+    fcP50Mwh: real("fc_p50_mwh"),
+    fcP90Mwh: real("fc_p90_mwh"),
+    pzuLeiMwh: real("pzu_lei_mwh"),
+    devMwh: real("dev_mwh"),
+    avoidableLei: real("avoidable_lei"),
+    removedTurbines: integer("removed_turbines"), // W2: turbines out of tomorrow's availability at sale
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.parkId, table.policy, table.ts] }),
+    index("wind_positions_park_ts_idx").on(table.parkId, table.ts),
+  ],
+);
+
+// W2: tomorrow's availability per turbine and day (availability.table()).
+export const turbineAvailability = sqliteTable(
+  "turbine_availability",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => assets.id),
+    parkId: text("park_id").references(() => parks.id),
+    day: text("day").notNull(), // YYYY-MM-DD delivery day
+    rule: text("rule"), // normal | fault_stop | underperformance | icing | curtailment | gap
+    availabilityMean: real("availability_mean").notNull(),
+    availabilityMin: real("availability_min"),
+    uncertain: integer("uncertain").default(0).notNull(),
+    m6Class: text("m6_class"),
+    m6Verdict: text("m6_verdict"),
+    m6Source: text("m6_source"),
+    m7PFail7d: real("m7_p_fail_7d"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.assetId, table.day] }),
+    index("turbine_availability_park_day_idx").on(table.parkId, table.day),
+  ],
+);
+
+// W5: park battery per variant x park x step (sentinel/opt/park_battery.py).
+export const parkBattery = sqliteTable(
+  "park_battery",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    parkId: text("park_id")
+      .notNull()
+      .references(() => parks.id),
+    variant: text("variant").notNull(), // none | rule | lp
+    ts: text("ts").notNull(), // ISO-8601 UTC
+    soldMwh: real("sold_mwh"),
+    actualMwh: real("actual_mwh"),
+    chargeMwh: real("charge_mwh"),
+    dischargeMwh: real("discharge_mwh"),
+    socMwh: real("soc_mwh"),
+    deliveredMwh: real("delivered_mwh"),
+    devNoneMwh: real("dev_none_mwh"),
+    devMwh: real("dev_mwh"),
+    avoidableLei: real("avoidable_lei"),
+    avoidableNoneLei: real("avoidable_none_lei"),
+    netCostLei: real("net_cost_lei"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.parkId, table.variant, table.ts] }),
+    index("park_battery_park_ts_idx").on(table.parkId, table.ts),
   ],
 );
 

@@ -9,9 +9,9 @@ import { publicProcedure } from "../index";
 import { emptyIfNoTables } from "./runs";
 
 type Row = Record<string, unknown>;
-const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
-const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
-const flag = (v: unknown) => !(v === null || v === undefined || v === 0 || v === "0" || v === "" || v === false);
+const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+const str = (v: unknown) => (v == null ? null : String(v));
+const flag = (v: unknown) => !(v == null || v === 0 || v === "0" || v === "" || v === false);
 const where = (parts: (SQL | false | undefined)[]) =>
   sql.join(parts.filter((p): p is SQL => !!p), sql` and `);
 function groupBy(rows: Row[], key: (r: Row) => string) {

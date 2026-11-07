@@ -86,7 +86,14 @@ class ArraySource:
         return pd.date_range(self.t_start, periods=self.n_days, freq="D")
 
     def site_meta(self, key: str, dtype=np.float32) -> np.ndarray:
-        return np.array([(s.get(key) if s.get(key) is not None else 0) for s in self.sites], dtype=dtype)
+        """[S] metadata column, built once and returned read-only (#185: every batch gather reads ~10 columns, and
+        the 600-row Python loop held the GIL against the train loop)."""
+        ck = ("meta", key, np.dtype(dtype).str)
+        if ck not in self._cache:
+            a = np.array([(s.get(key) if s.get(key) is not None else 0) for s in self.sites], dtype=dtype)
+            a.setflags(write=False)
+            self._cache[ck] = a
+        return self._cache[ck]
 
     def has(self, name: str) -> bool:
         return name in self.index["arrays"]
