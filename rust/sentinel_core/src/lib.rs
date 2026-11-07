@@ -15,6 +15,7 @@ mod pvac;
 mod rollout;
 mod rolling;
 mod scatter;
+mod strategies;
 mod selfcons;
 mod scenarios;
 mod windows;
@@ -320,6 +321,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(median::binned_median_mad, m)?)?;
     m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
     m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
+    m.add_function(wrap_pyfunction!(strategies::battery_strategies, m)?)?;
     m.add_function(wrap_pyfunction!(scenarios::park_scenarios, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
