@@ -24,6 +24,7 @@ Loaded by `sentinel.model.predictor.load_predictor(model, "models/")` (eval.py) 
 | `sitehealth.onnx` + `.calibration.json` | M4 SiteHealth (preset `sh`) | #14 train#391 | rtx5070 | 54483ca | synthetic RO (#10 windows + #12 faults) | PR-AUC 0.706 (seen 0.73 / unseen 0.67) |
 | `pvnet_fc/pvnet.onnx` + `.calibration.json` | M1 PVNet **forecast** mode (day-ahead, noisy weather) | #14 train#392 | rtx5070 | 54483ca | synthetic RO (#10 windows) | nMAE 0.106 vs LightGBM 0.119 vs pvlib 0.169; coverage 0.81 |
 | `windnbm.onnx`, `windnbm_clf.txt`, `windnbm_thresholds.json` | M6 WindNBM (GRU NBM + LightGBM classes) | #41 train#135 | rtx5070 | 8268c35b | synthetic RO (synth-v1 wind stand-in, pre-#22) | held-out park WP2 (#41 note): precision 0.854 vs WindMon 0.530, recall 0.819 vs 0.440, alerts/turbine-day 0.101 vs 0.114 |
+| `judge.calibration.json`, `judge.forecast.s0-4.txt`, `judge.detector.s0-4.txt` | J3 Judge (LightGBM, 5 seeds; trained on 2024 replay weeks) | #148 train#908 | rtx5070 | — | 2024 replay weeks (drift + faults) | 2025: tau_use precision below the 0.90 target; drifted rows 0.66 vs ledger-only 0.81 (#148 note) |
 | `thresholds.json` | qualify thresholds (#26 / #27 defaults) | — | — | — | — | — |
 | `reports/r<run>-*.json` | train-time manifest / report / metrics of each run above | | | | | |
 
@@ -38,3 +39,15 @@ Members: every `pvnet.*.onnx` / `loadnet.*.onnx` in this directory is one ensemb
 SiteHealth takes its expected-power input (m1) from the `pvnet.s*` ensemble and m2 from `loadnet.s*`.
 
 Source of the files: `ssh rtx5070:/var/lib/lab-gpu/work/outputs/<run>/` (read-only copy).
+
+## T7 campaign promotion (#145)
+
+Rule: promote only what beats the current file on the 2025 test split (train-time metrics, then the eval.py + replay runs).
+- **Promoted:** J3 Judge #148 train#908 (first trained Judge; installed with `python -m sentinel.judge.train --apply`
+  from the run log, since the worker is not reachable). Comparison vs replay#506 / eval#521: see #145 notes.
+- **Kept (not better):** M4 SiteHealth #391 (#142 s2 train#746 PR-AUC 0.696 < 0.706); M1 PVNet nowcast #383-386
+  (#141 #676-679 within noise, 2 of 4 seeds worse, unseen coverage still 0.62-0.66).
+- **Better but not copied yet (no access to the workers' outputs/, ONNX is not dumped into logs):** M2 LoadNet #680-683
+  (nMAE 0.219-0.221 vs 0.220-0.221, within noise), M1 forecast #684 (0.1052 vs 0.106), M6 WindNBM #674 (#22 ERA5 parks,
+  WP2 P/R 0.913/0.898 vs #135's 0.854/0.819), M7 WindFailure #778 (first promotion, wf_ship=1). M3 DemandNet #663 and
+  M8 GridTwin #664 reproduce the current numbers exactly: nothing to change.
