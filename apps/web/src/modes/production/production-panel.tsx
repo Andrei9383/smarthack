@@ -18,6 +18,7 @@ import { expectedMwh, hourly } from "./data";
 import { FanHourTicks, FanNowMarker, FanYAxis } from "./fan-chart-overlays";
 import { useProductionData } from "./use-production-data";
 import { useHour, useSelectedPark } from "./use-production-state";
+import { WindActions } from "./wind-actions";
 import { fetchWindMeta } from "./wind-field";
 
 // Sentinel's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
@@ -295,6 +296,8 @@ export function ProductionPanel() {
               <ChartTooltip />
             </LineChart>
           </section>
+
+          <WindActions parkId={park?.id} clock={now} wallClock={wallClock} />
 
           {/* Facts as hairline rows, not boxes inside the inspector card. */}
           <dl className="mt-2 divide-y divide-border border-t border-border text-[13px]">

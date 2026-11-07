@@ -54,6 +54,9 @@ export const workOrderItemSchema = z.object({
   mwAtRisk: z.number().nullable().optional(),
   daysToVisit: z.number().nullable().optional(),
   evidenceJson: z.string().nullable().optional(),
+  leiPerDay: z.number().nullable().optional(), // W4: falls back to evidence_json, then lost_lei_day
+  triageScore: z.number().nullable().optional(),
+  bestRepairDay: z.string().nullable().optional(), // W6
 });
 export type WorkOrderItem = z.infer<typeof workOrderItemSchema>;
 
@@ -63,6 +66,19 @@ export const turbineDrawerSchema = z.object({
   parkId: z.string().nullable().optional(),
   ratedKw: z.number().nullable().optional(),
   turbineModel: z.string().nullable().optional(),
+  // W2 (#165): latest availability row up to `at` (tomorrow's day-ahead view), with the M7 risk.
+  availability: z
+    .object({
+      day: z.string(),
+      rule: z.string().nullable(),
+      availabilityMean: z.number(),
+      availabilityMin: z.number().nullable(),
+      uncertain: z.boolean(),
+      m6Class: z.string().nullable(),
+      m7PFail7d: z.number().nullable(),
+    })
+    .nullable()
+    .optional(),
   powerCurve: z.array(
     z.object({
       wdSpdKmh: z.number(),
@@ -158,7 +174,7 @@ export const omContract = {
     )
     .output(z.array(reviewItemSchema)),
   getTurbineDrawer: oc
-    .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
+    .input(z.object({ assetId: z.string(), runId: z.string().optional(), at: z.string().optional() }))
     .output(turbineDrawerSchema),
   listReports: oc
     .input(
