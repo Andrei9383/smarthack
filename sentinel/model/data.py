@@ -139,7 +139,8 @@ def open_source(kind: str = "auto", synth_sites: int | None = None, verbose: boo
             try:
                 d = build_lab_windows(verbose)
             except Exception as e:  # pragma: no cover - surfaced in the log
-                err = e
+                err = e  # e.g. a concurrent run on the same worker renamed its build into place first
+                d = find_lab_windows()
         if d is not None:
             try:
                 src = ArraySource(d)
