@@ -194,3 +194,27 @@ def test_end_to_end_on_the_mock_world(tmp_path, monkeypatch):
     f = doc["feeders"][0]
     assert f["minutes_over_now"]["batteries"]["self_consumption"] == base0
     assert doc["sentinel_below_baseline"] == 0
+
+
+def test_judge_verdicts_flow_through_the_c1_adapter():
+    adapter = pytest.importorskip("sentinel.judge.adapter")  # C1 #157; until it merges reads are passthrough
+    from sentinel.agent.loop import default_components
+    from sentinel.agent.world import MockWorld
+
+    w = MockWorld(days=1, scale=0.4, with_wind=False)
+    comps = default_components(w)
+    base = hc.extract_feeders(w, comps, ["F7"])[0]
+    s0, s1 = base.site_ids[:2]
+    day = adapter.day_key(hc._local_day(w.day_t0(0)))
+    pv = str(getattr(comps.predictors["pv"], "model", "pvnet"))
+    adapter.set_default_judge(adapter.MemoryVerdicts({
+        (s0, pv, day): {"verdict": "dont_use"}, (s1, pv, day): {"verdict": "widen", "band_scale": 2.0},
+        ("F7", "gridtwin", day): {"verdict": "dont_use"}}))
+    try:
+        fw = hc.extract_feeders(w, comps, ["F7"])[0]
+    finally:
+        adapter.set_default_judge(None)
+    assert fw.statuses[0][s0].status == "human_review" and not fw.statuses[0][s0].in_pool
+    np.testing.assert_allclose(fw.pv_q[1, 0, 2] - fw.pv_q[1, 0, 1], 2 * (base.pv_q[1, 0, 2] - base.pv_q[1, 0, 1]))
+    assert fw.g_kw == pytest.approx(w.feeders["F7"].spec.g_conservative_kw)
+    assert fw.meta["verdicts"]["pv"]["dont_use"] == 1 and fw.meta["verdicts"]["pv"]["unknown"] == 1

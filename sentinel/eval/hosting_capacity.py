@@ -56,6 +56,7 @@ POLICIES = ("self_consumption", "threshold", "sentinel")
 BASELINE = "self_consumption"
 TOLS_MIN = (0, 30)
 VARIANTS = ("batteries", "no_batteries")
+MODEL_IDS = {"pv": "pvnet", "load": "loadnet", "sitehealth": "sitehealth", "gridtwin": "gridtwin"}  # M1 M2 M4 M8
 N_MAX = 300
 EPS_KW = 1e-6  # same over-limit test as the loop: export > G + 1e-6
 STEP_MIN = 15.0
@@ -66,15 +67,46 @@ def log(msg: str) -> None:
 
 
 # =============================================================================================== Judge access (C1)
-JUDGE_MODE = "passthrough (no Judge): raw prediction, verdict 'use'"
+def judge_mode() -> str:
+    try:
+        from sentinel.judge import adapter
+    except ImportError:
+        return "passthrough (sentinel.judge.adapter not merged): raw prediction, verdict 'use'"
+    return f"C1 adapter, verdict source {type(adapter.default_judge()).__name__}"
 
 
-def validated(asset: Mapping[str, Any], model: str, t0: str, raw: Callable[[], Any]) -> tuple[Any, str]:
-    """THE single place this module reads a model output (M1 pv, M2 load, M4 sitehealth, M8 gridtwin limit).
+def _local_day(t0: str) -> Any:
+    from datetime import datetime
 
-    Until C1 (#157, sentinel/judge/adapter.py) merges this is the no-Judge mode the adapter also has: the raw
-    prediction with verdict 'use'. Swap: `return adapter.validated(asset, model, t0)` -> (envelope, verdict)."""
-    return raw(), "use"
+    return datetime.fromisoformat(t0.replace("Z", "+00:00"))  # tz-aware: the adapter keys on the Bucharest day
+
+
+def validated(asset_id: str, model: str, t0: str, raw: Callable[[], Any]) -> tuple[Any, str]:
+    """THE single place this module reads a model output: M1 pv, M2 load, M4 sitehealth (Predictions) and the M8
+    gridtwin feeder limit (a FeederSpec). Returns (value, verdict); value None = unknown (Judge said dont_use and
+    there is no substitute).
+
+    Reads go through C1's `sentinel.judge.adapter.validated` (band scale applied, substitute swapped in) when it is
+    importable; until #157 merges this is the adapter's own no-Judge mode: the raw value with verdict 'use'. M8 has
+    no quantiles: a dont_use verdict on the twin means the conservative limit (tau = 0)."""
+    value = raw()
+    try:
+        from sentinel.judge.adapter import validated as judge_validated
+    except ImportError:
+        return value, "use"
+    day = _local_day(t0)
+    if isinstance(value, FeederSpec):
+        v = judge_validated(asset_id, model, day, raw=None)
+        if v.verdict == "dont_use":
+            value = FeederSpec(value.feeder_id, value.g_max_kw, value.g_conservative_kw, 0.0)
+        return value, v.verdict
+    v = judge_validated(asset_id, model, day, raw=value)
+    if not v.known:
+        return None, v.verdict
+    if v.q50 is not None and isinstance(value, Prediction):
+        value = replace(value, q10=list(v.q10), q50=list(v.q50), q90=list(v.q90),
+                        **({"fault_probs": v.fault_probs} if v.fault_probs else {}))
+    return value, v.verdict
 
 
 # =============================================================================================== data
@@ -176,10 +208,13 @@ def extract_feeders(world: Any, comps: Any, feeder_ids: Optional[Sequence[str]] 
     preds = comps.predictors
     verdicts: dict[str, dict[str, int]] = {}
 
-    def read(row, model, t0, fn):
-        v, verdict = validated(row, model, t0, fn)
-        c = verdicts.setdefault(model, {})
+    def read(asset_id: str, key: str, t0: str, raw: Any) -> tuple[Any, str]:
+        model = str(getattr(preds.get(key), "model", None) or MODEL_IDS[key])
+        v, verdict = validated(asset_id, model, t0, lambda: raw)
+        c = verdicts.setdefault(key, {})
         c[verdict] = c.get(verdict, 0) + 1
+        if v is None:
+            c["unknown"] = c.get("unknown", 0) + 1
         return v, verdict
 
     faulty = {f["asset_id"] for f in world.fault_truth() if f.get("asset_kind", "site") == "site"}
@@ -199,25 +234,34 @@ def extract_feeders(world: Any, comps: Any, feeder_ids: Optional[Sequence[str]] 
         hp = preds["sitehealth"]
         if hasattr(hp, "prefetch"):
             hp.prefetch(list(sites), t0, 0)
-        hl, ages = {}, {}
+        hl, ages, unknown = {}, {}, set()
         for s in sites:
             row = world.sites[s].row
             sd = world.site_day(s, d)
             i = idx[s]
             pv[i, d], ld[i, d] = sd.pv_kw, sd.load_kw
-            p, _ = read(row, "pv", t0, lambda: preds["pv"].predict(row, win(t0)))
-            l, _ = read(row, "load", t0, lambda: preds["load"].predict(row, win(t0)))
-            pv_q[i, d] = [p.q10, p.q50, p.q90]
-            ld_q[i, d] = [l.q10, l.q50, l.q90]
-            hl[s], verdict = read(row, "sitehealth", t0, lambda: hp.predict(row, win(t0)))
+            for key, arr in (("pv", pv_q), ("load", ld_q)):
+                raw = preds[key].predict(row, win(t0))
+                v, _ = read(s, key, t0, raw)
+                if v is None:  # unknown: keep the raw curve for the rest-of-feeder forecast, out of the pool
+                    unknown.add(s)
+                    v = raw
+                arr[i, d] = [v.q10, v.q50, v.q90]
+            raw = hp.predict(row, win(t0))
+            v, _ = read(s, "sitehealth", t0, raw)
+            if v is None:
+                unknown.add(s)
+            hl[s] = raw if v is None else v
             ages[s] = world.observed_site_day(s, d).telemetry_age_s[0] / 60.0
         ass = _safe_qualify(comps, [world.sites[s].row for s in sites], hl, ages, None, {})
         st = {x.asset_id: x.status for x in ass}
+        for s in unknown:  # no reliable source (design §11): human review, the site runs its own rule
+            st[s] = AssetStatus(s, "human_review", 0.0, "judge:no_reliable_source", battery_ok=False)
         statuses.append({s: st.get(s) or _eligible(s) for s in sites})
     out = []
     for f in fids:
         feeder = world.feeders[f]
-        spec, verdict = read(feeder.row(), "gridtwin", t0s[0], lambda: feeder.spec)
+        spec, verdict = read(f, "gridtwin", t0s[0], feeder.spec)
         ids = list(feeder.site_ids)
         ii = np.array([idx[s] for s in ids], int)
         out.append(FeederWeek(
@@ -576,7 +620,7 @@ def assemble(feeders: Sequence[FeederWeek], results: Sequence[Mapping[str, Any]]
     tot_gain = {v: {t: {f"vs_{p}": c["sentinel"] - c[p] for p in c if p != "sentinel"} if "sentinel" in c else {}
                     for t, c in tv.items()} for v, tv in tot_cap.items()}
     return {
-        "schema": SCHEMA, "label": LABEL, "run_id": run_id, "judge_mode": JUDGE_MODE,
+        "schema": SCHEMA, "label": LABEL, "run_id": run_id, "judge_mode": judge_mode(),
         "week_start": feeders[0].meta.get("week_start") if feeders else "", "days": feeders[0].n_days if feeders else 0,
         "policies": list(policies), "tols_min_per_week": list(tols), "variants": list(variants), "n_max": n_max,
         "assumptions": {
