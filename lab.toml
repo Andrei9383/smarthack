@@ -13,7 +13,7 @@ main   = ["preview"]            # the shared app at app.<domain>, rebuilt after 
 check  = "check"
 
 [runs.check]
-setup   = "set -e; if [ -f package.json ]; then npm ci --no-audit --no-fund; fi; if [ -f requirements.txt ]; then uv venv -q --python 3.12 && uv pip install -q -r requirements.txt; fi"
+setup   = "set -e; if [ -f package.json ]; then npm ci --no-audit --no-fund; fi; if [ -f requirements.txt ] || [ -d tests ]; then uv venv -q --python 3.12; fi; if [ -f requirements.txt ]; then uv pip install -q -r requirements.txt; fi; if [ -d tests ]; then uv pip install -q pytest; fi"
 cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .venv/bin/python -m pytest -q tests; fi"
 timeout = "15m"
 
