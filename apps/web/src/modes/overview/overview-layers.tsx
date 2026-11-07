@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useEffect, useMemo } from "react";
 
-import { fitRomania } from "@/components/shell/map-controls";
+import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { fitRomania, ROMANIA_BOUNDS } from "@/components/shell/map-controls";
 import { zonesByCountyCode } from "@/modes/demand/data";
 import {
   Displaced,
@@ -39,11 +40,11 @@ const STATUS_COLOR: Record<FeederState["status"], string> = {
   over: FEEDER_OVER,
   unknown: FEEDER_UNKNOWN,
 };
-const STATUS_DOT: Record<FeederState["status"], string> = {
-  ok: "bg-status-ok",
-  near: "bg-status-warn",
-  over: "bg-status-critical",
-  unknown: "bg-status-unknown",
+const STATUS_MARK: Record<FeederState["status"], StatusKind> = {
+  ok: "ok",
+  near: "warn",
+  over: "critical",
+  unknown: "unknown",
 };
 
 const NAV = {
@@ -61,10 +62,13 @@ async function fetchCounties(): Promise<Counties> {
   return response.json();
 }
 
-const chipWidth = (id: string) => 38 + id.length * 7.5;
+const chipWidth = (id: string, compact: boolean) => (compact ? 30 : 38) + id.length * (compact ? 6.5 : 7.5);
 
-/** Overview map: all of Romania, every asset at once, drawn quietly. */
-export function OverviewLayers() {
+/**
+ * Overview map: all of Romania, every asset at once, drawn quietly. `compact` is the Overview
+ * page's mini map: the country fitted edge to edge, chips without numbers, the park as a small tag.
+ */
+export function OverviewLayers({ compact = false }: { compact?: boolean } = {}) {
   const { map, isLoaded } = useMap();
   const [, go] = useQueryStates(NAV);
   const data = useOverviewData();
@@ -77,8 +81,17 @@ export function OverviewLayers() {
   // Whole country in view, clear of the rail, legend, inspector and dock.
   useEffect(() => {
     if (!map || !isLoaded) return;
-    fitRomania(map, 500);
-  }, [map, isLoaded]);
+    if (!compact) {
+      fitRomania(map, 500);
+      return;
+    }
+    const fit = () => map.fitBounds(ROMANIA_BOUNDS, { padding: { top: 18, bottom: 18, left: 14, right: 14 }, duration: 0 });
+    fit();
+    map.on("resize", fit);
+    return () => {
+      map.off("resize", fit);
+    };
+  }, [map, isLoaded, compact]);
 
   const counties = useMemo<Counties | null>(() => {
     if (!shapes) return null;
@@ -124,11 +137,17 @@ export function OverviewLayers() {
         kind: "park" as const,
         lon: feeder.longitude,
         lat: feeder.latitude,
-        diameter: chipWidth(feeder.id),
+        diameter: chipWidth(feeder.id, compact),
       })),
-      ...data.parks.map((park) => ({ id: `park:${park.id}`, kind: "park" as const, lon: park.lon, lat: park.lat, diameter: 64 })),
+      ...data.parks.map((park) => ({
+        id: `park:${park.id}`,
+        kind: "park" as const,
+        lon: park.lon,
+        lat: park.lat,
+        diameter: compact ? 44 : 64,
+      })),
     ],
-    [feeders, data.parks],
+    [feeders, data.parks, compact],
   );
   const offsets = useMarkerOffsets(placed);
 
@@ -178,18 +197,14 @@ export function OverviewLayers() {
                 ref={passClicksThrough}
                 title={`${feeder.name}: open in Feeders`}
                 className={cn(
-                  "pointer-events-auto flex h-7 cursor-pointer items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-semibold whitespace-nowrap text-foreground shadow-card transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-text-secondary",
-                  feeder.status === "over" ? "border-status-critical/40" : "border-border",
+                  "pointer-events-auto flex cursor-pointer items-center rounded-full bg-card font-semibold whitespace-nowrap text-foreground shadow-raised transition-[box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-floating",
+                  compact ? "h-6 gap-1 px-2 text-[11px]" : "h-7 gap-1.5 px-2.5 text-xs",
+                  feeder.status === "over" && "ring-1 ring-status-critical/40",
                 )}
               >
-                <span className="relative flex size-2">
-                  {feeder.status === "over" ? (
-                    <span className="absolute inline-flex size-full rounded-full bg-status-critical opacity-60 motion-safe:animate-ping" />
-                  ) : null}
-                  <span className={cn("relative size-2 rounded-full", STATUS_DOT[feeder.status])} />
-                </span>
+                <StatusMark kind={STATUS_MARK[feeder.status]} size={compact ? "xs" : "sm"} pulse={feeder.status === "over"} />
                 {feeder.id}
-                {feeder.peakKw !== undefined ? (
+                {feeder.peakKw !== undefined && !compact ? (
                   <span className="font-medium text-text-secondary tabular-nums">{Math.round(feeder.peakKw)} kW</span>
                 ) : null}
               </span>
@@ -207,26 +222,40 @@ export function OverviewLayers() {
         >
           <MarkerContent>
             <Displaced offset={offsets.get(`park:${park.id}`) ?? NO_OFFSET}>
-              <span
-                ref={passClicksThrough}
-                title={`${park.name}: open in O&M`}
-                className="pointer-events-auto flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card/95 py-1 pr-2.5 pl-1.5 text-left shadow-card transition-[border-color,transform] duration-150 hover:-translate-y-px hover:border-text-secondary"
-              >
-                <span className="grid size-6 place-items-center rounded-full border-2 border-primary bg-brand-50 text-[9px] font-bold text-brand-900">
-                  {park.turbineCount}
+              {compact ? (
+                <span
+                  ref={passClicksThrough}
+                  title={`${park.name}: open in O&M`}
+                  className="pointer-events-auto flex h-6 cursor-pointer items-center gap-1 rounded-full bg-card pr-2 pl-1 text-[11px] font-semibold whitespace-nowrap text-foreground shadow-raised transition-[box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-floating"
+                >
+                  <span className="grid size-4 place-items-center rounded-full border-[1.5px] border-primary bg-brand-50 text-[8px] font-bold text-brand-900 tabular-nums">
+                    {park.turbineCount}
+                  </span>
+                  {park.id}
+                  {park.stopped > 0 ? <StatusMark kind="critical" size="xs" label={`${park.stopped} stopped`} /> : null}
                 </span>
-                <span className="leading-tight">
-                  <b className="block text-xs font-semibold text-foreground">{park.id} wind park</b>
-                  <span className="block text-[11px] whitespace-nowrap text-text-secondary tabular-nums">
-                    {park.stopped > 0 ? (
-                      <span className="text-status-critical">{park.stopped} stopped</span>
-                    ) : (
-                      "all turning"
-                    )}{" "}
-                    · {Math.round(park.mwh)} MWh / 24 h
+              ) : (
+                <span
+                  ref={passClicksThrough}
+                  title={`${park.name}: open in O&M`}
+                  className="pointer-events-auto flex cursor-pointer items-center gap-2 rounded-lg bg-card/95 py-1 pr-2.5 pl-1.5 text-left shadow-raised transition-[box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-floating"
+                >
+                  <span className="grid size-6 place-items-center rounded-full border-2 border-primary bg-brand-50 text-[9px] font-bold text-brand-900">
+                    {park.turbineCount}
+                  </span>
+                  <span className="leading-tight">
+                    <b className="block text-xs font-semibold text-foreground">{park.id} wind park</b>
+                    <span className="block text-[11px] whitespace-nowrap text-text-secondary tabular-nums">
+                      {park.stopped > 0 ? (
+                        <span className="text-status-critical">{park.stopped} stopped</span>
+                      ) : (
+                        "all turning"
+                      )}{" "}
+                      · {Math.round(park.mwh)} MWh / 24 h
+                    </span>
                   </span>
                 </span>
-              </span>
+              )}
             </Displaced>
           </MarkerContent>
         </MapMarker>

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { defaultTourSteps, Tour, useTour } from "@/components/help";
 import { PROVENANCE_PILL_CLASS } from "@/components/provenance-pill";
 import { AgentToast } from "@/components/shell/agent-toast";
+import { CommandPalette } from "@/components/shell/command-palette";
 import { Inspector } from "@/components/shell/inspector";
 import { LegendCard } from "@/components/shell/legend-card";
 import { ShellMapControls } from "@/components/shell/map-controls";
@@ -82,13 +83,14 @@ function useRailExpanded() {
 export function AppShell() {
   const [mode, setMode] = useQueryState("mode", parseAsStringLiteral(MODE_IDS).withDefault("overview"));
   const active = MODES[mode];
-  const { Layers, Panel } = active;
+  const { Layers, Panel, Page } = active;
   const { offline, styles } = useBasemapStyles();
   const [railExpanded, toggleRail] = useRailExpanded();
   const [flexOpen] = useFlexOpen();
   const hasFlex = mode === "feeders" || mode === "om";
   const flexShown = hasFlex && flexOpen;
   const tour = useTour();
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   return (
     <div className="flex h-svh w-full overflow-hidden bg-background text-foreground">
@@ -106,69 +108,88 @@ export function AppShell() {
           flexShown ? HIDE_MODE_LEGEND : MOVE_MODE_LEGEND,
         )}
       >
-        {/* The tour's "map" target: the free map area between the floating surfaces. */}
-        <div data-tour="map" aria-hidden className="pointer-events-none absolute top-[76px] bottom-[116px] left-[208px] right-[384px] min-[1440px]:right-[424px]" />
-        {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
-        <Map
-          key={offline ? "offline" : "online"}
-          styles={styles}
-          theme="light"
-          center={ROMANIA_CENTER}
-          zoom={5.8}
-          minZoom={4}
-        >
-          <RomaniaFocus />
-          <ResizeWith value={railExpanded} />
-          <ShellMapControls className={cn("absolute bottom-[124px] z-10", BESIDE_INSPECTOR)} />
-          {Layers ? <Layers /> : null}
-        </Map>
-
-        <TopBar mode={mode} className="absolute inset-x-4 top-3 z-30 h-14" />
-
-        {!OWN_LEGEND.has(mode) && !flexShown ? (
-          <LegendCard mode={mode} className="absolute top-[80px] left-4 z-[15]" />
-        ) : null}
-
-        {/* #31/#32: the flexibility panel opens from Feeders and O&M. Closed, its button sits beside
-            the inspector; open, the panel takes the legend's column on the left. */}
-        {hasFlex ? (
-          flexShown ? (
-            <div className="absolute top-[76px] bottom-[116px] left-4 z-[16] w-[380px] max-w-[calc(100%-2rem)] [&>aside]:inset-0">
-              <FlexDock />
-            </div>
-          ) : (
+        {Page ? (
+          <>
+            {/* #124: Overview is a page. The rail, top bar and a compact dock stay; the map and
+                inspector give way to the briefing, the mini map and the glance sections. */}
             <div
-              className={cn(
-                "absolute top-[80px] z-[16] [&>button]:static [&>button]:h-9 [&>button]:rounded-xl",
-                BESIDE_INSPECTOR,
-              )}
+              key={mode}
+              className="absolute inset-x-0 top-[72px] bottom-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-3 pb-[100px] [scrollbar-width:thin] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-250"
             >
-              <FlexDock />
+              <Page onTour={tour.start} />
             </div>
-          )
-        ) : null}
+          </>
+        ) : (
+          <>
+            {/* The tour's "map" target: the free map area between the floating surfaces. */}
+            <div data-tour="map" aria-hidden className="pointer-events-none absolute top-[76px] bottom-[116px] left-[208px] right-[384px] min-[1440px]:right-[424px]" />
+            {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
+            <Map
+              key={offline ? "offline" : "online"}
+              styles={styles}
+              theme="light"
+              center={ROMANIA_CENTER}
+              zoom={5.8}
+              minZoom={4}
+            >
+              <RomaniaFocus />
+              <ResizeWith value={railExpanded} />
+              <ShellMapControls className={cn("absolute bottom-[124px] z-10", BESIDE_INSPECTOR)} />
+              {Layers ? <Layers /> : null}
+            </Map>
 
-        <Inspector mode={mode} className={cn("absolute top-[76px] right-4 bottom-4 z-20", INSPECTOR_W)}>
-          {Panel ? (
-            <Panel />
-          ) : (
-            <p className="px-5 py-4 text-sm leading-relaxed text-text-secondary">{active.blurb}</p>
-          )}
-        </Inspector>
+            {!OWN_LEGEND.has(mode) && !flexShown ? (
+              <LegendCard mode={mode} className="absolute top-[80px] left-4 z-[15]" />
+            ) : null}
 
-        <AgentToast className="absolute bottom-[116px] left-4 z-[25]" />
-        <TimelineDock className={cn("absolute bottom-4 left-4 z-20", BESIDE_INSPECTOR)} />
+            {/* #31/#32: the flexibility panel opens from Feeders and O&M. Closed, its button sits beside
+                the inspector; open, the panel takes the legend's column on the left. */}
+            {hasFlex ? (
+              flexShown ? (
+                <div className="absolute top-[76px] bottom-[116px] left-4 z-[16] w-[380px] max-w-[calc(100%-2rem)] [&>aside]:inset-0">
+                  <FlexDock />
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    "absolute top-[80px] z-[16] [&>button]:static [&>button]:h-9 [&>button]:rounded-xl",
+                    BESIDE_INSPECTOR,
+                  )}
+                >
+                  <FlexDock />
+                </div>
+              )
+            ) : null}
 
-        {offline ? (
-          <span className={cn(PROVENANCE_PILL_CLASS, "absolute bottom-[116px] left-4 z-10 bg-card shadow-card")}>
-            Offline basemap
-          </span>
-        ) : null}
+            <Inspector mode={mode} className={cn("absolute top-[76px] right-4 bottom-4 z-20", INSPECTOR_W)}>
+              {Panel ? (
+                <Panel />
+              ) : (
+                <p className="px-5 py-4 text-sm leading-relaxed text-text-secondary">{active.blurb}</p>
+              )}
+            </Inspector>
+
+            {offline ? (
+              <span className={cn(PROVENANCE_PILL_CLASS, "absolute bottom-[116px] left-4 z-10 bg-card shadow-raised")}>
+                Offline basemap
+              </span>
+            ) : null}
+          </>
+        )}
+
+        {/* One instance each across modes: the dock owns the replay ticker (unmounting it pauses). */}
+        <TopBar mode={mode} onSearch={() => setPaletteOpen(true)} className="absolute inset-x-4 top-3 z-30 h-14" />
+        <AgentToast className={cn("absolute left-4 z-[25]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
+        <TimelineDock
+          compact={Boolean(Page)}
+          className={cn("absolute bottom-4 left-4 z-20", Page ? "right-4 max-w-[1200px]" : BESIDE_INSPECTOR)}
+        />
         <SummaryCard />
       </main>
       <SiteSheet />
       <TurbineSheet />
       <Tour steps={defaultTourSteps} open={tour.open} onOpenChange={tour.onOpenChange} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onTour={tour.start} />
     </div>
   );
 }

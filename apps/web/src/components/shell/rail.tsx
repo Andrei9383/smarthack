@@ -4,9 +4,14 @@ import { cn } from "@sentinel-app/ui/lib/utils";
 import { BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { useSummaryOpen } from "@/demo/demo-jumps";
 import { useOverview } from "@/demo/kpi-strip";
-import { ReplayStatus } from "@/demo/replay-bar";
+import { useReplayPlaying } from "@/demo/replay-bar";
+import { clampStep, clockLabel } from "@/demo/replay";
+import { useReplayStep } from "@/demo/use-replay";
+import { useReviewQueue } from "@/modes/om/use-om-data";
+import { useOverviewFeeders } from "@/modes/overview/use-overview-data";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 import { MODE_COPY } from "./mode-copy";
@@ -19,7 +24,9 @@ function RailItem({
   descriptor,
   onClick,
   shortcut,
+  mark,
 }: {
+  mark?: { kind: StatusKind; label: string } | null;
   active?: boolean;
   expanded: boolean;
   icon: ReactNode;
@@ -42,14 +49,26 @@ function RailItem({
       {active ? (
         <span aria-hidden className="absolute top-3 bottom-3 -left-2 w-[3px] rounded-r-[3px] bg-primary" />
       ) : null}
-      <span className={cn("flex size-5 shrink-0 items-center justify-center", active && "text-primary")}>{icon}</span>
+      <span className={cn("relative flex size-5 shrink-0 items-center justify-center", active && "text-primary")}>
+        {icon}
+        {mark && !expanded ? (
+          <StatusMark kind={mark.kind} size="xs" label={mark.label} className="absolute -top-1 -right-1.5" />
+        ) : null}
+      </span>
       <span
         className={cn(
           "min-w-0 flex-1 leading-tight transition-opacity duration-150",
           expanded ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
-        <b className="block truncate text-[13px] font-semibold text-inherit">{label}</b>
+        <b className="flex items-center gap-1.5 text-[13px] font-semibold text-inherit">
+          <span className="truncate">{label}</span>
+          {mark ? (
+            <span title={mark.label} className="flex shrink-0 items-center">
+              <StatusMark kind={mark.kind} size="xs" label={mark.label} />
+            </span>
+          ) : null}
+        </b>
         <span className={cn("block text-[11px] leading-snug", active ? "text-brand-700" : "text-muted-foreground")}>
           {descriptor}
         </span>
@@ -61,6 +80,43 @@ function RailItem({
       ) : null}
     </button>
   );
+}
+
+/** Quiet replay status for the rail footer: a live LED while playing, the SCADA clock, the run. */
+function RailReplayStatus({ runLabel }: { runLabel?: string }) {
+  const [step] = useReplayStep();
+  const playing = useReplayPlaying();
+  return (
+    <div className="flex min-w-0 items-center gap-2.5 text-xs">
+      <StatusMark kind={playing ? "live" : "unknown"} size="xs" pulse={playing} />
+      <span className="min-w-0 leading-tight">
+        <span className="block truncate font-mono text-[12px] font-medium text-foreground tabular-nums">
+          {clockLabel(clampStep(step))}
+        </span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {playing ? "Replaying the test week" : "Replay paused"}
+          {runLabel ? ` · ${runLabel}` : ""}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/** One glance mark per mode in the rail: what would make you open it right now. */
+function useModeMarks(): Partial<Record<ModeId, { kind: StatusKind; label: string }>> {
+  const feeders = useOverviewFeeders();
+  const { data: review } = useReviewQueue();
+  const over = feeders.filter((f) => f.status === "over").length;
+  const near = feeders.filter((f) => f.status === "near").length;
+  const waiting = (review ?? []).filter((r) => !r.resolved).length;
+  return {
+    feeders: over
+      ? { kind: "critical", label: `${over} feeder${over === 1 ? "" : "s"} over the limit today` }
+      : near
+        ? { kind: "warn", label: `${near} feeder${near === 1 ? "" : "s"} near the limit` }
+        : undefined,
+    om: waiting ? { kind: "review", label: `${waiting} case${waiting === 1 ? "" : "s"} waiting for a person` } : undefined,
+  };
 }
 
 export function Rail({
@@ -79,6 +135,7 @@ export function Rail({
 }) {
   const [summaryOpen, setSummaryOpen] = useSummaryOpen();
   const { label } = useOverview();
+  const marks = useModeMarks();
 
   return (
     <nav
@@ -90,7 +147,7 @@ export function Rail({
       )}
     >
       <div className="mb-2.5 flex h-10 items-center gap-3 pl-1">
-        <span className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary text-primary-foreground">
+        <span className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary text-primary-foreground shadow-brand">
           <Zap aria-hidden className="size-[18px]" />
         </span>
         <span className={cn("min-w-0 leading-tight transition-opacity duration-150", expanded ? "opacity-100" : "opacity-0")}>
@@ -109,6 +166,7 @@ export function Rail({
             icon={<Icon className="size-5" strokeWidth={1.7} />}
             label={modeLabel}
             descriptor={MODE_COPY[id].descriptor}
+            mark={marks[id]}
             onClick={() => {
               setSummaryOpen(false);
               onMode(id);
@@ -133,7 +191,7 @@ export function Rail({
       <div className={cn("flex items-center gap-1.5 border-t border-border pt-2.5", expanded ? "pl-1.5" : "flex-col")}>
         {expanded ? (
           <div className="min-w-0 flex-1">
-            <ReplayStatus runLabel={label} />
+            <RailReplayStatus runLabel={label} />
           </div>
         ) : null}
         <button

@@ -4,6 +4,7 @@ import { cn } from "@sentinel-app/ui/lib/utils";
 import { BatteryCharging, Radio, UserRound, Wrench, X } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { StatusMark } from "@/components/brand/status-mark";
 import { clockLabel } from "@/demo/replay";
 
 import { type ActionKind, type AgentAction, useExplainAction } from "./agent-actions";
@@ -87,12 +88,12 @@ export function AgentToast({ className }: { className?: string }) {
         hideTimer.current = setTimeout(hideAgentToast, 2500);
       }}
       className={cn(
-        "flex w-[420px] max-w-[calc(100%-2rem)] items-start gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-[0_1px_2px_rgb(13_13_13/0.05),0_16px_40px_rgb(13_13_13/0.10)] transition-[opacity,transform] duration-250 ease-out motion-reduce:transition-none",
+        "flex w-[420px] max-w-[calc(100%-2rem)] items-start gap-3 rounded-xl bg-card px-3.5 py-3 shadow-overlay transition-[opacity,transform] duration-250 ease-out motion-reduce:transition-none",
         state ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2.5 opacity-0",
         className,
       )}
     >
-      <span className={cn("grid size-[30px] shrink-0 place-items-center rounded-lg text-primary-foreground", tile)}>
+      <span className={cn("grid size-[30px] shrink-0 place-items-center rounded-lg text-primary-foreground shadow-inset-hi", tile)}>
         <Icon aria-hidden className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
@@ -133,13 +134,7 @@ export function AgentToast({ className }: { className?: string }) {
                     done || busy ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "size-1.5 rounded-full transition-colors duration-200",
-                      done ? "bg-primary" : busy ? "bg-status-forecast motion-safe:animate-pulse" : "bg-border",
-                    )}
-                  />
+                  <StatusMark kind={done ? "ok" : busy ? "live" : "unknown"} size="xs" pulse={busy} />
                   {name}
                 </span>
               </li>

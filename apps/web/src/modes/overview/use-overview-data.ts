@@ -23,6 +23,9 @@ export type FeederState = {
   peakKw: number | undefined;
   baselineMinutes: number | undefined;
   baselinePeakKw: number | undefined;
+  /** Sentinel's own numbers, whichever policy the dock shows (Overview compares the two). */
+  sentinelMinutes: number | undefined;
+  sentinelPeakKw: number | undefined;
   status: "ok" | "near" | "over" | "unknown";
 };
 
@@ -47,6 +50,7 @@ export function useOverviewFeeders() {
         const row = (name: string) => overLimit?.find((r) => r.feederId === feeder.id && r.policy === name);
         const shown = row(policy);
         const baseline = row("baseline");
+        const withAgent = row("sentinel");
         const minutesOver = shown?.minutesOver;
         const peakKw = shown?.peakExportKw;
         const status: FeederState["status"] =
@@ -67,6 +71,8 @@ export function useOverviewFeeders() {
           peakKw,
           baselineMinutes: baseline?.minutesOver,
           baselinePeakKw: baseline?.peakExportKw,
+          sentinelMinutes: withAgent?.minutesOver,
+          sentinelPeakKw: withAgent?.peakExportKw,
           status,
         };
       }),
