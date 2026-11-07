@@ -237,7 +237,7 @@ def _read_years(tdir: Path, years: Sequence[int], cols: Sequence[str]) -> pl.Dat
 
 def find_fleet_dirs(root: Optional[Path] = None) -> tuple[Path, Optional[Path]]:
     """(clean fleet dir, fault-injected dir or None). $SENTINEL_FLEET / $SENTINEL_FAULTS, else the dirs named in
-    #10's window cache index (the data the models were trained on), else the newest fleet-* in the cache."""
+    #10's window cache index (the data the models were trained on; built if missing), else the newest fleet-*."""
     if root is not None:
         root = Path(root)
         mf = root / "manifest.json"
@@ -247,9 +247,9 @@ def find_fleet_dirs(root: Optional[Path] = None) -> tuple[Path, Optional[Path]]:
     if os.environ.get("SENTINEL_FLEET"):
         f = os.environ.get("SENTINEL_FAULTS")
         return Path(os.environ["SENTINEL_FLEET"]), Path(f) if f else None
-    from sentinel.model.data import find_lab_windows
+    from sentinel.model.data import build_lab_windows, find_lab_windows
 
-    w = find_lab_windows()
+    w = find_lab_windows() or build_lab_windows()  # fresh worker: fleet + faults + windows, same as training
     if w is not None:
         key = json.loads((w / "index.json").read_text()).get("source_key", {})
         fleet, faults = w.parent / key.get("fleet", "-"), w.parent / key.get("faults", "-")
@@ -374,9 +374,14 @@ def model_forecasts_kw(pf: Portfolio, windows: Optional[Path] = None, model_dir:
     computed over whole UTC days of #10's window cache exactly like the replay's ModelBank. NaN = no output."""
     from types import SimpleNamespace
 
-    from sentinel.agent.predictors import FleetSlice, ModelBank, _members, find_windows, models_dir
+    from sentinel.agent.predictors import FleetSlice, ModelBank, _members, models_dir
+    from sentinel.agent.world import find_windows
 
     root = Path(windows) if windows else find_windows()
+    if root is None:  # fresh worker: build #10's cache (fleet + faults + windows, several minutes)
+        from sentinel.model.data import build_lab_windows
+
+        root = build_lab_windows()
     if root is None:
         raise FileNotFoundError("no #10 window cache ($SENTINEL_WINDOWS or ~/.cache/sentinel/data-v{N}/windows)")
     idx = json.loads((root / "index.json").read_text())
@@ -443,6 +448,7 @@ def forecast_only_site_kw(pf: Portfolio, raw: Optional[dict[str, np.ndarray]] = 
     smart_or_any = np.isfinite(net)
     fb = persistence_site_kw(pf) if fallback is None else fallback
     info = {"model_coverage": float(smart_or_any.mean())}
+    print(f"LAB_METRIC forecast_only_model_coverage={info['model_coverage']:.4f}", flush=True)
     return np.where(smart_or_any, net, fb), info
 
 
