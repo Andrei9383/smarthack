@@ -167,7 +167,7 @@ class _LedgerAdapter:
 
     def __init__(self, obj: Any, fallback: PriorLedger):
         self.obj, self.fallback = obj, fallback
-        self.version = f"real:sentinel.judge.ledger.{type(obj).__name__}"
+        self.version = getattr(obj, "version", None) or f"real:sentinel.judge.ledger.{type(obj).__name__}"
         self.errors = 0
 
     def lookup(self, model, model_version, score_name, bucket, day=None) -> dict[str, Any]:
@@ -393,10 +393,11 @@ class JudgeSlot:
     @property
     def source(self) -> str:
         led = getattr(self.ledger, "version", None) or "ledger chosen per run"
-        if self.judge is not None:
-            return f"real:sentinel.judge.model {self.thresholds.judge_version}"
-        return f"ledger-only ({self.model_status}); {led}; grader " + \
-            ("real:sentinel.judge.grader.grade_loop_day" if self.grader else "absent")
+        gr = (getattr(self.grader, "version", None) or "real:sentinel.judge.grader.grade_loop_day") if self.grader \
+            else "absent"
+        head = f"real:sentinel.judge.model {self.thresholds.judge_version}" if self.judge is not None else \
+            f"ledger-only ({self.model_status})"
+        return f"{head}; {led}; grader {gr}"
 
     def _reset(self) -> None:
         self.run_id = "local"
@@ -756,7 +757,7 @@ class JudgeSlot:
     def _write(self, d: int, judged: pd.DataFrame) -> None:
         if judged is None or judged.empty:
             return
-        self.counts.update(judged["verdict"].to_list())
+        self.counts.update(str(v) for v in judged["verdict"])
         self.counts.update(f"rule:{r}" for r in judged["rule"])
         self.day_rows[d] = pd.concat([self.day_rows[d], judged]) if d in self.day_rows else judged
         if "judge_verdicts" in self.tables:

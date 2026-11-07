@@ -259,7 +259,7 @@ def test_replay_judge_check_and_tables(tmp_path):
     n = con.execute("select count(*) from judge_verdicts").fetchone()[0]
     assert n > 0 and con.execute("select count(*) from trust").fetchone()[0] > 0
     notes = json.loads(con.execute("select notes from runs where policy='sentinel'").fetchone()[0])
-    assert notes["judge"]["mode"] == "ledger-only" and notes["judge"]["verdicts"]["use"] == n
+    assert notes["judge"]["mode"] == "ledger-only" and sum(notes["judge"]["verdicts"].get(v, 0) for v in ("use", "widen", "dont_use")) == n
     assert "judge" not in notes["fallbacks"]
     con.close()
 
@@ -270,3 +270,21 @@ def test_db_without_judge_tables_still_replays(tmp_path):
                  schema_dir=tmp_path / "no-drizzle", force_fallback=True, print_metrics=False, strict=True)
     s = rep.results["sentinel"].judge
     assert set(s["tables_missing"]) == {"judge_verdicts", "trust", "outcomes"} and s["verdicts"]["use"] > 0
+
+
+def test_with_the_j1_grader_and_j2_ledger_outcomes_feed_trust(tmp_path):
+    """Once #146 (grader) and #147 (ledger) are in: outcomes are written and graded evidence reaches the verdicts,
+    still without changing a decision."""
+    grader = pytest.importorskip("sentinel.judge.grader")
+    ledger = pytest.importorskip("sentinel.judge.ledger")
+    if not (hasattr(grader, "grade") and hasattr(ledger, "Ledger")):
+        pytest.skip("J1 / J2 APIs not merged")
+    rep = replay(["sentinel"], tmp_path / "g.sqlite", world=MockWorld(days=3, scale=0.3), force_fallback=True,
+                 print_metrics=False, strict=True, judge_check=True)
+    assert rep.judge_check["identical"]
+    import sqlite3
+
+    con = sqlite3.connect(rep.out)
+    assert con.execute("select count(*) from outcomes where bucket is not null").fetchone()[0] > 0
+    assert con.execute("select max(n_eff) from judge_verdicts").fetchone()[0] > 0  # evidence reached day 2+
+    con.close()
