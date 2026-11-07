@@ -98,7 +98,7 @@ function Legend({ items }: { items: LegendItem[] }) {
 }
 
 const SECTION_LABEL =
-  "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
+  "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return <h3 className={SECTION_LABEL}>{children}</h3>;
@@ -331,7 +331,7 @@ function SiteView({ assetId }: { assetId: string }) {
       <div className="flex flex-col px-5 pt-4 pb-6">
         {/* The one sentence: what this home's owner is told right now. */}
         <section className="border-l-2 border-brand-500 pl-3">
-          <h3 className="text-[11px] font-semibold tracking-[0.04em] text-brand-700 uppercase">
+          <h3 className="text-[11px] font-semibold tracking-[0.06em] text-brand-700 uppercase">
             What the customer sees
           </h3>
           <p className="mt-0.5 text-[14px] leading-snug text-foreground">{tip}</p>

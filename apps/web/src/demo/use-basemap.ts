@@ -3,20 +3,23 @@ import type { StyleSpecification } from "maplibre-gl";
 import { parseAsBoolean, useQueryState } from "nuqs";
 import { useEffect, useState } from "react";
 
-import { BASEMAP } from "./colors";
+import { themeName } from "@/lib/palette";
 
+import { basemapFor } from "./colors";
+
+// The probe only checks that CARTO is reachable; <Map> picks Positron (light) or dark-matter (dark) itself.
 const ONLINE_STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const PROBE_TIMEOUT_MS = 8000; // Long on purpose: a busy page must not look like an outage.
 
 // With no internet the style is just the sea; useRomaniaFocus draws the committed Natural Earth
 // countries and Romanian counties on top, so the demo still shows Romania.
-const OFFLINE_STYLE: StyleSpecification = {
+const offlineStyle = (sea: string): StyleSpecification => ({
   version: 8,
   sources: {},
-  layers: [{ id: "sea", type: "background", paint: { "background-color": BASEMAP.sea } }],
-};
+  layers: [{ id: "sea", type: "background", paint: { "background-color": sea } }],
+});
 
-const OFFLINE_STYLES = { dark: OFFLINE_STYLE, light: OFFLINE_STYLE };
+const OFFLINE_STYLES = { dark: offlineStyle(basemapFor("dark").sea), light: offlineStyle(basemapFor("light").sea) };
 
 // Returns the styles for <Map>: undefined = its default online basemap. ?offline=1 forces offline.
 export function useBasemapStyles() {
@@ -46,13 +49,14 @@ export function useBasemapStyles() {
 const FOCUS_LAYERS = ["focus-land", "focus-counties", "focus-borders", "focus-border-ro"] as const;
 const FOCUS_SOURCES = ["focus-countries", "focus-counties"] as const;
 
-// Makes Romania the subject on either basemap: Romanian land white, neighbours grey, county lines
+// Makes Romania the subject on either basemap: Romanian land a step above its neighbours, county lines
 // faint and Romania's border a touch darker. Call it from a component rendered inside <Map>.
 export function useRomaniaFocus() {
-  const { map, isLoaded } = useMap();
+  const { map, isLoaded, resolvedTheme } = useMap();
 
   useEffect(() => {
     if (!map || !isLoaded) return;
+    const BASEMAP = basemapFor(themeName(resolvedTheme));
     const layers = map.getStyle().layers ?? [];
     // Fills go right above the background (under water, roads, labels); lines go under labels.
     const aboveBackground = layers.find((layer) => layer.type !== "background")?.id;
@@ -121,5 +125,5 @@ export function useRomaniaFocus() {
         // The map was already torn down (basemap switch remounts it).
       }
     };
-  }, [map, isLoaded]);
+  }, [map, isLoaded, resolvedTheme]);
 }
