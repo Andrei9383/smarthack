@@ -347,8 +347,7 @@ def run(argv=None):
         stats = F.fit_stats(probe)
         dims = {k: probe[0][k].shape[-1] for k in ("seq", "summ", "stat")}
         # class priors: natural (uniform windows) vs our sampling mix -> logit adjustment at inference
-        nat = np.concatenate([make_inputs(src, tr_s[i], np.maximum(tr_d[i] * H + rng.integers(0, H, len(i)) - H + 1,
-                                                                   F.HIST_DAYS * H), m1, m2)[2]
+        nat = np.concatenate([make_inputs(src, tr_s[i], np.clip(tr_d[i] * H + rng.integers(0, H, len(i)), lo, hi) - H + 1, m1, m2)[2]
                               for i in [rng.integers(0, len(tr_s), 4096) for _ in range(3)]])
         mix = np.concatenate([make_inputs(src, *sample_train(4096), m1, m2, aug)[2] for _ in range(3)])
         p_nat = (np.bincount(nat, minlength=N_CLS) + 1) / (len(nat) + N_CLS)
