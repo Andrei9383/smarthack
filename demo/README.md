@@ -102,5 +102,5 @@ Minutes alone mislead: on Mon the LP trades a few more steps just over the limit
 Earlier runs: 322 (interim weights, LP fallback on 10 days) 2880 min / P10 83.4 %; 380 (interim weights, LP fixed)
 2565 min / P10 82.2 % / 15.0 %; 506 = fleet-trained weights + conformal commitment + #24 WindMon baseline.
 
-Reproduce: build the caches (commands above, ~6 min), then the replay (~20 s). `make replay REPLAY_WORLD=sim` still
-uses the old `SENTINEL_DATA` fleet path; use the command above until #35 updates the Makefile.
+Reproduce: `make replay-demo` builds the caches in `.lab-out/reproduce/` (~6 min) and runs replay#506's commands
+(~20 s); its KPIs match #506. It refuses to overwrite `demo/sentinel.sqlite` unless `PROMOTE=1`.
