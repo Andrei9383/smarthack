@@ -17,23 +17,48 @@ import { ChartTooltip } from "@/components/charts/tooltip";
 import { XAxis } from "@/components/charts/x-axis";
 import { timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
-import { STATUS_COLORS } from "@/panels/site/site-sheet";
 import { dayName, wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
+import { OM_COLORS } from "./colors";
 import { ParkReport } from "./park-report";
 import { useOmAssets, useReplayTs } from "./use-om-data";
 import { useSelectedTurbine } from "./use-om-state";
 
 const KMH_PER_MS = 3.6;
-const MEASURED = "#f8fafc";
-const EXPECTED = "#38bdf8";
-const FAULTY = "#ef4444";
+const MEASURED = OM_COLORS.actual;
+const EXPECTED = OM_COLORS.forecast;
+const FAULTY = OM_COLORS.critical;
+const GRID = OM_COLORS.grid;
 const RESIDUALS = [
-  { key: "gearbox", label: "Gearbox", color: "#f59e0b" },
-  { key: "gen", label: "Generator", color: "#a78bfa" },
-  { key: "conv", label: "Converter", color: "#2dd4bf" },
+  {
+    key: "gearbox",
+    label: "Gearbox",
+    color: OM_COLORS.warn,
+    swatch: "border-status-warn",
+  },
+  {
+    key: "gen",
+    label: "Generator",
+    color: OM_COLORS.soc,
+    swatch: "border-status-soc",
+  },
+  {
+    key: "conv",
+    label: "Converter",
+    color: OM_COLORS.ok,
+    swatch: "border-status-ok",
+  },
 ] as const;
+const SECTION_LABEL =
+  "text-[11px] font-medium tracking-[.04em] text-muted-foreground uppercase";
+// an excluded turbine is stopped (red)
+const STATUS_TEXT: Record<string, string> = {
+  eligible: "text-status-ok",
+  derated: "text-status-warn",
+  human_review: "text-status-review",
+  excluded: "text-status-critical",
+};
 const CHART_MARGIN = { left: 8, right: 8, top: 8, bottom: 24 };
 
 function parseJson(
@@ -56,7 +81,7 @@ export function TurbineSheet() {
     >
       <SheetContent
         side="right"
-        className="w-full gap-0 overflow-y-auto data-[side=right]:sm:max-w-md"
+        className="w-full gap-0 overflow-y-auto border-l border-border bg-card text-foreground shadow-card data-[side=right]:sm:max-w-md"
       >
         {turbine ? <TurbineView assetId={turbine} /> : null}
       </SheetContent>
@@ -78,7 +103,7 @@ function PowerCurve({
 }) {
   const W = 400;
   const H = 200;
-  const pad = { l: 34, r: 8, t: 8, b: 22 };
+  const pad = { l: 42, r: 8, t: 8, b: 22 };
   const maxV = 25;
   const maxP = Math.max(ratedKw, ...points.map((p) => p.actPwtKw)) * 1.05 || 1;
   const x = (ms: number) =>
@@ -94,10 +119,19 @@ function PowerCurve({
     b.n += 1;
     bins.set(bin, b);
   }
-  const curve = [...bins.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([v, b]) => `${x(v)},${y(b.sum / b.n)}`)
-    .join(" ");
+  const sorted = [...bins.entries()].sort((a, b) => a[0] - b[0]);
+  const curve = sorted.map(([v, b]) => `${x(v)},${y(b.sum / b.n)}`).join(" ");
+  // anomaly band: the zone the dots turn red in (below half of expected, where expected > 20 % rated)
+  const band = sorted.filter(([, b]) => b.sum / b.n > 0.2 * ratedKw);
+  const bandPath = band.length
+    ? [
+        ...band.map(([v, b]) => `${x(v)},${y((0.5 * b.sum) / b.n)}`),
+        ...band
+          .slice()
+          .reverse()
+          .map(([v]) => `${x(v)},${y(0)}`),
+      ].join(" ")
+    : "";
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
@@ -105,6 +139,9 @@ function PowerCurve({
       role="img"
       aria-label="Power curve scatter"
     >
+      {bandPath ? (
+        <polygon points={bandPath} fill={FAULTY} fillOpacity={0.08} />
+      ) : null}
       {[0, 0.5, 1].map((f) => (
         <g key={f}>
           <line
@@ -112,16 +149,14 @@ function PowerCurve({
             x2={W - pad.r}
             y1={y(maxP * f)}
             y2={y(maxP * f)}
-            stroke="currentColor"
-            opacity={0.1}
+            stroke={GRID}
           />
           <text
-            x={pad.l - 4}
-            y={y(maxP * f) + 3}
+            x={pad.l - 6}
+            y={y(maxP * f) + 4}
             textAnchor="end"
-            fontSize={9}
-            fill="currentColor"
-            opacity={0.6}
+            fontSize={11}
+            className="fill-muted-foreground tabular-nums"
           >
             {Math.round((maxP * f) / 100) / 10} MW
           </text>
@@ -131,11 +166,10 @@ function PowerCurve({
         <text
           key={v}
           x={x(v)}
-          y={H - 6}
+          y={H - 4}
           textAnchor="middle"
-          fontSize={9}
-          fill="currentColor"
-          opacity={0.6}
+          fontSize={11}
+          className="fill-muted-foreground tabular-nums"
         >
           {v}
         </text>
@@ -151,9 +185,9 @@ function PowerCurve({
             key={i}
             cx={x(ms)}
             cy={y(p.actPwtKw)}
-            r={1.6}
+            r={short ? 1.9 : 1.6}
             fill={short ? FAULTY : MEASURED}
-            opacity={short ? 0.9 : 0.35}
+            opacity={short ? 0.9 : 0.28}
           />
         );
       })}
@@ -163,6 +197,9 @@ function PowerCurve({
           fill="none"
           stroke={EXPECTED}
           strokeWidth={2}
+          strokeDasharray="5 4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       ) : null}
     </svg>
@@ -221,34 +258,33 @@ function TurbineView({ assetId }: { assetId: string }) {
 
   return (
     <>
-      <SheetHeader className="border-b">
-        <SheetTitle className="text-base">Turbine {assetId}</SheetTitle>
-        <SheetDescription>
+      <SheetHeader className="gap-1 border-b border-border px-5 pt-5 pb-4">
+        <SheetTitle className="text-base font-semibold text-foreground">
+          Turbine {assetId}
+        </SheetTitle>
+        <SheetDescription className="text-xs text-muted-foreground tabular-nums">
           {d
             ? `${d.turbineModel ?? "turbine"} · ${((d.ratedKw ?? 0) / 1000).toFixed(1)} MW · park ${parkId}`
             : "Loading…"}
           {run.data ? (
-            <span className="ml-1 font-medium text-amber-400">
-              · {run.data.label}
-            </span>
+            <>
+              {" "}
+              ·{" "}
+              <span className="inline-flex items-center gap-1 rounded-full border border-status-warn/30 bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-foreground">
+                <span className="inline-block size-1.5 rounded-full bg-status-warn" />
+                {run.data.label}
+              </span>
+            </>
           ) : null}
         </SheetDescription>
       </SheetHeader>
 
-      <div className="flex flex-col gap-4 p-4">
-        <div className="grid grid-cols-3 gap-2 rounded border p-2 text-xs">
+      <div className="flex flex-col gap-6 p-5">
+        <div className="grid grid-cols-3 gap-3 rounded-lg border border-border bg-sidebar p-3 text-xs">
           <div>
-            <div className="text-muted-foreground">
-              Status at {timeLabel(step)}
-            </div>
+            <div className={SECTION_LABEL}>Status at {timeLabel(step)}</div>
             <div
-              className="text-sm font-semibold"
-              style={{
-                color:
-                  asset?.status === "excluded"
-                    ? FAULTY
-                    : STATUS_COLORS[asset?.status ?? ""],
-              }}
+              className={`mt-1 text-sm font-semibold ${STATUS_TEXT[asset?.status ?? ""] ?? "text-foreground"}`}
             >
               {asset?.status === "excluded"
                 ? "stopped"
@@ -256,16 +292,16 @@ function TurbineView({ assetId }: { assetId: string }) {
             </div>
           </div>
           <div>
-            <div className="text-muted-foreground">Reason</div>
-            <div className="text-sm font-semibold">
+            <div className={SECTION_LABEL}>Reason</div>
+            <div className="mt-1 text-sm font-semibold text-foreground">
               {asset?.reason.replaceAll("_", " ") ?? "—"}
             </div>
           </div>
           <div>
-            <div className="text-muted-foreground">Risk score</div>
+            <div className={SECTION_LABEL}>Risk score</div>
             {/* M7 (component failure risk) is OPTIONAL and has not shipped: show the trend only (R12) */}
             <div
-              className="text-sm font-semibold text-muted-foreground"
+              className="mt-1 text-sm font-semibold text-muted-foreground"
               title="M7 not in this run"
             >
               n/a
@@ -274,19 +310,21 @@ function TurbineView({ assetId }: { assetId: string }) {
         </div>
 
         {order ? (
-          <section className="rounded border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-amber-400">
+          <section className="rounded-lg border border-border bg-card p-4 text-xs shadow-card">
+            <div className="flex items-center justify-between gap-2">
+              <span className="rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
                 {order.fault?.replaceAll("_", " ") ?? "anomaly"}
               </span>
-              <span className="rounded bg-muted px-1.5 py-0.5">
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap tabular-nums ${order.action === "truck" ? "bg-primary text-primary-foreground" : "bg-brand-50 text-brand-900"}`}
+              >
                 {order.action === "remote_check"
                   ? "remote check"
                   : order.action}
                 {order.daysToVisit != null ? ` · ≤ ${order.daysToVisit} d` : ""}
               </span>
             </div>
-            <p className="mt-1">
+            <p className="mt-2 text-[13px] text-foreground tabular-nums">
               Confidence {Math.round(order.confidence * 100)}%
               {order.lostKwhDay
                 ? ` · ${(order.lostKwhDay / 1000).toFixed(1)} MWh/day lost`
@@ -296,13 +334,21 @@ function TurbineView({ assetId }: { assetId: string }) {
                 : ""}
               {order.mwAtRisk ? ` · ${order.mwAtRisk} MW at risk` : ""}
             </p>
-            {typeof evidence?.evidence === "string" ? (
-              <p className="mt-1 text-muted-foreground">
-                Evidence: {evidence.evidence}
-              </p>
-            ) : null}
-            {typeof evidence?.note === "string" ? (
-              <p className="mt-1 text-muted-foreground">{evidence.note}</p>
+            {typeof evidence?.evidence === "string" ||
+            typeof evidence?.note === "string" ? (
+              <div className="mt-3 space-y-1 border-t border-border pt-3">
+                <div className={SECTION_LABEL}>Why this decision</div>
+                {typeof evidence?.evidence === "string" ? (
+                  <p className="leading-relaxed text-text-secondary">
+                    Evidence: {evidence.evidence}
+                  </p>
+                ) : null}
+                {typeof evidence?.note === "string" ? (
+                  <p className="leading-relaxed text-text-secondary">
+                    {evidence.note}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </section>
         ) : (
@@ -312,10 +358,13 @@ function TurbineView({ assetId }: { assetId: string }) {
         )}
 
         {turbineAlerts.length ? (
-          <ul className="space-y-1 text-xs">
+          <ul className="space-y-1.5 text-xs">
             {turbineAlerts.map((a) => (
-              <li key={a.actionId} className="rounded border p-2">
-                <span className="font-medium">
+              <li
+                key={a.actionId}
+                className="rounded-lg border border-border p-2.5"
+              >
+                <span className="font-semibold text-foreground">
                   {a.code.replaceAll("_", " ")}
                 </span>
                 {a.createsWorkOrder ? (
@@ -325,36 +374,27 @@ function TurbineView({ assetId }: { assetId: string }) {
                     · logged, no work order
                   </span>
                 )}
-                <div className="text-muted-foreground">{a.message}</div>
+                <div className="mt-0.5 text-text-secondary">{a.message}</div>
               </li>
             ))}
           </ul>
         ) : null}
 
-        <section className="space-y-1">
-          <h3 className="text-sm font-medium">
+        <section className="space-y-2">
+          <h3 className={SECTION_LABEL}>
             Power curve: measured vs expected (wind m/s)
           </h3>
-          <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <span
-                className="inline-block size-2 rounded-full"
-                style={{ background: MEASURED }}
-              />{" "}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block size-2 rounded-full bg-status-actual" />{" "}
               Measured, 15 min
             </span>
-            <span className="flex items-center gap-1">
-              <span
-                className="inline-block w-3 border-t-2"
-                style={{ borderColor: EXPECTED }}
-              />{" "}
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-4 border-t-2 border-dashed border-status-forecast" />{" "}
               Expected (M6 P50)
             </span>
-            <span className="flex items-center gap-1">
-              <span
-                className="inline-block size-2 rounded-full"
-                style={{ background: FAULTY }}
-              />{" "}
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block size-2 rounded-full bg-status-critical" />{" "}
               Below half of expected
             </span>
           </div>
@@ -367,17 +407,14 @@ function TurbineView({ assetId }: { assetId: string }) {
           )}
         </section>
 
-        <section className="space-y-1">
-          <h3 className="text-sm font-medium">
+        <section className="space-y-2">
+          <h3 className={SECTION_LABEL}>
             Temperature residual vs ambient (°C), up to {dayName(nowTs)}
           </h3>
-          <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
             {RESIDUALS.map((r) => (
-              <span key={r.key} className="flex items-center gap-1">
-                <span
-                  className="inline-block w-3 border-t-2"
-                  style={{ borderColor: r.color }}
-                />
+              <span key={r.key} className="flex items-center gap-1.5">
+                <span className={`inline-block w-4 border-t-2 ${r.swatch}`} />
                 {r.label}
               </span>
             ))}
@@ -410,7 +447,7 @@ function TurbineView({ assetId }: { assetId: string }) {
           ) : null}
           {drift != null ? (
             <p
-              className={`text-xs ${drift > 3 ? "text-amber-400" : "text-muted-foreground"}`}
+              className={`text-xs tabular-nums ${drift > 3 ? "font-medium text-status-warn" : "text-muted-foreground"}`}
             >
               Gearbox vs converter: {drift >= 0 ? "+" : ""}
               {drift.toFixed(1)} °C since the first day
