@@ -20,10 +20,13 @@ npm ci && npm run build && npm start           # the app on http://localhost:300
 | Residential O&M | Daily top-K work orders ranked by lost kWh and lost flexibility; "not sure" cases go to a human |
 | Supply / trading | Hourly committed prosumer flexibility (P10) with a delivery record |
 
-**Headline results (test year 2025, details and run IDs in [Results](#results)):** PVNet nMAE 0.118 vs pvlib 0.159
-(synthetic RO) · LoadNet 0.20 vs persistence 0.35 (synthetic RO) · SiteHealth fault PR-AUC 0.63 vs rule 0.22
-(synthetic RO) · DemandNet 0.039 vs persistence 0.067 on **real Romanian national load** · feeder replay KPIs:
-pending (#29).
+**Headline results (test year 2025, details and run IDs in [Results](#results)):** feeder replay: minutes over the
+export limit 6645 → 1905, energy over it 1397 → 94.5 kWh, P10 hit rate 92.0 %, 0 comfort breaches (synthetic RO,
+replay#506) · PVNet nMAE 0.015 / 0.036 on seen / unseen sites vs LightGBM 0.041 / 0.045 and pvlib 0.083 / 0.093
+(synthetic RO, eval#521) · SiteHealth fault PR-AUC 0.73 / 0.56 vs threshold + CUSUM 0.49 / 0.40 (synthetic RO,
+eval#521) · WindNBM precision 0.89, recall 0.91 vs WindMon 0.84 / 0.75 (synthetic RO, train#302/303) · DemandNet
+0.039 vs persistence 0.067 on **real Romanian national load** (`make demand`) · on real US PV (PVDAQ, non-RO) PVNet
+is only 14 % better than pvlib (eval#521).
 
 ---
 
@@ -68,9 +71,9 @@ The mode is in the URL (`?mode=feeders`), so a reviewer can be sent straight to 
 | Mode | Shows | Status |
 |---|---|---|
 | **Feeders** (rețea) | Feeders coloured by export vs limit, baseline/Sentinel toggle, nominal / available / committed / realised | on main (#19, #53) |
-| **O&M** (mentenanță) | Sites and turbines by status, alert + work-order queue, human-review queue, audit trail | pending (#32) |
+| **O&M** (mentenanță) | Sites and turbines by status, alert + work-order queue, human-review queue, audit trail | on main (#32) |
 | **Production** (producție) | Wind particles from the real ERA5 100 m wind field, parks and counties by expected MWh | on main (#39, #55, #59) |
-| **Demand** (cerere) | Zones by peak-stress score, peak hour, P50 with P10–P90 band | pending (#40) |
+| **Demand** (cerere) | Zones by peak-stress score, peak hour, P50 with P10–P90 band | on main (#40) |
 
 The app reads `demo/sentinel.sqlite` (the promoted replay, #29), else `demo/fixtures.sqlite` (mock week from
 `python3 demo/fixtures/make_fixtures.py`, labelled synthetic), else an empty in-memory DB. It never runs Python,
@@ -85,19 +88,20 @@ external API). Each one has a fallback, so a missing model degrades a panel, nev
 
 | # | Model | Question | Architecture | Tier | Status | Fallback |
 |---|---|---|---|---|---|---|
-| M1 | PVNet | What should this PV system produce? | PatchTST-style encoder, 0.29 M params, weather + solar geometry + the site's own past-power reference window | MUST | trained, 4-seed ensemble (#14) | LightGBM quantile (#15) |
-| M2 | LoadNet | What will this household consume? | same encoder, separate weights, 0.21 M params | MUST | trained, 4 seeds (#14) | persistence |
-| M4 | SiteHealth | Is this prosumer site healthy? | 1D-CNN on M1/M2 residuals + telemetry + 14-day summary, focal loss, 8 classes, 56 k params | MUST | trained (#14) | threshold rule + CUSUM (#15) |
-| M6 | WindNBM | Is this turbine behaving normally? | GRU normal-behaviour model (power + component temps) + LightGBM classifier on residuals and park context, 0.13 M params | SHOULD | trained, best run #135 on RTX 5070 (#41) | WindMon rules (#24) |
+| M1 | PVNet | What should this PV system produce? | PatchTST-style encoder, 0.29 M params, weather + solar geometry + the site's own past-power reference window | MUST | trained on the #11 fleet, 4-seed ensemble (#14 train#383–386), in `models/` | LightGBM quantile (#15) |
+| M2 | LoadNet | What will this household consume? | same encoder, separate weights, 0.21 M params | MUST | trained, 4 seeds (#14 train#387–390), in `models/` | persistence |
+| M4 | SiteHealth | Is this prosumer site healthy? | 1D-CNN on M1/M2 residuals + telemetry + 14-day summary, focal loss, 8 classes, 56 k params | MUST | trained (#14 train#391), in `models/` | threshold rule + CUSUM (#15) |
+| M6 | WindNBM | Is this turbine behaving normally? | GRU normal-behaviour model (power + component temps) + LightGBM classifier on residuals and park context, 0.13 M params | SHOULD | in `models/`: #41 run 135 (stand-in wind data); evaluated on #22 parks in #70 (train#300–303) | WindMon rules (#24) |
 | M3 | DemandNet | Where and when will demand peak? | v1 sum of LoadNet scenarios per zone; v2 LightGBM quantile per county | SHOULD | on main (#44) | persistence |
-| M8 | GridTwin | Is the GIS feeder/phase right? | voltage correlation + spectral clustering | SHOULD | pending (#13) | GIS as-is (τ = 1) |
-| M5 | WindPower | What will each park produce? | probabilistic power-curve MLP | OPTIONAL | pending (#42) | binned empirical curve |
-| M7 | WindFailure | Will a component fail soon? | LightGBM on daily M6 residuals | OPTIONAL | pending (#43) | residual trend, no score |
+| M8 | GridTwin | Is the GIS feeder/phase right? | voltage correlation + spectral clustering | SHOULD | on main (#13) | GIS as-is (τ = 1) |
+| M5 | WindPower | What will each park produce? | probabilistic power-curve MLP | OPTIONAL | experiment, not merged (#42) | binned empirical curve |
+| M7 | WindFailure | Will a component fail soon? | LightGBM on daily M6 residuals | OPTIONAL | in review, not merged (#43) | residual trend, no score |
 
 Not ML: the per-feeder LP, the P10 rollout and the qualification rules.
 
-Model code reaches `main` when its config is chosen (plan R17): `train.py` + `sentinel/model/` come with #14,
-`sentinel/model/wind/` with #41, the promoted ONNX weights in `models/` with #29.
+Model code reaches `main` when its config is chosen (plan R17): `train.py` + `sentinel/model/` came with #14,
+`sentinel/model/wind/` with #41, the promoted ONNX weights in `models/` with #29 (runs listed in
+[models/README.md](models/README.md)).
 
 ### Training
 
@@ -157,42 +161,52 @@ Data can be re-downloaded with `python -m sentinel.data.download` (no keys; `--o
 
 Every number carries a label: **synthetic RO** (our simulator, driven by real Romanian weather), **real RO**
 (measured Romanian data) or **non-RO** (validation only, never trained on). Splits: train 2022–23, validation 2024,
-test 2025, 30 % of sites never seen in training; thresholds frozen on validation. Run IDs are lab runs; the numbers
-are the ones reported on the cards.
+test 2025, 30 % of sites never seen in training; thresholds frozen on validation. Each row names the lab run it
+comes from and the make target that regenerates it. The full claim list with targets and misses is
+[team/results.md](team/results.md).
 
-| Claim | Model | Baselines (same test split) | Label | Source |
+| Claim | Ours | Baselines (same test split) | Label | Source |
 |---|---|---|---|---|
-| PV nowcast nMAE | **0.118 ± 0.001** (4 seeds), 10–90 coverage 0.79–0.80 | pvlib on recorded metadata 0.159 (−26 %), pvlib rescaled 0.137, persistence 0.53 | synthetic RO | train #120–#123 (#14) |
-| PV day-ahead forecast nMAE | **0.227** | pvlib 0.316 | synthetic RO | train #125 (#14) |
-| Household load nMAE | **0.20**, coverage 0.80 | persistence (yesterday) 0.35 (−42 %) | synthetic RO | train #126–#129 (#14) |
-| Site fault detection | **PR-AUC 0.63**; 81 % of faults detected within 72 h, mean 25.8 h | threshold rule 0.22 / CUSUM 0.21 PR-AUC; 29 % / 46 % detected within 72 h | synthetic RO | train #131 (#14) |
-| Wind anomalies (held-out park WP2, test 2025) | precision **0.854**, recall **0.819**, 0.101 alerts / turbine-day, curtailment-vs-fault F1 **0.764** (171/171 stops caught, 2/990 curtailments called faults) | WindMon rules: 0.530 / 0.440 / 0.114 / F1 0.318 | synthetic RO | train #135 (#41) |
+| Feeder export peak shaving (5 feeders × 7 days, June 2025) | minutes over limit **1905**, energy over limit **94.5 kWh**, worst overshoot **10.6 kW**; peak reduction 19.1 % (24.1 % on congested feeder-days) | self-consumption rule: 6645 min, 1397 kWh, 29.1 kW | synthetic RO + real OPCOM prices | replay#506 (#29), `make replay-demo` |
+| P10 commitment hit rate | **92.0 %** of feeder-steps (1845 kWh committed, 16 kWh short) | — | synthetic RO | replay#506, `make replay-demo` |
+| Comfort reserve; customer value | **0** comfort breaches; **23.73 lei/home/month** saved, net of battery wear | default rule: 1165 breaches | synthetic RO + real OPCOM prices | replay#506, `make replay-demo` |
+| Wind alerts in the demo week (park WP01, 70 turbines) | **0.114** alerts / turbine-day | WindMon rules (#24): 0.698 (not de-duplicated) | synthetic RO | replay#506, `make replay-demo` |
+| PV nowcast nMAE, seen / unseen sites | **0.015 / 0.036**; 10–90 coverage 0.88 / 0.61 | LightGBM 0.041 / 0.045, pvlib 0.083 / 0.093, persistence 0.279 / 0.261 | synthetic RO | eval#521 (#110), `make eval` |
+| PV nowcast on real systems | **0.268**; 10–90 coverage 0.10 | LightGBM 0.283, pvlib 0.312 (−14 %), persistence 0.538 | non-RO (NREL PVDAQ) | eval#521, `make eval` |
+| Household load nMAE, seen / unseen sites | **0.246 / 0.285** (a tie with LightGBM, no win claimed) | LightGBM 0.256 / 0.284, persistence (yesterday) 0.361 / 0.390 | synthetic RO | eval#521, `make eval` |
+| Site fault detection | **PR-AUC 0.73 / 0.56** (seen / unseen); 97.5 % of 40 fault episodes found, median 21.5 h to detect. PVDAQ + injected faults: PR-AUC 0.43 | threshold rule + CUSUM: 0.49 / 0.40; 40 % found, median 35.9 h. PVDAQ + injected: 0.32 | synthetic RO; non-RO (PVDAQ + injected) | eval#521, `make eval` |
+| Wind anomalies (held-out park WP2, test 2025) | precision **0.89**, recall **0.91**, 0.074 alerts / turbine-day, curtailment-vs-fault F1 0.62 (label-free normal selection, mean of 2 seeds) | WindMon rules: 0.84 / 0.75 / 0.077 (0.142 before de-duplication) / F1 0.39 | synthetic RO (ERA5-driven parks, #22) | train#302/303 (#70; label-masked variant train#300/301: 0.915 / 0.89 / 0.072) |
 | National demand, day ahead | **nMAE 0.039**, peak-hour error 0.30 h, 10–90 coverage 0.74 | persistence week 0.067, day 0.069, national-shape scaling 0.070 | **real RO** | `make demand` (#44) |
+| GIS feeder/phase recovery (grid-twin) | phase records 83.3 % recovered (precision 69.2 %, 54 corrupted); feeder records 100 % (16 corrupted) | GIS as-is: 0 % | synthetic RO fleet | replay#506 (gridtwin step), `make replay-demo` |
 | P10 commitment method | coverage 0.62 → 0.795 after conformal; P10 hit rate 0.938 | — | synthetic (mock truth), method check | `make uncertainty` (#27) |
 | Feeder LP | 100-site feeder solved in 1.9 s; slack 0 vs baseline +19.5 kW; evening peak 10.9 vs 52.8 kW | self-consumption rule | synthetic (mock forecasts) | #18 |
-| Feeder peak shaving, minutes over limit, P10 hit rate, comfort breaches, lei/home, alerts/turbine-day | pending | self-consumption rule, tuned per-home threshold rule | synthetic RO | replay run → #29 |
-| PV nowcast on real systems | pending: `make eval` once #29 commits the M1 ONNX | pvlib, LightGBM (`make baselines`) | non-RO (NREL PVDAQ) | #16, #29 |
-| GIS feeder/phase recovery | pending | GIS as-is | non-RO (IEEE LV feeder) | #13 |
 
-**Error analysis so far (#14).** PVNet is weakest on snow days and on unseen sites (coverage 0.73); SiteHealth finds
-soiling and shading hardest (average precision 0.12–0.19); EV households are the hardest loads. DemandNet's
-interval is too narrow (0.74 coverage vs the 0.78–0.82 target); conformal widening from #27 is next. Findings are
-logged in [team/insights.md](team/insights.md).
+M7 WindFailure (#43, optional) is in review, not merged; its numbers are not claimed here. M5 WindPower (#42) is an
+experiment card and not merged.
+
+**Error analysis (eval#521, #14).** The PV 10–90 band is the main weakness: coverage is 0.88 on seen sites but 0.61
+on unseen sites and 0.10 on real PVDAQ systems, so the bands are too narrow off-distribution. On PVDAQ PVNet is only
+14 % better than pvlib. PVNet is weakest on snow days (train-time nMAE 0.043–0.048 vs 0.021–0.022 without snow,
+train#383–386). SiteHealth drops from PR-AUC 0.73 to 0.56 on unseen sites. LoadNet beats persistence but only ties
+LightGBM. Under 40 % telemetry gaps PVNet degrades to nMAE 0.058 but stays ahead of LightGBM (0.096; eval#521
+`--drills`). DemandNet's interval is too narrow (0.74 coverage vs the 0.78–0.82 target). Findings are logged in
+[team/insights.md](team/insights.md).
 
 ## Honest limitations
 
 - **Synthetic circularity (plan R13, R14).** The simulator is built on pvlib physics, so beating pvlib on synthetic
-  RO data is partly circular; the real-system check on NREL PVDAQ (non-RO) is pending (#16). A load model trained on
-  our own synthetic households mainly shows it learns our generator; the real-RO check is DemandNet on national load.
-- **Model training data.** M1/M2/M4 (#14) and M6 (#41) were trained on their cards' own deterministic RO stand-in
-  generators (`sentinel/model/synth.py`, `sentinel/model/wind/synth.py`) while the shared windows (#10) and the wind
-  simulator (#22, #23) were being built. They are meant to drop in unchanged.
-- **Strong LightGBM baseline on the shared fleet.** On the #11 fleet the LightGBM quantile baseline (#15) beats pvlib
-  by a wide margin (lab baseline#186: PV nMAE 0.031 vs 0.178, validation 2024; `make baselines` prints the test-2025
-  numbers). M1 has not been scored on that fleet yet, so M1 vs LightGBM is an open comparison (#14, #16), not a claim.
-- **Mock components in the replay.** Until #29 promotes the ONNX weights, `replay.py` uses the contract
-  `MockPredictor` for PV/load/site health and built-in WindMon-style rules for wind. The replay prints
-  `FALLBACK components in use` and stores it in `runs.notes`, so its KPIs are a pipeline check, not results.
+  RO data is partly circular. On real NREL PVDAQ systems (non-RO) the gain shrinks to 14 % and the 10–90 band covers
+  only 10 % (eval#521). A load model trained on our own synthetic households mainly shows it learns our generator;
+  the real-RO check is DemandNet on national load.
+- **Model training data.** M1/M2/M4 in `models/` are trained on the shared #11 fleet + #12 faults (#14
+  train#383–392). The promoted M6 (#41 run 135) was trained on #41's own wind stand-in before the #22 parks existed;
+  the wind evaluation we quote (#70 train#300–303) retrains the same model on #22 data. The demo replay runs run 135.
+  On the stand-in data WindMon looked much weaker (precision 0.53, run 135); that gap is not the one we claim.
+- **Strong LightGBM baseline.** LightGBM quantiles (#15) are far better than pvlib on our fleet. PVNet still beats
+  them (0.015 vs 0.041 on seen sites), but LoadNet only ties them (0.285 vs 0.284 on unseen sites; eval#521).
+- **Two replays.** `make replay` (and so `make reproduce`) runs the small mock world with the contract
+  `MockPredictor`; it prints `FALLBACK components in use` and its KPIs are a pipeline check, not results. The
+  results come from `make replay-demo`: the simulated fleet with the committed `models/`, as in replay#506.
 - **Control is simulated.** No real battery or turbine is controlled; wind is monitoring and forecasting only.
   Market figures, PPC fleet details and the export remuneration ratio β are inputs to verify, not claims (plan §8).
 - **Coordinates.** The Deleni wind park position is approximate (no OSM match).
