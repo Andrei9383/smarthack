@@ -468,3 +468,93 @@ export const auditLog = sqliteTable(
     index("audit_log_action_idx").on(table.actionId),
   ],
 );
+
+// ---------------------------------------------------------------- judge (trust filter, team/judge-design.md §8)
+// Written by the replay's Judge slot (sentinel/judge/slot.py, #149). Additive: no existing query reads them, and a
+// DB built before these tables existed still works (the replay skips tables a schema lacks).
+
+// One graded outcome per witness x asset x day x score (§5): telemetry d+1, crew/audit visits, delayed events.
+// Several rows per asset-day are allowed (e.g. score_name 'norm_err' for the band scale, §6.4), hence the id.
+export const outcomes = sqliteTable(
+  "outcomes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    model: text("model").notNull(), // witness or substitute id: pvnet | loadnet | sitehealth | windnbm | lgbm_pv | ...
+    modelVersion: text("model_version"),
+    assetId: text("asset_id").notNull(),
+    day: text("day").notNull(), // 'YYYY-MM-DD' (Europe/Bucharest) of the graded prediction
+    scoreName: text("score_name").notNull(), // calibration | sharpness | alarm_precision | miss_score | hit | flag | norm_err
+    score: real("score"), // 0..1, higher is better (norm_err: signed normalised error)
+    weight: real("weight").default(1).notNull(), // audit inverse-probability weight; action visits 0.5 (§5.6)
+    source: text("source").notNull(), // telemetry | crew | audit | event | residual
+    observedAt: text("observed_at").notNull(), // ISO-8601 UTC: when the outcome could first be known (§5.5)
+    gated: integer("gated").default(0).notNull(), // 1 = failed the §5.4 quality gate: ungraded
+    bucket: text("bucket"), // context bucket key kind|seen|battery|season|quality|ood (§6.1)
+  },
+  (table) => [
+    index("outcomes_run_model_day_idx").on(table.runId, table.model, table.day),
+    index("outcomes_asset_idx").on(table.assetId, table.day),
+  ],
+);
+
+// Trust ledger state per day (§6): the value the next day's verdicts read.
+export const trust = sqliteTable(
+  "trust",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    day: text("day").notNull(), // 'YYYY-MM-DD'
+    model: text("model").notNull(),
+    modelVersion: text("model_version").notNull(), // '*' for substitutes
+    bucket: text("bucket").notNull(),
+    scoreName: text("score_name").notNull(),
+    prior: real("prior"), // validation prior (no record -> trust = prior)
+    nEff: real("n_eff").default(0).notNull(), // effective bucket-days of evidence
+    trust: real("trust"),
+    lo80: real("lo80"),
+    hi80: real("hi80"),
+    bandScale: real("band_scale").default(1).notNull(),
+    healthAlert: integer("health_alert").default(0).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.runId, table.day, table.model, table.modelVersion, table.bucket, table.scoreName],
+    }),
+    index("trust_run_model_idx").on(table.runId, table.model, table.day),
+  ],
+);
+
+// One verdict per witness prediction (§7.7): what actions will read instead of the raw prediction.
+export const judgeVerdicts = sqliteTable(
+  "judge_verdicts",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    day: text("day").notNull(), // 'YYYY-MM-DD'
+    t0: text("t0"), // ISO-8601 UTC: start of the judged prediction's day
+    assetId: text("asset_id").notNull(),
+    model: text("model").notNull(), // witness: pvnet | loadnet | sitehealth | windnbm | gridtwin | ...
+    modelVersion: text("model_version"),
+    bucket: text("bucket"),
+    verdict: text("verdict").notNull(), // use | widen | dont_use
+    pValid: real("p_valid"),
+    pValidSd: real("p_valid_sd"), // Judge seed spread; NULL in ledger-only mode
+    trust: real("trust"),
+    nEff: real("n_eff"),
+    bandScale: real("band_scale"),
+    substitute: text("substitute"), // model id to use instead, NULL = none ("no reliable source" if dont_use)
+    reasonsJson: text("reasons_json"), // JSON array of up to 3 plain-word reasons
+    rule: text("rule").notNull(), // 1_bad_input | 2_safety | 3_no_record | 4_use | 5_widen | 6_dont_use
+    judgeVersion: text("judge_version").notNull(), // Judge model version or 'ledger-only'
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.day, table.assetId, table.model] }),
+    index("judge_verdicts_asset_idx").on(table.assetId, table.day),
+    index("judge_verdicts_run_verdict_idx").on(table.runId, table.verdict),
+  ],
+);
