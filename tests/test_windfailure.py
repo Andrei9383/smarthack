@@ -128,6 +128,7 @@ def trained(tmp_path_factory, small):
     return out, rep
 
 
+@pytest.mark.slow  # trains LightGBM on 400 synthetic days (#179: run in rustcheck)
 def test_pipeline_artifacts_and_no_heldout_training(trained, small):
     out, rep = trained
     for f in ("windfailure_7d.txt", "windfailure_14d.txt", "windfailure_thresholds.json", "windfailure_report.json",
@@ -152,6 +153,7 @@ def test_pipeline_artifacts_and_no_heldout_training(trained, small):
     assert np.flatnonzero(test_d).min() > np.flatnonzero(fold >= 0).max() + 14
 
 
+@pytest.mark.slow  # trains LightGBM on 400 synthetic days (#179: run in rustcheck)
 def test_predictor_output_shape(trained, small):
     from sentinel.model.windfailure.predictor import WindFailurePredictor
 
