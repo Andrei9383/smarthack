@@ -47,6 +47,10 @@ export type MapSparkProps = {
   tickHours?: number[];
   /** Explains the grammar under the expanded chart; the legend says it once per mode. */
   showKey?: boolean;
+  /** Peak value text in both sizes, or only when opened (where a limit already crowds the compact chart). */
+  peakLabel?: "always" | "expanded";
+  /** Words for that line, e.g. "today so far" / "rest of the day" on a feeder. */
+  keyLabels?: Partial<SparkKeyLabels>;
   className?: string;
 };
 
@@ -84,6 +88,8 @@ export function MapSpark({
   formatTime,
   tickHours = [0, 6, 12],
   showKey = false,
+  keyLabels,
+  peakLabel = "always",
   className,
 }: MapSparkProps) {
   const reduceMotion = useReducedMotion();
@@ -247,7 +253,7 @@ export function MapSpark({
             {peak && (
               <>
                 <circle cx={peakX} cy={peakY} r={expanded ? 3 : 2.5} fill="var(--status-forecast)" stroke="var(--card)" strokeWidth={1.5} />
-                <text
+                {(expanded || peakLabel === "always") && <text
                   x={peakAnchorX}
                   y={peakLabelY}
                   textAnchor={peakLabelLeft ? "end" : "start"}
@@ -258,7 +264,7 @@ export function MapSpark({
                   className={cn("fill-foreground font-semibold tabular-nums", expanded ? "text-[10px]" : "text-[9px]")}
                 >
                   {peakText}
-                </text>
+                </text>}
               </>
             )}
           </g>
@@ -278,9 +284,9 @@ export function MapSpark({
 
           {limit && expanded && (
             <text
-              x={width - pad.right}
+              x={pad.left + 14}
               y={y(limit.value) - 3}
-              textAnchor="end"
+              textAnchor="start"
               paintOrder="stroke"
               stroke="var(--card)"
               strokeWidth={3}
@@ -307,41 +313,71 @@ export function MapSpark({
             ))}
         </svg>
       </LazyMotion>
-      {expanded && showKey && <SparkKey measured={model.measured} limit={Boolean(limit)} className="mt-1" />}
+      {expanded && showKey && (
+        <SparkKey
+          measured={model.measured}
+          range={model.bandRows.length > 1}
+          limit={Boolean(limit)}
+          tone={tone}
+          labels={keyLabels}
+          className="mt-1"
+        />
+      )}
     </span>
   );
 }
 
+export type SparkKeyLabels = { measured: string; forecast: string; range: string; limit: string };
+
+const DEFAULT_KEY: SparkKeyLabels = {
+  measured: "measured",
+  forecast: "forecast",
+  range: "likely range",
+  limit: "limit",
+};
+
 /** One line explaining the sparkline grammar, for legends and the expanded chip. */
 export function SparkKey({
   measured = true,
+  range = true,
   limit = false,
+  tone = "actual",
+  labels,
   className,
 }: {
   measured?: boolean;
+  range?: boolean;
   limit?: boolean;
+  tone?: "actual" | "brand";
+  labels?: Partial<SparkKeyLabels>;
   className?: string;
 }) {
+  const text = { ...DEFAULT_KEY, ...labels };
   return (
     <span className={cn("flex items-center gap-2 text-[10px] leading-none whitespace-nowrap text-muted-foreground", className)}>
       {measured && (
         <span className="flex items-center gap-1">
-          <span aria-hidden className="block h-[1.5px] w-3 rounded-full bg-status-actual" />
-          measured
+          <span
+            aria-hidden
+            className={cn("block h-[1.5px] w-3 rounded-full", tone === "brand" ? "bg-primary" : "bg-status-actual")}
+          />
+          {text.measured}
         </span>
       )}
       <span className="flex items-center gap-1">
         <span aria-hidden className="block w-3 border-t-[1.5px] border-dashed border-status-forecast" />
-        forecast
+        {text.forecast}
       </span>
-      <span className="flex items-center gap-1">
-        <span aria-hidden className="block h-2 w-3 rounded-[2px] bg-status-forecast/15" />
-        likely range
-      </span>
+      {range && (
+        <span className="flex items-center gap-1">
+          <span aria-hidden className="block h-2 w-3 rounded-[2px] bg-status-forecast/15" />
+          {text.range}
+        </span>
+      )}
       {limit && (
         <span className="flex items-center gap-1">
           <span aria-hidden className="block w-3 border-t border-dashed border-status-critical" />
-          limit
+          {text.limit}
         </span>
       )}
     </span>

@@ -157,34 +157,45 @@ const CHIP_BOX = {
   park: { halfWidth: 74, halfHeight: 46 },
   parkExpanded: { halfWidth: 120, halfHeight: 84 },
 } as const;
-type ChipBox = (typeof CHIP_BOX)[keyof typeof CHIP_BOX];
+export type ChipBox = { halfWidth: number; halfHeight: number };
 
 const EDGE_PX = 8;
 
 // After the #91 layout, slide chips sideways so none hangs off the map's left edge or under the
 // zoom controls beside the inspector; the leader line still points back to the real spot.
 // Positions change on pan, so this runs on moveend, unlike the zoom-only collision layout.
-type ViewEdges = { width: number; controls: { left: number; right: number; top: number; bottom: number } | null };
+type Rect = { left: number; right: number; top: number; bottom: number };
+type ViewEdges = { width: number; controls: Rect | null; legend: Rect | null };
 
+// The zoom controls beside the inspector, and a mode legend that marks itself with data-map-legend.
 function measureView(map: MapLibreMap): ViewEdges {
   const container = map.getContainer().getBoundingClientRect();
-  const controls = document
-    .querySelector<HTMLElement>('button[aria-label="Zoom in"]')
-    ?.parentElement?.getBoundingClientRect();
+  const relative = (element: Element | null | undefined): Rect | null => {
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0) return null;
+    return {
+      left: rect.left - container.left,
+      right: rect.right - container.left,
+      top: rect.top - container.top,
+      bottom: rect.bottom - container.top,
+    };
+  };
   return {
     width: container.width,
-    controls: controls
-      ? {
-          left: controls.left - container.left,
-          right: controls.right - container.left,
-          top: controls.top - container.top,
-          bottom: controls.bottom - container.top,
-        }
-      : null,
+    controls: relative(document.querySelector('button[aria-label="Zoom in"]')?.parentElement),
+    legend: relative(document.querySelector("[data-map-legend]")),
   };
 }
 
-function useKeepInView(markers: (PlacedMarker & ChipBox)[], offsets: Map<string, MarkerOffset>) {
+// How far to slide a chip down so it clears the legend card in the top-left corner.
+function slideBelowLegend({ legend }: ViewEdges, x: number, halfWidth: number, top: number, bottom: number) {
+  if (!legend) return 0;
+  const overlaps = x - halfWidth < legend.right + EDGE_PX && top < legend.bottom + EDGE_PX && bottom > legend.top;
+  return overlaps ? legend.bottom + EDGE_PX - top : 0;
+}
+
+export function useKeepInView(markers: (PlacedMarker & ChipBox)[], offsets: Map<string, MarkerOffset>) {
   const { map, isLoaded } = useMap();
   // Edges and marker positions are read when the camera settles (moveend, idle), never mid-flight:
   // the mode's padding ease and camera focus run several animations back to back.
@@ -214,26 +225,31 @@ function useKeepInView(markers: (PlacedMarker & ChipBox)[], offsets: Map<string,
 
   return useMemo(() => {
     if (!view) return offsets;
-    const { controls } = view.edges;
-    const right = controls ? controls.right : view.edges.width - EDGE_PX;
     const points = view.points;
     const clamp = (current: Map<string, MarkerOffset>) => {
       const kept = new Map(current);
       for (const marker of markers) {
         const offset = current.get(marker.id) ?? NO_OFFSET;
         const point = points.get(marker.id);
-        if (!point) continue;
+        // A marker whose spot is off the map stays off it: a chip pulled in would point nowhere.
+        if (!point || point.x < 0 || point.x > view.edges.width) continue;
         const centerX = point.x + offset.dx;
         const centerY = point.y + (marker.below ?? 0) + offset.dy;
-        const besideControls =
-          controls &&
-          centerY + marker.halfHeight > controls.top - EDGE_PX &&
-          centerY - marker.halfHeight < controls.bottom + EDGE_PX;
-        const maxRight = besideControls && controls ? controls.left - EDGE_PX : right;
-        let dx = 0;
-        if (centerX + marker.halfWidth > maxRight) dx = maxRight - (centerX + marker.halfWidth);
-        if (centerX + dx - marker.halfWidth < EDGE_PX) dx = EDGE_PX - (centerX - marker.halfWidth);
-        if (dx !== 0) kept.set(marker.id, { dx: offset.dx + dx, dy: offset.dy });
+        const dy = slideBelowLegend(
+          view.edges,
+          centerX,
+          marker.halfWidth,
+          centerY - marker.halfHeight,
+          centerY + marker.halfHeight,
+        );
+        const dx = slideInside(
+          view.edges,
+          centerX,
+          marker.halfWidth,
+          centerY + dy - marker.halfHeight,
+          centerY + dy + marker.halfHeight,
+        );
+        if (dx !== 0 || dy !== 0) kept.set(marker.id, { dx: offset.dx + dx, dy: offset.dy + dy });
       }
       return kept;
     };
@@ -258,29 +274,46 @@ function useKeepInView(markers: (PlacedMarker & ChipBox)[], offsets: Map<string,
   }, [view, markers, offsets]);
 }
 
-type HoverPlacement = { dx: number; up: boolean };
+export type HoverPlacement = { dx: number; dy: number; up: boolean };
 
-const OPEN_CHIP = { halfWidth: 120, height: 176, restHeight: 90 } as const;
+const OPEN_CHIP = { halfWidth: 120, height: 176, restHeight: 90, centredHeight: 150 } as const;
 const CHIP_GAP_PX = 6; // dot to chip
 
+// How far to slide a box sideways so it stays inside the map and clear of the zoom controls.
+function slideInside({ width, controls }: ViewEdges, x: number, halfWidth: number, top: number, bottom: number) {
+  const besideControls = controls && bottom > controls.top - EDGE_PX && top < controls.bottom + EDGE_PX;
+  const maxRight = besideControls && controls ? controls.left - EDGE_PX : controls ? controls.right : width - EDGE_PX;
+  let dx = 0;
+  if (x + halfWidth > maxRight) dx = maxRight - (x + halfWidth);
+  if (x + dx - halfWidth < EDGE_PX) dx = EDGE_PX - (x - halfWidth);
+  return dx;
+}
+
 // A hovered chip opens to 220 × 90 in place, without a new layout. Near the zoom controls or the
-// dock it would open underneath them, so it slides sideways or opens above its dot instead.
-function hoverPlacement(map: MapLibreMap, marker: PlacedMarker, offset: MarkerOffset): HoverPlacement {
-  const { width, controls } = measureView(map);
+// dock it would open underneath them, so it slides sideways, or opens upwards (chips below a dot)
+// or slides up (chips centred on their point, like feeder labels).
+export function hoverPlacement(
+  map: MapLibreMap,
+  marker: PlacedMarker,
+  offset: MarkerOffset,
+  anchor: "below" | "centre" = "below",
+): HoverPlacement {
+  const view = measureView(map);
   const height = map.getContainer().getBoundingClientRect().height;
+  const floor = view.controls ? view.controls.bottom + EDGE_PX : height - EDGE_PX;
   const point = map.project([marker.lon, marker.lat]);
   const x = point.x + offset.dx;
+  if (anchor === "centre") {
+    const y = point.y + offset.dy;
+    const half = OPEN_CHIP.centredHeight / 2;
+    const dy = Math.min(0, floor - (y + half));
+    return { dx: slideInside(view, x, OPEN_CHIP.halfWidth, y + dy - half, y + dy + half), dy, up: false };
+  }
   const dotBottom = point.y + offset.dy + 14;
-  const floor = controls ? controls.bottom + EDGE_PX : height - EDGE_PX;
   const up = dotBottom + OPEN_CHIP.height > floor;
   // Opening upwards keeps the compact chip's bottom edge (see MarkerPin).
   const top = up ? dotBottom + OPEN_CHIP.restHeight - OPEN_CHIP.height : dotBottom;
-  const besideControls = controls && top + OPEN_CHIP.height > controls.top - EDGE_PX && top < controls.bottom + EDGE_PX;
-  const maxRight = besideControls && controls ? controls.left - EDGE_PX : controls ? controls.right : width - EDGE_PX;
-  let dx = 0;
-  if (x + OPEN_CHIP.halfWidth > maxRight) dx = maxRight - (x + OPEN_CHIP.halfWidth);
-  if (x + dx - OPEN_CHIP.halfWidth < EDGE_PX) dx = EDGE_PX - (x - OPEN_CHIP.halfWidth);
-  return { dx, up };
+  return { dx: slideInside(view, x, OPEN_CHIP.halfWidth, top, top + OPEN_CHIP.height), dy: 0, up };
 }
 
 // Feeders reuse this layout for plain labels, which sit centred on their point (no `below`).
