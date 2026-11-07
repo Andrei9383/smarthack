@@ -709,6 +709,7 @@ class SimWorld(World):
                 self.feeders[fid].site_ids.append(sid)
         for fid, f in self.feeders.items():
             f.site_ids.sort(key=lambda x: int(x) if x.isdigit() else x)
+        self._load_twin(fleet_dir)
         self._apply_story()
         self._build_zones()
         self._prices_cache: dict[int, list[float]] = {}
@@ -771,6 +772,68 @@ class SimWorld(World):
         if best is None:  # no clean battery site: largest array on the feeder
             best = max((sites[i] for i in idx), key=lambda s: float(s.get("kwp_true") or 0))["site_id"]
         return best
+
+    def _load_twin(self, fleet_dir: Path) -> None:
+        """Grid-twin (M8, #13): tau per feeder -> G = tau*G_max + (1-tau)*G_cons (only ever tightens) and the GIS
+        flags. Reads the twin cache (python -m sentinel.gridtwin.run -> ~/.cache/sentinel/data-v{N}/gridtwin), else
+        runs the twin in-process on the fleet's inverter voltages (~1 s); without either, the contract G (tau=1)."""
+        self.gridtwin_version = "gridtwin:mock-1"
+        self.twin_source = "none (contract G, tau = 1)"
+        self._twin_flags: list[dict[str, Any]] = []
+        try:
+            import json as _json
+
+            import pandas as pd
+
+            from sentinel.gridtwin.run import default_out
+
+            d = Path(os.environ.get("SENTINEL_GRIDTWIN") or default_out())
+            if (d / "feeders.json").exists() and (d / "sites.parquet").exists():
+                feeders = pd.DataFrame(_json.loads((d / "feeders.json").read_text()))
+                sites = pd.read_parquet(d / "sites.parquet")
+                self.twin_source = f"cache {d}"
+            elif (fleet_dir / "feeders.parquet").exists():
+                from sentinel.gridtwin.twin import load_voltages, run_twin
+
+                s_, v = load_voltages(fleet_dir)
+                res = run_twin(s_, v, pd.read_parquet(fleet_dir / "feeders.parquet"))
+                feeders, sites = res.feeders, res.sites
+                self.twin_source = f"in-process on {fleet_dir} (2024-05-01, 60 days)"
+            else:
+                return
+        except Exception as e:
+            self.twin_source = f"failed ({type(e).__name__}: {e}); contract G, tau = 1"
+            print(f"[replay] WARNING grid-twin not used: {self.twin_source}", flush=True)
+            return
+        self.gridtwin_version = "gridtwin:sentinel.gridtwin.twin@#13"
+        tau = {r["feeder_id"]: float(r["tau"]) for r in feeders.to_dict("records")}
+        for src_f, lbl in self.feeder_label.items():
+            f = self.feeders.get(lbl)
+            if f is not None and src_f in tau:
+                sp = f.spec
+                f.spec = FeederSpec(sp.feeder_id, sp.g_max_kw, sp.g_conservative_kw, tau[src_f])
+        mine = {r["src_site_id"]: sid for sid, r in ((k, s.row) for k, s in self.sites.items())}
+        for r in sites.to_dict("records"):
+            sid = mine.get(r["site_id"])
+            if sid is None or not (r.get("phase_flag") or r.get("feeder_flag")):
+                continue
+            row = self.sites[sid].row
+            gf, lf = r["gis_feeder_id"], r["likely_feeder_id"]
+            self._twin_flags.append({
+                "section_id": f"LV-{sid}", "site_id": sid,
+                "recorded_feeder": self.feeder_label.get(gf, gf), "recorded_phase": r["gis_phase"],
+                "suggested_feeder": self.feeder_label.get(lf, lf), "suggested_phase": r["likely_phase"],
+                "tau": round(tau.get(gf, 1.0), 3), "lat": row["lat"], "lon": row["lon"],
+                "score": round(float(r["feeder_score"] if r.get("feeder_flag") else r["phase_score"]), 3),
+                "threshold": 0.7})
+            fl = self._twin_flags[-1]
+            ph = {"A": "L1", "B": "L2", "C": "L3"}
+            fl["message"] = (f"likely {ph.get(fl['suggested_phase'], fl['suggested_phase'])} of {fl['suggested_feeder']}"
+                             f", GIS says {ph.get(fl['recorded_phase'], fl['recorded_phase'])} of "
+                             f"{fl['recorded_feeder']}, {fl['score']:.2f}")
+
+    def gis_flags(self) -> list[dict[str, Any]]:
+        return list(self._twin_flags)
 
     def _apply_story(self) -> None:
         """String outage at the story site from FAULT_DAY 05:00 local: one of two strings open (#12 physics)."""
@@ -1023,7 +1086,11 @@ class SimWorld(World):
                             "string_outage": getattr(self, "story", None),
                             "ids": "feeders F<n>, sites 1000+n (fleet S0nnn), parks WP0<n>; hero and story site "
                                    "relabelled, see sentinel/agent/world.py SimWorld"},
-                "prices": getattr(self, "price_source", None)}
+                "prices": getattr(self, "price_source", None),
+                "gridtwin": {"source": self.twin_source, "version": self.gridtwin_version,
+                             "flags": len(self._twin_flags),
+                             "tau": {f: round(x.spec.tau, 3) for f, x in self.feeders.items()},
+                             "g_kw": {f: round(x.spec.g_kw, 2) for f, x in self.feeders.items()}}}
 
     def describe(self) -> dict[str, Any]:
         d = super().describe()

@@ -735,8 +735,9 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
     if write_inputs:  # grid-twin flags (M8 stand-in in the mock world), once per run
         t0 = world.day_t0(0)
         for fl in world.gis_flags():
-            rec = A.audit("gridtwin:mock-1", fl, {"tau": fl["tau"]}, 0.5, "flagged",
-                          note="mock grid-twin (M8 stand-in)")
+            twin_v = getattr(world, "gridtwin_version", "gridtwin:mock-1")
+            rec = A.audit(twin_v, fl, {"tau": fl["tau"], "score": fl.get("score")}, fl.get("threshold", 0.5),
+                          "flagged", note=fl.get("message") or "mock grid-twin (M8 stand-in)")
             a = A.make(ActionType.GIS_FLAG, t0, policy, run_id, {
                 "section_id": fl["section_id"], "recorded_feeder": fl["recorded_feeder"],
                 "recorded_phase": fl["recorded_phase"], "suggested_feeder": fl["suggested_feeder"],
