@@ -1,11 +1,12 @@
 """Time the window cache build (sentinel.data.windows) on an N-home fleet and hash its outputs (card #133).
 
-    python -m sentinel.kernels.profile_windows [--homes 5000] [--backends rust,python] [--old-rev SHA | --old FILE]
+    python -m sentinel.kernels.profile_windows [--homes 2000] [--backends rust,python] [--old-rev SHA | --old FILE]
 
 Builds (or reuses from the cache) the fleet + faults with scripts/build_dataset.py's national config, then runs
 build_windows once per backend (SENTINEL_KERNELS) and, with --old-rev / --old, once with an older copy of
 windows.py. Prints ``LAB_METRIC windows_gen_seconds_<label>`` and
-``windows_hash_equal`` (1 = every run wrote the same bytes). Each output is deleted after hashing (~3.7 GB at 5000).
+``rss_windows_<label>_mb`` (peak RSS of that build, each in its own process), ``rss_data_mb`` and
+``windows_hash_equal`` (1 = every run wrote the same bytes). Each output is deleted after hashing (~1.5 GB at 2000).
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import multiprocessing as mp
 import os
+import resource
 import shutil
 import subprocess
 import sys
@@ -41,14 +44,34 @@ def digest(out: Path) -> str:
     return h.hexdigest()[:16]
 
 
+def _rss_mb() -> float:
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024  # KiB on Linux
+
+
+def _build(old: str | None, backend: str, fleet: str, faults: str, out: str, q) -> None:
+    """One build in a fresh (spawned) process, so ru_maxrss is that build's peak alone."""
+    os.environ["SENTINEL_KERNELS"] = backend
+    if old:
+        spec = importlib.util.spec_from_file_location("windows_old", old)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        fn = mod.build_windows
+    else:
+        from sentinel.data.windows import build_windows as fn
+    t0 = time.perf_counter()
+    o = fn(fleet_dir=Path(fleet), fault_dir=Path(faults), out=Path(out), force=True, log=print)
+    dt, rss = time.perf_counter() - t0, _rss_mb()  # before hashing, which touches the mmapped outputs
+    q.put((dt, rss, digest(o)))
+    shutil.rmtree(o)
+
+
 def main(argv: list[str] | None = None) -> int:
-    from sentinel.data.windows import build_windows
     from sentinel.sim.faults import FaultConfig, inject_dataset
     from sentinel.sim.fleet import FleetConfig, generate
     from sentinel.sim.fleet.weather import weather_key
 
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--homes", type=int, default=5000)
+    p.add_argument("--homes", type=int, default=2000)
     p.add_argument("--backends", default="rust,python")
     p.add_argument("--old", type=Path, help="an older windows.py to time on the same data")
     p.add_argument("--old-rev", help="git revision to take the older sentinel/data/windows.py from (instead of --old)")
@@ -70,22 +93,24 @@ def main(argv: list[str] | None = None) -> int:
             a.old.write_text(r.stdout)
         else:
             print(f"[profile_windows] no old windows.py at {a.old_rev}: {r.stderr.strip()}", flush=True)
-    runs = [(be, build_windows, be) for be in a.backends.split(",") if be]
+    print(f"LAB_METRIC rss_data_mb={_rss_mb():.0f}", flush=True)  # fleet + faults, this process
+    runs = [(be, None, be) for be in a.backends.split(",") if be]
     if a.old:
-        spec = importlib.util.spec_from_file_location("windows_old", a.old)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-        runs.insert(0, ("old", mod.build_windows, "python"))
+        runs.insert(0, ("old", str(a.old), "python"))
+    ctx = mp.get_context("spawn")
     hashes = {}
-    for label, fn, be in runs:
-        os.environ["SENTINEL_KERNELS"] = be
-        t0 = time.perf_counter()
-        out = fn(fleet_dir=fleet, fault_dir=faults, out=a.out, force=True, log=print)
-        dt = time.perf_counter() - t0
-        hashes[label] = digest(out)
+    for label, old, be in runs:
+        q = ctx.Queue()
+        pr = ctx.Process(target=_build, args=(old, be, str(fleet), str(faults), str(a.out), q))
+        pr.start()
+        pr.join()
+        if pr.exitcode != 0:
+            print(f"[profile_windows] {label}: build failed (exit {pr.exitcode})", flush=True)
+            return 1
+        dt, rss, hashes[label] = q.get()
         print(f"LAB_METRIC windows_gen_seconds_{label}={dt:.1f}", flush=True)
-        print(f"[profile_windows] {label}: {dt:.1f}s hash {hashes[label]}", flush=True)
-        shutil.rmtree(out)
+        print(f"LAB_METRIC rss_windows_{label}_mb={rss:.0f}", flush=True)
+        print(f"[profile_windows] {label}: {dt:.1f}s peak {rss:.0f} MB hash {hashes[label]}", flush=True)
     print(f"LAB_METRIC windows_hash_equal={int(len(set(hashes.values())) == 1)}", flush=True)
     return 0
 
