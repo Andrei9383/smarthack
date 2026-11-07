@@ -22,6 +22,7 @@ def make(rng, n=7, s=5, t=96):
 
 
 def test_reference_matches_commit_rollout():
+    assert kernels.get("battery_rollout", "python") is battery_rollout_py
     req, soc0, *bp = make(np.random.default_rng(0))
     soc, batt = battery_rollout_py(req, soc0, *bp)
     soc_r, batt_r, _ = rollout(req, soc0, BatteryParams(*bp), np.zeros(1), np.zeros(1))
@@ -32,16 +33,8 @@ def test_reference_2d_and_limits():
     req, soc0, cap, pmax, eta_c, eta_d, e_lo, e_hi = make(np.random.default_rng(1), n=1)
     soc, batt = battery_rollout_py(req[0], soc0[0], cap, pmax, eta_c, eta_d, e_lo, e_hi)
     assert soc.shape == batt.shape == req[0].shape
-    assert np.all(np.abs(batt) <= pmax[:, None] + 1e-12)
-    e = soc * cap[:, None]
-    assert np.all(e <= e_hi[:, None] + 1e-9)
-    no_batt = cap == 0
-    assert np.all(batt[no_batt] == 0) and np.all(soc[no_batt] == 0)
-
-
-def test_dispatcher_registered():
-    assert "battery_rollout" in kernels.names()
-    assert kernels.get("battery_rollout", "python") is battery_rollout_py
+    assert np.all(np.abs(batt) <= pmax[:, None] + 1e-12) and np.all(soc * cap[:, None] <= e_hi[:, None] + 1e-9)
+    assert np.all(batt[cap == 0] == 0) and np.all(soc[cap == 0] == 0)
 
 
 rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
@@ -51,9 +44,7 @@ rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core n
 @pytest.mark.parametrize("seed,n,s,t", [(0, 7, 5, 96), (1, 1, 1, 1), (2, 200, 50, 96), (3, 3, 4, 0), (4, 2, 9, 500)])
 def test_rust_parity(seed, n, s, t):
     args = make(np.random.default_rng(seed), n, s, t)
-    a = battery_rollout_py(*args)
-    b = kernels.get("battery_rollout", "rust")(*args)
-    for x, y in zip(a, b):
+    for x, y in zip(battery_rollout_py(*args), kernels.get("battery_rollout", "rust")(*args)):
         assert x.shape == y.shape and np.array_equal(x, y)
 
 
