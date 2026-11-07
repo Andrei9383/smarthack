@@ -1,7 +1,7 @@
 # Plan: Prosumer Sentinel
 
-An AI agent that watches every PV + BESS installation, catches faults before they become losses, and keeps the
-grid model honest. Core = PPC's O&M challenge; second action = PPC's GIS challenge (droppable module).
+An AI agent that watches every PV + BESS installation and every wind turbine, catches faults before they become
+losses, and keeps the grid model honest. Core = PPC's O&M challenge; second action = PPC's GIS challenge (droppable module).
 Full proposal: the team doc "Prosumer Sentinel — Smarthack XI PPC" (Nov 7). This file is the binding summary.
 
 ## The idea
@@ -24,6 +24,11 @@ One model, three decisions, four actions. The agent runs on a 15-min tick: perce
 - **Grid-twin** (`sentinel/gridtwin/`, promote or drop after PPC's presentation): voltage correlation between
   inverters → spectral clustering → compare with GIS feeder/phase → flags with confidence; trust score per LV
   section that decays since last verification.
+- **Wind assets (from Andrei's Windmon)**: wind turbines are a second asset type in the same agent. Same idea:
+  expected power from the wind it actually had (power-curve nowcast, P10/P50/P90) and expected component
+  temperatures (gearbox, generator bearings, converter, transformer) → residuals → wind fault head
+  (underperformance / pitch misalignment, curtailment or stop at high wind, icing, gearbox or bearing overheating,
+  sensor fault). Same triage, work orders, audit log and UI. Windmon's rule-based anomalies become the wind baseline.
 
 ## Success criteria (every slide number cites a lab run ID)
 
@@ -35,6 +40,8 @@ One model, three decisions, four actions. The agent runs on a 15-min tick: perce
 | Energy / money recovered per month across the fleet | doing nothing | kWh and lei |
 | Battery schedule savings per customer | default self-consumption rule | lei/customer, OPCOM prices |
 | Grid-twin (if kept) | n/a | % of corrupted feeder/phase records recovered |
+| Wind nowcast nMAE on held-out turbines / year (public SCADA) | manufacturer power curve, binned empirical power curve | beat both |
+| Wind fault detection: PR-AUC + hours-to-detect (real SCADA + injected faults) | Windmon rules (e.g. high wind + zero power), fixed temperature threshold | beat both; overheating flagged days before trip |
 
 ## Demo script (3 minutes)
 
@@ -43,7 +50,9 @@ One model, three decisions, four actions. The agent runs on a 15-min tick: perce
 3. The work order lands in tomorrow's top-6 with "N lei at risk", with the expected-vs-actual band and similar cases.
 4. A cluster of inverter trips on one feeder is routed to the network team; the GIS layer turns that section orange
    with its confidence.
-5. A strange new site goes to a human with "not sure".
+5. A wind turbine's gearbox temperature drifts above its expected value: Sentinel flags it days before Windmon's
+   fixed-threshold rule would, and the work order competes for the same crew capacity as the PV sites.
+6. A strange new site goes to a human with "not sure".
 (Numbers are placeholders until `eval.py` produces them.)
 
 ## Scope
@@ -80,12 +89,33 @@ One model, three decisions, four actions. The agent runs on a 15-min tick: perce
 7. **OPCOM download risk**: the data card tries OPCOM exports first, then ENTSO-E (free token) as fallback.
 8. **PPC sample data**: PPC offers sample installation and GIS data. Contracts (Parquet schemas) are written so
    their data can be dropped in through an adapter, without changing model or agent code.
-9. **lab.toml now**: `[runs.preview]` runs `npm start` but there is no package.json, so every preview fails until
-   the skeleton card switches it to Streamlit.
+9. **lab.toml now**: `[runs.preview]` runs `npm start` but there is no package.json, so every preview fails (and a
+   failed preview blocks auto-merge) until the skeleton card points it at the FastAPI + Windmon frontend.
+   Until then, merge with `lab submit <id> --run check`.
+
+## Windmon integration (decided Nov 7)
+
+Andrei's Windmon (github.com/Andrei9383/Windmon, PPC HackITall, April 2026) is a wind-farm monitoring platform:
+React + TS frontend, Spring Boot API, Postgres, Redis, Python ingestion with quality rules and SQL anomaly rules.
+
+- **Reuse**: the React frontend (dashboard, Leaflet map, asset detail charts, anomalies, reports pages) becomes our
+  demo UI, served by a small FastAPI app (`sentinel/api/`) as the lab preview. This replaces Streamlit.
+  Windmon's quality rules (`quality.py`) and anomaly rules (`anomaly.py`) are ported into Python as data checks and
+  the wind baseline. Windmon's tag schema (`<park>.<turbine>.<signal>`: act_pwt, wd_spd, conv_t, gearbox_t, gen1_t,
+  gen2_t, transformer_t, turbine_t) is our wind telemetry contract, so PPC's own data drops in if they share it.
+- **Drop**: Java API, Postgres, Redis, Prometheus/Grafana, docker-compose, DeepSeek (external LLM API). None of
+  them run in the lab preview, and the model must run in our code.
+- **Copy files only, never merge Windmon's git history**: its history still contains AWS and DeepSeek keys.
+  Andrei revokes them.
+- **Data**: Windmon ran on PPC's private S3 bucket. We use public wind SCADA instead (Kelmarsh / Penmanshiel
+  wind farms, Zenodo, CC-BY-4.0, 10-min, several years), unless PPC hands out that dataset again for this event.
+- **Prior work**: README and slides say plainly which parts come from Windmon; the model, wind data pipeline,
+  decision layer and agent are built in these 24 h.
 
 ## Not doing
 
 - GPVS-Faults (high-frequency lab signals, not 15-min power).
+- Windmon's Java API, Postgres, Redis, Grafana and DeepSeek integration (see above).
 - DDP / multi-GPU training, Optuna, W&B, any external ML API. LLM is optional and only rewrites text.
 - Replacing inverters, EMS or the GIS: read-only ingestion, outputs are work orders, schedules and a GeoJSON layer.
 - Raw personal data: customer IDs pseudonymised, public or synthetic data only.
@@ -109,9 +139,12 @@ work-order action.
 
 ## First-wave cards
 
-Start here (hour 0–2, challenge-agnostic): **#6** repo skeleton (P3), **#7** contracts (P5, review), **#8** cache probe (P1).
-Then: P1 #9 raw data, #10 windows/splits · P2 #11 simulator, #12 fault injector, #13 grid-twin ·
-P3 #14 SentinelNet + train.py · P4 #15 baselines, #16 eval.py · P5 #17 agent loop, #18 decisions, #19 Streamlit.
+Start here (hour 0–2, challenge-agnostic): **#21** Windmon frontend + FastAPI preview (unblocks merges), **#6** repo
+skeleton (P3), **#7** contracts (P5, review), **#8** cache probe (P1).
+Then: P1 #9 PV/price/load data, #22 wind SCADA + Windmon quality rules, #10 windows/splits ·
+P2 #11 simulator, #12 PV fault injector, #23 wind fault injector, #13 grid-twin ·
+P3 #14 SentinelNet + train.py · P4 #15 PV baselines, #24 wind baselines (Windmon rules), #16 eval.py ·
+P5 #17 agent loop, #18 decisions · UI #19 Sentinel pages on the Windmon frontend.
 
 ## Lab rules for the 24 h
 
@@ -128,9 +161,10 @@ P3 #14 SentinelNet + train.py · P4 #15 baselines, #16 eval.py · P5 #17 agent l
 
 | Area | Paths | Owner |
 |---|---|---|
-| P1 Data engineering | `sentinel/data/**`, `data/**` | tbd |
+| P1 Data engineering (PV + wind data, Windmon quality rules) | `sentinel/data/**`, `data/**` | tbd |
 | P2 Physics & synthetic, grid-twin | `sentinel/sim/**`, `sentinel/gridtwin/**` | tbd |
 | P3 ML lead / training infra | `sentinel/model/**`, `train.py`, `lab.toml`, `requirements*.txt` | Stefan |
 | P4 Evaluation, uncertainty, explainability | `sentinel/eval/**`, `eval.py` | tbd |
-| P5 Agent, decisions, demo | `sentinel/contracts/**`, `sentinel/agent/**`, `app/**`, `tests/test_contracts.py` | tbd |
+| P5 Agent, decisions, demo | `sentinel/contracts/**`, `sentinel/agent/**`, `tests/test_contracts.py` | tbd |
+| UI (Windmon frontend + FastAPI) | `web/**`, `sentinel/api/**` | Andrei? |
 | Plan / docs | `team/plan.md`, `team/decisions.md` | yolooo332 |
