@@ -82,6 +82,9 @@ def parse_args(argv):
     ap.add_argument("--nbm-hidden", type=int, default=96)
     ap.add_argument("--nbm-lr", type=float, default=2e-3)
     ap.add_argument("--nbm-max-minutes", type=float, default=15.0)
+    ap.add_argument("--care", action="store_true", help="after training, score the artifacts on CARE-to-Compare "
+                    "Wind Farm A (non-RO; range-fetched into ~/.cache/sentinel/care, skipped offline / > --care-max-gb)")
+    ap.add_argument("--care-max-gb", type=float, default=2.0)
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--model", default="windfailure", help="ignored (train.py dispatch)")
@@ -394,8 +397,22 @@ def main(argv: list[str] | None = None) -> dict:
         "feature_importance_gain": imp,
         "notes": ["Simulator fails only gearbox_t / gen1_t / gen2_t; converter / transformer rows are all negative.",
                   "40 % of degradation drifts do not end in a failure: alarms on them count as false alarms here.",
-                  "No M6 overheating-class baseline: M6's classifier is not trained in this run."],
+                  "No M6 overheating-class baseline: M6's classifier is not trained in this run.",
+                  "Protocol history (disclosed): first drafts counted false alarms per alarm DAY run outside the 14-d "
+                  "window and used one validation split; that scored an early alarm on the same drift as a false "
+                  "alarm and tuned on 7 events. Final protocol (applied identically to M7 and the baseline): "
+                  "episode-level false alarms, 4-fold time-blocked CV for thresholds, baseline-oracle equal-FA check."],
     }
+    if args.care:  # after the artifacts exist: scores exactly what predictor.py would load
+        t = time.time()
+        from sentinel.eval.care.score import run as care_run
+
+        care = care_run(out, max_gb=args.care_max_gb, emit=run.emit, out_dir=out)
+        report["care"] = {k: v for k, v in care.items() if k != "datasets"}
+        if (out / "care_report.json").exists():
+            files["care_report.json"] = out / "care_report.json"
+        run.stage("care", t)
+        report["metrics"] = run.metrics
     p = out / "windfailure_report.json"
     p.write_text(json.dumps(report, indent=1, default=float))
     files[p.name] = p
