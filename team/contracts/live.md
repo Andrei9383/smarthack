@@ -70,6 +70,22 @@ self-consumption rule, data.md); `net_kw = pv_kw - load_kw - batt_kw`, + = expor
 The app's "F7 is about to go over its limit" = the latest `ts` row with `level='feeder' AND quantity='net' AND
 method='corrected' AND flag IN ('congested','severe')`.
 
+## Agent tables (card #129, EXPERIMENT, only with `scripts/live_feed.py --agent`)
+
+The replay agent (`run_policy`, policy `sentinel`, the code behind replay#506) stepped one tick at a time, in step
+with the feed (`sentinel/live/agent.py`). Run id = `<feed run_id>:agent`. Rows for step `ts` are written right after
+the feed's tick for `ts`, never ahead. `live_readings` stays the **no-agent** world (self-consumption rule); these
+tables are the same homes **with Sentinel**, so the UI can show both.
+
+`live_agent_feeders` (PK `run_id, ts, feeder_id`): `net_kw` (feeder net export with the agent, + = export),
+`limit_kw`, `over` (0/1), `committed_kw` (day-ahead P10 flexibility commitment for that step), `n_pool`.
+`live_agent_steps` (PK `run_id, ts, site_id`, battery homes only): `status`, `reason` (qualify), `in_pool`,
+`planned_kw` (day-ahead plan set-point), `batt_kw` (what the battery did after the clip, + = charging), `soc`.
+`live_agent_actions` (PK `run_id, action_id`): `ts, action_type` (`work_order`, `alert`, `human_review`,
+`battery_schedule`, `feeder_commitment`, ...), `asset_id`, `feeder_id`, `payload_json`.
+Label in the UI: "day-ahead plan, executed tick by tick" — the plan is made at local midnight from the day-ahead
+forecasts; each tick re-qualifies, triages and clips, it does not re-plan from the newest reading.
+
 ## Honesty notes (show in the UI)
 - Simulated readings on the #506 demo week, re-played on a mapped clock; not live telemetry.
 - The nets are day-ahead (not autoregressive); the latest reading enters only through the residual correction.
