@@ -84,6 +84,20 @@ def rolling_make(scale, rng):
     return (x,)
 
 
+# ---- telemetry scatter: WindNBM load of WP1 (70 turbines x 70,176 steps x 8 sensors, one row per bin on average; 2%
+# codes, 1% NaN and some rows off the grid / unknown tags).
+def scatter_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    S, T, N = 8, max(2, int(round(70176 * scale))), max(1, int(round(70 * scale)))
+    n = S * T * N
+    ti, tj, sk = rng.integers(-2, T + 2, n), rng.integers(-1, N, n), rng.integers(-1, S, n)
+    is_code = rng.random(n) < 0.02
+    v = np.where(is_code, rng.integers(0, 9, n), rng.standard_normal(n))
+    v[rng.random(n) < 0.01] = np.nan
+    sc = np.ones((S, N))
+    sc[0] = rng.random(N) + 0.5
+    return (np.sort(ti), tj, sk, v, is_code, sc, T)
+
+
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description)
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
@@ -97,6 +111,9 @@ CASES = [
      f"{WIN_BATCHES} batches x {WIN_B} windows: 14 d hist + 24 h target, f16 -> f32, from 600 x 140160"),
     ("rolling_mean", "rolling", rolling_make, lambda fn, a: [fn(a[0], w) for w in ROLL_W],
      lambda a: (a[0][:5000], 672), f"70176 steps x 70 turbines, f64, 10% NaN, w in {ROLL_W} (M6 clf_features)"),
+    ("scatter_telemetry", "scatter", scatter_make, lambda fn, a: fn(*a),
+     lambda a: (*(x[:200_000] for x in a[:5]), a[5], a[6]),
+     "39 M long rows (time-sorted) -> 8 sensors x 70176 steps x 70 turbines, 2% codes, 1% NaN (WindNBM load)"),
 ]
 
 

@@ -115,6 +115,19 @@ def rolling_mean(x: Any, w: int) -> np.ndarray:
     return get("rolling_mean")(x, w)
 
 
+# --------------------------------------------------------------------------- K5: telemetry scatter (scatter.py)
+from sentinel.kernels.scatter import scatter_telemetry_py, scatter_telemetry_rust  # noqa: E402
+
+register("scatter_telemetry", scatter_telemetry_py, scatter_telemetry_rust)
+
+
+def scatter_telemetry(ti: Any, tj: Any, sk: Any, v: Any, is_code: Any, scale: Any,
+                      T: int) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatched long-telemetry scatter to [sensor, step, turbine] bin means + last code per bin;
+    see ``sentinel.kernels.scatter`` (the reference)."""
+    return get("scatter_telemetry")(ti, tj, sk, v, is_code, scale, T)
+
+
 __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
-           "names", "register", "rolling_mean", "rolling_mean_py", "rust_available", "window_gather",
-           "window_gather_py"]
+           "names", "register", "rolling_mean", "rolling_mean_py", "rust_available", "scatter_telemetry",
+           "scatter_telemetry_py", "window_gather", "window_gather_py"]
