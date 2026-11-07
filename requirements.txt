@@ -9,6 +9,7 @@ pvlib>=0.11
 cvxpy>=1.5
 highspy>=1.7
 ortools>=9.10
+pandapower>=2.14  # G2 (#160): IEEE European LV test feeder + 3-phase power flow
 lightgbm>=4.3
 scikit-learn>=1.5
 onnxruntime>=1.18

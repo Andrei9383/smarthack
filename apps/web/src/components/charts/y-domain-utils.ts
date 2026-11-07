@@ -63,53 +63,6 @@ export function resolveTimeSeriesYDomain(
   return [minValue - padding, maxValue + padding];
 }
 
-/**
- * Value extents for bar series. Stacked bars use the running totals (always
- * including the zero baseline) so the domain reaches every segment end;
- * grouped bars use the individual values.
- */
-export function collectBarValueExtents(
-  data: Record<string, unknown>[],
-  dataKeys: string[],
-  stacked: boolean
-): NumericExtents {
-  if (!stacked) {
-    return collectNumericExtents(data, dataKeys);
-  }
-  let minValue = 0;
-  let maxValue = 0;
-  for (const d of data) {
-    let sum = 0;
-    for (const key of dataKeys) {
-      const value = d[key];
-      if (typeof value === "number") {
-        sum += value;
-        minValue = Math.min(minValue, sum);
-        maxValue = Math.max(maxValue, sum);
-      }
-    }
-  }
-  return { minValue, maxValue };
-}
-
-/**
- * Bar value-axis domain. Bars grow from zero, so the domain always includes
- * 0: `[0, max * 1.1]` while every value is >= 0 (falls back to `[0, 110]`
- * when there is no positive value), and a padded min..max stretched to
- * include zero once any value is negative.
- */
-export function resolveBarValueDomain({
-  minValue,
-  maxValue,
-}: NumericExtents): YDomain {
-  if (minValue >= 0) {
-    return [0, (maxValue > 0 ? maxValue : 100) * 1.1];
-  }
-
-  const padding = (maxValue - minValue) * 0.05 || 1;
-  return [Math.min(0, minValue - padding), Math.max(0, maxValue + padding)];
-}
-
 /** Apply d3 `nice()` to raw domain endpoints for stable grid ticks. */
 export function niceYDomain(domain: YDomain): YDomain {
   const scale = scaleLinear().domain(domain).nice().range([0, 1]);
@@ -150,13 +103,6 @@ export function isLoadingGridChromePhase(phase: ChartPhase): boolean {
 /** Phases where Y-domain tween runs after the series has exited. */
 export function isYDomainTweenPhase(phase: ChartPhase): boolean {
   return phase === "gridTweenLoading" || phase === "gridTweenReady";
-}
-
-/** Phases where {@link ReferenceArea} bands are shown (fade in/out on transitions). */
-export function isReferenceAreaVisiblePhase(phase: ChartPhase): boolean {
-  return (
-    phase === "ready" || phase === "revealing" || phase === "gridTweenReady"
-  );
 }
 
 export function resolveAnimatedYDestinationDomains(
@@ -219,19 +165,6 @@ export function computeYDomainsByAxis({
   }
 
   return domains;
-}
-
-/** Merge domain maps, normalizing axis ids to strings. */
-export function mergeYDomainRecords(
-  ...records: Record<string, YDomain>[]
-): Record<string, YDomain> {
-  const merged: Record<string, YDomain> = {};
-  for (const record of records) {
-    for (const [axisId, domain] of Object.entries(record)) {
-      merged[normalizeYAxisId(axisId)] = domain;
-    }
-  }
-  return merged;
 }
 
 export function domainsEqual(

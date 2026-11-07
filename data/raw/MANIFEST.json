@@ -1,5 +1,5 @@
 {
- "total_bytes": 31549870,
+ "total_bytes": 32112856,
  "files": {
   "entsoe_ro.parquet": {
    "bytes": 7700015,
@@ -24,10 +24,20 @@
    "sha256": "ad90672abcb4add9345805c03eb7d0a22d629e3e80f80367fef86c10804f8bb4",
    "rows": 32931
   },
+  "prices_pi.parquet": {
+   "bytes": 554688,
+   "sha256": "daf274be5ce8417822e9d472559f0169c44edaca6815a60aa0c90008cb8f7a1d",
+   "rows": 35040
+  },
   "ro_installed_capacity.parquet": {
    "bytes": 1681,
    "sha256": "fdcb5972ea41bafe3549a2c6acb60752ea062dc3d7328e5a1b55673f3e761357",
    "rows": 108
+  },
+  "standard_profile.parquet": {
+   "bytes": 8298,
+   "sha256": "3445db1857e8f8628e6f3a57a64425e349563d318434925d7a8e1394127cdd52",
+   "rows": 768
   },
   "validation/pvdaq_power.parquet": {
    "bytes": 680692,

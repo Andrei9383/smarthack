@@ -229,7 +229,7 @@ export function HowItDecides({
   return (
     <section className={cn("text-[13px]", className)} aria-label={title} data-help="how-it-decides">
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <h3 className="text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase">
+        <h3 className="text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
           {title}
         </h3>
         <span className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">{loop.aside}</span>

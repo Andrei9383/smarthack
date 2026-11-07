@@ -24,7 +24,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source, window_labels
-from .harness import RunContext, export_onnx
+from .harness import RunContext, Throughput, compile_net, export_onnx, resolve_compile
 from .synth import FAULTS
 
 N_CLS = len(FAULTS)
@@ -58,6 +58,21 @@ def parse_args(argv=None):
     ap.add_argument("--max-episodes", type=int, default=0, help="cap test episodes for hours_to_detect (0 = all)")
     ap.add_argument("--no-export", action="store_true")
     ap.add_argument("--tag", default="")
+    ap.add_argument("--batt-aug", type=float, default=0.3,
+                    help="#142: share of healthy battery-home train windows given an injected string outage with the "
+                         "battery left as recorded (0 = recipe of train#391)")
+    ap.add_argument("--promoted", default="models/sitehealth.onnx",
+                    help="promoted M4 scored on the same test windows / probe for a before-after ('' = skip)")
+    ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
+                    help="exact data-wait vs compute split (cuda sync per step)")
+    ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
+    ap.add_argument("--compile", default="off", choices=["auto", "off", "default", "reduce-overhead",
+                                                         "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the M4 train forward (t_compile_s logged). Off: reduce-overhead gave NaN "
+                         "val probabilities after epoch 0 (BatchNorm under CUDA graphs, #140 train#749). The upstream "
+                         "M1/M2 runs keep their own default (auto)")
+    ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
+                    help="fused AdamW kernel on CUDA")
     return ap.parse_args(argv)
 
 
@@ -102,11 +117,130 @@ def daylight(raw):
     return (raw["geom"][..., 0] < 88) & (raw["geom"][..., 2] > 10)
 
 
-def make_inputs(src, sites, starts, m1, m2):
+def make_inputs(src, sites, starts, m1, m2, aug=None):
     raw = F.gather(src, sites, starts, "site", "nowcast", m1=m1, m2=m2)
+    if aug is not None:  # edits raw PV / labels in place before the feature kernel (#142)
+        aug(raw)
     inp = F.site_inputs(raw)
     lab = window_labels(raw["fault"], daylight(raw))
     return raw, inp, lab
+
+
+# --- battery homes (#142) ----------------------------------------------------------------------------------
+# #29 found the interim M4 calling a 50 % string outage a sensor fault on battery homes: when the battery keeps
+# its normal charge/discharge while PV steps down, the only training class with "PV off, rest of the site normal"
+# was sensor_fault (#12 corrupts the reported PV only and keeps the battery physics). Real batteries often do not
+# track PV either (time-of-use schedules, grid charging, telemetry from a separate device), and the demo story
+# (world.py _apply_story) cuts PV without re-simulating the battery. Fix: train on extra string outages injected on
+# healthy battery-home windows with the battery channels left as recorded, and measure it both ways.
+SO_IDX, SF_IDX = FAULTS.index("string_outage"), FAULTS.index("sensor_fault")
+PROBE_HOURS = (8, 15, 39, 63)  # outage hours before the window end (18:00 UTC): mid-day, day 1, day 2, day 3
+
+
+def inject_string_outage(raw: dict, rows: np.ndarray, back: np.ndarray, n_strings: np.ndarray) -> None:
+    """In place: string outage on PV only (#12 `apply_string_outage` physics, as world.py's story applies it) for
+    the last `back[i]` steps of window `rows[i]` (reaching into hist_pv when longer than the window). Battery, SoC,
+    load and voltage stay as recorded. Labels the affected window steps string_outage. Vectorised over rows."""
+    if not len(rows):
+        return
+    hh = raw["hist_pv"].shape[1]
+    full = np.concatenate([raw["hist_pv"][rows], raw["pv"][rows]], 1).astype(np.float32)
+    on = (np.arange(full.shape[1])[None] >= (full.shape[1] - np.asarray(back))[:, None])
+    ac = raw["inverter_kw"][rows].astype(np.float32)[:, None]
+    ac = np.where(ac > 0, ac, np.inf)
+    dc = np.where(full >= 0.99 * ac, full * 1.15, full)  # a clipped plateau drops too, but by less than 1/N
+    cut = np.where(full > 0, np.minimum(dc * (1 - 1 / np.asarray(n_strings, np.float32)[:, None]), ac), 0.0)
+    full = np.where(on, cut, full)
+    for key, part in (("hist_pv", full[:, :hh]), ("pv", full[:, hh:])):
+        a = np.array(raw[key], copy=True)
+        a[rows] = part.astype(a.dtype)
+        raw[key] = a
+    f = np.array(raw["fault"], copy=True)
+    f[rows] = np.where(on[:, hh:], SO_IDX, f[rows])
+    raw["fault"] = f
+
+
+def battery_outage_aug(p: float, max_hours: int = 72):
+    """Training augmentation: each healthy battery-home window gets a demo-style string outage with probability p
+    (1 of 2/3/4 strings, onset 1-`max_hours` h before the window end, battery left as recorded)."""
+    def aug(raw):
+        rng = np.random.default_rng()  # runs in the batch thread pool (like the stat noise)
+        ok = (np.asarray(raw["has_batt"]) > 0) & (np.asarray(raw["fault"]) == 0).all(1)
+        rows = np.flatnonzero(ok & (rng.random(len(ok)) < p))
+        inject_string_outage(raw, rows, rng.integers(4, max_hours * 4 + 1, len(rows)),
+                             rng.choice([2, 3, 4], len(rows)))
+    return aug if p > 0 else None
+
+
+def promoted_session(path, dims):
+    """onnxruntime session of the promoted M4 (the 'before' on identical windows), or None if absent / other dims."""
+    import json
+    from pathlib import Path
+
+    p = Path(path)
+    cal = p.with_name(p.stem + ".calibration.json")
+    if not p.exists() or not cal.exists():
+        return None, None
+    c = json.loads(cal.read_text())
+    if c.get("dims") != dims:
+        print(f"[probe] promoted {p} has dims {c.get('dims')} != {dims}; skipped", flush=True)
+        return None, None
+    import onnxruntime as ort
+
+    return ort.InferenceSession(str(p), providers=["CPUExecutionProvider"]), c
+
+
+def onnx_probs(sess, inp: dict, batch: int = 4096) -> np.ndarray:
+    n = len(inp["seq"])
+    return np.concatenate([sess.run(["probs"], {k: inp[k][i:i + batch] for k in ("seq", "summ", "stat")})[0]
+                           for i in range(0, n, batch)]) if n else np.zeros((0, N_CLS), np.float32)
+
+
+def battery_split(P, L, batt, seen) -> dict:
+    """Per group (battery / no battery homes, and x seen / unseen): PR-AUC, string_outage row of the confusion."""
+    out = {}
+    pred = P.argmax(1)
+    for g, sel in (("batt", batt), ("nobatt", ~batt), ("batt_seen", batt & seen), ("batt_unseen", batt & ~seen),
+                   ("nobatt_seen", ~batt & seen), ("nobatt_unseen", ~batt & ~seen)):
+        so = sel & (L == SO_IDX)
+        row = np.bincount(pred[so], minlength=N_CLS)
+        out[g] = {"n": int(sel.sum()), "prauc": M.prauc_macro(P[sel], L[sel])[0] if sel.any() else float("nan"),
+                  "prauc_binary": M.ap(L[sel] > 0, 1 - P[sel, 0]) if sel.any() else float("nan"),
+                  "n_string_outage": int(so.sum()),
+                  "string_outage_pred": {FAULTS[c]: int(v) for c, v in enumerate(row)},
+                  "so_to_sf": float(row[SF_IDX] / max(so.sum(), 1)),
+                  "so_recall": float(row[SO_IDX] / max(so.sum(), 1)),
+                  "sf_false": int(((pred == SF_IDX) & sel & (L != SF_IDX)).sum())}
+    return out
+
+
+def battery_probe(src, sites, starts, m1, m2, predictors: dict, rng, n_max=3000) -> dict:
+    """Inject the demo story's outage (1 of 2 strings, battery not re-simulated) into healthy test windows of
+    battery and no-battery homes, at several outage ages; share of windows each model calls string_outage /
+    sensor_fault / healthy. predictors: name -> (fn(inp) -> probs [B, 8], p_fault threshold)."""
+    batt_site = src.site_meta("battery_kwh") > 0
+    out = {}
+    for g, want in (("batt", True), ("nobatt", False)):
+        idx = np.flatnonzero(batt_site[sites] == want)
+        if len(idx) > n_max:
+            idx = np.sort(rng.choice(idx, n_max, replace=False))
+        if not len(idx):
+            continue
+        base = F.gather(src, sites[idx], starts[idx], "site", "nowcast", m1=m1, m2=m2)
+        for hrs in PROBE_HOURS:
+            raw = dict(base)
+            rows = np.arange(len(idx))
+            inject_string_outage(raw, rows, np.full(len(idx), hrs * 4), np.full(len(idx), 2))
+            inp = F.site_inputs(raw)
+            for name, (fn, thr) in predictors.items():
+                P = fn(inp)
+                pred = P.argmax(1)
+                out.setdefault(name, {}).setdefault(g, {})[f"{hrs}h"] = {
+                    "n": int(len(idx)), "string_outage": float((pred == SO_IDX).mean()),
+                    "sensor_fault": float((pred == SF_IDX).mean()), "healthy": float((pred == 0).mean()),
+                    "other": float(((pred != SO_IDX) & (pred != SF_IDX) & (pred != 0)).mean()),
+                    "flagged": float((1 - P[:, 0] > thr).mean())}
+    return out
 
 
 def baseline_scores(raw, cus, starts, sites, factor):
@@ -184,7 +318,8 @@ def run(argv=None):
         src = open_source(args.data, args.synth_sites)
         sp = make_splits(src)
         m1 = upstream_predictions(src, "pvnet", *ups["pvnet"][:2], ups["pvnet"][2], dev, amp)
-        m2 = upstream_predictions(src, "loadnet", *ups["loadnet"][:2], ups["loadnet"][2], dev, amp)[..., 1]
+        # contiguous once: a strided [..., 1] view made features.gather copy all of m2 (168 MB) per batch (#185)
+        m2 = np.ascontiguousarray(upstream_predictions(src, "loadnet", *ups["loadnet"][:2], ups["loadnet"][2], dev, amp)[..., 1])
 
     n_days = src.n_days
     tr_s, tr_d = sp.site_days("train")
@@ -217,14 +352,15 @@ def run(argv=None):
             s, d = s[sel], d[sel]
         return s, d * H + 72 - H + 1  # window = 24 h ending 18:00 UTC of the target day
 
+    aug = battery_outage_aug(args.batt_aug)
     with ctx.stage("stats"):
-        probe = [make_inputs(src, *sample_train(512), m1, m2)[1] for _ in range(12)]
+        probe = [make_inputs(src, *sample_train(512), m1, m2, aug)[1] for _ in range(12)]
         stats = F.fit_stats(probe)
         dims = {k: probe[0][k].shape[-1] for k in ("seq", "summ", "stat")}
         # class priors: natural (uniform windows) vs our sampling mix -> logit adjustment at inference
         nat = np.concatenate([make_inputs(src, tr_s[i], np.clip(tr_d[i] * H + rng.integers(0, H, len(i)), lo, hi) - H + 1, m1, m2)[2]
                               for i in [rng.integers(0, len(tr_s), 4096) for _ in range(3)]])
-        mix = np.concatenate([make_inputs(src, *sample_train(4096), m1, m2)[2] for _ in range(3)])
+        mix = np.concatenate([make_inputs(src, *sample_train(4096), m1, m2, aug)[2] for _ in range(3)])
         p_nat = (np.bincount(nat, minlength=N_CLS) + 1) / (len(nat) + N_CLS)
         p_mix = (np.bincount(mix, minlength=N_CLS) + 1) / (len(mix) + N_CLS)
         logit_bias = np.log(p_nat / p_mix).astype(np.float32)
@@ -232,7 +368,9 @@ def run(argv=None):
 
     net = SiteHealthNet(dims["seq"], dims["summ"], dims["stat"], width=args.width, drop=args.dropout).to(dev)
     ctx.emit("n_params", n_params(net))
-    opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    cuda = str(dev).startswith("cuda")
+    opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay,
+                            **({"fused": True} if cuda and args.fused_adam else {}))
     total = args.epochs * args.steps_per_epoch
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=total, pct_start=0.08)
     scaler = torch.amp.GradScaler("cuda", enabled=(amp == torch.float16))
@@ -259,41 +397,78 @@ def run(argv=None):
     vs, vst = daily("val", limit=args.eval_limit or 8000)
     deadline = args.max_minutes * 0.8
     best, best_state, bad, history = -math.inf, None, 0, []
-    pool = ThreadPoolExecutor(max_workers=3)
+    with ctx.stage("valcache"):  # fixed per-epoch val windows: inputs built once and kept on the device (#140)
+        vcache = []
+        for k in range(0, len(vs), 2048):
+            _, inp, lab = make_inputs(src, vs[k:k + 2048], vst[k:k + 2048], m1, m2)
+            vcache.append((to_t(inp), lab))
+        vlab = np.concatenate([c[1] for c in vcache])
 
-    def make_batch():
-        s, st = sample_train(args.batch)
-        _, inp, lab = make_inputs(src, s, st, m1, m2)
+    def val_probs():
+        net.eval()
+        P = []
+        with torch.no_grad():
+            for t, _ in vcache:
+                with ctx.autocast():
+                    lg, _ = net(*t)
+                P.append(lg.float())
+        lg = torch.cat(P).cpu().numpy() + logit_bias
+        e = np.exp(lg - lg.max(1, keepdims=True))
+        return e / e.sum(1, keepdims=True), vlab
+
+    fwd = compile_net(net, args.compile)
+    from .forecast import loader_workers
+    from .harness import pin
+
+    def make_batch(s, st):
+        _, inp, lab = make_inputs(src, s, st, m1, m2, aug)
         if args.stat_noise > 0:  # in raw units scaled by the train std, so it matches the normalised-space noise
             sd = np.asarray(stats["stat"]["std"], np.float32)
             inp["stat"] = inp["stat"] + np.random.default_rng().normal(0, args.stat_noise, inp["stat"].shape) * sd
-        return inp, lab
+        x = F.normalise(inp, stats)  # in the worker, with pinned tensors: the main thread only issues async copies
+        return [pin(torch.from_numpy(np.ascontiguousarray(a))) for a in (x["seq"], x["summ"], x["stat"], lab)]
 
+    # M4's loop is data-bound (site windows): 8 threads 12.8 ms/step, 21 % wait (train#842); 3 threads 18.8 ms/step,
+    # 72 % wait (train#862)
+    n_workers = args.loader_workers or loader_workers()
+    pool = ThreadPoolExecutor(max_workers=n_workers)
+    ctx.emit("loader_workers", n_workers)
+    tp = Throughput(ctx.emit, dev, sync=args.profile)
     with ctx.stage("train"):
-        futs = [pool.submit(make_batch) for _ in range(6)]
+        futs = [pool.submit(make_batch, *sample_train(args.batch)) for _ in range(2 * n_workers)]
         step = 0
         for ep in range(args.epochs):
             net.train()
             t_ep, losses = time.time(), []
             for _ in range(args.steps_per_epoch):
-                inp, lab = futs.pop(0).result()
-                futs.append(pool.submit(make_batch))
-                with ctx.autocast():
-                    lg, _ = net(*to_t(inp))
-                loss = focal_loss(lg.float(), torch.from_numpy(lab).to(dev), args.gamma, alpha)
-                opt.zero_grad(set_to_none=True)
-                scaler.scale(loss).backward()
-                scaler.unscale_(opt)
-                torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-                scaler.step(opt)
-                scaler.update()
-                if step < total - 1:
-                    sched.step()
-                step += 1
-                losses.append(loss.detach())  # no per-step GPU sync
-            P, _, L, _ = infer(vs, vst)
-            mac, _ = M.prauc_macro(P, L)
-            binp = M.ap(L > 0, 1 - P[:, 0])
+                with tp.wait():
+                    host = futs.pop(0).result()
+                futs.append(pool.submit(make_batch, *sample_train(args.batch)))
+                t_c = time.perf_counter()
+                with tp.compute(len(host[-1])):
+                    seq, summ, stat, labt = (h.to(dev, non_blocking=True) for h in host)
+                    with ctx.autocast():
+                        lg, _ = fwd(seq, summ, stat)
+                    loss = focal_loss(lg.float(), labt, args.gamma, alpha)
+                    opt.zero_grad(set_to_none=True)
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                    scaler.step(opt)
+                    scaler.update()
+                    if step < total - 1:
+                        sched.step()
+                    step += 1
+                    losses.append(loss.detach())  # no per-step GPU sync
+                if resolve_compile(args.compile) != "off" and step == 1:
+                    if cuda:
+                        torch.cuda.synchronize()
+                    ctx.emit("t_compile_s", time.perf_counter() - t_c)
+                    tp.warmup(time.perf_counter() - t_c, len(host[-1]))
+            with tp.val():
+                P, L = val_probs()
+                mac, _ = M.prauc_macro(P, L)
+                binp = M.ap(L > 0, 1 - P[:, 0])
             history.append({"epoch": ep, "loss": float(torch.stack(losses).mean()), "val_prauc": mac, "val_prauc_binary": binp,
                             "sec": round(time.time() - t_ep, 1)})
             print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_prauc {mac:.4f} binary {binp:.4f} "
@@ -310,6 +485,7 @@ def run(argv=None):
         for f in futs:
             f.cancel()
         pool.shutdown(wait=False, cancel_futures=True)
+    tp.finish()
     if best_state is not None:
         net.load_state_dict(best_state)
     ctx.emit("epochs_run", len(history))
@@ -373,6 +549,23 @@ def run(argv=None):
               "threshold": float((thr_t[healthy] > th["threshold"]).mean()),
               "cusum": float((cus_t[healthy] > th["cusum"]).mean())}
         report["false_alarms_per_healthy_site_day"] = fa
+        # #142: battery vs no-battery homes, this model and the promoted one on the same windows
+        batt = src.site_meta("battery_kwh")[ts] > 0
+        report["battery_split"] = bs = battery_split(tP, tL, batt, seen)
+        old_sess, old_cal = promoted_session(args.promoted, dims) if args.promoted else (None, None)
+        if old_sess is not None:
+            oP = np.concatenate([onnx_probs(old_sess, F.site_inputs(r)) for r in tR])
+            report["battery_split_promoted"] = bs_old = battery_split(oP, tL, batt, seen)
+            report["promoted"] = {"path": args.promoted, "model_version": old_cal.get("model_version"),
+                                  "test_prauc": M.prauc_macro(oP, tL)[0],
+                                  **{f"test_prauc_{g}": M.prauc_macro(oP[sel], tL[sel])[0]
+                                     for g, sel in (("seen", seen), ("unseen", ~seen)) if sel.any()}}
+            ctx.emit("promoted_test_prauc", report["promoted"]["test_prauc"])
+            ctx.emit("promoted_batt_so_to_sf", bs_old["batt"]["so_to_sf"])
+        for g in ("batt", "nobatt"):
+            ctx.emit(f"test_prauc_{g}", bs[g]["prauc"])
+            ctx.emit(f"{g}_so_to_sf", bs[g]["so_to_sf"])
+            ctx.emit(f"{g}_so_recall", bs[g]["so_recall"])
         ctx.emit("false_alarm_rate", fa["model"])
         ctx.emit("baseline_threshold_false_alarm_rate", fa["threshold"])
         ctx.emit("baseline_cusum_false_alarm_rate", fa["cusum"])
@@ -416,6 +609,25 @@ def run(argv=None):
             ctx.emit(f"baseline_{n}_detect_rate_72h", det[n]["detected_frac"])
             ctx.emit(f"baseline_{n}_hours_to_detect_mean_capped", det[n]["mean_hours_capped"])
 
+    with ctx.stage("probe"):
+        ok = tL == 0
+        preds = {"model": (lambda inp: _probs(net, to_t, ctx, inp, logit_bias), th["model"])}
+        if old_sess is not None:
+            preds["promoted"] = (lambda inp: onnx_probs(old_sess, inp), old_cal["thresholds"]["p_fault"])
+        report["battery_probe"] = bp = battery_probe(src, ts[ok], tst[ok], m1, m2, preds, rng)
+        for name, d in bp.items():
+            sfx = "" if name == "model" else f"_{name}"
+            for g, per in d.items():
+                ctx.emit(f"probe_{g}_sf{sfx}", float(np.mean([v["sensor_fault"] for v in per.values()])))
+                ctx.emit(f"probe_{g}_so{sfx}", float(np.mean([v["string_outage"] for v in per.values()])))
+                for h, v in per.items():
+                    print(f"[probe] {name:8s} {g:6s} outage {h:>4s}: string_outage {v['string_outage']:.2f} "
+                          f"sensor_fault {v['sensor_fault']:.2f} healthy {v['healthy']:.2f} other {v['other']:.2f} "
+                          f"flagged {v['flagged']:.2f} (n={v['n']})", flush=True)
+    for name, b in (("model", bs), ("promoted", report.get("battery_split_promoted"))):
+        for g, v in (b or {}).items():
+            print(f"[battery] {name:8s} {g:13s} n={v['n']:6d} prauc {v['prauc']:.3f} string_outage n={v['n_string_outage']:5d} "
+                  f"recall {v['so_recall']:.2f} ->sensor_fault {v['so_to_sf']:.3f} row {v['string_outage_pred']}", flush=True)
     print("[analysis] test confusion (rows=true, cols=pred): " + " ".join(f[:6] for f in FAULTS), flush=True)
     for f, row in zip(FAULTS, cm):
         print(f"[analysis]   {f:17s} " + " ".join(f"{v:6d}" for v in row), flush=True)
@@ -451,6 +663,22 @@ def run(argv=None):
     report["metrics"] = ctx.metrics
     ctx.write_json("sitehealth.report.json", report)
     ctx.finish({"data_root": str(src.root), "data_digest": src.index.get("digest")})
+
+
+def _probs(net, to_t, ctx, inp, logit_bias, batch=2048):
+    """Softmax probabilities (with the logit adjustment) of the torch model for built inputs."""
+    import torch
+
+    net.eval()
+    out = []
+    with torch.no_grad():
+        for i in range(0, len(inp["seq"]), batch):
+            with ctx.autocast():
+                lg, _ = net(*to_t({k: inp[k][i:i + batch] for k in ("seq", "summ", "stat")}))
+            lg = lg.float().cpu().numpy() + logit_bias
+            e = np.exp(lg - lg.max(1, keepdims=True))
+            out.append(e / e.sum(1, keepdims=True))
+    return np.concatenate(out)
 
 
 def _wrap(net, stats, logit_bias):

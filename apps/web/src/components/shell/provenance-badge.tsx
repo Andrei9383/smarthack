@@ -25,7 +25,7 @@ export function ProvenanceBadge({ sources, className }: { sources: [Provenance, 
     <div
       tabIndex={0}
       className={cn(
-        "group relative flex cursor-default items-center gap-2 rounded-xl bg-card/95 px-3 text-xs font-medium whitespace-nowrap min-[1600px]:px-3.5 text-foreground shadow-floating backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "group relative flex cursor-default items-center gap-2 rounded-lg bg-card px-3 text-xs font-medium whitespace-nowrap min-[1600px]:px-3.5 text-foreground shadow-floating outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         className,
       )}
     >
@@ -38,9 +38,9 @@ export function ProvenanceBadge({ sources, className }: { sources: [Provenance, 
       <span className="min-[1600px]:hidden">{PROVENANCE_TEXT[kinds[0] ?? "synthetic"].label}{kinds.length > 1 ? ` +${kinds.length - 1}` : ""}</span>
       <div
         role="tooltip"
-        className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-50 w-[300px] -translate-y-1 rounded-xl bg-card p-3.5 whitespace-normal opacity-0 shadow-overlay transition-[opacity,transform] duration-200 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-50 w-[300px] -translate-y-1 rounded-lg bg-popover p-3.5 whitespace-normal opacity-0 shadow-overlay transition-[opacity,transform] duration-200 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:transition-none"
       >
-        <span className="mb-1 block text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+        <span className="mb-1 block section-label">
           Where this view's data comes from
         </span>
         {sources.map(([kind, source]) => (
