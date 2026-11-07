@@ -171,8 +171,7 @@ class ConformalCalibration:
             w = np.maximum(q90 - q10, eps_abs)
             b = _bucket_index(y.shape, n_buckets)
             offsets: dict[str, list[float]] = {}
-            for k, tau in QUANTILES.items():
-                q = {"q10": q10, "q50": q50, "q90": q90}[k]
+            for (k, tau), q in zip(QUANTILES.items(), (q10, q50, q90)):
                 s = (y - q) / w
                 offsets[k] = [_conformal_quantile(s[m & (b == j)], tau) for j in range(n_buckets)]
             cal.members[mid] = MemberCalibration(offsets=offsets, n_cal=int(m.sum()),

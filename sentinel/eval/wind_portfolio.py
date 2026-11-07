@@ -104,15 +104,14 @@ def portfolio_metrics(prod_mwh, sold_da_mwh, sold_id_mwh, pzu, pi, mask=None, pb
                            s["dev"].shape)
     m = np.ones(s["dev"].shape, bool) if mask is None else np.broadcast_to(mask, s["dev"].shape)
     produced = float(prod[m].sum())
-    out = {"wind_avoidable_cost_lei": float(s["avoidable"][m].sum()),
-           "lei_per_mwh_produced": float(s["avoidable"][m].sum()) / produced if produced > 0 else float("nan"),
-           "abs_dev_mwh": float(np.abs(s["dev"])[m].sum()),
-           "promised_but_not_delivered_mwh": float("nan") if pbnd_mwh is None else
-           float(np.broadcast_to(pbnd_mwh, m.shape)[m].sum()),
-           "short_mwh": float(s["short"][m].sum()), "long_mwh": float(s["long"][m].sum()),
-           "imbalance_lei": float(s["imbalance"][m].sum()), "intraday_lei": float(s["intraday"][m].sum()),
-           "produced_mwh": produced, "sold_mwh": float(sold[m].sum()), "n_steps": int(m.sum())}
-    return out
+    return {"wind_avoidable_cost_lei": float(s["avoidable"][m].sum()),
+            "lei_per_mwh_produced": float(s["avoidable"][m].sum()) / produced if produced > 0 else float("nan"),
+            "abs_dev_mwh": float(np.abs(s["dev"])[m].sum()),
+            "promised_but_not_delivered_mwh": float("nan") if pbnd_mwh is None else
+            float(np.broadcast_to(pbnd_mwh, m.shape)[m].sum()),
+            "short_mwh": float(s["short"][m].sum()), "long_mwh": float(s["long"][m].sum()),
+            "imbalance_lei": float(s["imbalance"][m].sum()), "intraday_lei": float(s["intraday"][m].sum()),
+            "produced_mwh": produced, "sold_mwh": float(sold[m].sum()), "n_steps": int(m.sum())}
 
 
 def residual_offsets(p: np.ndarray, y: np.ndarray, mask: np.ndarray, levels: Sequence[float]) -> np.ndarray:
@@ -443,9 +442,9 @@ def main(argv=None) -> dict:
 
     if not args.no_positions:
         with stage("positions"):
-            extra = {"score_ok": score_ok, "split": np.where(np.broadcast_to(is_test, y.shape), "test", "val"),
+            extra = {"score_ok": score_ok,
+                     "split": np.where(np.broadcast_to(is_test, y.shape), "test", "val").astype(object),
                      "holdout": np.broadcast_to(~train_park, y.shape), "stopped_day": np.broadcast_to(stopped_day, y.shape)}
-            extra["split"] = extra["split"].astype(object)
             df = positions_frame(data.ts[idx], data.park_ids, caps / 1000.0, rows, act, pzu, pi, extra, a, b)
             df.write_parquet(out_dir / "wind_positions.parquet")
             print(f"[w3] wrote {out_dir / 'wind_positions.parquet'} ({len(df)} rows)", flush=True)

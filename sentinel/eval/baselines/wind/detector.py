@@ -37,11 +37,11 @@ def detect_park(curve: BinnedCurve, turbines: list[dict], sensors: dict, err: np
     """WindAnomaly index [T, n] for all turbines of one park (the park context needs all of them)."""
     P = {**PARAMS, **(params or {})}
     weather = weather or {}
-    pf = np.asarray(sensors[POWER], np.float64) / np.array([float(t["rated_kw"]) for t in turbines])[None]
+    rated = np.array([float(t["rated_kw"]) for t in turbines])
+    pf = np.asarray(sensors[POWER], np.float64) / rated[None]
     T, n = pf.shape
     v = park_inputs(sensors, meteo, weather, T, n)
     qm = curve.predict_block(turbines, v, "met")
-    rated = np.array([float(t["rated_kw"]) for t in turbines])
     wm = windmon_flags({k: np.asarray(x, np.float32) for k, x in sensors.items()}, np.asarray(err), rated)
     gap = wm["DATA_GAP"] | wm["SUSPECT_DATA"]
     valid = np.isfinite(pf) & ~gap
