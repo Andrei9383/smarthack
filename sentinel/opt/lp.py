@@ -58,6 +58,24 @@ before / after. At negative prices c_deg > 0 and η_c·η_d < 1 make burning unp
 ~2·c_deg/(1 − η_c·η_d) ≈ 2.5 lei/kWh (lowest OPCOM price 2023–25: −0.53). Any remainder is netted by the clip, so the
 reported slack is always what the battery can do.
 
+Supplier objective (card G4 #162, spec G step 6: one LP for the DSO and the supplier). Off by default
+(`supplier=None`): the LP, its solution and every replay KPI are then exactly the ones above. With a
+`SupplierObjective` the supplier's avoidable imbalance cost (X1 #158, `sentinel.eval.imbalance`) becomes part of the
+objective, while the feeder limit and the comfort reserve stay **hard**:
+
+    imp_t = −(Σ_i g_it + X_t^rest50)                         feeder P50 net import (supplier sign: consumption)
+    dev_t = imp_t − B_t − I_t                                B = day-ahead purchase (I5 #175 bought_da), I = traded on PI
+    u_t ≥ dev_t,  v_t ≥ −dev_t,  u, v ≥ 0                     short / long epigraphs
+    min  … (the objective above, bill term × bill_weight)  +  w·Σ_t Δt·(a·|PZU_t|·u_t + b·|PZU_t|·v_t)
+
+i.e. X1's `imbalance = a·|pzu|·short + b·|pzu|·long` per step, in lei (kW·h·lei/kWh), convex piecewise linear in the
+schedule, so still one LP. The intraday term `traded_id·(PI − PZU)` is a constant here (the trade is decided at 15:00,
+after this plan) and is left out. Hard feeder limit: with `LPParams.supplier_lexicographic` (default) the LP is solved
+twice: stage 1 = the DSO LP above (minimum slack s*), stage 2 adds `s_t ≤ s*_t` and minimises the full objective, so
+the supplier term can never buy back a kW over the limit (not even at a tie, and whatever M is); the comfort reserve is
+the hard bound `e ≥ R` in both stages. Without it, one solve with M ≫ w·a·|PZU| (checked). The supplier term is a
+per-feeder share of the portfolio: Σ_f cost_f ≥ the portfolio cost (convexity), so the LP minimises an upper bound.
+
 Units: kW, kWh, prices lei/kWh. Weights must satisfy M ≫ λ ≫ π (checked loosely). LP only: no binaries.
 Raises `LPSolveError` if HiGHS does not return an optimal solution; callers (#17) then use
 `aggregate.plan_feeder_aggregate` or `policies.self_consumption_plan`.
@@ -99,6 +117,8 @@ from .policies import (
 
 __all__ = [
     "LPParams",
+    "SupplierObjective",
+    "supplier_cost_lei",
     "LPSolveError",
     "LPSolution",
     "Site",
@@ -143,14 +163,90 @@ class LPParams:
     repair_iters: int = 4  # re-solves that forbid discharge at steps where the LP charged + discharged at once
     time_limit_s: float = 60.0
     verbose: bool = False
+    # supplier objective (#162): only used when plan_feeder / solve_lp get a supplier term
+    supplier_lexicographic: bool = True  # stage 2 keeps every step's slack <= the DSO-only LP's (hard limit)
+    supplier_slack_tol_kw: float = 1e-5  # numerical tolerance on that stage-2 bound
+    bill_weight: float = 1.0  # weight of the prosumer energy bill term (1 = the #18 objective; 0 = supplier only)
 
     def __post_init__(self) -> None:
         if not (self.big_m > self.lam > 0 and self.c_deg >= 0 and 0 <= self.beta <= 1):
             raise ValueError("need big_m > lam > 0, c_deg >= 0, 0 <= beta <= 1")
+        if self.bill_weight < 0 or self.supplier_slack_tol_kw < 0:
+            raise ValueError("need bill_weight >= 0 and supplier_slack_tol_kw >= 0")
         if self.beta_negative < 1:
             raise ValueError("need beta_negative >= 1 (else the LP is unbounded at negative prices)")
         if self.grid_limit_kw is not None and self.grid_limit_kw <= 0:
             raise ValueError("grid_limit_kw must be > 0 or None")
+
+
+AB_STUB = (1.4407, 0.7204)  # X1 #158's frozen (a, b), used only while sentinel.eval.imbalance is not importable
+KW_TO_MWH = DT_H / 1000.0  # kW over one 15-min step -> MWh
+
+
+def imbalance_ab() -> tuple[float, float]:
+    """Frozen imbalance penalties (a short, b long) from X1 (`sentinel.eval.imbalance.load_ab`), else #158's values."""
+    try:
+        from sentinel.eval.imbalance import load_ab
+    except ImportError:
+        return AB_STUB
+    try:
+        return tuple(map(float, load_ab()))  # type: ignore[return-value]
+    except (OSError, KeyError, ValueError):
+        return AB_STUB
+
+
+@dataclass(frozen=True)
+class SupplierObjective:
+    """The supplier's avoidable imbalance cost as an LP term (#162, module docstring). Per step of the plan horizon:
+
+    position_kw  B_t: what the supplier bought day-ahead for this feeder's homes, as kW of net import
+                 (consumption sign, = I5's bought_da MWh / KW_TO_MWH; `from_bought_da` converts)
+    traded_kw    I_t: intraday (PI) trade already done, kW (+ bought, − sold); None = 0
+    pzu          PZU lei/kWh per step (scalar / per step / hourly); None = the plan's `prices`
+    a, b         imbalance penalties: short pays a·|PZU|, long b·|PZU| (X1); None = the frozen X1 values
+    weight       w, multiplies the supplier term (0 = term built but free; None supplier = no term at all)
+    """
+
+    position_kw: ArrayLike
+    traded_kw: Optional[ArrayLike] = None
+    pzu: Union[float, ArrayLike, None] = None
+    a: Optional[float] = None
+    b: Optional[float] = None
+    weight: float = 1.0
+
+    @classmethod
+    def from_bought_da(cls, bought_mwh: ArrayLike, traded_mwh: Optional[ArrayLike] = None,
+                       pzu_lei_mwh: Optional[ArrayLike] = None, a: Optional[float] = None,
+                       b: Optional[float] = None, weight: float = 1.0) -> "SupplierObjective":
+        """From I5 / X1 units (MWh per 15-min step, lei/MWh) to the LP's kW and lei/kWh."""
+        conv = lambda x: None if x is None else np.asarray(x, float) / KW_TO_MWH  # noqa: E731
+        pzu = None if pzu_lei_mwh is None else np.asarray(pzu_lei_mwh, float) / 1000.0
+        return cls(conv(bought_mwh), conv(traded_mwh), pzu, a, b, weight)
+
+    def arrays(self, horizon: int, prices: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """(target_kw = B + I, short weight w·a·|PZU|, long weight w·b·|PZU|) per step, lei/kWh."""
+        pos = np.asarray(self.position_kw, float).reshape(-1)
+        if pos.size != horizon:
+            raise ValueError(f"supplier position has {pos.size} steps; plan horizon is {horizon}")
+        traded = np.zeros(horizon) if self.traded_kw is None else np.asarray(self.traded_kw, float).reshape(-1)
+        if traded.size != horizon:
+            raise ValueError(f"supplier traded_kw has {traded.size} steps; plan horizon is {horizon}")
+        a0, b0 = imbalance_ab() if (self.a is None or self.b is None) else (self.a, self.b)
+        a = float(a0 if self.a is None else self.a)
+        b = float(b0 if self.b is None else self.b)
+        if a < 0 or b < 0 or self.weight < 0:
+            raise ValueError("need a, b, weight >= 0")
+        apzu = np.abs(prices if self.pzu is None else price_vector(self.pzu, horizon))
+        return pos + traded, self.weight * a * apzu, self.weight * b * apzu
+
+
+def supplier_cost_lei(import_kw: ArrayLike, target_kw: ArrayLike, w_short: ArrayLike, w_long: ArrayLike,
+                      dt_h: float = DT_H) -> tuple[float, float]:
+    """(imbalance lei, |deviation| kWh) of a feeder net-import curve against the supplier's position: X1's
+    a·|pzu|·short + b·|pzu|·long, with w_short = a·|pzu|, w_long = b·|pzu| in lei/kWh (what `arrays` returns)."""
+    dev = np.asarray(import_kw, float) - np.asarray(target_kw, float)
+    lei = dt_h * float(np.sum(np.asarray(w_short) * np.maximum(dev, 0.0) + np.asarray(w_long) * np.maximum(-dev, 0.0)))
+    return lei, dt_h * float(np.abs(dev).sum())
 
 
 def _local_hour(ts) -> float:
@@ -183,6 +279,8 @@ class LPSolution:
     objective: Optional[float]
     solve_time_s: float
     grid: Optional[np.ndarray] = None  # g = net50 − c + d [N, T], net grid flow (+ export)
+    supplier_lei: Optional[float] = None  # planned supplier imbalance cost (P50), when a supplier term was given
+    stage1_slack: Optional[np.ndarray] = None  # [T] DSO-only slack s* (lexicographic supplier solve)
 
     @property
     def simultaneous(self) -> np.ndarray:
@@ -214,10 +312,12 @@ def solve_lp(
     params: LPParams = LPParams(),
     dt_h: float = DT_H,
     no_discharge: Optional[np.ndarray] = None,
+    supplier: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
 ) -> LPSolution:
     """The §3.5 LP on arrays. net50 = P50 PV − P50 load [N, T]; worst = P90 PV − P10 load [N, T]; per-site
     vectors [N]; rest_* / prices / peak_mask [T]; no_discharge [T] bool forces d = 0 at those steps (repair).
-    Shared by `plan_feeder` and the aggregate fallback (N = 1)."""
+    supplier = (target_kw, w_short, w_long) [T] from `SupplierObjective.arrays` adds the supplier term (#162,
+    module docstring); None builds exactly the #18 LP. Shared by `plan_feeder` and the aggregate fallback (N = 1)."""
     N, T = net50.shape
     col = lambda v: np.asarray(v, float).reshape(N, 1)  # noqa: E731
     net50 = np.asarray(net50, float)
@@ -255,8 +355,9 @@ def solve_lp(
     if idx.size:
         cons.append(z >= -cp.sum(g[:, idx], axis=0) - rest_net[idx])
     beta_t = np.where(prices >= 0, params.beta, params.beta_negative)
-    w_imp = np.broadcast_to((1.0 - beta_t) * prices, (N, T))  # >= 0 at every step: convex
-    w_net = np.broadcast_to(beta_t * prices, (N, T))
+    bill = prices if params.bill_weight == 1.0 else params.bill_weight * prices  # == 1: the #18 arrays, unchanged
+    w_imp = np.broadcast_to((1.0 - beta_t) * bill, (N, T))  # >= 0 at every step: convex
+    w_net = np.broadcast_to(beta_t * bill, (N, T))
     obj = (
         dt_h * cp.sum(cp.multiply(w_imp, m))
         - dt_h * cp.sum(cp.multiply(w_net, g))
@@ -265,7 +366,34 @@ def solve_lp(
         + params.big_m * params.slack_peak_weight * s_max
         + params.lam * z
     )
-    prob = cp.Problem(cp.Minimize(obj), cons)
+    if supplier is None:
+        prob, solve_t = _solve(cp.Problem(cp.Minimize(obj), cons), params)
+        sup_lei, s1 = None, None
+    else:
+        target, w_short, w_long = (np.asarray(x, float).reshape(T) for x in supplier)
+        u = cp.Variable(T, nonneg=True)  # short: the feeder imports more than the supplier bought
+        v = cp.Variable(T, nonneg=True)  # long: it imports less (or exports more)
+        imp = -cp.sum(g, axis=0) - rest_net  # feeder P50 net import, consumption sign
+        sup_cons = [u >= imp - target, v >= target - imp]
+        sup = dt_h * (w_short @ u + w_long @ v)
+        solve_t, s1 = 0.0, None
+        if params.supplier_lexicographic:  # stage 1: the DSO-only LP fixes the minimum slack per step
+            _, solve_t = _solve(cp.Problem(cp.Minimize(obj), cons), params)
+            s1 = np.maximum(0.0, np.asarray(s.value, float))
+            sup_cons.append(s <= s1 + params.supplier_slack_tol_kw)
+        prob, t2 = _solve(cp.Problem(cp.Minimize(obj + sup), cons + sup_cons), params)
+        solve_t += t2
+        sup_lei = float(sup.value)
+    cv, dv = np.maximum(0.0, np.asarray(c.value)), np.maximum(0.0, np.asarray(d.value))
+    return LPSolution(
+        c=cv, d=dv, e=np.asarray(e.value), s=np.maximum(0.0, np.asarray(s.value)), z=float(z.value),
+        status=str(prob.status), objective=float(prob.value), solve_time_s=solve_t, grid=net50 - cv + dv,
+        supplier_lei=sup_lei, stage1_slack=s1,
+    )
+
+
+def _solve(prob: cp.Problem, params: LPParams) -> tuple[cp.Problem, float]:
+    """HiGHS solve; raises LPSolveError unless optimal. Returns (problem, solver seconds)."""
     try:
         prob.solve(solver=cp.HIGHS, verbose=params.verbose, time_limit=params.time_limit_s)
     except cp.error.SolverError as exc:
@@ -273,12 +401,7 @@ def solve_lp(
     if prob.status not in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
         raise LPSolveError(f"LP status {prob.status}")
     st = prob.solver_stats
-    solve_t = float(st.solve_time) if st is not None and st.solve_time is not None else float("nan")
-    cv, dv = np.maximum(0.0, np.asarray(c.value)), np.maximum(0.0, np.asarray(d.value))
-    return LPSolution(
-        c=cv, d=dv, e=np.asarray(e.value), s=np.maximum(0.0, np.asarray(s.value)), z=float(z.value),
-        status=str(prob.status), objective=float(prob.value), solve_time_s=solve_t, grid=net50 - cv + dv,
-    )
+    return prob, (float(st.solve_time) if st is not None and st.solve_time is not None else float("nan"))
 
 
 def clip_schedule(battery: BatterySpec, e0: float, batt_kw: ArrayLike, floor_kwh: Optional[float] = None,
@@ -412,16 +535,25 @@ def plan_feeder(
     params: LPParams = LPParams(),
     t0: Optional[str] = None,
     peak_mask: Optional[ArrayLike] = None,
+    supplier: Optional[SupplierObjective] = None,
 ) -> DetailedPlan:
     """Solve the per-feeder LP (module docstring). `G` defaults to `feeder.g_kw` (FeederSpec); `prices` lei/kWh
-    as scalar, per step or hourly (None -> 0.6 flat). `eligible_sites`: `Site` or `sites` rows (dicts)."""
+    as scalar, per step or hourly (None -> 0.6 flat). `eligible_sites`: `Site` or `sites` rows (dicts).
+    `supplier`: add the supplier's imbalance cost to the objective (#162); None = the #18 LP, unchanged."""
     wall = time.perf_counter()
     pp = _prepare(feeder, eligible_sites, rest_of_feeder, forecasts, G, prices, statuses, t0, peak_mask, params)
+    sup = None if supplier is None else supplier.arrays(pp.T, pp.prices)
     if not pp.sites:
-        return _finish(pp, {}, {}, method="lp", status="no_controllable_sites", objective=None,
+        plan = _finish(pp, {}, {}, method="lp", status="no_controllable_sites", objective=None,
                        simultaneous=0, solve_time=0.0, wall_start=wall)
+        if sup is not None:
+            plan.extra.update(_supplier_extra(plan, sup, None))
+        return plan
     if params.lam <= float(np.max(np.abs(pp.prices))):
         raise ValueError("need lam >> prices (M >> lambda >> pi)")
+    if sup is not None and not params.supplier_lexicographic and \
+            params.big_m <= 10.0 * float(max(sup[1].max(), sup[2].max(), 0.0)):
+        raise ValueError("need big_m >> supplier weights w*a*|pzu| (or supplier_lexicographic=True)")
     N = len(pp.sites)
     bats = [s.battery for s in pp.sites]
     e0 = np.array([s.initial_energy() for s in pp.sites])
@@ -439,6 +571,7 @@ def plan_feeder(
             rest_worst=np.asarray(pp.rest.worst_kw, float),
             rest_net=np.asarray(pp.rest.net_kw, float),
             g_kw=pp.g, prices=pp.prices, peak_mask=pp.mask,
+            **({} if sup is None else {"supplier": sup}),
         ),
         params,
     )
@@ -450,9 +583,27 @@ def plan_feeder(
              "n_vars": N * (4 * pp.T + 1) + pp.T + 2, **info}
     if simul.any():
         extra["simultaneous_sites"] = sorted({pp.sites[i].site_id for i in np.flatnonzero(simul.any(axis=1))})
-    return _finish(pp, applied, soc, method="lp", status=sol.status, objective=sol.objective,
+    plan = _finish(pp, applied, soc, method="lp", status=sol.status, objective=sol.objective,
                    simultaneous=int(simul.sum()), solve_time=info["solve_time_total_s"], wall_start=wall,
                    extra=extra)
+    if sup is not None:
+        plan.extra.update(_supplier_extra(plan, sup, sol, params))
+    return plan
+
+
+def _supplier_extra(plan: DetailedPlan, sup: tuple[np.ndarray, np.ndarray, np.ndarray],
+                    sol: Optional[LPSolution], params: Optional[LPParams] = None) -> dict[str, Any]:
+    """Supplier diagnostics of the applied (clipped) schedule: P50 feeder import vs the position, X1's cost."""
+    target, w_short, w_long = sup
+    lei, dev = supplier_cost_lei(-np.asarray(plan.export_curve, float), target, w_short, w_long)
+    out: dict[str, Any] = {"supplier_planned_lei": lei, "supplier_planned_abs_dev_kwh": dev,
+                           "supplier_target_kw": list(map(float, target))}
+    if sol is not None:
+        out["supplier_lp_lei"] = sol.supplier_lei
+        out["supplier_lexicographic"] = bool(params.supplier_lexicographic) if params else None
+        if sol.stage1_slack is not None:
+            out["stage1_slack_max_kw"] = float(sol.stage1_slack.max())
+    return out
 
 
 def _timing(n_sites: int = 100, t0: str = "2025-06-21T00:00:00Z") -> dict[str, float]:  # pragma: no cover

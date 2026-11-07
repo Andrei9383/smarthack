@@ -387,3 +387,103 @@ def test_grid_limit_and_beta_negative_params():
         LPParams(beta_negative=0.9)
     with pytest.raises(ValueError):
         LPParams(grid_limit_kw=0.0)
+
+
+# --- supplier objective (card G4 #162) ---------------------------------------------------------------------------
+def rule_import_kw(rows, fc) -> np.ndarray:
+    """Feeder P50 net import under the self-consumption rule: a supplier position bought without Sentinel."""
+    return -np.asarray(rest_of_feeder_from_forecasts([site_from_row(r) for r in rows], fc, None, 96).net_kw)
+
+
+def test_supplier_off_is_the_default_lp(sunny):
+    """No supplier term -> the #18 LP exactly (replay#506 KPIs unchanged): same plan as an explicit supplier=None,
+    no supplier diagnostics, and the recorded #18 optimum."""
+    from sentinel.opt.lp import solve_lp
+
+    rows, fc, peak = sunny
+    a = plan_feeder("F", rows, None, fc, G=0.7 * peak, prices=0.6)
+    b = plan_feeder("F", rows, None, fc, G=0.7 * peak, prices=0.6, supplier=None, params=LPParams())
+    assert a.schedule == b.schedule and a.slack == b.slack and a.objective == b.objective
+    assert not any(k.startswith(("supplier", "stage1")) for k in a.extra)
+    prices = np.r_[np.full(40, 0.3), np.zeros(30), np.full(26, 1.2)]
+    sol = solve_lp(**lp_arrays(rows, fc, 0.7 * peak, prices, SUMMER), supplier=None)
+    assert sol.supplier_lei is None and sol.stage1_slack is None
+    assert sol.objective == pytest.approx(6.681244, abs=1e-5)  # same recorded optimum as above
+
+
+@pytest.mark.parametrize("frac", [0.7, 0.4], ids=["headroom", "congested"])
+def test_supplier_term_keeps_limit_and_reserve_hard(sunny, frac):
+    from sentinel.opt.lp import SupplierObjective
+
+    rows, fc, peak = sunny
+    G = frac * peak
+    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
+    sup = SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72)
+    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, supplier=sup)
+    assert plan.solver_status == "optimal"
+    # feeder limit hard: no step's slack grows (lexicographic stage 2), comfort reserve hard
+    assert (np.asarray(plan.slack) <= np.asarray(dso.slack) + 1e-3).all()
+    assert plan.max_slack_kw <= dso.max_slack_kw + 1e-3
+    if frac == 0.4:
+        assert dso.max_slack_kw > 0  # the limit really binds here
+    assert_reserve_and_replay(plan, rows)
+    # the supplier pays less for the plan it is scored on
+    from sentinel.opt.lp import _supplier_extra
+
+    w = sup.arrays(96, np.full(96, 0.6))
+    assert plan.extra["supplier_planned_lei"] < _supplier_extra(dso, w, None)["supplier_planned_lei"] - 1.0
+    assert plan.extra["supplier_planned_lei"] == pytest.approx(plan.extra["supplier_lp_lei"], rel=1e-3, abs=0.05)
+
+
+def test_supplier_only_tracks_a_feasible_position(sunny):
+    """bill off, position = the import curve of a feasible plan: the LP can match it, supplier cost ~ 0."""
+    from sentinel.opt.lp import SupplierObjective
+
+    rows, fc, peak = sunny
+    G = 0.7 * peak
+    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
+    pos = -np.asarray(dso.export_curve)
+    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, params=LPParams(bill_weight=0.0),
+                       supplier=SupplierObjective(pos, a=1.44, b=0.72, weight=1.0))
+    assert plan.extra["supplier_planned_lei"] < 0.05
+    assert plan.max_slack_kw <= 1e-6
+
+
+def test_supplier_single_solve_and_validation(sunny):
+    from sentinel.opt.lp import SupplierObjective, supplier_cost_lei
+
+    rows, fc, peak = sunny
+    pos = rule_import_kw(rows, fc)
+    plan = plan_feeder("F", rows, None, fc, G=0.4 * peak, prices=0.6,
+                       supplier=SupplierObjective(pos, a=1.44, b=0.72),
+                       params=LPParams(supplier_lexicographic=False))
+    dso = plan_feeder("F", rows, None, fc, G=0.4 * peak, prices=0.6)
+    assert "stage1_slack_max_kw" not in plan.extra
+    assert plan.max_slack_kw <= dso.max_slack_kw + 1e-3  # M >> supplier weights does the same job here
+    with pytest.raises(ValueError, match="horizon"):
+        plan_feeder("F", rows, None, fc, G=peak, prices=0.6, supplier=SupplierObjective(pos[:95]))
+    with pytest.raises(ValueError, match="big_m"):
+        plan_feeder("F", rows, None, fc, G=peak, prices=0.6, params=LPParams(supplier_lexicographic=False),
+                    supplier=SupplierObjective(pos, a=1e4, b=1.0))
+    with pytest.raises(ValueError):
+        LPParams(bill_weight=-1.0)
+    # X1 units: MWh per 15-min step and lei/MWh -> kW and lei/kWh
+    s = SupplierObjective.from_bought_da([0.001] * 96, pzu_lei_mwh=[500.0] * 96, a=2.0, b=1.0)
+    target, ws, wl = s.arrays(96, np.full(96, 9.9))
+    assert target == pytest.approx(np.full(96, 4.0)) and ws == pytest.approx(np.full(96, 1.0))
+    assert wl == pytest.approx(np.full(96, 0.5))
+    # hand case: 2 kW short for 1 step at 1 lei/kWh, 4 kW long for 1 step at 0.5 lei/kWh
+    lei, dev = supplier_cost_lei([6.0, 0.0, 4.0], [4.0, 4.0, 4.0], [1.0] * 3, [0.5] * 3)
+    assert lei == pytest.approx(0.25 * (2 * 1.0 + 4 * 0.5)) and dev == pytest.approx(0.25 * 6)
+
+
+def test_supplier_replay_mock_one_day():
+    """The 'replay with both objectives' runner on a 1-day mock world: minutes over limit do not increase."""
+    from sentinel.opt.supplier_replay import run
+
+    res = run("mock", days=1, seed=0, variants=("dso", "sup"))
+    v = res["variants"]
+    assert v["sup"]["minutes_over_limit"] <= v["dso"]["minutes_over_limit"]
+    assert v["sup"]["comfort_breaches"] <= v["dso"]["comfort_breaches"]
+    assert v["sup"]["supplier_planned_lei"] < v["dso"].get("supplier_planned_lei", np.inf)
+    assert np.isfinite(v["sup"]["supplier_avoidable_lei"])
