@@ -1,0 +1,41 @@
+# lab.toml — how the lab runs this project (read from the commit being run).
+#
+# Where things run:
+#   check, preview → the sandbox on the server (Node 22, Python, uv). Cards merge into main when the check passes.
+#   train, eval    → the home GPUs (Python + uv, no Node). Cards proposed with --merge never are experiments.
+# Python dependencies go in requirements.txt; uv installs them into .venv (cached per machine, so torch
+# downloads once). Node dependencies: package.json + package-lock.json.
+
+[project]
+merge  = "auto"
+submit = ["check", "preview"]   # what `lab submit` runs; ML cards: lab submit <card> --run train
+main   = ["preview"]            # the shared app at app.<domain>, rebuilt after every merge
+check  = "check"
+
+[runs.check]
+setup   = "set -e; if [ -f package.json ]; then npm ci --no-audit --no-fund; fi; if [ -f requirements.txt ]; then uv venv -q --python 3.12 && uv pip install -q -r requirements.txt; fi"
+cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .venv/bin/python -m pytest -q tests; fi"
+timeout = "15m"
+
+[runs.preview]
+setup   = "set -e; if [ -f package.json ]; then npm ci --no-audit --no-fund; fi"
+cmd     = "npm start"               # must listen on $HOST:$PORT (both set by the lab)
+keep    = true
+
+[runs.train]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
+cmd     = ".venv/bin/python train.py"   # metrics: JSON to $LAB_METRICS, or print "LAB_METRIC name=value"
+needs   = "gpu"
+gpu_mem = "4G"                      # only GPUs with this much memory take it (lab status lists them)
+timeout = "2h"
+
+[runs.eval]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
+cmd     = ".venv/bin/python eval.py"
+needs   = "gpu"
+gpu_mem = "4G"
+timeout = "30m"
+
+[leaderboard]
+metric = "val_acc"
+better = "higher"
