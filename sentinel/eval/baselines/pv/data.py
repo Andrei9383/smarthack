@@ -66,10 +66,13 @@ def ensure_dataset(n_sites: int = 100, n_feeders: int = 6, start_year: int = 202
     return inject_dataset(fleet, log=log)
 
 
-def load_arrays(data_dir: Path, years: list[int] | None = None, max_sites: int | None = None) -> FleetArrays:
+def load_arrays(data_dir: Path, years: list[int] | None = None, max_sites: int | None = None,
+                site_ids: list[str] | None = None) -> FleetArrays:
     data_dir = Path(data_dir)
     sites = pd.read_parquet(data_dir / "sites.parquet")
     sites["site_id"] = sites.site_id.astype(str)
+    if site_ids is not None:
+        sites = sites[sites.site_id.isin([str(s) for s in site_ids])]
     if max_sites:
         sites = sites.iloc[:max_sites]
     truth_cols = [c for c in ("true_metadata_wrong", "true_shaded") if c in sites.columns]
