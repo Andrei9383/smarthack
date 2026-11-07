@@ -403,6 +403,14 @@ def run(argv=None):
             ctx.emit(f"baseline_{n}_detect_rate_72h", det[n]["detected_frac"])
             ctx.emit(f"baseline_{n}_hours_to_detect_mean_capped", det[n]["mean_hours_capped"])
 
+    print("[analysis] test confusion (rows=true, cols=pred): " + " ".join(f[:6] for f in FAULTS), flush=True)
+    for f, row in zip(FAULTS, cm):
+        print(f"[analysis]   {f:17s} " + " ".join(f"{v:6d}" for v in row), flush=True)
+    for f, d in report["detection_test_by_fault"].items():
+        print(f"[analysis] detect {f:17s} " + "  ".join(
+            f"{n}: rate={v['detected_frac']:.2f} med_h={v['median_hours']:.1f}" for n, v in d.items()), flush=True)
+    print(f"[analysis] AP per class test {report['test_ap_per_class']}", flush=True)
+    print(f"[analysis] thresholds {report['thresholds_val']} false alarms {fa}", flush=True)
     tr_s2, tr_st2 = sample_train(8192)
     _, emb_tr, _, _ = infer(tr_s2, tr_st2)
     ood = forecast.fit_ood(emb_tr)

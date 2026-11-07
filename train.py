@@ -38,6 +38,9 @@ REGISTRY: dict[str, str] = {
 PRESETS: dict[str, list[str]] = {
     "pv_now": ["--model", "pvnet", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20"],
     "pv_now_lr2e3": ["--model", "pvnet", "--epochs", "150", "--lr", "2e-3", "--max-minutes", "20"],
+    "pv_now_sn0": ["--model", "pvnet", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20", "--stat-noise", "0"],
+    "pv_now_sn1": ["--model", "pvnet", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20", "--stat-noise", "1.0"],
+    "load_sn0": ["--model", "loadnet", "--epochs", "100", "--lr", "1e-3", "--max-minutes", "20", "--stat-noise", "0"],
     "pv_fc": ["--model", "pvnet", "--mode", "forecast", "--epochs", "150", "--lr", "1e-3", "--max-minutes", "20"],
     "load": ["--model", "loadnet", "--epochs", "100", "--lr", "1e-3", "--max-minutes", "20"],
     "sh": ["--model", "sitehealth", "--epochs", "60", "--max-minutes", "25"],

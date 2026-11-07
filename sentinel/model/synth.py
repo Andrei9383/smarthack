@@ -41,7 +41,7 @@ from sentinel.contracts import PvFault
 
 from . import physics as ph
 
-SYNTH_VERSION = 1
+SYNTH_VERSION = 2  # v2: panel snow slides off (tilt / temperature / sun) instead of lasting until ground melt
 FAULTS = [f.value for f in PvFault]  # index 0 = healthy
 FAULT_IDX = {f: i for i, f in enumerate(FAULTS)}
 
@@ -247,6 +247,25 @@ def _episodes(cfg: SynthConfig, rng, sites, T: int) -> list[dict]:
     return eps
 
 
+def _panel_snow(tilt, snow_depth, tmean, cloud):
+    """Daily factor 1 - panel snow cover: new snowfall covers the panel, then it slides off within ~1-4 days
+    (faster when steep, above freezing and sunny), independent of the snow left on the ground."""
+    D = len(snow_depth)
+    out = np.ones(D)
+    c = 0.0
+    for d in range(D):
+        fall = snow_depth[d] - (snow_depth[d - 1] if d else 0.0)
+        if fall > 1.0:
+            c = min(1.0, c + fall / 5.0)
+        else:
+            slide = (0.2 + 0.35 * (tmean[d] > 0) + 0.3 * (1 - cloud[d])) * min(1.5, tilt / 30.0)
+            c *= max(0.0, 1 - slide)
+            if c < 0.03:
+                c = 0.0
+        out[d] = 1 - c
+    return out
+
+
 def _load(site, rng, cal_hour, off_day, month, temp_l, T: int) -> np.ndarray:
     D = T // ph.DAY
     h = cal_hour
@@ -315,6 +334,8 @@ def generate(cfg: SynthConfig = SynthConfig(), out: Path | None = None, verbose:
     if verbose:
         print(f"[synth] weather {time.time() - t_all:.1f}s", flush=True)
 
+    snow_d = act[:, :: ph.DAY, 6].astype(np.float64)  # daily snow depth (cm) per locality
+    tmean_d = act[:, :, 3].reshape(L, -1, ph.DAY).mean(-1)
     sites = _sites(cfg, rng)
     eps = _episodes(cfg, rng, sites, T)
     fault = np.zeros((S, T), np.int8)
@@ -351,7 +372,7 @@ def generate(cfg: SynthConfig = SynthConfig(), out: Path | None = None, verbose:
             daz = (saz - s["shade_az"]) % 360
             blk = (daz < s["shade_w"]) & (elev < s["shade_elev"])
             g = g - b * s["shade_block"] * blk
-        snow_cover = np.clip(1 - (snow - 2) / 6, 0, 1) if s["tilt_true"] < 40 else np.clip(1 - (snow - 4) / 8, 0, 1)
+        snow_cover = np.repeat(_panel_snow(s["tilt_true"], snow_d[li], tmean_d[li], c_d[li]), ph.DAY)
         g = g * snow_cover
         deg = 1 - s["degradation"] * np.clip(year_frac - s["install_year"], 0, None)
         kwp_eff = s["kwp_true"] * deg

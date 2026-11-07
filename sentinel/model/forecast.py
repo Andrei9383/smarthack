@@ -47,7 +47,10 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--dropout", type=float, default=0.1)
     ap.add_argument("--mode", choices=["nowcast", "forecast"], default="nowcast")
     ap.add_argument("--offset-frac", type=float, default=0.3, help="share of train windows with a random t0 offset")
-    ap.add_argument("--patience", type=int, default=8)
+    ap.add_argument("--stat-noise", type=float, default=0.3,
+                    help="Gaussian noise (train-normalised units) on static features in training, so the static token "
+                         "can't act as a site id and unseen sites rely on their own reference window")
+    ap.add_argument("--patience", type=int, default=10)
     ap.add_argument("--max-minutes", type=float, default=20.0, help="wall budget; training stops early to export")
     ap.add_argument("--data", default="auto", help="auto | lab | synth | <layout dir>")
     ap.add_argument("--synth-sites", type=int, default=None)
@@ -220,7 +223,8 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
     import torch
 
     net.eval()
-    res = {k: [] for k in ("q", "y", "y_healthy", "w", "night", "scale", "fault", "emb", "csi", "month", "offday")}
+    res = {k: [] for k in ("q", "y", "y_healthy", "w", "night", "scale", "fault", "emb", "csi", "month", "offday",
+                           "snow")}
     bl: dict[str, list] = {}
     with torch.no_grad():
         for k in range(0, len(sites), batch):
@@ -248,6 +252,7 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
             res["csi"].append(csi)
             res["month"].append(((raw["cal"][:, 48, 6:8]).copy()))
             res["offday"].append(raw["cal"][:, 48, 4])
+            res["snow"].append(raw["wx"][..., 6].max(1))
             for name, v in baselines(kind, raw).items():
                 bl.setdefault(name, []).append(v)
     out = {k: np.concatenate(v) for k, v in res.items()}
@@ -336,7 +341,11 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
 
     def make_batch():
         s, st = sample_train(args.batch)
-        return batch_arrays(src, kind, s, st, args.mode, stats)
+        out = batch_arrays(src, kind, s, st, args.mode, stats)
+        if args.stat_noise > 0:
+            x = out[2]
+            x["stat"] = x["stat"] + np.random.default_rng().normal(0, args.stat_noise, x["stat"].shape).astype(np.float32)
+        return out
 
     pool = ThreadPoolExecutor(max_workers=3)
     with ctx.stage("train"):
@@ -433,6 +442,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
         if kind == "pv":
             wrong = np.array([src.sites[i].get("meta_wrong", False) for i in t["site"]])
             groups["metadata"] = np.where(wrong, "wrong_recorded_meta", "right_recorded_meta")
+            groups["snow"] = np.where(t["snow"] > 0.5, "snow_on_ground", "no_snow")
             groups["cloudiness"] = np.select([t["csi"] < 0.4, t["csi"] < 0.7], ["overcast(csi<0.4)", "mixed"], "clear(csi>=0.7)")
             ood_test = ood_score(ood, t["emb"])
             groups["ood"] = np.where(ood_test > 3.0, "ood>3", "in_dist")
@@ -455,6 +465,12 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                 ww = t["w"][sel] > 0
                 ctx.emit(f"test_nmae_meta_{wname}", M.nmae(t["q"][sel][..., 1], t["y"][sel], ww))
                 ctx.emit(f"baseline_pvlib_nmae_meta_{wname}", M.nmae(t["baselines"]["pvlib"][sel], t["y"][sel], ww))
+        if kind == "pv":
+            ns = groups["snow"] == "no_snow"
+            ctx.emit("test_nmae_nosnow", M.nmae(t["q"][ns][..., 1], t["y"][ns], t["w"][ns] > 0))
+            ctx.emit("baseline_pvlib_nmae_nosnow", M.nmae(t["baselines"]["pvlib"][ns], t["y"][ns], t["w"][ns] > 0))
+            ctx.emit("baseline_pvlib_scaled_nmae_nosnow",
+                     M.nmae(t["baselines"]["pvlib_scaled"][ns], t["y"][ns], t["w"][ns] > 0))
         for gname in ("seen", "unseen"):
             sel = seen if gname == "seen" else ~seen
             if sel.any():
@@ -470,6 +486,14 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                   apply_offsets(cal["q"], offsets, cal["scale"], True, cal["night"])[..., 0]) / cal["scale"][:, None])
         report["test_mean_width_norm"] = float(widths.mean()) if widths.size else None
 
+    for gname, g in report["test_groups"].items():
+        for k, d in g.items():
+            bl = " ".join(f"{b.replace('_nmae', '')}={v:.3f}" for b, v in d.items() if b.endswith("_nmae") and b != "nmae")
+            print(f"[analysis] {gname:16s} {k:24s} n={d['n_windows']:6d} nmae={d['nmae']:.3f} cov={d['coverage']:.3f} {bl}",
+                  flush=True)
+    for k, d in report.get("test_vs_true_healthy_by_fault", {}).items():
+        print(f"[analysis] vs_true_healthy  {k:24s} n={d['n_windows']:6d} nmae={d['nmae']:.3f}", flush=True)
+    print(f"[analysis] ood {report['ood']}", flush=True)
     calib = {
         "model": model, "model_version": ctx.model_version, "mode": args.mode, "unit": spec["unit"],
         "scale": spec["scale"], "data_label": src.label, "quantiles": [0.1, 0.5, 0.9],
