@@ -1,0 +1,62 @@
+"use client";
+
+import { ChromaFlow, FilmGrain, FlutedGlass, Shader, Swirl } from "shaders/react";
+
+import { SHADER_COLORS as C } from "./colors";
+
+export type ShaderTone = "emerald" | "calm" | "alert";
+
+// Light take on the reference (Swirl -> ChromaFlow -> FlutedGlass -> FilmGrain): a pale emerald
+// swirl, a cursor-reactive colour flow, vertical fluted glass and a whisper of grain. Everything stays
+// above ~85 % lightness so dark text on top keeps AA contrast.
+const TONES: Record<ShaderTone, { a: string; b: string; flow: [string, string, string]; base: string }> = {
+  emerald: { a: C.brand50, b: C.brand300, base: C.brand50, flow: [C.brand500, C.brand100, C.forecast] },
+  calm: { a: C.white, b: C.brand100, base: C.mist, flow: [C.brand300, C.brand50, C.forecast] },
+  alert: { a: C.brand50, b: C.warn, base: C.brand50, flow: [C.critical, C.brand100, C.warn] },
+};
+
+export default function ShaderLayers({
+  tone,
+  onReady,
+  onUnavailable,
+}: {
+  tone: ShaderTone;
+  onReady: () => void;
+  onUnavailable: () => void;
+}) {
+  const t = TONES[tone];
+  return (
+    <Shader
+      disableTelemetry
+      className="absolute inset-0 size-full"
+      onReady={onReady}
+      onUnavailable={onUnavailable}
+    >
+      <Swirl colorA={t.a} colorB={t.b} detail={1.4} blend={60} speed={0.4} />
+      <ChromaFlow
+        baseColor={t.base}
+        upColor={t.flow[0]}
+        leftColor={t.flow[1]}
+        rightColor={t.flow[2]}
+        downColor={t.flow[1]}
+        momentum={12}
+        intensity={0.7}
+        opacity={0.55}
+        blendMode="normal"
+      />
+      <FlutedGlass
+        shape="rounded"
+        angle={18}
+        frequency={9}
+        softness={1}
+        refraction={2.5}
+        aberration={0.35}
+        highlight={0.18}
+        highlightSoftness={0.4}
+        lightAngle={-90}
+        speed={0.12}
+      />
+      <FilmGrain strength={0.035} />
+    </Shader>
+  );
+}
