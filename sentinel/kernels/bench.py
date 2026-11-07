@@ -164,6 +164,27 @@ def strategies_make(scale, rng):
             np.full(n, 0.95), rng.integers(8, 21, n).astype(np.int32), 0.5 * cap, price, rank, med, day,
             rng.random((n, days)) > 0.1)
 
+# ---- fleet self-consumption (#135): the simulator's battery rule over one year, 600 homes, 45 % with a battery.
+def selfcons_make(scale: float, rng: np.random.Generator) -> tuple:
+    from sentinel.sim.fleet.battery import BatteryParams
+
+    n, t = _sz(600, scale), _sz(35040, scale, 2)
+    has = rng.random(n) < 0.45
+    cap = np.where(has, rng.choice([5.0, 10.0, 13.5], n), 0.0)
+    p = BatteryParams(cap, np.where(has, cap / 2, 0.0), np.full(n, 0.95), np.full(n, 0.95), np.where(has, 0.1, 0.0),
+                      np.where(has, 0.95, 0.0), np.zeros(n))
+    day = np.clip(np.sin(np.arange(t) / 96 * 2 * np.pi - np.pi / 2), 0, None)
+    pv = (rng.uniform(3000, 9000, (n, 1)) * day[None] * rng.uniform(0.3, 1, (n, t))).astype(np.float32)
+    return (p, pv, rng.exponential(700, (n, t)).astype(np.float32), 0.25)
+
+
+def selfcons_sample(a: tuple) -> tuple:
+    from sentinel.sim.fleet.battery import BatteryParams
+
+    p, pv, load, dt = a
+    k = slice(0, 50)
+    return (BatteryParams(*(getattr(p, f)[k] for f in p.__dataclass_fields__)), pv[k], load[k], dt)
+
 
 PVAC_CHUNK = 64  # sites per call, as sentinel.data.windows does per locality (#133)
 
@@ -255,6 +276,10 @@ CASES = [
      lambda a: load_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
     ("site_features", "features_site", lambda sc, rng: (site_raw(sc, rng),), lambda fn, a: [fn(r) for r in a[0]],
      lambda a: (a[0][0],), f"{FEAT_BATCHES} batches x {FEAT_B} M4 site windows (features.site_inputs)", 1e-6),  # cos_zen
+    ("self_consumption", "selfcons", selfcons_make, lambda fn, a: fn(*a), selfcons_sample,
+     "fleet battery rule: 600 homes x 35040 steps (one year), f32 pv/load (#135)"),
+
+
     ("pv_ac_batch", "pvac", pvac_make, pvac_run,
      lambda a: (*(x[:PVAC_CHUNK] for x in a[0]), *a[1]),
      "600 sites x 35040 steps, measured + clear-sky channel, 64 sites per call (windows.py pvlib channels)",

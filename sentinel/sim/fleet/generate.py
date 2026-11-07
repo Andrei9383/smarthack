@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +14,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .battery import BatteryParams, simulate_self_consumption
+from sentinel import kernels
+
+from .battery import BatteryParams
 from .config import DATA_VERSION, DT_H, FleetConfig
 from .grid import feeder_flows, passive_load
 from .load import simulate_load
@@ -34,6 +38,31 @@ def _ids(ids: np.ndarray, T: int) -> pa.Array:
     """Each id repeated T times, as a plain string column (the contract type); Parquet dictionary-encodes it."""
     return pa.DictionaryArray.from_arrays(pa.array(np.repeat(np.arange(len(ids), dtype=np.int32), T)),
                                           pa.array(list(ids))).cast(pa.string())
+
+
+# simulate_pv is row-independent and works per locality, so running it on buckets of whole localities gives the
+# same arrays (bit for bit) as one call; numpy releases the GIL, so the buckets run in parallel.
+_PV_THREADS = max(1, min(8, (os.cpu_count() or 2) - 1))
+
+
+def _locality_buckets(sites: pd.DataFrame) -> list[np.ndarray]:
+    groups = sorted(sites.groupby("locality_id").indices.values(), key=len, reverse=True)
+    buckets: list[list[np.ndarray]] = [[] for _ in range(min(len(groups), 2 * _PV_THREADS))]
+    sizes = [0] * len(buckets)
+    for g in groups:  # largest first into the emptiest bucket
+        k = sizes.index(min(sizes))
+        buckets[k].append(g)
+        sizes[k] += len(g)
+    return [np.sort(np.concatenate(b)) for b in buckets if b]
+
+
+def _gather_pv(parts: dict, n: int, T: int) -> tuple[np.ndarray, np.ndarray]:
+    pv = np.empty((n, T), np.float32)
+    status = np.empty((n, T), np.int16)
+    for f in as_completed(list(parts)):  # copy each bucket as it lands and drop it (bounds peak memory)
+        pv[parts[f]], status[parts[f]] = f.result()
+        del parts[f]
+    return pv, status
 
 
 def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False, plots: bool = True,
@@ -58,7 +87,8 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
     weather = load_weather(locs, all_ts, cfg.seed, cfg.weather_source)
     log(f"world: {len(sites)} sites on {len(feeders)} feeders in {len(locs)} localities; weather={weather.source} "
         f"({time.perf_counter() - t0:.1f}s)")
-    _write_weather(weather, tmp / "weather.parquet")
+    io = ThreadPoolExecutor(1)  # Parquet writes (pyarrow releases the GIL) overlap the simulation (#135)
+    weather_job = io.submit(_write_weather, weather, tmp / "weather.parquet")
 
     bp = BatteryParams.from_sites(sites)
     e = None
@@ -70,22 +100,27 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
         w = weather.slice(ts)
         cal = local_features(ts)
         rng = np.random.default_rng([cfg.seed, year, 2])
-        pv, status = simulate_pv(sites, w)
-        load = simulate_load(sites, w, cal, rng)
-        batt, soc, e = simulate_self_consumption(bp, pv, load, DT_H, e)
+        with ThreadPoolExecutor(_PV_THREADS) as ex:  # PV has no RNG: threads overlap it with simulate_load (#135)
+            pv_parts = {ex.submit(simulate_pv, sites.iloc[rows], w): rows for rows in _locality_buckets(sites)}
+            load = simulate_load(sites, w, cal, rng)
+            pv, status = _gather_pv(pv_parts, len(sites), len(ts))
+        batt, soc, e = kernels.self_consumption(bp, pv, load, DT_H, e)  # Rust K7 if built, else battery.py
         grid = pv - load - batt
         passive = passive_load(feeders, w, cal, rng)
         fdf, volt = feeder_flows(sites, feeders, grid, passive, w, rng)
-        _write_telemetry(tmp / "telemetry" / f"year={year}.parquet", sites.site_id.to_numpy(), ts,
-                         pv=pv, load=load, batt=batt, soc=soc, grid=grid, volt=volt, status=status)
+        tel_job = io.submit(_write_telemetry, tmp / "telemetry" / f"year={year}.parquet", sites.site_id.to_numpy(),
+                            ts, pv=pv, load=load, batt=batt, soc=soc, grid=grid, volt=volt, status=status)
         fdf.to_parquet(tmp / "feeder_ts" / f"year={year}.parquet", index=False, **PQ)
         net = fdf.net_export_w.to_numpy().reshape(len(feeders), -1)
         feeder_parts.append(net)
         stats.append(_year_stats(year, feeders, net, g_w, cal, sites, pv, load))
+        tel_job.result()  # before the next year allocates its arrays (bounds peak memory)
         log(f"{year}: pv {pv.sum() * DT_H / 1e6:,.0f} MWh, load {load.sum() * DT_H / 1e6:,.0f} MWh, "
             f"feeders over limit: {int((stats[-1].exceed_days > 0).sum())}/{len(feeders)} "
             f"({time.perf_counter() - ty:.1f}s)")
         del pv, load, batt, soc, grid, volt, status
+    weather_job.result()
+    io.shutdown()
 
     sites.to_parquet(tmp / "sites.parquet", index=False, **PQ)
     feeders.to_parquet(tmp / "feeders.parquet", index=False, **PQ)
