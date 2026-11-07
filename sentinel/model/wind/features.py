@@ -111,6 +111,11 @@ def run_nbm(fn: Callable, X: np.ndarray, tidx: np.ndarray, chunk: int = 672, war
 
 
 # --------------------------------------------------------------------------------------------------------------
+BASELINE_STEPS = 21 * 96
+BASELINE_LAG = 7 * 96
+MIN_HISTORY_STEPS = BASELINE_STEPS + BASELINE_LAG  # 28 days: full per-turbine temperature baseline
+
+
 def rmean(x: np.ndarray, w: int) -> np.ndarray:
     """Causal NaN-aware rolling mean over the last w steps along axis 0 (0 where no data)."""
     x = np.asarray(x, dtype=np.float64)
@@ -186,10 +191,16 @@ def clf_features(
     width = np.maximum(q90 - q10, 0.02)
     z = np.clip(res / width, -10, 10)
     feats.update(p=_nan0(p), q50=q50, q10=q10, q90=q90, res=_nan0(res), z=_nan0(z))
-    for w in (4, 16, 96):
+    for w in (4, 16, 96, 672):
         feats[f"res_m{w}"] = rmean(res, w)
     feats["z_m16"] = rmean(z, 16)
-    feats["below_p10_m16"] = rmean(np.where(valid, (p < q10).astype(float), np.nan), 16)
+    below = np.where(valid, (p < q10).astype(float), np.nan)
+    feats["below_p10_m16"] = rmean(below, 16)
+    feats["below_p10_m96"] = rmean(below, 96)
+    # partial-load deficit only (yaw / power-curve loss shows between cut-in and rated)
+    part = np.where(valid & (q50 > 0.08) & (q50 < 0.85), res, np.nan)
+    feats["res_partial_m96"] = rmean(part, 96)
+    feats["res_partial_m672"] = rmean(part, 672)
     feats["above_p90_m16"] = rmean(np.where(valid, (p > q90).astype(float), np.nan), 16)
     feats["pstd"] = pstd.astype(np.float64)
     pres = np.broadcast_to(weather_park.get("pressure_hpa", np.full(T, np.nan))[:, None], (T, n))
@@ -210,7 +221,11 @@ def clf_features(
                  icing_cond=_nan0(ice), icing_cond_m16=rmean(ice, 16))
     for k, s in enumerate(TEMP_SENSORS):
         x = sensors[s].astype(np.float64)
-        tr = x - tq[:, :, k, 1]
+        tr_raw = x - tq[:, :, k, 1]
+        # the turbine's own baseline (21 days ending 7 days ago): unseen turbines that run hot by design are
+        # not "overheating"; only a residual rising above the turbine's own baseline is (plan §3.5)
+        base = shift(rmean(tr_raw, BASELINE_STEPS), BASELINE_LAG)
+        tr = tr_raw - base
         tw = np.maximum(tq[:, :, k, 2] - tq[:, :, k, 0], 0.5)
         m96 = rmean(tr, 96)
         feats[f"{s}_res"] = _nan0(tr)
@@ -253,6 +268,8 @@ def clf_features(
     feats["res_minus_park"] = _nan0(res - park_res[:, None])
     feats["nb_res"] = _nan0(nb)
     feats["res_minus_nb"] = _nan0(res - nb)
+    feats["res_minus_nb_m96"] = rmean(res - nb, 96)
+    feats["res_minus_nb_m672"] = rmean(res - nb, 672)
     feats["p_minus_nb_p"] = _nan0(p - nb_p)
     feats["park_low_frac"] = np.broadcast_to(park_low[:, None], (T, n))
     feats["park_missing_frac"] = np.broadcast_to(park_miss[:, None], (T, n))
@@ -283,13 +300,29 @@ DEFAULT_MERGE = {"fault_stop": 4, "curtailment": 4, "icing": 8, "underperformanc
                  "anemometer_fault": 16, "data_gap": 32}
 
 
-def decide(probs: np.ndarray, thresholds: dict, min_run: Optional[dict] = None, merge: Optional[dict] = None) -> np.ndarray:
+CURTAIL_MIN_PARK_FRAC = 0.15
+
+
+def curtail_ok(F: np.ndarray, names: list[str]) -> np.ndarray:
+    """Curtailment is park-wide by definition (plan §3.5): allowed only where >= 15 % of the park sits at one
+    ceiling below its expected power (park_cap_frac over the last hour)."""
+    return F[..., names.index("park_cap_frac_m4")] >= CURTAIL_MIN_PARK_FRAC
+
+
+def decide(probs: np.ndarray, thresholds: dict, min_run: Optional[dict] = None, merge: Optional[dict] = None,
+           curtail_mask: Optional[np.ndarray] = None) -> np.ndarray:
     """probs [T, N, K] → class index [T, N] (uint8): argmax of p_c/θ_c over anomaly classes if p_c ≥ θ_c, then
-    fill short holes inside same-class runs and drop runs shorter than min_run."""
+    fill short holes inside same-class runs and drop runs shorter than min_run. `curtail_mask` [T, N] (from
+    `curtail_ok`) vetoes curtailment without park consensus, so a lone underperforming turbine is never hidden
+    as curtailment."""
     min_run = min_run or DEFAULT_MIN_RUN
     merge = merge or DEFAULT_MERGE
     th = np.array([1.0] + [thresholds[c] for c in CLASSES[1:]], dtype=np.float32)
     r = probs[..., 1:] / th[None, None, 1:]
+    if curtail_mask is not None:
+        ci = CLASS_INDEX["curtailment"] - 1
+        r = r.copy()
+        r[..., ci] = np.where(curtail_mask, r[..., ci], 0.0)
     c = r.argmax(-1) + 1
     keep = np.take_along_axis(r, (c - 1)[..., None], -1)[..., 0] >= 1.0
     out = np.where(keep, c, 0).astype(np.uint8)

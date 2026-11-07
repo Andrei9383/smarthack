@@ -31,10 +31,12 @@ from .data import CLASSES, CLASS_INDEX, TEMP_SENSORS, load_wind, make_splits
 from .features import (
     DEFAULT_MERGE,
     DEFAULT_MIN_RUN,
+    MIN_HISTORY_STEPS,
     NBM_IN,
     T_RISE_SCALE,
     V_SCALE,
     clf_features,
+    curtail_ok,
     decide,
     fit_met_curve,
     input_ranges,
@@ -112,7 +114,8 @@ def parse_args(argv):
     ap.add_argument("--data-seed", type=int, default=41)
     ap.add_argument("--synth", action="store_true", help="force the stand-in generator even if #22 output exists")
     ap.add_argument("--holdout-park", default=None)
-    ap.add_argument("--clf-rounds", type=int, default=400)
+    ap.add_argument("--clf-rounds", type=int, default=600)
+    ap.add_argument("--clf-lr", type=float, default=0.05)
     ap.add_argument("--clf-normal", type=int, default=300_000, help="normal rows sampled for the classifier")
     ap.add_argument("--clf-per-class", type=int, default=80_000)
     ap.add_argument("--no-eval-seen", action="store_true")
@@ -355,7 +358,7 @@ def main(argv: list[str] | None = None) -> None:
         vs = rng.choice(len(yv), min(len(yv), 300_000), replace=False)
         dtr = lgb.Dataset(Xs, ys, weight=w_cls[ys], feature_name=feat_names, free_raw_data=True)
         dva = lgb.Dataset(Xv[vs], yv[vs], weight=w_cls[yv[vs]], reference=dtr)
-        params = dict(objective="multiclass", num_class=K, learning_rate=0.08, num_leaves=63, min_data_in_leaf=50,
+        params = dict(objective="multiclass", num_class=K, learning_rate=args.clf_lr, num_leaves=63, min_data_in_leaf=50,
                       feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, verbose=-1,
                       seed=args.seed, num_threads=max(1, (os.cpu_count() or 4)))
         clf_deadline = run.deadline - max(60.0, 0.5 * reserve * 60)
@@ -365,27 +368,31 @@ def main(argv: list[str] | None = None) -> None:
                 raise lgb.callback.EarlyStopException(env.iteration, env.evaluation_result_list)
 
         booster = lgb.train(params, dtr, num_boost_round=args.clf_rounds, valid_sets=[dva],
-                            callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(50), time_cb])
+                            callbacks=[lgb.early_stopping(50, verbose=False), lgb.log_evaluation(50), time_cb])
         run.emit("clf_rounds", booster.best_iteration or booster.current_iteration())
         pv = booster.predict(Xv, num_iteration=booster.best_iteration).astype(np.float32)
         del Xv, Xs
 
     # --- tune thresholds on validation (frozen afterwards) -------------------------------------------------------
     with run.stage("tune"):
-        val_probs, val_truth = [], []
+        val_probs, val_truth, val_cm = [], [], []
         o = 0
         for cols, f, l in val_parts:
             n = f.shape[0] * f.shape[1]
             val_probs.append(pv[o : o + n].reshape(f.shape[0], f.shape[1], K))
             val_truth.append(l)
+            val_cm.append(curtail_ok(f, feat_names))
             o += n
         Pv = np.concatenate(val_probs, axis=1)
         Tv = np.concatenate(val_truth, axis=1)
+        Cv = np.concatenate(val_cm, axis=1)
         del val_parts, pv
 
         def objective(th):
-            m = event_metrics(Tv, decide(Pv, th), full=False)
-            return m["wind_f1"] + 0.5 * m["curtail_vs_fault_f1"] + 0.25 * m["class_correct_recall_macro"], m
+            m = event_metrics(Tv, decide(Pv, th, curtail_mask=Cv), full=False)
+            pr, rc = m["wind_precision"], m["wind_recall"]
+            f05 = 1.25 * pr * rc / (0.25 * pr + rc) if pr + rc else 0.0  # F0.5: alert fatigue weighs more
+            return f05 + 0.5 * m["curtail_vs_fault_f1"] + 0.25 * m["class_correct_recall_macro"], m
 
         th = {c: 0.5 for c in CLASSES[1:]}
         best_obj, best_m = objective(th)
@@ -402,17 +409,18 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[windnbm] tuned thresholds {th} → val {best_m}", flush=True)
         for k in ("wind_precision", "wind_recall", "alerts_per_turbine_day", "curtail_vs_fault_f1"):
             run.emit(f"val_{k}", best_m[k])
-        del Pv, Tv
+        del Pv, Tv, Cv
 
     # --- held-out park, test year: M6 vs WindMon rules on the same data ------------------------------------------
     with run.stage("eval"):
-        lo = max(0, test_start - 7 * 96)
+        lo = max(0, test_start - MIN_HISTORY_STEPS)
         cols, F, _ = park_feats(hold_park, lo, T)
         F = F[test_start - lo :]
         probs = booster.predict(F.reshape(-1, F.shape[-1]), num_iteration=booster.best_iteration)
         probs = probs.reshape(F.shape[0], F.shape[1], K).astype(np.float32)
+        cmask = curtail_ok(F, feat_names)
         del F
-        pred = decide(probs, th)
+        pred = decide(probs, th, curtail_mask=cmask)
         truth = data.labels[test_start:][:, cols]
         m6 = event_metrics(truth, pred)
         m6["step_confusion"] = step_confusion(truth, pred)
@@ -443,6 +451,15 @@ def main(argv: list[str] | None = None) -> None:
         run.emit("baseline_windmon_raw_alerts_per_turbine_day", wm["raw_rule_alerts_per_turbine_day"])
         run.emit("true_events_per_turbine_day", m6["true_actionable_per_turbine_day"])
         run.emit("wind_class_recall_macro", m6["class_correct_recall_macro"])
+        for name, mm in (("M6", m6), ("WindMon", wm)):
+            print(f"[windnbm] {name} per class (held-out park, test year): "
+                  + json.dumps({c: [v["episodes"], v["detected_any_alert"], v["class_correct"]]
+                                for c, v in mm["per_class"].items()}), flush=True)
+            print(f"[windnbm] {name} episode confusion rows=truth cols=pred {CLASSES}: "
+                  f"{mm['episode_confusion']['matrix']}", flush=True)
+        print(f"[windnbm] curtailment episodes alerted: M6 {m6['curtailment_episodes_alerted_frac']:.3f} "
+              f"WindMon {wm['curtailment_episodes_alerted_frac']:.3f}; WindMon per rule "
+              f"{json.dumps(wm['rule_alerts_per_turbine_day'])}", flush=True)
         seen = None
         if not args.no_eval_seen and run.left() > 120:
             seen_t, seen_p, seen_w = [], [], []
@@ -450,7 +467,8 @@ def main(argv: list[str] | None = None) -> None:
                 cols_s, Fs, _ = park_feats(p, lo, T)
                 Fs = Fs[test_start - lo :]
                 ps = booster.predict(Fs.reshape(-1, Fs.shape[-1]), num_iteration=booster.best_iteration)
-                seen_p.append(decide(ps.reshape(Fs.shape[0], Fs.shape[1], K).astype(np.float32), th))
+                seen_p.append(decide(ps.reshape(Fs.shape[0], Fs.shape[1], K).astype(np.float32), th,
+                                     curtail_mask=curtail_ok(Fs, feat_names)))
                 seen_t.append(data.labels[test_start:][:, cols_s])
                 fl = windmon_flags({k: v[test_start:][:, cols_s] for k, v in data.sensors.items()},
                                    data.err[test_start:][:, cols_s], rated[cols_s])
@@ -508,6 +526,7 @@ def main(argv: list[str] | None = None) -> None:
             "class_thresholds": th,
             "min_run": DEFAULT_MIN_RUN,
             "merge": DEFAULT_MERGE,
+            "curtail_min_park_frac": 0.15,
             "classes": CLASSES,
             "turbine_index": {data.turbines[j]["turbine_id"]: int(emb_idx[j]) for j in range(N) if emb_idx[j] > 0},
             "met_curve": met_curve,
@@ -519,7 +538,7 @@ def main(argv: list[str] | None = None) -> None:
             "t_rise_scale": T_RISE_SCALE,
             "chunk": 672,
             "warm": 96,
-            "min_history_steps": 7 * 96,
+            "min_history_steps": MIN_HISTORY_STEPS,
         }
         (out / "windnbm_thresholds.json").write_text(json.dumps(calib, indent=1))
         report = {

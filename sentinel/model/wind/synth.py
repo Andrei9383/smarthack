@@ -389,7 +389,8 @@ def generate(cfg: SynthConfig | None = None) -> WindData:
 
     # --- sensors ---------------------------------------------------------------------------------------
     k_nac = np.where(stopped, 0.99, nac_k[None])
-    wd = v_nac_true * k_nac * icing_nac + rng.normal(0, 0.2, (T, N))
+    # point anemometer behind the rotor vs rotor-averaged wind: decorrelated turbulence (~5 %) + sensor noise
+    wd = v_nac_true * k_nac * icing_nac * (1 + _ar1(rng, T, 0.5, 0.05, (N,))) + rng.normal(0, 0.3, (T, N))
     wd = np.where(anem == 1, wd * anem_par, wd)
     for j in range(N):  # stuck: hold the value at fault onset
         m = anem[:, j] == 2

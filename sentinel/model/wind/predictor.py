@@ -12,7 +12,7 @@ Window for M6 (envelope.Window; arrays numpy-compatible):
       "err": [T, n] int (optional, integral error codes seen), }
 - `window.weather` = optional park weather series {"rh_pct": [T], "precip_mm": [T], "pressure_hpa": [T]}.
 - `window.t0` / `window.horizon`: the evaluated steps; arrays must cover them plus history before t0
-  (>= 7 days recommended for the overheating trend; 1 day minimum).
+  (>= 28 days recommended: the per-turbine temperature baseline is 21 days ending 7 days ago).
 `predict_park(...)` returns all turbines of the park at once (what replay should call once per park per tick).
 """
 
@@ -27,7 +27,7 @@ import numpy as np
 from sentinel.contracts.envelope import ModelId, Prediction, Window, parse_utc
 
 from .data import ACTIONABLE, AMBIENT, CLASSES, POWER, TEMP_SENSORS, WindData
-from .features import clf_features, decide, nbm_inputs, neighbours_for, ood_steps, run_nbm
+from .features import clf_features, curtail_ok, decide, nbm_inputs, neighbours_for, ood_steps, run_nbm
 
 K = len(CLASSES)
 
@@ -85,7 +85,8 @@ class WindNBMPredictor:
         if names != self.cal["feature_names"]:
             raise RuntimeError("feature list differs from the one the classifier was trained on")
         probs = self.booster.predict(F.reshape(-1, F.shape[-1])).reshape(T, n, K).astype(np.float32)
-        cls = decide(probs, self.cal["class_thresholds"], self.cal["min_run"], self.cal["merge"])
+        cls = decide(probs, self.cal["class_thresholds"], self.cal["min_run"], self.cal["merge"],
+                     curtail_mask=curtail_ok(F, names))
         return {"ts": ts, "rated": rated, "pq": pq, "pstd": pstd, "tq": tq, "ood": ood, "probs": probs, "cls": cls,
                 "power": sens[POWER]}
 
@@ -143,7 +144,7 @@ class WindNBMPredictor:
         return res[str(asset["turbine_id"])]
 
 
-def window_from_data(data: WindData, park_id: str, t0: str, horizon: int = 96, history_days: int = 7) -> Window:
+def window_from_data(data: WindData, park_id: str, t0: str, horizon: int = 96, history_days: int = 28) -> Window:
     """Build an M6 Window for one park from a WindData (replay / tests)."""
     cols = [j for j, t in enumerate(data.turbines) if t["park_id"] == park_id]
     i0 = int(np.searchsorted(data.ts, np.datetime64(parse_utc(t0).replace(tzinfo=None), "m")))
