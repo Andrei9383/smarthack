@@ -456,6 +456,11 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> dict[str, Any]:
+    args, _ = parser().parse_known_args(argv)
+    if args.data == "v2":  # data-v2 MaxControl sensitivity (card #184)
+        from sentinel.eval.imbalance_v2 import main as v2_main
+
+        return v2_main(argv)
     return run(parser().parse_args(argv))
 
 

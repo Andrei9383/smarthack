@@ -72,6 +72,9 @@ timeout = "30m"
 # Imbalance replay (I6 #176, spec I step 8): profile / persistence / forecast_only / sentinel (+ sentinel_id) on the
 # 2025 test year -> $LAB_OUTPUT_DIR/imbalance.sqlite + parquet + LAB_METRIC avoidable_cost_lei etc. needs gpu = the
 # workers that hold the #10 window cache (the server OOMs building it).
+# data-v2 MaxControl sensitivity (#184, sentinel/eval/imbalance_v2.py; I4 #174 trained inside the run), one grid:
+#   lab submit <card> --run imbalance --time 2h --grid s=0,0.10,0.25,0.50,1.0 --cmd 'sh rust/build.sh status &&
+#     .venv/bin/python replay.py --mode imbalance --data v2 --share-maxcontrol {s} --v2-homes 2000'
 [runs.imbalance]
 setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
 cmd     = "sh rust/build.sh status && .venv/bin/python replay.py --mode imbalance --out $LAB_OUTPUT_DIR/imbalance.sqlite"
