@@ -163,3 +163,14 @@ def test_raw_weather_interval_start(tmp_path, monkeypatch):
     day = slice(96 * 172, 96 * 173)  # a June day
     assert abs(int(np.argmax(got[day])) - int(np.argmax(want[day]))) <= 1
     assert np.abs(got[day] - want[day]).max() < 0.08 * want[day].max()
+
+
+def test_local_day_index_dst():
+    from sentinel.sim.fleet.ro_calendar import local_features, utc_index
+
+    for y in (2022, 2023, 2024, 2025):
+        cal = local_features(utc_index(y))
+        counts = np.bincount(cal["day_index"])
+        assert len(counts) == (366 if y == 2024 else 365)
+        assert set(np.unique(counts)) <= {92, 96, 100}  # 23 h / 24 h / 25 h days
+        assert (counts == 92).sum() == 1 and (counts == 100).sum() == 1

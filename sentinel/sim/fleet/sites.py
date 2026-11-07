@@ -152,7 +152,7 @@ def _set_feeder_limits(cfg: FleetConfig, feeders: pd.DataFrame, sites: pd.DataFr
     cong = feeders.congested.to_numpy()
     nf = len(feeders)
     # Congested feeders: limit well below the PV that can export at noon; the others have headroom.
-    g = np.where(cong, ac * rng.uniform(0.50, 0.65, nf), ac * rng.uniform(1.0, 1.4, nf))
+    g = np.where(cong, ac * rng.uniform(0.45, 0.58, nf), ac * rng.uniform(1.0, 1.4, nf))
     feeders["prosumer_ac_kw"] = ac.round(1)
     feeders["g_max_kw"] = g.round(1)
     feeders["g_conservative_kw"] = (g * rng.uniform(0.75, 0.85, nf)).round(1)

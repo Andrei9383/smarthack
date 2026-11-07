@@ -18,7 +18,7 @@ cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .ven
 timeout = "15m"
 
 [runs.preview]
-setup   = "set -e; npm ci --no-audit --no-fund && npm run build"
+setup   = "set -e; npm ci --no-audit --no-fund && python3 demo/fixtures/make_fixtures.py && npm run build"
 cmd     = "npm start"               # must listen on $HOST:$PORT (both set by the lab)
 keep    = true
 
@@ -54,6 +54,22 @@ setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
 cmd     = ".venv/bin/python eval.py"         # scores ONNX models with onnxruntime, so no torch
 needs   = "gpu"
 gpu_mem = "4G"
+timeout = "30m"
+
+# Rust kernels (#48, team/infra.md §4). Not in `submit`/`check`: merges never depend on cargo. The setup uses
+# cargo if present, else installs rustup into $HOME/.cargo; it prints the toolchain + build time (worker probe)
+# and never fails on a build error. rustcheck then fails clearly if sentinel._core did not build; bench falls back
+# to timing Python only. Kernel cards submit with: lab submit <card> --run check --run rustcheck
+[runs.rustcheck]
+setup   = "set -e; uv venv -q --python 3.12; uv pip install -q -r requirements.txt maturin pytest; sh rust/build.sh build"
+cmd     = "sh rust/build.sh status --require && .venv/bin/python -m pytest -q -rs tests/test_kernels.py && .venv/bin/python -m sentinel.kernels.bench"
+needs   = "cpu"
+timeout = "30m"
+
+[runs.bench]
+setup   = "set -e; uv venv -q --python 3.12; uv pip install -q -r requirements.txt maturin; sh rust/build.sh build"
+cmd     = "sh rust/build.sh status && .venv/bin/python -m sentinel.kernels.bench"
+needs   = "cpu"
 timeout = "30m"
 
 [leaderboard]

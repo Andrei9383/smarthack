@@ -3,20 +3,21 @@
 import { Button } from "@sentinel-app/ui/components/button";
 import { parseAsBoolean, parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 
-import { NOON_STEP, STEPS_PER_DAY } from "./replay";
+import { DEFAULT_STEP, FAULT_DAY, NOON_STEP, STEPS_PER_DAY } from "./replay";
 
-const EVENING_STEP = 76; // 19:00
+const EVENING_STEP = DEFAULT_STEP - NOON_STEP + 76; // 19:00 on the hero day
+const FAULT_STEP = FAULT_DAY * STEPS_PER_DAY + NOON_STEP;
 
-// Demo script, plan §7. String failure at site 1042 is on day 4 (#31).
+// Demo script, plan §7. The story days come from #30.
 const JUMPS = [
-  { label: "1 Production", state: { mode: "production", park: "WP01", t: NOON_STEP } },
+  { label: "1 Production", state: { mode: "production", park: "WP01", t: DEFAULT_STEP } },
   { label: "2 Demand", state: { mode: "demand", t: EVENING_STEP } },
-  { label: "3 Feeders F7", state: { mode: "feeders", feeder: "F7", policy: "sentinel", t: NOON_STEP } },
+  { label: "3 Feeders F7", state: { mode: "feeders", feeder: "F7", policy: "sentinel", t: DEFAULT_STEP } },
   {
     label: "4 String failure, 1042",
-    state: { mode: "feeders", feeder: "F7", site: "1042", t: 3 * STEPS_PER_DAY + NOON_STEP },
+    state: { mode: "feeders", feeder: "F7", site: "1042", t: FAULT_STEP },
   },
-  { label: "5 O&M park", state: { mode: "om", park: "WP01", t: 4 * STEPS_PER_DAY + NOON_STEP } },
+  { label: "5 O&M park", state: { mode: "om", park: "WP01", t: FAULT_STEP + STEPS_PER_DAY } },
 ] as const;
 
 const PARSERS = {

@@ -1,0 +1,7 @@
+# Build outputs of the sentinel_core crate. `maturin develop` places the extension at
+# sentinel/_core.abi3.so (ignored by the root .gitignore).
+target/
+sentinel_core/target/
+*.so
+*.pyd
+.build_status

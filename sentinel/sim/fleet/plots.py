@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from .ro_calendar import local_day_index  # noqa: E402
+
 
 def sanity_plots(out: Path, feeders: pd.DataFrame, ts: pd.DatetimeIndex, net_w: np.ndarray) -> None:
     pdir = out / "plots"
@@ -19,7 +21,7 @@ def sanity_plots(out: Path, feeders: pd.DataFrame, ts: pd.DatetimeIndex, net_w: 
     cols = 5
     rows = int(np.ceil(nf / cols))
     local = ts.tz_convert("Europe/Bucharest")
-    day = (local.normalize() - local[0].normalize()).days.to_numpy()
+    day = local_day_index(local)
     summer = np.isin(local.month.to_numpy(), [5, 6, 7])
 
     fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 2.8 * rows), sharex=True, squeeze=False)

@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX } from "d3-shape";
 import { useMemo } from "react";
 
@@ -8,18 +9,12 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { XAxis } from "@/components/charts/x-axis";
-import { stepOfDay, timeLabel } from "@/demo/replay";
+import { stepToTs, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
+import { orpc } from "@/utils/orpc";
 
-import {
-  absorbingSites,
-  DATA_LABEL,
-  FEEDERS,
-  feederCurves,
-  feederSoc,
-  minutesOverLimit,
-  peakExport,
-} from "./data";
+
+import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
 const BUCHAREST = new Intl.DateTimeFormat("en-GB", {
@@ -85,12 +80,30 @@ function ChartLegend({ items }: { items: { label: string; color: string; dashed?
 export function FeederPanel() {
   const [policy] = usePolicy();
   const [step] = useReplayStep();
-  const [selected] = useSelectedFeeder();
-  const feeder = FEEDERS.find((f) => f.id === selected) ?? FEEDERS[0];
+  const [selected, setSelected] = useSelectedFeeder();
+  const window = useDayWindow();
+  const { data: feeders, isLoading } = useFeederList();
+  const { data: overLimit } = useOverLimit();
+  const label = useRunLabel();
+  const feeder = feeders?.find((f) => f.id === selected) ?? feeders?.[0];
   const feederId = feeder?.id ?? "";
+  const input = { feederId, ...window };
 
-  const { exportData, socData, baselineOver, sentinelOver, baselinePeak, sentinelPeak, labels } = useMemo(() => {
-    const rows = feederCurves(feederId);
+  const { data: curves } = useQuery(
+    orpc.feeders.getCurves.queryOptions({ input, enabled: Boolean(feederId) }),
+  );
+  const { data: soc } = useQuery(
+    orpc.feeders.getSocFan.queryOptions({
+      input: { ...input, policy: "sentinel" }, // replay.py stores schedules for Sentinel only
+      enabled: Boolean(feederId),
+    }),
+  );
+  const { data: sites } = useQuery(
+    orpc.feeders.getAbsorption.queryOptions({ input, enabled: Boolean(feederId) }),
+  );
+
+  const { exportData, labels } = useMemo(() => {
+    const rows = curves ?? [];
     const sentinelByTs = new Map(
       rows.filter((r) => r.policy === "sentinel").map((r) => [r.ts, r]),
     );
@@ -99,65 +112,99 @@ export function FeederPanel() {
       .map((r) => {
         const sentinel = sentinelByTs.get(r.ts);
         return {
+          ts: r.ts,
           date: bucharestWallClock(r.ts),
-          baseline_export: r.export_kw,
-          sentinel_export: sentinel?.export_kw ?? 0,
-          limit: r.limit_kw,
-          baseline_import: r.import_kw,
-          sentinel_import: sentinel?.import_kw ?? 0,
+          baseline_export: r.exportKw,
+          sentinel_export: sentinel?.exportKw ?? 0,
+          limit: r.limitKw,
+          baseline_import: r.importKw,
+          sentinel_import: sentinel?.importKw ?? 0,
         };
       });
-    return {
-      exportData: exportRows,
-      socData: feederSoc(feederId).map(({ ts, ...soc }) => ({
-        date: bucharestWallClock(ts),
-        ...soc,
-      })),
-      baselineOver: minutesOverLimit(rows, "baseline"),
-      sentinelOver: minutesOverLimit(rows, "sentinel"),
-      baselinePeak: peakExport(rows, "baseline"),
-      sentinelPeak: peakExport(rows, "sentinel"),
-      labels: exportRows.map((row) => hhmm(row.date)),
-    };
-  }, [feederId]);
+    return { exportData: exportRows, labels: exportRows.map((row) => hhmm(row.date)) };
+  }, [curves]);
 
-  const sites = absorbingSites(feederId);
-  const now = exportData[stepOfDay(step)];
+  const socData = useMemo(
+    () =>
+      (soc ?? []).map((row) => ({
+        date: bucharestWallClock(row.ts),
+        soc_q10: row.socQ10 * 100,
+        soc_q50: row.socQ50 * 100,
+        soc_q90: row.socQ90 * 100,
+      })),
+    [soc],
+  );
+  const socLabels = useMemo(() => socData.map((row) => hhmm(row.date)), [socData]);
+
+  const statFor = (name: string) =>
+    overLimit?.find((row) => row.feederId === feederId && row.policy === name);
+  const baselineOver = statFor("baseline")?.minutesOver ?? 0;
+  const sentinelOver = statFor("sentinel")?.minutesOver ?? 0;
+  const now = exportData.find((row) => row.ts === stepToTs(step));
   const nowExport = policy === "baseline" ? now?.baseline_export : now?.sentinel_export;
+
+  if (!feeder) {
+    return (
+      <aside className="absolute top-3 right-3 z-10 w-72 rounded-md border bg-background/95 p-3 text-sm text-muted-foreground">
+        {isLoading
+          ? "Loading feeders…"
+          : "No replay data. Run python3 demo/fixtures/make_fixtures.py."}
+      </aside>
+    );
+  }
 
   return (
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
       <header className="flex items-start justify-between gap-2">
         <div>
           <h2 className="font-semibold">
-            {feeder?.id} · {feeder?.name}
+            <select
+              aria-label="Feeder"
+              value={feederId}
+              onChange={(event) => setSelected(event.target.value)}
+              className="mr-1 rounded border bg-background px-1 text-sm"
+            >
+              {feeders?.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.id}
+                </option>
+              ))}
+            </select>
+            {feeder.name}
           </h2>
           <p className="text-xs text-muted-foreground">
-            {feeder?.county} · limit {feeder?.limit_kw} kW · GIS trust {feeder?.gis_trust} ·{" "}
-            <span className="font-medium text-amber-400">{DATA_LABEL}</span>
+            {feeder.county} · limit {Math.round(feeder.limitKw)} kW · GIS trust{" "}
+            {feeder.gisTrust ?? "unknown"} ·{" "}
+            <span className="font-medium text-amber-400">{label ?? "no run"}</span>
           </p>
         </div>
       </header>
 
       <div className="grid grid-cols-2 gap-2 rounded border p-2">
         <Stat
-          label="Baseline, minutes over limit"
+          label="Baseline, minutes over limit today"
           value={`${baselineOver} min`}
           tone={baselineOver > 0 ? LIMIT_COLOR : undefined}
         />
         <Stat
-          label="Sentinel, minutes over limit"
+          label="Sentinel, minutes over limit today"
           value={`${sentinelOver} min`}
           tone={sentinelOver > 0 ? LIMIT_COLOR : SENTINEL_COLOR}
         />
         <Stat
           label={`At ${timeLabel(step)}, ${policy} export`}
-          value={`${Math.round(nowExport ?? 0)} kW`}
+          value={now ? `${Math.round(nowExport ?? 0)} kW` : "—"}
           tone={now && (nowExport ?? 0) > now.limit ? LIMIT_COLOR : undefined}
         />
-        <Stat label="Limit" value={`${feeder?.limit_kw ?? 0} kW`} />
-        <Stat label="Baseline, peak export" value={`${Math.round(baselinePeak)} kW`} />
-        <Stat label="Sentinel, peak export" value={`${Math.round(sentinelPeak)} kW`} />
+        <Stat label="Limit" value={`${Math.round(feeder.limitKw)} kW`} />
+        <Stat
+          label="Baseline, peak export"
+          value={`${Math.round(statFor("baseline")?.peakExportKw ?? 0)} kW`}
+        />
+        <Stat
+          label="Sentinel, peak export"
+          value={`${Math.round(statFor("sentinel")?.peakExportKw ?? 0)} kW`}
+        />
       </div>
 
       <section className="space-y-1">
@@ -197,26 +244,26 @@ export function FeederPanel() {
       </section>
 
       <section className="space-y-1">
-        <h3 className="text-sm font-medium">Battery SoC fan (%)</h3>
-        <LineChart data={socData} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
+        <h3 className="text-sm font-medium">Battery SoC fan, Sentinel (%)</h3>
+        {socData.length > 0 ? <LineChart data={socData} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
           <Grid />
           <Band upperKey="soc_q90" lowerKey="soc_q10" label="P10–P90" fill={SOC_COLOR} curve={curveMonotoneX} />
           <Line dataKey="soc_q50" stroke={SOC_COLOR} curve={curveMonotoneX} fadeEdges={false} />
-          <XAxis numTicks={5} labels={labels} />
+          <XAxis numTicks={5} labels={socLabels} />
           <ChartTooltip />
-        </LineChart>
+        </LineChart> : <p className="text-xs text-muted-foreground">No schedule rows for this feeder.</p>}
       </section>
 
       <section className="space-y-1">
         <h3 className="text-sm font-medium">Sites that carried the absorption</h3>
-        {sites.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No absorption needed on this feeder.</p>
+        {(sites ?? []).length === 0 ? (
+          <p className="text-xs text-muted-foreground">No absorption needed on this feeder today.</p>
         ) : (
           <ul className="space-y-1 text-sm">
-            {sites.map((site) => (
-              <li key={site.asset_id} className="flex justify-between">
-                <span>Site {site.asset_id}</span>
-                <span className="text-muted-foreground">{site.absorbed_kwh} kWh</span>
+            {sites?.map((site) => (
+              <li key={site.assetId} className="flex justify-between">
+                <span>Site {site.assetId}</span>
+                <span className="text-muted-foreground">{site.absorbedKwh.toFixed(1)} kWh</span>
               </li>
             ))}
           </ul>

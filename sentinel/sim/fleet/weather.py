@@ -16,6 +16,7 @@ import pandas as pd
 
 from . import solar
 from .localities import Locality
+from .ro_calendar import local_day_index
 
 REPO = Path(__file__).resolve().parents[3]
 # #9's files, first match wins: the data.md weather table (point_id "loc:<Locality.id>"), or the locality-only file.
@@ -154,7 +155,7 @@ def _synthetic(locs: list[Locality], ts: pd.DatetimeIndex, seed: int) -> Weather
     cs = np.stack([solar.clearsky_ghi(z) for z in zen])
 
     local = ts.tz_convert("Europe/Bucharest")
-    day_idx = (local.normalize() - local[0].normalize()).days.to_numpy()
+    day_idx = local_day_index(local)
     n_days = day_idx[-1] + 1
     day_doy = (local[0].normalize() + pd.to_timedelta(np.arange(n_days), "D")).dayofyear.to_numpy()
     season = -np.cos(2 * np.pi * (day_doy - 18) / 365)  # -1 mid-January, +1 mid-July
