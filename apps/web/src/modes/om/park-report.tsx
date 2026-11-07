@@ -33,70 +33,80 @@ export function ParkReport({ parkId }: { parkId: string }) {
   if (!parkId) return null;
 
   return (
-    <section className="space-y-1">
-      <h3 className="text-sm font-medium">Daily report, park {parkId}</h3>
+    <section className="space-y-2">
+      <h3 className="text-[11px] font-medium tracking-[.04em] text-muted-foreground uppercase">
+        Daily report, park {parkId}
+      </h3>
       {rows.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-[13px] text-muted-foreground">
           {reports.isLoading ? "Loading…" : "No reports yet."}
         </p>
       ) : (
-        <table className="w-full text-xs">
-          <thead className="text-muted-foreground">
-            <tr className="text-left">
-              <th className="font-normal">Day</th>
-              <th className="text-right font-normal">MWh</th>
-              <th className="text-right font-normal">vs exp.</th>
-              <th className="text-right font-normal">Avail.</th>
-              <th className="text-right font-normal">Curtailed</th>
-              <th className="text-right font-normal">Data</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const gap = r.expectedMwh
-                ? ((r.energyMwh ?? 0) - r.expectedMwh) / r.expectedMwh
-                : 0;
-              const issues = issuesOf(r.issuesJson);
-              return (
-                <tr
-                  key={r.actionId}
-                  className={r.date === today ? "bg-muted/60 font-medium" : ""}
-                  title={issues
-                    .map((i) => [i.asset_id, i.code].filter(Boolean).join(" "))
-                    .join(", ")}
-                >
-                  <td>
-                    {dayName(`${r.date}T09:00:00Z`)}
-                    {issues.length ? (
-                      <span className="ml-1 text-amber-400">●</span>
-                    ) : null}
-                  </td>
-                  <td className="text-right">
-                    {(r.energyMwh ?? 0).toFixed(0)}
-                  </td>
-                  <td
-                    className={`text-right ${gap < -0.02 ? "text-amber-400" : "text-muted-foreground"}`}
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <table className="w-full text-[13px] tabular-nums">
+            <thead className="bg-muted text-[11px] tracking-[.04em] text-muted-foreground uppercase">
+              <tr className="text-left">
+                <th className="px-3 py-2 font-medium">Day</th>
+                <th className="px-2 py-2 text-right font-medium">MWh</th>
+                <th className="px-2 py-2 text-right font-medium">vs exp.</th>
+                <th className="px-2 py-2 text-right font-medium">Avail.</th>
+                <th className="px-2 py-2 text-right font-medium">Curtailed</th>
+                <th className="px-3 py-2 text-right font-medium">Data</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.map((r) => {
+                const gap = r.expectedMwh
+                  ? ((r.energyMwh ?? 0) - r.expectedMwh) / r.expectedMwh
+                  : 0;
+                const issues = issuesOf(r.issuesJson);
+                return (
+                  <tr
+                    key={r.actionId}
+                    className={
+                      r.date === today
+                        ? "bg-brand-50 font-medium text-brand-900"
+                        : "text-foreground"
+                    }
+                    title={issues
+                      .map((i) =>
+                        [i.asset_id, i.code].filter(Boolean).join(" "),
+                      )
+                      .join(", ")}
                   >
-                    {(gap * 100).toFixed(0)}%
-                  </td>
-                  <td
-                    className={`text-right ${(r.availabilityPct ?? 100) < 97 ? "text-amber-400" : ""}`}
-                  >
-                    {(r.availabilityPct ?? 0).toFixed(1)}%
-                  </td>
-                  <td className="text-right">
-                    {r.curtailedMwh ? `${r.curtailedMwh} MWh` : "—"}
-                  </td>
-                  <td className="text-right text-muted-foreground">
-                    {(r.dataQualityPct ?? 0).toFixed(0)}%
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    <td className="px-3 py-1.5 whitespace-nowrap">
+                      {dayName(`${r.date}T09:00:00Z`)}
+                      {issues.length ? (
+                        <span className="ml-1.5 inline-block size-1.5 rounded-full bg-status-warn align-middle" />
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      {(r.energyMwh ?? 0).toFixed(0)}
+                    </td>
+                    <td
+                      className={`px-2 py-1.5 text-right ${gap < -0.02 ? "font-medium text-status-warn" : "text-text-secondary"}`}
+                    >
+                      {(gap * 100).toFixed(0)}%
+                    </td>
+                    <td
+                      className={`px-2 py-1.5 text-right ${(r.availabilityPct ?? 100) < 97 ? "font-medium text-status-warn" : ""}`}
+                    >
+                      {(r.availabilityPct ?? 0).toFixed(1)}%
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      {r.curtailedMwh ? `${r.curtailedMwh} MWh` : "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-text-secondary">
+                      {(r.dataQualityPct ?? 0).toFixed(0)}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
         Curtailment is a market instruction: it is reported here and logged as
         an alert, never sent to a crew.
       </p>

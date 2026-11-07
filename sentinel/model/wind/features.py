@@ -12,6 +12,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from sentinel.kernels import rolling_mean
+
 from .data import AMBIENT, CLASSES, CLASS_INDEX, POWER, TEMP_SENSORS, WIND
 from .physics import density_normalise, air_density
 
@@ -117,18 +119,8 @@ MIN_HISTORY_STEPS = BASELINE_STEPS + BASELINE_LAG  # 28 days: full per-turbine t
 
 
 def rmean(x: np.ndarray, w: int) -> np.ndarray:
-    """Causal NaN-aware rolling mean over the last w steps along axis 0 (0 where no data)."""
-    x = np.asarray(x, dtype=np.float64)
-    ok = np.isfinite(x)
-    cs = np.cumsum(np.where(ok, x, 0.0), axis=0)
-    cn = np.cumsum(ok, axis=0)
-    cs = np.concatenate([np.zeros((1, *x.shape[1:])), cs])
-    cn = np.concatenate([np.zeros((1, *x.shape[1:])), cn])
-    idx = np.arange(1, x.shape[0] + 1)
-    lo = np.clip(idx - w, 0, None)
-    s = cs[idx] - cs[lo]
-    n = cn[idx] - cn[lo]
-    return np.where(n > 0, s / np.maximum(n, 1), 0.0)
+    """Causal NaN-aware rolling mean over the last w steps along axis 0 (0 where no data); Rust kernel #95."""
+    return rolling_mean(x, w)
 
 
 def shift(x: np.ndarray, k: int) -> np.ndarray:

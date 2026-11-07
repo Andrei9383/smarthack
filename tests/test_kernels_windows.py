@@ -22,18 +22,13 @@ def cache(tmp_path_factory):
     d = tmp_path_factory.mktemp("win")
     rng = np.random.default_rng(0)
     S, L, T = 9, 3, 40 * H
-    arrays = {
-        "pv_ac": (rng.random((S, T)) * 8).astype(np.float16),
-        "inv_status": rng.integers(0, 4, (S, T)).astype(np.int8),
-        "weather_act": (rng.random((L, T, 7)) * 900).astype(np.float16),
-        "geom": rng.random((L, T, 3)).astype(np.float32),
-        "calendar": rng.random((T, 8)).astype(np.float32),
-    }
-    out = {}
+    arrays = {"pv_ac": (rng.random((S, T)) * 8).astype(np.float16),
+              "inv_status": rng.integers(0, 4, (S, T)).astype(np.int8),
+              "weather_act": (rng.random((L, T, 7)) * 900).astype(np.float16),
+              "geom": rng.random((L, T, 3)).astype(np.float32), "calendar": rng.random((T, 8)).astype(np.float32)}
     for k, a in arrays.items():
         np.save(d / f"{k}.npy", a)
-        out[k] = np.load(d / f"{k}.npy", mmap_mode="r")
-    return out
+    return {k: np.load(d / f"{k}.npy", mmap_mode="r") for k in arrays}
 
 
 def batch(rng, n_rows, B=50, days=40):
@@ -41,6 +36,7 @@ def batch(rng, n_rows, B=50, days=40):
 
 
 def test_reference_is_fancy_gather(cache):
+    assert kernels.get("window_gather", "python") is window_gather_py
     rng = np.random.default_rng(1)
     s, st = batch(rng, 9)
     for name, off, ln, dt in (("pv_ac", -HH, HH, np.float32), ("pv_ac", 0, H, None), ("inv_status", 0, H, None)):
@@ -48,37 +44,26 @@ def test_reference_is_fancy_gather(cache):
         assert got.tobytes() == fancy(cache[name], s, st, off, ln, dt).tobytes()
     loc = s % 3
     got = window_gather_py(cache["weather_act"], loc, st, 0, H, np.float32)
-    assert got.shape == (50, H, 7)
-    assert got.tobytes() == fancy(cache["weather_act"], loc, st, 0, H, np.float32).tobytes()
+    assert got.shape == (50, H, 7) and got.tobytes() == fancy(cache["weather_act"], loc, st, 0, H, np.float32).tobytes()
 
 
 def test_reference_bounds_and_out(cache):
     a = cache["pv_ac"]
-    with pytest.raises(ValueError):
-        window_gather_py(a, [0], [10], -HH, HH)  # before t = 0 (numpy would wrap)
-    with pytest.raises(ValueError):
-        window_gather_py(a, [0], [a.shape[1] - 10], 0, H)
-    with pytest.raises(ValueError):
-        window_gather_py(a, [9], [HH], 0, H)
+    for args in (([0], [10], -HH, HH), ([0], [a.shape[1] - 10], 0, H), ([9], [HH], 0, H)):  # numpy would wrap
+        with pytest.raises(ValueError):
+            window_gather_py(a, *args)
     out = np.zeros((2, H), np.float32)
     r = window_gather_py(a, [1, 2], [HH, 2 * HH], 0, H, np.float32, out=out)
     assert r is out and out.tobytes() == fancy(a, [1, 2], [HH, 2 * HH], 0, H, np.float32).tobytes()
     assert window_gather_py(a, [], [], 0, H, np.float32).shape == (0, H)
 
 
-def test_dispatcher_registered():
-    assert "window_gather" in kernels.names()
-    assert kernels.get("window_gather", "python") is window_gather_py
-
-
 rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
 
 
 def _both(*args, **kw):
-    py = kernels.get("window_gather", "python")(*args, **kw)
-    rs = kernels.get("window_gather", "rust")(*args, **kw)
-    assert py.shape == rs.shape and py.dtype == rs.dtype
-    assert py.tobytes() == rs.tobytes()
+    py, rs = (kernels.get("window_gather", b)(*args, **kw) for b in ("python", "rust"))
+    assert py.shape == rs.shape and py.dtype == rs.dtype and py.tobytes() == rs.tobytes()
     return rs
 
 

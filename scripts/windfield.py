@@ -28,7 +28,8 @@ SPEED_MAX = 20.0  # m/s, top of the colour ramp
 WEEK_START = "2025-06-01T21:00:00+00:00"  # 2025-06-02 00:00 Europe/Bucharest
 WEEK_HOURS = 168
 FEATHER_PX = 6
-RAMP = [(0.0, (37, 99, 235)), (0.35, (45, 212, 191)), (0.65, (250, 204, 21)), (1.0, (239, 68, 68))]
+# light -> emerald, matches team/contracts/ui-style.md (PPC light theme)
+RAMP = [(0.0, (236, 251, 242)), (0.35, (108, 217, 160)), (0.65, (18, 183, 106)), (1.0, (11, 127, 72))]
 
 
 def write_png(path, width, height, rows):
