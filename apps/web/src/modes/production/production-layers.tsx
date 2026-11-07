@@ -140,12 +140,12 @@ function diameter(mwh: number) {
   return MIN_DIAMETER_PX + mwh * PX_PER_MWH;
 }
 
-type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & { lon: number; lat: number; diameter: number };
+export type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & { lon: number; lat: number; diameter: number };
 
-const NO_OFFSET: MarkerOffset = { dx: 0, dy: 0 };
+export const NO_OFFSET: MarkerOffset = { dx: 0, dy: 0 };
 
 // Distances on screen depend only on zoom, so panning never needs a new layout.
-function useMarkerOffsets(markers: PlacedMarker[]) {
+export function useMarkerOffsets(markers: PlacedMarker[]) {
   const { map, isLoaded } = useMap();
   const [zoom, setZoom] = useState<number | null>(null);
 
@@ -171,7 +171,7 @@ function useMarkerOffsets(markers: PlacedMarker[]) {
 }
 
 // The marker stays on its real point; only the circle moves, with a line back to that point.
-function Displaced({ offset, children }: { offset: MarkerOffset; children: ReactNode }) {
+export function Displaced({ offset, children }: { offset: MarkerOffset; children: ReactNode }) {
   const length = Math.hypot(offset.dx, offset.dy);
   return (
     <>
@@ -194,7 +194,7 @@ function Displaced({ offset, children }: { offset: MarkerOffset; children: React
 
 // The marker's own box stays on the real point, where it could cover a displaced neighbour, so
 // only the circle takes clicks; they still bubble to the marker's handler.
-const passClicksThrough = (element: HTMLElement | null) => {
+export const passClicksThrough = (element: HTMLElement | null) => {
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
   if (marker) marker.style.pointerEvents = "none";
 };
