@@ -152,6 +152,18 @@ def site_features(raw: dict) -> tuple[np.ndarray, np.ndarray]:
     return get("site_features")(raw)
 
 
+# --------------------------------------------------------------------------- K7: fleet self-consumption (selfcons.py)
+from sentinel.kernels.selfcons import self_consumption_py, self_consumption_rust  # noqa: E402
+
+register("self_consumption", self_consumption_py, self_consumption_rust)
+
+
+def self_consumption(p: Any, pv_w: Any, load_w: Any, dt_h: float,
+                     e0_kwh: Any = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Dispatched fleet battery rule -> (batt_w, soc, e_end_kwh); reference =
+    sentinel.sim.fleet.battery.simulate_self_consumption (same signature)."""
+    return get("self_consumption")(p, pv_w, load_w, dt_h, e0_kwh)
+
 # --------------------------------------------------------------------------- K8: pvlib AC batch (pvac.py, #133)
 from sentinel.kernels.pvac import pv_ac_batch_py, pv_ac_batch_rust  # noqa: E402
 
@@ -166,7 +178,8 @@ def pv_ac_batch(kwp: Any, tilt: Any, azimuth: Any, inverter_kw: Any, ghi: Any, d
 
 __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
            "load_features", "load_features_py", "names", "pv_features", "pv_features_py", "register", "rolling_mean",
-           "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "site_features",
+           "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "self_consumption",
+           "self_consumption_py", "site_features",
            "site_features_py", "window_gather", "window_gather_py"]
 
 
