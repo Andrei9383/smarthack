@@ -1,6 +1,5 @@
 "use client";
 
-import { Tabs, TabsList, TabsTrigger } from "@sentinel-app/ui/components/tabs";
 import { curveMonotoneX } from "d3-shape";
 import { useMemo } from "react";
 
@@ -9,6 +8,8 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { XAxis } from "@/components/charts/x-axis";
+import { stepOfDay, timeLabel } from "@/demo/replay";
+import { usePolicy, useReplayStep } from "@/demo/use-replay";
 
 import {
   absorbingSites,
@@ -18,9 +19,8 @@ import {
   feederSoc,
   minutesOverLimit,
   peakExport,
-  type Policy,
 } from "./data";
-import { usePolicy, useSelectedFeeder } from "./use-feeder-state";
+import { useSelectedFeeder } from "./use-feeder-state";
 
 const BUCHAREST = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Bucharest",
@@ -83,7 +83,8 @@ function ChartLegend({ items }: { items: { label: string; color: string; dashed?
 }
 
 export function FeederPanel() {
-  const [policy, setPolicy] = usePolicy();
+  const [policy] = usePolicy();
+  const [step] = useReplayStep();
   const [selected] = useSelectedFeeder();
   const feeder = FEEDERS.find((f) => f.id === selected) ?? FEEDERS[0];
   const feederId = feeder?.id ?? "";
@@ -121,6 +122,8 @@ export function FeederPanel() {
   }, [feederId]);
 
   const sites = absorbingSites(feederId);
+  const now = exportData[stepOfDay(step)];
+  const nowExport = policy === "baseline" ? now?.baseline_export : now?.sentinel_export;
 
   return (
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
@@ -134,12 +137,6 @@ export function FeederPanel() {
             <span className="font-medium text-amber-400">{DATA_LABEL}</span>
           </p>
         </div>
-        <Tabs value={policy} onValueChange={(value) => setPolicy(value as Policy)}>
-          <TabsList>
-            <TabsTrigger value="baseline">Baseline</TabsTrigger>
-            <TabsTrigger value="sentinel">Sentinel</TabsTrigger>
-          </TabsList>
-        </Tabs>
       </header>
 
       <div className="grid grid-cols-2 gap-2 rounded border p-2">
@@ -153,6 +150,12 @@ export function FeederPanel() {
           value={`${sentinelOver} min`}
           tone={sentinelOver > 0 ? LIMIT_COLOR : SENTINEL_COLOR}
         />
+        <Stat
+          label={`At ${timeLabel(step)}, ${policy} export`}
+          value={`${Math.round(nowExport ?? 0)} kW`}
+          tone={now && (nowExport ?? 0) > now.limit ? LIMIT_COLOR : undefined}
+        />
+        <Stat label="Limit" value={`${feeder?.limit_kw ?? 0} kW`} />
         <Stat label="Baseline, peak export" value={`${Math.round(baselinePeak)} kW`} />
         <Stat label="Sentinel, peak export" value={`${Math.round(sentinelPeak)} kW`} />
       </div>

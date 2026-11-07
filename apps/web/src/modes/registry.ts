@@ -3,6 +3,8 @@ import type { ComponentType } from "react";
 
 import { FeederPanel } from "./feeders/feeder-panel";
 import { FeedersLayers } from "./feeders/feeders-layers";
+import { ProductionLayers } from "./production/production-layers";
+import { ProductionPanel } from "./production/production-panel";
 
 export const MODE_IDS = ["feeders", "om", "production", "demand"] as const;
 export type ModeId = (typeof MODE_IDS)[number];
@@ -38,6 +40,8 @@ export const MODES: Record<ModeId, ModeEntry> = {
     icon: Factory,
     blurb: "Wind field, parks and solar-dense counties by expected MWh.",
     card: "#39",
+    Layers: ProductionLayers,
+    Panel: ProductionPanel,
   },
   demand: {
     label: "Demand",

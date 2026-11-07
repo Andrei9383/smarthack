@@ -18,6 +18,10 @@ import { Tabs, TabsList, TabsTrigger } from "@sentinel-app/ui/components/tabs";
 import { Zap } from "lucide-react";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 
+import { DemoJumps } from "@/demo/demo-jumps";
+import { ReplayBar } from "@/demo/replay-bar";
+import { SummaryCard } from "@/demo/summary-card";
+import { useBasemapStyles } from "@/demo/use-basemap";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 // Values stay empty until replay rows exist; never show invented numbers.
@@ -32,6 +36,7 @@ export function AppShell() {
   );
   const active = MODES[mode];
   const { Layers, Panel } = active;
+  const { offline, styles } = useBasemapStyles();
 
   return (
     <SidebarProvider>
@@ -84,7 +89,8 @@ export function AppShell() {
         </section>
 
         <main className="relative min-h-0 flex-1">
-          <Map theme="dark" center={ROMANIA_CENTER} zoom={5.8} minZoom={4}>
+          {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
+          <Map key={offline ? "offline" : "online"} styles={styles} theme="dark" center={ROMANIA_CENTER} zoom={5.8} minZoom={4}>
             <MapControls position="bottom-left" />
             {Layers ? <Layers /> : null}
           </Map>
@@ -97,7 +103,15 @@ export function AppShell() {
               <p className="mt-2 text-xs text-muted-foreground">Placeholder panel, see {active.card}</p>
             </aside>
           )}
+          <SummaryCard />
+          {offline ? (
+            <span className="absolute bottom-3 left-14 z-10 rounded border bg-background/90 px-2 py-1 text-xs text-muted-foreground">
+              Offline basemap
+            </span>
+          ) : null}
         </main>
+        <ReplayBar />
+        <DemoJumps />
       </SidebarInset>
     </SidebarProvider>
   );

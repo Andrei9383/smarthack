@@ -1,10 +1,13 @@
 "use client";
 
-import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
-import { useEffect, useMemo } from "react";
+import { MapGeoJSON, MapMarker, MarkerContent } from "@sentinel-app/ui/components/map";
+import { useMemo } from "react";
 
+import { usePolicy } from "@/demo/use-replay";
+
+import { useMapRightPadding } from "../use-map-right-padding";
 import { FEEDERS, feederCurves, minutesOverLimit, type Policy } from "./data";
-import { usePolicy, useSelectedFeeder } from "./use-feeder-state";
+import { useSelectedFeeder } from "./use-feeder-state";
 
 const OK_COLOR = "#2dd4bf";
 const WARN_COLOR = "#f59e0b";
@@ -36,14 +39,7 @@ function feederGeoJSON(policy: Policy, selected: string) {
 export function FeedersLayers() {
   const [policy] = usePolicy();
   const [selected, setSelected] = useSelectedFeeder();
-  const { map, isLoaded } = useMap();
-  useEffect(() => {
-    if (!map || !isLoaded) return;
-    map.easeTo({ padding: { right: PANEL_PADDING_PX }, duration: 300 });
-    return () => {
-      map.easeTo({ padding: { right: 0 }, duration: 300 });
-    };
-  }, [map, isLoaded]);
+  useMapRightPadding(PANEL_PADDING_PX);
   const data = useMemo(() => feederGeoJSON(policy, selected), [policy, selected]);
   const lowTrust = useMemo(
     () => ({ ...data, features: data.features.filter((f) => f.properties.lowTrust) }),
