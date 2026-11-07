@@ -1,6 +1,8 @@
 """Year-replay benchmark of the trust ledger (#147 acceptance: < 10 s for a full year, all buckets).
 
-    python -m sentinel.judge.bench_ledger [--sites 1000 --turbines 120 --days 365 --err-rows 8]
+    python -m sentinel.judge.bench_ledger [--sites 600 --turbines 120 --days 365 --err-rows 10]
+
+Defaults = the replay fleet (FleetConfig.n_sites = 600) and J1's 10 norm_err rows per forecast asset-day.
 
 Synthetic outcome rows shaped like the grader's (§8 + bucket columns): 6 forecast witnesses/substitutes with
 calibration + sharpness + `norm_err` rows per home-day, 2 home detectors and 2 turbine detectors with sparse
@@ -70,10 +72,10 @@ def synth(sites: int, turbines: int, days: int, err_rows: int, seed: int = 0) ->
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--sites", type=int, default=1000)
+    ap.add_argument("--sites", type=int, default=600)
     ap.add_argument("--turbines", type=int, default=120)
     ap.add_argument("--days", type=int, default=365)
-    ap.add_argument("--err-rows", type=int, default=8)
+    ap.add_argument("--err-rows", type=int, default=10)
     a = ap.parse_args()
     df = synth(a.sites, a.turbines, a.days, a.err_rows)
     n_score = df.filter(pl.col("score_name") != "norm_err").height
