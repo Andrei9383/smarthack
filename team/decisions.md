@@ -21,3 +21,4 @@ One line per decision, newest last. Format: `HH:MM — decision (who)`.
 14:15 — Model registry M1-M8 with one prediction envelope; M1/M2/M4 MUST in #14; M3 starts as aggregation of LoadNet scenarios (#44) (yolooo332)
 14:15 — Wind telemetry contract = PPC HackITall schema WP<park>.TID<turbine>.<sensor>, kW / km/h, integers = error codes (replaces 13:00 <park>.<turbine>.<signal>) (yolooo332)
 14:15 — Four map modes via ?mode=: Feeders + O&M MUST, Production + Demand SHOULD; Rust core OPTIONAL with no card; Python package stays sentinel/ (yolooo332)
+- #55 (2026-11-07): `production` contract: added `getRun`, `listParks`, county `lat`/`lon`, `getCountyTotals` `from`/`to`; removed `getWindfield`, since the wind field is static (`/windfield/meta.json`). Nothing else consumed it.

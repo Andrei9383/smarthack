@@ -17,6 +17,7 @@
     "@orpc/zod": "^1.15.6",
     "@sentinel-app/auth": "*",
     "@sentinel-app/db": "*",
+    "drizzle-orm": "1.0.0-rc.5",
     "zod": "^4.5.4"
   },
   "devDependencies": {
