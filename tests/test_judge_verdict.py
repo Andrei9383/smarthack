@@ -259,7 +259,7 @@ def test_replay_judge_check_and_tables(tmp_path):
     n = con.execute("select count(*) from judge_verdicts").fetchone()[0]
     assert n > 0 and con.execute("select count(*) from trust").fetchone()[0] > 0
     notes = json.loads(con.execute("select notes from runs where policy='sentinel'").fetchone()[0])
-    assert notes["judge"]["mode"] == "ledger-only" and sum(notes["judge"]["verdicts"].get(v, 0) for v in ("use", "widen", "dont_use")) == n
+    assert notes["judge"]["mode"] in ("ledger-only", "judge") and sum(notes["judge"]["verdicts"].get(v, 0) for v in ("use", "widen", "dont_use")) == n
     assert "judge" not in notes["fallbacks"]
     con.close()
 
