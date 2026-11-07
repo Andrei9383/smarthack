@@ -147,6 +147,32 @@ def load_args(r: dict) -> tuple[Any, ...]:
     return r["wx"], r["cal"], r["hist"]
 
 
+
+PVAC_CHUNK = 64  # sites per call, as sentinel.data.windows does per locality (#133)
+
+
+def pvac_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """#133: 600 sites x 1 year of 15-min steps under one locality's weather (pvlib + clear-sky channels)."""
+    import pandas as pd
+
+    from sentinel.model import physics as ph
+
+    T, n = _sz(35040, scale, 96), _sz(600, scale)
+    times = pd.date_range("2025-01-01", periods=T, freq="15min", tz="UTC")
+    g = ph.solar_geometry(times, 45.0, 25.0).astype(np.float32).astype(np.float64)
+    ghi = np.clip(g[:, 2] * rng.uniform(0.1, 1.05, T), 0, None)
+    dni, dhi = ph.decompose(ghi, g[:, 0], times.day_of_year.to_numpy())
+    site = (rng.uniform(2, 12, n), rng.uniform(0, 60, n), rng.uniform(90, 270, n), rng.uniform(2, 10, n))
+    return site, (ghi, dni, dhi, rng.normal(15, 8, T), rng.gamma(2, 2, T), g[:, 0], g[:, 1])
+
+
+def pvac_run(fn, a):
+    site, (ghi, dni, dhi, temp, wind, zen, saz) = a
+    for k in range(0, len(site[0]), PVAC_CHUNK):
+        s = [x[k:k + PVAC_CHUNK] for x in site]
+        fn(*s, ghi, dni, dhi, temp, wind, zen, saz)
+        fn(*s, ghi, dni, dhi, 20.0, None, zen, saz)
+
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description[, parity atol])
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
@@ -169,6 +195,10 @@ CASES = [
      lambda a: load_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
     ("site_features", "features_site", lambda sc, rng: (site_raw(sc, rng),), lambda fn, a: [fn(r) for r in a[0]],
      lambda a: (a[0][0],), f"{FEAT_BATCHES} batches x {FEAT_B} M4 site windows (features.site_inputs)", 1e-6),  # cos_zen
+    ("pv_ac_batch", "pvac", pvac_make, pvac_run,
+     lambda a: (*(x[:PVAC_CHUNK] for x in a[0]), *a[1]),
+     "600 sites x 35040 steps, measured + clear-sky channel, 64 sites per call (windows.py pvlib channels)",
+     1e-9),  # bit-exact where numpy's f64 cos/arccos are libm's; a few ulp on AVX-512 SVML CPUs
 ]
 
 
