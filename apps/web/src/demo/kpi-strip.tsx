@@ -40,14 +40,14 @@ export function KpiChips() {
           key={title}
           className="flex shrink-0 flex-col justify-center border-r border-border px-2.5 py-1.5 min-[1440px]:px-3.5 whitespace-nowrap last:border-r-0"
         >
-          <span className="text-[10px] font-medium tracking-[0.04em] text-muted-foreground uppercase">{title}</span>
-          <span className="text-base leading-snug font-semibold text-foreground tabular-nums">
+          <span className="text-[10px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{title}</span>
+          <span className="font-mono text-base leading-snug font-semibold text-foreground tabular-nums">
             {value === null || value === undefined ? (
               <span className="text-muted-foreground">—</span>
             ) : (
               <>
                 <CountUp value={value} digits={digits} />
-                {unit ? <span className="ml-0.5 text-xs font-normal text-muted-foreground">{unit}</span> : null}
+                {unit ? <span className="ml-1 font-sans text-xs font-normal text-muted-foreground">{unit}</span> : null}
               </>
             )}
           </span>

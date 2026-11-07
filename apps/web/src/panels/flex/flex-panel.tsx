@@ -55,7 +55,7 @@ const SERIES = [
   },
 ] as const;
 const SECTION_LABEL =
-  "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
+  "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
 // Room for the y-axis labels on the left and the 24:00 tick on the right.
 const CHART_MARGIN = { left: 40, right: 18, top: 10, bottom: 26 };
 /** KPI 3 in team/plan.md: realised ≥ committed (P10) on ≥ 90% of feeder-steps. */
@@ -380,7 +380,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               {(feeders.data ?? []).map((f) => (
                 <tr
                   key={f.feederId}
-                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-brand-50 font-medium text-brand-900" : "hover:bg-muted"}`}
+                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-brand-50 font-medium text-brand-900 shadow-[inset_2px_0_0_var(--primary)]" : "hover:bg-surface-raised"}`}
                   onClick={() => {
                     void setFeeder(f.feederId);
                     setPoolOpen(false);

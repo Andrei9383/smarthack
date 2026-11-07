@@ -275,7 +275,7 @@ export function FeederPanel() {
               aria-label="Feeder"
               value={feederId}
               onChange={(event) => setSelected(event.target.value)}
-              className="h-9 cursor-pointer appearance-none rounded-lg bg-card py-1 pr-9 pl-3 text-base font-semibold text-foreground shadow-raised transition-[background-color,box-shadow] duration-150 outline-none hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-9 cursor-pointer appearance-none rounded-lg bg-card py-1 pr-9 pl-3 text-base font-semibold text-foreground shadow-raised transition-[background-color,box-shadow] duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring"
             >
               {feeders?.map((f) => (
                 <option key={f.id} value={f.id}>

@@ -164,6 +164,17 @@ def self_consumption(p: Any, pv_w: Any, load_w: Any, dt_h: float,
     sentinel.sim.fleet.battery.simulate_self_consumption (same signature)."""
     return get("self_consumption")(p, pv_w, load_w, dt_h, e0_kwh)
 
+# --------------------------------------------------------------------------- K8: pvlib AC batch (pvac.py, #133)
+from sentinel.kernels.pvac import pv_ac_batch_py, pv_ac_batch_rust  # noqa: E402
+
+register("pv_ac_batch", pv_ac_batch_py, pv_ac_batch_rust)
+
+
+def pv_ac_batch(kwp: Any, tilt: Any, azimuth: Any, inverter_kw: Any, ghi: Any, dni: Any, dhi: Any, temp: Any,
+                wind: Any, zenith: Any, sun_azimuth: Any) -> np.ndarray:
+    """Dispatched pvlib AC kW [n, T] for n sites under one weather series; reference = sentinel.model.physics."""
+    return get("pv_ac_batch")(kwp, tilt, azimuth, inverter_kw, ghi, dni, dhi, temp, wind, zenith, sun_azimuth)
+
 
 __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
            "load_features", "load_features_py", "names", "pv_features", "pv_features_py", "register", "rolling_mean",

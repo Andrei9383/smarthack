@@ -168,6 +168,32 @@ def selfcons_sample(a: tuple) -> tuple:
     k = slice(0, 50)
     return (BatteryParams(*(getattr(p, f)[k] for f in p.__dataclass_fields__)), pv[k], load[k], dt)
 
+
+PVAC_CHUNK = 64  # sites per call, as sentinel.data.windows does per locality (#133)
+
+
+def pvac_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """#133: 600 sites x 1 year of 15-min steps under one locality's weather (pvlib + clear-sky channels)."""
+    import pandas as pd
+
+    from sentinel.model import physics as ph
+
+    T, n = _sz(35040, scale, 96), _sz(600, scale)
+    times = pd.date_range("2025-01-01", periods=T, freq="15min", tz="UTC")
+    g = ph.solar_geometry(times, 45.0, 25.0).astype(np.float32).astype(np.float64)
+    ghi = np.clip(g[:, 2] * rng.uniform(0.1, 1.05, T), 0, None)
+    dni, dhi = ph.decompose(ghi, g[:, 0], times.day_of_year.to_numpy())
+    site = (rng.uniform(2, 12, n), rng.uniform(0, 60, n), rng.uniform(90, 270, n), rng.uniform(2, 10, n))
+    return site, (ghi, dni, dhi, rng.normal(15, 8, T), rng.gamma(2, 2, T), g[:, 0], g[:, 1])
+
+
+def pvac_run(fn, a):
+    site, (ghi, dni, dhi, temp, wind, zen, saz) = a
+    for k in range(0, len(site[0]), PVAC_CHUNK):
+        s = [x[k:k + PVAC_CHUNK] for x in site]
+        fn(*s, ghi, dni, dhi, temp, wind, zen, saz)
+        fn(*s, ghi, dni, dhi, 20.0, None, zen, saz)
+
 def resim_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
     """K7 (#134): one fault-injector batch re-simulated: 48 battery sites with a fault x 1 year of 15-min steps,
     onsets spread over the year, battery_fade capacity ramps and underuse steps, 0.1 % NaN surplus."""
@@ -213,6 +239,11 @@ CASES = [
     ("self_consumption", "selfcons", selfcons_make, lambda fn, a: fn(*a), selfcons_sample,
      "fleet battery rule: 600 homes x 35040 steps (one year), f32 pv/load (#135)"),
 
+
+    ("pv_ac_batch", "pvac", pvac_make, pvac_run,
+     lambda a: (*(x[:PVAC_CHUNK] for x in a[0]), *a[1]),
+     "600 sites x 35040 steps, measured + clear-sky channel, 64 sites per call (windows.py pvlib channels)",
+     1e-9),  # bit-exact where numpy's f64 cos/arccos are libm's; a few ulp on AVX-512 SVML CPUs
     ("battery_resim", "battery_resim", resim_make, lambda fn, a: fn(*a), lambda a: a,
      "fault injector battery resim (#134): 48 sites x 35040 steps, fade/underuse, 0.1% NaN"),
 ]

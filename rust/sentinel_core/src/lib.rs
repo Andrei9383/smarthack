@@ -10,6 +10,7 @@ use pyo3::prelude::*;
 mod battery_resim;
 mod cusum;
 mod features;
+mod pvac;
 mod rollout;
 mod rolling;
 mod scatter;
@@ -313,6 +314,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
     m.add_function(wrap_pyfunction!(selfcons::self_consumption, m)?)?;
+    m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
     m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
