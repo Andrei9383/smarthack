@@ -130,10 +130,11 @@ def scatter_telemetry(ti: Any, tj: Any, sk: Any, v: Any, is_code: Any, scale: An
 
 # --------------------------------------------------------------------------- K6: fused feature build (features.py)
 from sentinel.kernels.features import (load_features_py, load_features_rust, pv_features_py,  # noqa: E402
-                                       pv_features_rust)
+                                       pv_features_rust, site_features_py, site_features_rust)
 
 register("pv_features", pv_features_py, pv_features_rust)
 register("load_features", load_features_py, load_features_rust)
+register("site_features", site_features_py, site_features_rust)
 
 
 def pv_features(wx: Any, geom: Any, pvclear: Any, pvlib: Any, hist_pv: Any, kwp: Any) -> tuple[np.ndarray, ...]:
@@ -146,7 +147,12 @@ def load_features(wx: Any, cal: Any, hist_load: Any) -> tuple[np.ndarray, ...]:
     return get("load_features")(wx, cal, hist_load)
 
 
+def site_features(raw: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatched M4 site feature build -> (seq, summ); reference = sentinel.model.features.site_arrays."""
+    return get("site_features")(raw)
+
+
 __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided", "cusum_two_sided_py", "get",
            "load_features", "load_features_py", "names", "pv_features", "pv_features_py", "register", "rolling_mean",
-           "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "window_gather",
-           "window_gather_py"]
+           "rolling_mean_py", "rust_available", "scatter_telemetry", "scatter_telemetry_py", "site_features",
+           "site_features_py", "window_gather", "window_gather_py"]
