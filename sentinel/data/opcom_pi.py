@@ -4,16 +4,20 @@
     python -m sentinel.data.opcom_pi --offline          # rebuild from the response cache only, no network
     python -m sentinel.data.opcom_pi --cache DIR        # keep raw responses somewhere else (default data/.cache)
 
-OPCOM has no export for PI, so this reads the public "Tranzactii PI" page (one form POST per trading date and
-product, `tip` 15 or 60 min). The committed Parquet is the product: `make reproduce` never runs this.
+OPCOM has no export for PI, so this reads the public "Tranzactii PI" page: one form POST per trading date for
+the 15-min product (`tip=15`), and `tip=60` only where that page is empty. The committed Parquet is the product:
+`make reproduce` never runs this.
 Terms (opcom.ro/disclaimer/133/ro, checked 2026-11-07): public data may be downloaded for internal,
 non-commercial use with the source credited (OPCOM); republishing or redistributing it needs OPCOM's written
-consent. robots.txt allows every path. So: polite (>= 1 s between requests, a descriptive User-Agent, every
-response cached so the year is downloaded once), and the data stays inside the private repo.
+consent. robots.txt allows every path. So: polite (6 s idle between requests by default, a 403 stops the run,
+a descriptive User-Agent, every response cached so the year is downloaded once), and the data stays inside the
+private repo.
 
 The page lists the trades *concluded on* the chosen date. A label without a prefix (`14-15_XB`,
 `14:15-14:30_XB`) is delivery on that date; `T14-T15` is the next day and `TT00` the boundary after it. So a
-delivery day D needs the pages of D-1 and D. Labels are Romanian local time (Europe/Bucharest), like PZU.
+delivery day D needs the pages of D-1 and D. Labels are CET/CEST, the SIDC market time, not Romanian time:
+on 30 Mar 2025 the skipped hour is `02`, which only CET skips (EET skips 03:00). The Romanian delivery day
+starts at 23:00 CET of the day before, so the year also needs the page of 30 Dec of the previous year.
 Each row is one RO participant's side of a trade (`cumparare` = buy, `vanzare` = sell), price lei/MWh.
 
 Volume: OPCOM labels the column MWh, but both products trade in 0.1 steps (the SIDC MW granularity), so the
@@ -50,10 +54,11 @@ OUT = RAW / "prices_pi.parquet"
 CACHE = REPO / "data" / ".cache" / "opcom_pi"
 URL = "https://www.opcom.ro/rapoarte-pi-rezultate-pi/ro"
 UA = "sentinel-research/0.1 (SmartHack 2026; research use)"
-RO_TZ = zoneinfo.ZoneInfo("Europe/Bucharest")
+RO_TZ = zoneinfo.ZoneInfo("Europe/Bucharest")  # the delivery year / grid
+LABEL_TZ = zoneinfo.ZoneInfo("Europe/Brussels")  # CET/CEST: time zone of the PI labels
 UTC = dt.timezone.utc
 TEST_YEAR = 2025
-MIN_GAP_S = 1.5  # between requests (card: >= 1 s)
+MIN_GAP_S = 6.0  # idle seconds between requests (card: >= 1 s; OPCOM answered 403 after ~37 pages at 1.5 s)
 SIDES = {"cumparare": "buy", "vanzare": "sell"}
 LABEL = re.compile(r"^(T*)(\d{1,2})(?::(\d{2}))?-(T*)(\d{1,2})(?::(\d{2}))?(?:_(\w+))?$")
 SCHEMA_COLS = ["ts", "pi_vwap_lei_mwh", "pi_volume_mwh", "pi_trades", "pi_product",
@@ -172,18 +177,22 @@ def parse_label(label: str, trading_day: dt.date) -> tuple[dt.datetime, int] | N
         + dt.timedelta(hours=int(h2), minutes=int(m2 or 0))
     if not t2 and int(h2) < int(h1):  # '23-T00' style is covered by the T prefix; tolerate a bare wrap too
         end += dt.timedelta(days=1)
-    minutes = int((end - start).total_seconds() // 60)
-    return (start, minutes) if minutes in (15, 60) else None
+    # Real length, not wall-clock: on the spring DST day the quarter 01:45-03:00 lasts 15 min
+    for minutes in (int((end - start).total_seconds() // 60),
+                    *(int((to_utc(end, 0) - to_utc(start, f)).total_seconds() // 60) for f in (0, 1))):
+        if minutes in (15, 60):
+            return start, minutes
+    return None
 
 
 def to_utc(local: dt.datetime, fold: int) -> dt.datetime:
-    return local.replace(tzinfo=RO_TZ, fold=fold).astimezone(UTC)
+    return local.replace(tzinfo=LABEL_TZ, fold=fold).astimezone(UTC)
 
 
 def trades_frame(html: str, trading_day: dt.date, product: str) -> tuple[pl.DataFrame, list[str]]:
     """Trades of one page with their UTC delivery start. Returns (frame, unknown labels).
 
-    DST fall-back: the repeated local hour appears as two blocks with the same label; the first is the
+    DST fall-back: the repeated CET hour (02-03) appears as two blocks with the same label; the first is the
     summer-time one (fold 0), the second winter time (fold 1)."""
     caption, trades = parse_page(html)
     got = page_date(caption)
@@ -298,6 +307,9 @@ class Client:
                 p.write_bytes(gzip.compress(html.encode("utf-8"), 9))
                 return html
             except (PermissionError, urllib.error.HTTPError) as e:
+                if isinstance(e, urllib.error.HTTPError) and e.code == 403:
+                    raise SystemExit(f"OPCOM refused the request (403) at {day} tip={tip}: stopping. The cache keeps "
+                                     "progress; retry later with a larger --gap, never faster.") from e
                 if isinstance(e, urllib.error.HTTPError) and e.code not in (419, 429, 500, 502, 503, 504):
                     raise
                 print(f"  {day} tip={tip}: {e}; new session, retry", file=sys.stderr)
@@ -309,20 +321,28 @@ class Client:
         raise RuntimeError(f"giving up on {day} tip={tip}")
 
 
-def build(year: int = TEST_YEAR, cache: Path = CACHE, offline: bool = False) -> pl.DataFrame:
-    """Download (or read cached) every trading-date page for both products and aggregate the delivery year."""
-    client = Client(cache, offline=offline)
-    days = [dt.date(year - 1, 12, 31) + dt.timedelta(d) for d in range((dt.date(year, 12, 31)
-                                                                      - dt.date(year - 1, 12, 31)).days + 1)]
+def build(year: int = TEST_YEAR, cache: Path = CACHE, offline: bool = False, gap: float = MIN_GAP_S) -> pl.DataFrame:
+    """Download (or read cached) the 15-min product page of every trading date and aggregate the delivery year.
+
+    The hourly product (tip 60) is fetched only for a date whose 15-min page has no trades, or when it is
+    already cached: in Jan 2025 the 15-min product alone priced 1,626 of 1,632 quarters, so fetching both
+    would double the load on OPCOM for 0.4 % of intervals (those fall back to pi = pzu)."""
+    client = Client(cache, offline=offline, gap=gap)
+    first = dt.date(year - 1, 12, 30)  # RO 1 Jan 00:00 = CET 31 Dec 23:00, traded from 30 Dec ('T' labels)
+    days = [first + dt.timedelta(d) for d in range((dt.date(year, 12, 31) - first).days + 1)]
     frames, unknown, missing = [], {}, []
     t0 = time.time()
     for k, day in enumerate(days):
+        n15 = 0
         for tip, product in (("15", "PT15M"), ("60", "PT60M")):
+            if tip == "60" and n15 and not client.path(day, tip).exists():
+                continue  # the 15-min page had trades: skip the hourly product
             html = client.page(day, tip)
             if html is None:
                 missing.append((day, tip))
                 continue
             df, unk = trades_frame(html, day, product)
+            n15 = df.height if tip == "15" else n15
             frames.append(df)
             for u in unk:
                 unknown[u] = unknown.get(u, 0) + 1
@@ -353,10 +373,11 @@ def main() -> None:
     ap.add_argument("--year", type=int, default=TEST_YEAR)
     ap.add_argument("--cache", type=Path, default=CACHE, help="raw response cache (gzipped HTML per page)")
     ap.add_argument("--offline", action="store_true", help="use the cache only")
+    ap.add_argument("--gap", type=float, default=MIN_GAP_S, help="idle seconds between requests (min 1)")
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--no-manifest", action="store_true")
     args = ap.parse_args()
-    df = build(args.year, args.cache, args.offline)
+    df = build(args.year, args.cache, args.offline, args.gap)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(args.out, compression="zstd", compression_level=19)
     print(f"  wrote {args.out}: {summary(df)}")

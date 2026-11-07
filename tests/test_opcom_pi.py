@@ -51,17 +51,28 @@ def test_parse_label():
 def test_trades_frame_utc_and_caption_check():
     html = page("12.11.2025", [("T00:00-T00:15_XB", [("cumparare", "10,00", "1,0")])])
     df, unknown = o.trades_frame(html, dt.date(2025, 11, 12), "PT15M")
-    assert unknown == [] and df["ts"][0] == dt.datetime(2025, 11, 12, 22, 0, tzinfo=dt.timezone.utc)  # EET = UTC+2
+    assert unknown == [] and df["ts"][0] == dt.datetime(2025, 11, 12, 23, 0, tzinfo=dt.timezone.utc)  # CET = UTC+1
     with pytest.raises(ValueError):
         o.trades_frame(html, dt.date(2025, 11, 13), "PT15M")
 
 
 def test_dst_fallback_repeated_label_gets_second_fold():
-    # 26 Oct 2025: local 03:00-04:00 happens twice (EEST then EET); OPCOM repeats the label
-    html = page("26.10.2025", [("03-04_XB", [("cumparare", "10,00", "1,0")]), ("03-04_XB", [("cumparare", "20,00", "1,0")])])
+    # 26 Oct 2025: CET 02:00-03:00 happens twice (CEST then CET); OPCOM repeats the label
+    html = page("26.10.2025", [("02-03_XB", [("cumparare", "10,00", "1,0")]), ("02-03_XB", [("cumparare", "20,00", "1,0")])])
     df, _ = o.trades_frame(html, dt.date(2025, 10, 26), "PT60M")
     assert df["ts"].to_list() == [dt.datetime(2025, 10, 26, 0, tzinfo=dt.timezone.utc),
                                   dt.datetime(2025, 10, 26, 1, tzinfo=dt.timezone.utc)]
+
+
+def test_dst_spring_labels_are_cet():
+    # 30 Mar 2025: OPCOM has no '02' hour (CET skips 02:00); '03:00' CEST = 01:00 UTC = 04:00 EEST in Romania
+    html = page("30.03.2025", [("01:45-03:00_XB", [("cumparare", "1,00", "1,0")]),
+                               ("03:00-03:15_XB", [("cumparare", "10,00", "1,0")])])
+    df, unknown = o.trades_frame(html, dt.date(2025, 3, 30), "PT15M")
+    assert unknown == []  # 01:45 CET -> 03:00 CEST is a 15-min quarter despite the 75-min wall-clock span
+    assert df["ts"].to_list() == [dt.datetime(2025, 3, 30, 0, 45, tzinfo=dt.timezone.utc),
+                                  dt.datetime(2025, 3, 30, 1, 0, tzinfo=dt.timezone.utc)]
+    assert df["minutes"].to_list() == [15, 15]
 
 
 def test_aggregate_vwap_and_fallback():
