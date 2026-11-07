@@ -96,7 +96,7 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
     st["sunny_exceed_share"] = (st.sunny_summer_exceed_days / st.sunny_summer_days.clip(lower=1)).round(3)
     st.to_csv(tmp / "feeder_stats.csv", index=False)
     seconds = time.perf_counter() - t0
-    congested = int((st.sunny_exceed_share >= 0.5).sum())
+    congested = int((st.sunny_exceed_share >= 0.25).sum())  # over the limit on >= 1 in 4 sunny summer days
     manifest = {
         "data_version": DATA_VERSION, "config": cfg.to_json(), "digest": cfg.digest(wkey), "weather_source": weather.source, "weather_key": wkey,
         "n_sites": len(sites), "n_feeders": len(feeders), "steps_per_year": {y: len(utc_index(y)) for y in cfg.years},
