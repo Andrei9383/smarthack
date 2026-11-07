@@ -28,7 +28,7 @@ from sentinel.judge import features as F
 
 CAL_FILE = "judge.calibration.json"
 PRECISION_USE = 0.90  # §7.5: tau_use = lowest P(valid) at which >= 90 % of "use" predictions are valid
-WIDEN_HIT = 0.80  # §7.5: tau_widen = lowest P(valid) at which widened bands reach 0.80 hit rate
+WIDEN_CAL = 0.80  # §7.5: tau_widen = lowest P(valid) at which widened bands reach 0.80 calibration (§5.3)
 MIN_USE = 30  # a threshold needs at least this many held-out predictions above it
 DEFAULT_PARAMS = {"objective": "binary", "learning_rate": 0.05, "num_leaves": 31, "min_data_in_leaf": 40,
                   "feature_fraction": 0.8, "bagging_fraction": 0.8, "bagging_freq": 1, "lambda_l2": 1.0,
@@ -77,27 +77,48 @@ def tau_for_precision(p: np.ndarray, y: np.ndarray, target: float = PRECISION_US
     return float(ps[k])
 
 
+def widened_hit(hit_m: dict[float, np.ndarray], band_scale: np.ndarray, factor: float) -> np.ndarray:
+    """Hit rate of each row's band widened by band_scale x factor, interpolated over the graded multipliers."""
+    mults = np.array(sorted(hit_m))
+    if not len(mults):
+        return np.zeros(0)
+    H = np.stack([np.asarray(hit_m[m], float) for m in mults], 1)  # [N, M]
+    m_eff = np.clip(np.nan_to_num(np.asarray(band_scale, float), nan=1.0) * factor, mults[0], mults[-1])
+    j = np.clip(np.searchsorted(mults, m_eff, side="right") - 1, 0, len(mults) - 2) if len(mults) > 1 else \
+        np.zeros(len(m_eff), int)
+    if len(mults) == 1:
+        return H[:, 0]
+    lo, hi = mults[j], mults[j + 1]
+    w = np.clip((m_eff - lo) / (hi - lo), 0, 1)
+    r = np.arange(len(m_eff))
+    return H[r, j] * (1 - w) + H[r, j + 1] * w
+
+
+def calibration_score(hit: np.ndarray) -> np.ndarray:
+    """§5.3 calibration of an 80 % band: 1 - |hit - 0.8| / 0.8 (1 at the nominal rate, 0.75 for a band that never
+    misses)."""
+    return 1.0 - np.abs(np.asarray(hit, float) - 0.8) / 0.8
+
+
 def widen_choice(p: np.ndarray, hit_m: dict[float, np.ndarray], band_scale: np.ndarray, tau_use: float,
-                 target: float = WIDEN_HIT, factors: Sequence[float] = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0),
+                 target: float = WIDEN_CAL, factors: Sequence[float] = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0),
                  min_n: int = MIN_USE) -> tuple[float, float]:
     """(tau_widen, widen_factor) for forecasts (§7.5 rule 5). A widened band = band x band_scale x factor. For each
-    factor, tau_widen(factor) = lowest t < tau_use such that rows with t <= p < tau_use reach a mean widened hit rate
-    >= target. The smallest factor reaching the lowest tau wins (sharper bands at equal coverage)."""
+    factor, tau_widen(factor) = lowest t < tau_use such that rows with t <= p < tau_use reach a mean §5.3
+    calibration score of the widened band >= target (0.80). Over-wide bands (hit ~1) score 0.75, so widening cannot
+    rescue a forecast by making it useless. The factor reaching the lowest tau wins (ties: the smaller factor)."""
     p = np.asarray(p, float)
-    mults = np.array(sorted(hit_m))
-    H = np.stack([np.asarray(hit_m[m], float) for m in mults], 1)  # [N, M]
-    bs = np.nan_to_num(np.asarray(band_scale, float), nan=1.0)
     zone = np.isfinite(p) & (p < tau_use)
     best = (tau_use, 1.0)
+    if not hit_m:
+        return best
     for f in factors:
-        m_eff = np.clip(bs * f, mults[0], mults[-1])
-        hit = np.array([np.interp(m_eff[i], mults, H[i]) if np.isfinite(H[i]).all() else np.nan
-                        for i in range(len(p))]) if len(p) else np.zeros(0)
-        z = zone & np.isfinite(hit)
+        score = calibration_score(widened_hit(hit_m, band_scale, f))
+        z = zone & np.isfinite(score)
         if z.sum() < min_n:
             continue
         o = np.argsort(-p[z], kind="stable")
-        ps, hs = p[z][o], hit[z][o]
+        ps, hs = p[z][o], score[z][o]
         cum = np.cumsum(hs) / np.arange(1, len(hs) + 1)
         last_of_tie = np.r_[ps[1:] != ps[:-1], True]
         good = last_of_tie & (cum >= target) & (np.arange(1, len(ps) + 1) >= min_n)

@@ -67,17 +67,21 @@ def test_tau_use_meets_precision_rule():
     assert JM.tau_for_precision(np.full(100, 0.5), np.zeros(100)) > 1.0  # impossible -> never use
 
 
-def test_widen_choice_reaches_hit_target():
+def test_widen_choice_reaches_calibration_target():
     rng = np.random.default_rng(3)
     n = 2000
     p = rng.uniform(0, 1, n)
     mults = (0.5, 1.0, 1.5, 2.0, 3.0)
-    hit_m = {m: np.clip(0.5 + 0.15 * m * p + 0.05 * m, 0, 1) for m in mults}
+    hit_m = {m: np.clip(0.4 + 0.15 * m * p + 0.05 * m, 0, 1) for m in mults}
     tau_w, factor = JM.widen_choice(p, hit_m, np.ones(n), tau_use=0.8)
-    assert tau_w < 0.8 and factor >= 1.0
+    assert 0.0 < tau_w < 0.8 and factor > 1.0
     z = (p >= tau_w) & (p < 0.8)
-    hit = np.array([np.interp(factor, mults, [hit_m[m][i] for m in mults]) for i in np.nonzero(z)[0]])
-    assert hit.mean() >= 0.8 - 1e-9
+    cal = JM.calibration_score(JM.widened_hit(hit_m, np.ones(n), factor))
+    assert cal[z].mean() >= 0.8 - 1e-9
+    # widening never rescues rows whose bands only reach coverage by becoming useless: hit 1.0 scores 0.75
+    always = {m: np.ones(n) for m in mults}
+    assert JM.widen_choice(p, always, np.ones(n), tau_use=0.8) == (0.8, 1.0)
+    np.testing.assert_allclose(JM.widened_hit(hit_m, np.full(n, 2.0), 0.75), hit_m[1.5])
 
 
 def test_train_save_load_predict_roundtrip(tmp_path):

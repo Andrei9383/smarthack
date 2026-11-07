@@ -146,19 +146,20 @@ def fit_and_calibrate(tr: pd.DataFrame, fam: str, args, device: str, log=print) 
     lo_iso = JM.Isotonic.fit(np.nan_to_num(t_cal, nan=0.5), y[cal])
     lo_p = lo_iso(np.nan_to_num(t_cal, nan=0.5))
     lo_tau = JM.tau_for_precision(lo_p, y[cal])
-    lo_widen = JM.widen_choice(lo_p, hit_m, tr.loc[cal, "band_scale"].to_numpy(float), lo_tau)[0] \
-        if fam == "forecast" else None
+    lo_widen, lo_factor = JM.widen_choice(lo_p, hit_m, tr.loc[cal, "band_scale"].to_numpy(float), lo_tau) \
+        if fam == "forecast" else (None, 1.0)
     gain = {}
     for b in boosters[:1]:
         imp = b.feature_importance("gain")
         gain = {f: round(float(v), 1) for f, v in sorted(zip(fm.features, imp), key=lambda x: -x[1])[:12]}
     fm.info = {**info, "n_cal": int(cal.sum()), "valid_rate_train": float(y.mean()), "top_gain": gain,
                "brier_cal": float(np.mean((p_cal - y[cal]) ** 2)),
-               "ledger_only": {"isotonic": {"x": lo_iso.x, "y": lo_iso.y}, "tau_use": lo_tau, "tau_widen": lo_widen}}
+               "ledger_only": {"isotonic": {"x": lo_iso.x, "y": lo_iso.y}, "tau_use": lo_tau, "tau_widen": lo_widen,
+                               "widen_factor": lo_factor}}
     log(f"[judge] {fam}: {len(tr)} rows (valid {y.mean():.2f}), cal {int(cal.sum())}, best iters "
         f"{info['best_iterations']}, tau_use {fm.tau_use:.3f}, tau_widen {fm.tau_widen:.3f} x{fm.widen_factor:g}, "
         f"ledger-only tau {lo_tau:.3f}; top gain {list(gain)[:6]}")
-    return fm, {"iso": lo_iso, "tau": lo_tau, "widen": lo_widen}
+    return fm, {"iso": lo_iso, "tau": lo_tau, "widen": lo_widen, "factor": lo_factor}
 
 
 def evaluate(te: pd.DataFrame, fams: dict, lo: dict, prefix: str = "") -> dict:
@@ -179,6 +180,17 @@ def evaluate(te: pd.DataFrame, fams: dict, lo: dict, prefix: str = "") -> dict:
         res[f"{fam}_trust_all"] = JM.verdict_metrics(np.ones_like(y), y, 0.0)
         res[f"{fam}_judge"]["auc"] = _auc(p, y)
         res[f"{fam}_ledger"]["auc"] = _auc(tl, y)
+        if fam == "forecast" and all(f"y_hit_m{m:g}" in t for m in R.MULTS):
+            hit_m = {m: t[f"y_hit_m{m:g}"].to_numpy(float) for m in R.MULTS}
+            bs = t["band_scale"].to_numpy(float)
+            for name, pp, tau, w, fac in (("judge", p, fm.tau_use, tw, fm.widen_factor),
+                                          ("ledger", tl, lo[fam]["tau"], lo[fam]["widen"], lo[fam].get("factor", 1.0))):
+                zone = (pp >= w) & (pp < tau) & ~rule3 if w is not None else np.zeros(len(pp), bool)
+                if zone.any():  # does widening deliver the promised 0.80 calibration on the test year?
+                    res[f"{fam}_{name}"]["widen_cal"] = float(np.nanmean(
+                        JM.calibration_score(JM.widened_hit(hit_m, bs, fac))[zone]))
+                    res[f"{fam}_{name}"]["widen_cal_raw"] = float(np.nanmean(
+                        JM.calibration_score(t["y_hit"].to_numpy(float))[zone])) if "y_hit" in t else float("nan")
         for name, pp, tau, r3, w in (("judge", p, fm.tau_use, rule3, tw),
                                      ("ledger", tl, lo[fam]["tau"], rule3, lo[fam]["widen"]),
                                      ("trust_all", np.ones_like(y), 0.0, None, None)):
@@ -388,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
            "git_sha": sha, "tau_use": (fc or next(iter(fams.values()))).tau_use,
            "tau_widen": (fc or next(iter(fams.values()))).tau_widen,
            "widen_factor": (fc or next(iter(fams.values()))).widen_factor,
-           "precision_target": JM.PRECISION_USE, "widen_hit_target": JM.WIDEN_HIT, "device": device,
+           "precision_target": JM.PRECISION_USE, "widen_cal_target": JM.WIDEN_CAL, "device": device,
            "rows": {"train": len(tr), "test": len(te), "train_year": args.train_year, "test_year": args.test_year,
                     "weeks": args.weeks, "test_weeks": args.test_weeks, "sites": args.sites, "burn_in": args.burn_in},
            "ledger": "sentinel.judge.ledger" if _has("sentinel.judge.ledger") else "stand-in (rows.MiniLedger)",
