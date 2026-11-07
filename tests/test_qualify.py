@@ -427,3 +427,14 @@ def test_full_tick_with_mock_fleet():
     k = TriageConfig().k_per_crew
     for crew, cap in k.items():
         assert len([w for w in res.work_orders if w.payload["crew_type"] == crew]) <= cap
+
+
+def test_per_prediction_cache_follows_reassigned_fields():
+    """#98: _assess_site caches per-prediction stats; reassigning q / fault_probs (as world mocks do) invalidates."""
+    pred = site_pred()
+    assert qualify(SITE_1042, pred, 0).status == "eligible"
+    pred.fault_probs = {c.value: (0.9 if c == PvFault.STRING_OUTAGE else 0.1 / 7) for c in PvFault}
+    assert qualify(SITE_1042, pred, 0).reason == f"pv_fault:{PvFault.STRING_OUTAGE.value}"
+    q50 = np.array(pred.q50)
+    pred.fault_probs, pred.q10, pred.q90 = None, list(q50 * 0.4), list(q50 * 1.6)
+    assert qualify(SITE_1042, pred, 0).reason == "wide_interval"

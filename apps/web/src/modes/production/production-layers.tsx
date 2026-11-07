@@ -138,17 +138,18 @@ const FOOTPRINT = {
   park: { diameter: 132, below: 36 },
 } as const;
 
-type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & {
+// `below` defaults to 0: a footprint centred on the point (feeders labels).
+export type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & {
   lon: number;
   lat: number;
   diameter: number;
-  below: number;
+  below?: number;
 };
 
-const NO_OFFSET: MarkerOffset = { dx: 0, dy: 0 };
+export const NO_OFFSET: MarkerOffset = { dx: 0, dy: 0 };
 
 // Distances on screen depend only on zoom, so panning never needs a new layout.
-function useMarkerOffsets(markers: PlacedMarker[]) {
+export function useMarkerOffsets(markers: PlacedMarker[]) {
   const { map, isLoaded } = useMap();
   const [zoom, setZoom] = useState<number | null>(null);
 
@@ -165,7 +166,7 @@ function useMarkerOffsets(markers: PlacedMarker[]) {
   return useMemo(() => {
     if (!map || zoom === null) return new Map<string, MarkerOffset>();
     return resolveCollisions(
-      markers.map(({ id, kind, lon, lat, diameter: size, below }) => {
+      markers.map(({ id, kind, lon, lat, diameter: size, below = 0 }) => {
         const { x, y } = map.project([lon, lat]);
         return { id, kind, x, y: y + below, radius: size / 2 };
       }),
@@ -174,7 +175,7 @@ function useMarkerOffsets(markers: PlacedMarker[]) {
 }
 
 // The marker stays on its real point; only the circle moves, with a line back to that point.
-function Displaced({ offset, children }: { offset: MarkerOffset; children: ReactNode }) {
+export function Displaced({ offset, children }: { offset: MarkerOffset; children: ReactNode }) {
   const length = Math.hypot(offset.dx, offset.dy);
   return (
     <>
@@ -200,20 +201,22 @@ function Displaced({ offset, children }: { offset: MarkerOffset; children: React
 const MARKER_Z = { county: "3", park: "4" } as const;
 
 // The marker's own box stays on the real point, where it could cover a displaced neighbour, so
-// only the dot and chip take clicks; they still bubble to the marker's handler.
-const passClicksThrough = (element: HTMLElement | null) => {
+// only its visible content takes clicks; they still bubble to the marker's handler. Shared with feeders.
+export const passClicksThrough = (element: HTMLElement | null) => {
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
-  if (!marker) return;
-  marker.style.pointerEvents = "none";
-  marker.style.zIndex = MARKER_Z.county;
+  if (marker) marker.style.pointerEvents = "none";
 };
 
-// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
-const raiseMarker = (element: HTMLElement | null) => {
+const stackMarker = (element: HTMLElement | null, zIndex: string) => {
   passClicksThrough(element);
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
-  if (marker) marker.style.zIndex = MARKER_Z.park;
+  if (marker) marker.style.zIndex = zIndex;
 };
+
+const countyMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.county);
+
+// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
+const raiseMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.park);
 
 // Dot on the point, chip centred below it; the chip doesn't change the marker's box.
 function MarkerPin({
@@ -287,7 +290,7 @@ export function ProductionLayers() {
           <MarkerContent>
             <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
               <MarkerPin
-                pinRef={passClicksThrough}
+                pinRef={countyMarker}
                 dotClassName="size-2.5 bg-brand-500"
                 chipClassName="flex-col px-2 py-1 leading-tight"
                 title={`${county.county} solar, ${county.solarMwh.toFixed(1)} MWh next 24 h`}

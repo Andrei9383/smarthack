@@ -178,12 +178,12 @@ def test_feasibility_clip_holds_against_an_adversarial_planner():
 def test_sentinel_not_worse_on_congested_feeder(small):
     rep, _ = small
     b, s = rep.results["baseline"], rep.results["sentinel"]
-    mb = sum(v["minutes_over"] for (f, _), v in b.feeder_days.items() if f == "F07")
-    ms = sum(v["minutes_over"] for (f, _), v in s.feeder_days.items() if f == "F07")
-    assert mb > 0, "F07 must congest under the baseline in the mock world"
+    mb = sum(v["minutes_over"] for (f, _), v in b.feeder_days.items() if f == "F7")
+    ms = sum(v["minutes_over"] for (f, _), v in s.feeder_days.items() if f == "F7")
+    assert mb > 0, "F7 must congest under the baseline in the mock world"
     assert ms <= mb
-    pb = max(v["peak_export"] for (f, _), v in b.feeder_days.items() if f == "F07")
-    ps = max(v["peak_export"] for (f, _), v in s.feeder_days.items() if f == "F07")
+    pb = max(v["peak_export"] for (f, _), v in b.feeder_days.items() if f == "F7")
+    ps = max(v["peak_export"] for (f, _), v in s.feeder_days.items() if f == "F7")
     assert ps < pb
 
 
@@ -201,9 +201,9 @@ def test_kpis_and_commitment_invariants(small):
 def test_mock_world_is_deterministic_and_has_the_demo_stories():
     a, b = MockWorld(days=7), MockWorld(days=7)
     sid = a.story_site
-    assert sid == "S1042" and a.sites[sid].feeder_id == "F07" and a.faults[sid]["fault"] == "string_outage"
+    assert sid == "1042" and a.sites[sid].feeder_id == "F7" and a.faults[sid]["fault"] == "string_outage"
     assert input_hash(a.site_day(sid, 3).pv_kw) == input_hash(b.site_day(sid, 3).pv_kw)
-    assert a.feeders["F07"].congested and a.curtailment["park_id"] == "WP1"
+    assert a.feeders["F7"].congested and a.curtailment["park_id"] == "WP01"
     assert any(f["fault"] == "fault_stop" for f in a.faults.values())
 
 
@@ -226,3 +226,102 @@ def test_actions_validate_against_contract():
     assert Action.from_json(a.to_json()).payload["site_id"] == "S1"
     with pytest.raises(ValueError):
         A.make("work_order", "2025-06-16T00:00:00Z", "sentinel", "r", {"asset_id": "S1"}, rec)
+
+
+# --- observation vs physics (#78 drills finding): blind sites, re-admission, commit-time blind haircut ----------
+class _BlindMorning(MockWorld):
+    """Every site reports nothing from step 20 to 44 of each day (05:00-11:00 UTC); the physics is untouched."""
+
+    def observed_site_day(self, site_id, d):
+        sd = self.site_day(site_id, d)
+        age = list(sd.telemetry_age_s)
+        for k in range(20, 45):
+            age[k] = max(age[k], (k - 19) * 900.0)
+        return type(sd)(sd.pv_kw, sd.load_kw, age, sd.inv_status, sd.inv_voltage_v)
+
+
+def _hit(res):
+    return res.hits / max(1, res.commit_steps)
+
+
+def test_blind_sites_keep_their_schedule_and_commitment_holds():
+    clean, blind = MockWorld(days=2, scale=0.5, with_wind=False), _BlindMorning(days=2, scale=0.5, with_wind=False)
+    run = lambda w, **kw: L.run_policy(w, L.default_components(w, force_fallback=True),  # noqa: E731
+                                       L.LoopConfig(policy="sentinel", run_id="b", **kw))
+    c, b = run(clean), run(blind)
+    old = run(blind, readmit=False, hold_blind=False, blind_haircut=False)  # pre-fix behaviour
+    assert b.comfort_breaches == 0 and old.comfort_breaches == 0
+    assert _hit(b) >= _hit(c) - 0.1
+    assert _hit(old) < _hit(b)  # dropping blind sites to their local rule for the rest of the day loses the P10
+
+
+def test_blind_haircut_removes_the_blind_share_by_step():
+    import numpy as np
+
+    c = L.Commitment("F1", "2025-06-16T00:00:00Z", [2.0] * 4, [2.0] * 4, [1.0] * 4, haircut=0.05, horizon=4)
+    blind = {"a": np.array([True, True, False, False])}
+    out = L._blind_haircut(c, {"a": np.array([1.0, 1.0, 1.0, 0.0]), "b": np.array([1.0, 3.0, 1.0, 1.0])}, blind)
+    assert out.committed == pytest.approx([0.5, 0.75, 1.0, 1.0])
+    assert out.extra["haircut_k"][0] == pytest.approx(1 - 0.95 * 0.5) and out.extra["haircut_k"][3] == 0.05
+    prof = L._blind_profile({"a": type("SD", (), {"telemetry_age_s": [0.0] * 40 + [4000.0] + [0.0] * 55})()},
+                            L.LoopConfig())
+    assert prof["a"][36:45].all() and not prof["a"][35] and not prof["a"][45]
+
+
+# --- stage 2: predictor versions, #24 WindMon baseline, energy over the limit, online conformal commitment ----
+def test_predictor_versions_ignore_the_unused_zone_mock():
+    from sentinel.contracts import MockPredictor
+
+    w = MockWorld(days=1, scale=0.4, with_wind=False)
+    real = type("P", (), {"model": "pvnet", "model_version": "pvnet-383-s0"})()
+    preds = {**w.default_predictors(), "pv": real, "load": real, "sitehealth": real, "wind": real,
+             "zone": MockPredictor("zone")}
+    src = L.default_components(w, force_fallback=True, predictors=preds).sources
+    assert src["predictors"] == "real:pvnet-383-s0" and "mock" not in src["predictors"]
+
+
+def test_baseline_wind_alerts_use_the_24_windmon_rules():
+    pytest.importorskip("sentinel.eval.baselines.wind.windmon_rules")
+    w = MockWorld(days=2, scale=0.4)
+    comps = L.default_components(w)
+    assert comps.sources["wind_baseline"].startswith("real:") and comps.windmon_flags is not None
+    ids, sens, err, rated = w.turbine_sensors()
+    assert sens["act_pwt"].shape == (2 * 96, len(ids)) == err.shape and len(rated) == len(ids)
+    b = L.run_policy(w, comps, L.LoopConfig(policy="baseline", run_id="b"))
+    s = L.run_policy(w, comps, L.LoopConfig(policy="sentinel", run_id="s"))
+    assert b.turbine_alerts > s.turbine_alerts > 0  # WindMon rules fire more than the Sentinel triage
+    assert L.default_components(w, force_fallback=True).windmon_flags is None  # built-in stand-in stays the fallback
+
+
+def test_energy_over_limit_and_overshoot_kpis(small):
+    rep, conn = small
+    rows = {(p, n): v for p, n, v in q(conn, "SELECT policy, name, value FROM kpis WHERE name LIKE 'energy_over%' "
+                                             "OR name LIKE 'peak_overshoot%' OR name LIKE 'minutes_over_limit_F7%'")}
+    for pol in ("baseline", "sentinel"):
+        assert rows[(pol, "energy_over_limit")] == pytest.approx(rep.results[pol].energy_over_limit_kwh)
+        assert sum(v for (p, n), v in rows.items() if p == pol and n.startswith("energy_over_limit_F7_d")) <= \
+            rows[(pol, "energy_over_limit")] + 1e-6
+        assert (pol, "peak_overshoot_F7_d0") in rows and (pol, "minutes_over_limit_F7_d1") in rows
+    assert rows[("sentinel", "energy_over_limit")] <= rows[("baseline", "energy_over_limit")]
+    unit = dict(q(conn, "SELECT name, unit FROM kpis WHERE policy = 'baseline' AND name IN "
+                        "('energy_over_limit', 'peak_overshoot', 'energy_over_limit_F7_d0')"))
+    assert unit == {"energy_over_limit": "kWh", "peak_overshoot": "kW", "energy_over_limit_F7_d0": "kWh"}
+
+
+def test_online_conformal_uses_only_past_days_and_widens_too_narrow_bands():
+    import numpy as np
+
+    pytest.importorskip("sentinel.eval.uncertainty.conformal")
+    cfg = L.LoopConfig()
+    assert L._fit_conformal({"pv": [], "load": []}, cfg) == {}  # day 0: nothing replayed yet
+    rng = np.random.default_rng(0)
+    rows = []
+    for _ in range(20):  # load forecast 1 kW +- 0.05, truth spread +- 0.5: the band is far too narrow
+        q50 = np.ones(96)
+        rows.append((q50 + rng.normal(0, 0.4, 96), q50 - 0.05, q50, q50 + 0.05, np.ones(96, bool)))
+    cal = L._fit_conformal({"load": rows}, cfg)["load"]
+    lo, _, hi = cal.apply(np.full(96, 0.95), np.ones(96), np.full(96, 1.05))
+    assert (lo < 0.8).mean() > 0.9 and (hi > 1.2).mean() > 0.9
+    w = MockWorld(days=2, scale=0.5, with_wind=False)
+    res = L.run_policy(w, L.default_components(w, force_fallback=True), L.LoopConfig(policy="sentinel", run_id="c"))
+    assert res.conformal[0] == {} and set(res.conformal[1]) == {"pv", "load"}

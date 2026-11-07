@@ -13,7 +13,6 @@ import { useState } from "react";
 
 import { dayLabel, dayOfStep, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
-import { STATUS_COLORS } from "@/panels/site/site-sheet";
 import { useSelectedSite } from "@/panels/site/use-site";
 import { dayName, hhmm, wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
@@ -33,20 +32,23 @@ import {
   useSelectedTurbine,
 } from "./use-om-state";
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: "#ef4444",
-  warn: "#f59e0b",
-  info: "#38bdf8",
+// severity pill: status colour as text, the same colour at 10% behind it
+const SEVERITY_PILL: Record<string, string> = {
+  critical: "bg-status-critical/10 text-status-critical",
+  warn: "bg-status-warn/10 text-status-warn",
+  info: "bg-status-forecast/10 text-status-forecast",
 };
 const ACTION_WORDS: Record<string, string> = {
   truck: "Truck",
   remote_check: "Remote check",
   inspection: "Inspection",
 };
-const CREWS = [
-  { id: "residential", label: "Residential crew" },
-  { id: "wind", label: "Wind crew" },
-] as const;
+const CREWS: { id: string; ids: string[]; label: string }[] = [
+  // Fixtures use the short ids, replay.py the long ones.
+  { id: "residential", ids: ["residential", "residential_installer"], label: "Residential crew" },
+  { id: "wind", ids: ["wind", "wind_technician"], label: "Wind crew" },
+  { id: "remote", ids: ["remote_check"], label: "Remote checks" },
+];
 const TAB_LABELS: Record<(typeof OM_TABS)[number], string> = {
   orders: "Work orders",
   review: "Review",
@@ -54,14 +56,47 @@ const TAB_LABELS: Record<(typeof OM_TABS)[number], string> = {
   audit: "Audit",
 };
 
-const STOPPED_COLOR = "#ef4444";
-// an excluded turbine is stopped (red); STATUS_COLORS' grey is for excluded homes
-const turbineColor = (status: string) =>
-  status === "excluded" ? STOPPED_COLOR : STATUS_COLORS[status];
+type Tone = "ok" | "warn" | "review" | "unknown" | "critical";
+const TONE_TEXT: Record<Tone, string> = {
+  ok: "text-status-ok",
+  warn: "text-status-warn",
+  review: "text-status-review",
+  // grey text on white fails AA, so an unknown count stays near-black next to its grey dot
+  unknown: "text-foreground",
+  critical: "text-status-critical",
+};
+const TONE_DOT: Record<Tone, string> = {
+  ok: "bg-status-ok",
+  warn: "bg-status-warn",
+  review: "bg-status-review",
+  unknown: "bg-status-unknown",
+  critical: "bg-status-critical",
+};
+// an excluded turbine is stopped (red); grey is for excluded homes
+const TURBINE_CHIP: Record<string, string> = {
+  eligible: "border-status-ok/40 text-foreground hover:bg-muted",
+  derated:
+    "border-status-warn/40 bg-status-warn/10 text-status-warn hover:bg-status-warn/15",
+  human_review:
+    "border-status-review/40 bg-status-review/10 text-status-review hover:bg-status-review/15",
+  excluded:
+    "border-status-critical/40 bg-status-critical/10 text-status-critical hover:bg-status-critical/15",
+};
+const turbineChip = (status: string) =>
+  TURBINE_CHIP[status] ?? "border-border text-foreground hover:bg-muted";
+
+const ROW_SELECTED = "bg-brand-50";
 
 const words = (s: string | null | undefined) =>
   s ? s.replaceAll("_", " ") : "—";
 const when = (ts: string) => `${dayName(ts)} ${hhmm(wallClock(ts))}`;
+
+/** The asset whose drawer is open, so its row in a queue can read as selected. */
+function useSelectedAssetId() {
+  const [site] = useSelectedSite();
+  const [turbine] = useSelectedTurbine();
+  return turbine ?? site ?? null;
+}
 
 function useOpenAsset() {
   const [, setSite] = useSelectedSite();
@@ -75,18 +110,24 @@ function useOpenAsset() {
 function Count({
   label,
   value,
-  color,
+  tone,
 }: {
   label: string;
   value: number;
-  color?: string;
+  tone?: Tone;
 }) {
   return (
-    <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
+        {tone ? (
+          <span
+            className={`inline-block size-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`}
+          />
+        ) : null}
+        <span className="truncate">{label}</span>
+      </div>
       <div
-        className="text-base font-semibold"
-        style={{ color: value ? color : undefined }}
+        className={`mt-1 text-xl leading-none font-semibold tabular-nums ${value && tone ? TONE_TEXT[tone] : "text-foreground"}`}
       >
         {value}
       </div>
@@ -97,79 +138,94 @@ function Count({
 function WorkOrders() {
   const { data } = useWorkOrders();
   const open = useOpenAsset();
+  const selected = useSelectedAssetId();
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {CREWS.map((crew) => {
-        const rows = (data ?? []).filter((o) => o.crewType === crew.id);
+        const rows = (data ?? []).filter((o) => crew.ids.includes(o.crewType));
         return (
-          <section key={crew.id} className="space-y-1">
-            <h3 className="text-sm font-medium">
+          <section key={crew.id} className="space-y-2">
+            <h3 className="text-sm font-semibold text-foreground">
               {crew.label}{" "}
-              <span className="text-muted-foreground">· top {rows.length}</span>
+              <span className="font-normal text-muted-foreground tabular-nums">
+                · top {rows.length}
+              </span>
             </h3>
             {rows.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 Nothing to do yet.
               </p>
             ) : (
-              <table className="w-full text-xs">
-                <thead className="text-muted-foreground">
-                  <tr className="text-left">
-                    <th className="w-5 font-normal">#</th>
-                    <th className="font-normal">Asset · fault</th>
-                    <th className="font-normal">Action</th>
-                    <th className="text-right font-normal">Conf.</th>
-                    <th className="text-right font-normal">Lost/day</th>
-                    <th className="text-right font-normal">MW</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((o, i) => (
-                    <tr
-                      key={o.actionId}
-                      className="cursor-pointer align-top hover:bg-muted"
-                      onClick={() => open(o.assetId, o.assetKind)}
-                    >
-                      <td>{i + 1}</td>
-                      <td>
-                        <div className="font-medium">{o.assetId}</div>
-                        <div className="text-muted-foreground">
-                          {words(o.fault)}
-                        </div>
-                      </td>
-                      <td>
-                        <span
-                          className={`rounded px-1 py-0.5 ${o.action === "truck" ? "bg-amber-500/20 text-amber-300" : "bg-muted"}`}
-                        >
-                          {ACTION_WORDS[o.action] ?? o.action}
-                        </span>
-                      </td>
-                      <td className="text-right">
-                        {Math.round(o.confidence * 100)}%
-                      </td>
-                      <td className="text-right">
-                        {o.assetKind === "turbine"
-                          ? `${((o.lostKwhDay ?? 0) / 1000).toFixed(1)} MWh`
-                          : `${(o.lostKwhDay ?? 0).toFixed(1)} kWh`}
-                        <div className="text-muted-foreground">
-                          {Math.round(o.lostLeiDay ?? 0).toLocaleString(
-                            "en-GB",
-                          )}{" "}
-                          lei
-                        </div>
-                      </td>
-                      <td className="text-right">
-                        {o.mwAtRisk ? o.mwAtRisk : "—"}
-                      </td>
+              <div className="overflow-hidden rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted text-[11px] tracking-[.04em] text-muted-foreground uppercase">
+                    <tr className="text-left">
+                      <th className="w-7 py-1.5 pl-2.5 font-medium">#</th>
+                      <th className="py-1.5 pr-2 font-medium">Asset · fault</th>
+                      <th className="py-1.5 pr-2 font-medium">Action</th>
+                      <th className="py-1.5 pr-2 text-right font-medium">
+                        Conf.
+                      </th>
+                      <th className="py-1.5 pr-2 text-right font-medium">
+                        Lost/day
+                      </th>
+                      <th className="py-1.5 pr-2.5 text-right font-medium">
+                        MW
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {rows.map((o, i) => (
+                      <tr
+                        key={o.actionId}
+                        className={`cursor-pointer align-top transition-colors ${selected === o.assetId ? ROW_SELECTED : "hover:bg-muted/60"}`}
+                        onClick={() => open(o.assetId, o.assetKind)}
+                      >
+                        <td className="py-2 pl-2.5 text-muted-foreground tabular-nums">
+                          {i + 1}
+                        </td>
+                        <td className="py-2 pr-2">
+                          <div className="font-semibold text-foreground">
+                            {o.assetId}
+                          </div>
+                          <div className="text-muted-foreground">
+                            {words(o.fault)}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-2">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${o.action === "truck" ? "bg-primary text-primary-foreground" : "bg-brand-50 text-brand-900"}`}
+                          >
+                            {ACTION_WORDS[o.action] ?? o.action}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-2 text-right font-medium text-foreground tabular-nums">
+                          {Math.round(o.confidence * 100)}%
+                        </td>
+                        <td className="py-2 pr-2 text-right whitespace-nowrap text-foreground tabular-nums">
+                          {o.assetKind === "turbine"
+                            ? `${((o.lostKwhDay ?? 0) / 1000).toFixed(1)} MWh`
+                            : `${(o.lostKwhDay ?? 0).toFixed(1)} kWh`}
+                          <div className="text-muted-foreground">
+                            {Math.round(o.lostLeiDay ?? 0).toLocaleString(
+                              "en-GB",
+                            )}{" "}
+                            lei
+                          </div>
+                        </td>
+                        <td className="py-2 pr-2.5 text-right text-foreground tabular-nums">
+                          {o.mwAtRisk ? o.mwAtRisk : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
         );
       })}
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
         Sensor faults go to a remote check, never a truck. Curtailment is logged
         under Alerts, never a work order.
       </p>
@@ -180,6 +236,7 @@ function WorkOrders() {
 function ReviewQueue() {
   const { data } = useReviewQueue();
   const open = useOpenAsset();
+  const selected = useSelectedAssetId();
   if (!data?.length)
     return (
       <p className="text-xs text-muted-foreground">
@@ -188,7 +245,7 @@ function ReviewQueue() {
     );
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
         Out of the flexibility pool and no truck until a person decides: we do
         not act when the model is unsure.
       </p>
@@ -197,17 +254,13 @@ function ReviewQueue() {
           key={r.actionId}
           type="button"
           onClick={() => open(r.assetId)}
-          className="w-full rounded border p-2 text-left text-xs hover:bg-muted"
+          className={`w-full rounded-lg border p-3 text-left text-xs transition-colors ${selected === r.assetId ? `border-brand-100 ${ROW_SELECTED}` : "border-border hover:bg-muted/60"}`}
         >
-          <div className="flex justify-between">
-            <span className="font-medium">Site {r.assetId}</span>
-            <span
-              className="rounded px-1.5 py-0.5"
-              style={{
-                background: `${STATUS_COLORS.human_review}33`,
-                color: STATUS_COLORS.human_review,
-              }}
-            >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[13px] font-semibold text-foreground">
+              Site {r.assetId}
+            </span>
+            <span className="rounded-full bg-status-review/10 px-2 py-0.5 text-[11px] font-medium text-status-review">
               {r.reason === "ood"
                 ? "Unseen behaviour (OOD)"
                 : r.reason === "wide_interval"
@@ -215,7 +268,7 @@ function ReviewQueue() {
                   : words(r.reason)}
             </span>
           </div>
-          <div className="mt-1 text-muted-foreground">
+          <div className="mt-1.5 text-muted-foreground tabular-nums">
             since {when(r.ts)}
             {r.oodScore != null ? ` · OOD ${r.oodScore.toFixed(2)}` : ""}
             {r.intervalWidth != null
@@ -234,6 +287,7 @@ function ReviewQueue() {
 function Alerts() {
   const { data } = useAlerts();
   const open = useOpenAsset();
+  const selected = useSelectedAssetId();
   if (!data?.length)
     return <p className="text-xs text-muted-foreground">No alerts yet.</p>;
   return (
@@ -242,20 +296,23 @@ function Alerts() {
         <li key={a.actionId}>
           <button
             type="button"
-            className="w-full rounded border p-2 text-left text-xs hover:bg-muted"
+            className={`w-full rounded-lg border p-3 text-left text-xs transition-colors ${a.assetId && selected === a.assetId ? `border-brand-100 ${ROW_SELECTED}` : "border-border hover:bg-muted/60"}`}
             onClick={() => (a.assetId ? open(a.assetId) : null)}
           >
             <div className="flex items-center justify-between gap-2">
               <span
-                className="font-medium"
-                style={{ color: SEVERITY_COLORS[a.severity] }}
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${SEVERITY_PILL[a.severity] ?? "bg-muted text-text-secondary"}`}
               >
                 {words(a.code)}
               </span>
-              <span className="text-muted-foreground">{when(a.ts)}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {when(a.ts)}
+              </span>
             </div>
-            <div className="mt-0.5">{a.message}</div>
-            <div className="mt-0.5 text-muted-foreground">
+            <div className="mt-1.5 text-[13px] font-medium text-foreground">
+              {a.message}
+            </div>
+            <div className="mt-1 text-muted-foreground tabular-nums">
               {a.createsWorkOrder
                 ? "Work order created"
                 : "Logged · no work order"}
@@ -281,8 +338,9 @@ function Audit() {
     .slice(0, 300);
   return (
     <div className="space-y-2">
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+      <label className="flex items-center gap-2 text-xs text-text-secondary">
         <input
+          className="accent-primary"
           type="checkbox"
           checked={withCommitments}
           onChange={(e) => setWithCommitments(e.target.checked)}
@@ -296,15 +354,17 @@ function Audit() {
       ) : (
         <ul className="space-y-1.5 text-xs">
           {rows.map((r) => (
-            <li key={r.id} className="rounded border p-2">
+            <li key={r.id} className="rounded-lg border border-border p-2.5">
               <div className="flex justify-between gap-2">
-                <span className="font-medium">
+                <span className="font-semibold text-foreground">
                   {words(r.actionType)} ·{" "}
                   {r.assetId ?? r.feederId ?? r.parkId ?? "fleet"}
                 </span>
-                <span className="text-muted-foreground">{when(r.ts)}</span>
+                <span className="text-muted-foreground tabular-nums">
+                  {when(r.ts)}
+                </span>
               </div>
-              <div className="mt-0.5 grid grid-cols-2 gap-x-2 text-muted-foreground">
+              <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 text-muted-foreground tabular-nums">
                 <span>
                   {r.model ?? "—"} · {r.modelVersion ?? "—"}
                 </span>
@@ -327,7 +387,7 @@ function Audit() {
                   </span>
                 ) : null}
                 {r.note ? (
-                  <span className="col-span-2 text-foreground/80">
+                  <span className="col-span-2 text-text-secondary">
                     {r.note}
                   </span>
                 ) : null}
@@ -344,7 +404,7 @@ export function OmPanel() {
   const [step] = useReplayStep();
   const [tab, setTab] = useOmTab();
   const [park, setPark] = useFocusedPark();
-  const [, setTurbine] = useSelectedTurbine();
+  const [selectedTurbine, setTurbine] = useSelectedTurbine();
   const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const { data: assets } = useOmAssets();
   const { data: orders } = useWorkOrders();
@@ -357,64 +417,73 @@ export function OmPanel() {
     list.filter((a) => a.status === status).length;
 
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
-      <header>
-        <h2 className="font-semibold">O&amp;M · operations and maintenance</h2>
-        <p className="text-xs text-muted-foreground">
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-xl border border-border bg-card p-4 text-foreground shadow-card">
+      <header className="space-y-1">
+        <h2 className="text-base font-semibold text-foreground">
+          O&amp;M · operations and maintenance
+        </h2>
+        <p className="text-xs leading-relaxed text-muted-foreground tabular-nums">
           As of {dayLabel(dayOfStep(step))} {timeLabel(step)} ·{" "}
           {(orders ?? []).length} work orders · {(review ?? []).length} in
           review
           {run.data ? (
-            <span className="ml-1 font-medium text-amber-400">
-              · {run.data.label}
-            </span>
+            <>
+              {" "}
+              ·{" "}
+              <span className="inline-flex items-center gap-1 rounded-full border border-status-warn/30 bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-foreground">
+                <span className="inline-block size-1.5 rounded-full bg-status-warn" />
+                {run.data.label}
+              </span>
+            </>
           ) : null}
         </p>
       </header>
 
-      <div className="grid grid-cols-4 gap-2 rounded border p-2">
+      <div className="grid grid-cols-4 gap-x-3 gap-y-4 rounded-lg border border-border bg-sidebar p-3">
         <Count
           label="Sites eligible"
           value={count(sites, "eligible")}
-          color={STATUS_COLORS.eligible}
+          tone="ok"
         />
         <Count
           label="Derated"
           value={count(sites, "derated")}
-          color={STATUS_COLORS.derated}
+          tone="warn"
         />
         <Count
           label="In review"
           value={count(sites, "human_review")}
-          color={STATUS_COLORS.human_review}
+          tone="review"
         />
         <Count
           label="Excluded"
           value={count(sites, "excluded")}
-          color={STATUS_COLORS.excluded}
+          tone="unknown"
         />
         <Count
           label="Turbines ok"
           value={count(turbines, "eligible")}
-          color={STATUS_COLORS.eligible}
+          tone="ok"
         />
         <Count
           label="Derated"
           value={count(turbines, "derated")}
-          color={STATUS_COLORS.derated}
+          tone="warn"
         />
         <Count
           label="Stopped"
           value={count(turbines, "excluded")}
-          color="#ef4444"
+          tone="critical"
         />
         <Count label="Total turbines" value={turbines.length} />
       </div>
 
       {park ? (
-        <section className="space-y-2 rounded border p-2">
+        <section className="space-y-3 rounded-lg border border-border p-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Park {park}</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              Park {park}
+            </h3>
             <Button
               size="icon-sm"
               variant="ghost"
@@ -424,21 +493,14 @@ export function OmPanel() {
               <X />
             </Button>
           </div>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5">
             {parkTurbines.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 title={`${t.id}: ${words(t.status)} (${words(t.reason)})`}
                 onClick={() => setTurbine(t.id)}
-                className="rounded border px-1.5 py-0.5 text-[11px] hover:bg-muted"
-                style={{
-                  borderColor: turbineColor(t.status),
-                  color:
-                    t.status === "eligible"
-                      ? undefined
-                      : turbineColor(t.status),
-                }}
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors ${turbineChip(t.status)} ${selectedTurbine === t.id ? "ring-2 ring-primary/40" : ""}`}
               >
                 {t.id.split(".")[1]}
               </button>

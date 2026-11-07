@@ -202,6 +202,7 @@ class _DrillMixin:
     def site_day(self, site_id: str, d: int) -> SiteDay:
         true = self.true_site_day(site_id, d)
         if self._drill.via_hook:
+            self.observed_site_day(site_id, d)  # build (cached) so drill_stats is populated either way
             return true  # the loop perceives through observed_site_day
         obs = self.observed_site_day(site_id, d)  # telemetry_age_s is observation-only in run_policy
         return SiteDay(true.pv_kw, true.load_kw, obs.telemetry_age_s, true.inv_status, true.inv_voltage_v)

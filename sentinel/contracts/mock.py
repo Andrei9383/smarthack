@@ -6,9 +6,10 @@ model, so `model` is the real id (pvnet, loadnet, ...) and `model_version` is "m
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import math
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Mapping, Optional
 
 from .envelope import DAY_STEPS, STEP_MINUTES, ModelId, Prediction, PvFault, WindAnomaly, Window, parse_utc
@@ -54,6 +55,37 @@ def _bucharest_hour(ts) -> float:
     return (ts.hour + ts.minute / 60 + off) % 24
 
 
+# Per-window caches (exact: they store what the per-step functions above return, nothing is recomputed differently).
+# Every site predicted for the same window shares its timestamps, so the trig / exp per step is done once.
+class _UtcTimes(tuple):
+    """Step timestamps built by `predict` from a UTC t0 (parse_utc): safe as a cache key (no mixed offsets)."""
+
+
+@functools.lru_cache(maxsize=1024)
+def _window_times(start: datetime, horizon: int) -> _UtcTimes:
+    return _UtcTimes(start + timedelta(minutes=STEP_MINUTES * k) for k in range(horizon))
+
+
+@functools.lru_cache(maxsize=4096)
+def _clear_sky_series(times: _UtcTimes, lat: float) -> tuple:
+    return tuple(_clear_sky_fraction(t, lat) for t in times)
+
+
+@functools.lru_cache(maxsize=1024)
+def _load_terms(times: _UtcTimes, heat: bool) -> tuple:
+    """Per step (morning, evening, winter, summer_ac) of `MockPredictor._load`."""
+    return tuple(_load_step_terms(t, heat) for t in times)
+
+
+def _load_step_terms(t: datetime, heat: bool) -> tuple:
+    h = _bucharest_hour(t)
+    morning = 0.6 * math.exp(-((h - 7.5) ** 2) / 1.5)
+    evening = 1.4 * math.exp(-((h - 19.5) ** 2) / 3.0)
+    winter = 0.8 if heat and t.month in (11, 12, 1, 2, 3) else 0.0
+    summer_ac = 0.5 * math.exp(-((h - 15) ** 2) / 8) if t.month in (6, 7, 8) else 0.0
+    return morning, evening, winter, summer_ac
+
+
 class MockPredictor:
     """`MockPredictor(kind).predict(asset, window) -> Prediction`; kind in pv | load | sitehealth | wind | zone."""
 
@@ -74,7 +106,7 @@ class MockPredictor:
             window = Window(t0=t0, horizon=horizon or DAY_STEPS)
         aid = _asset_id(asset)
         start = parse_utc(window.t0)
-        times = [start + timedelta(minutes=STEP_MINUTES * k) for k in range(window.horizon)]
+        times = _window_times(start, window.horizon)
         fn = getattr(self, f"_{self.kind}")
         q10, q50, q90, extra = fn(asset, aid, times)
         return Prediction(
@@ -98,7 +130,10 @@ class MockPredictor:
         lat = float(asset.get("lat") or 45.0)
         day = times[0].date().isoformat()
         cloud = 0.35 + 0.65 * _u(aid, day, "cloud")  # 0.35 overcast .. 1 clear
-        q50 = [0.82 * kwp * cloud * _clear_sky_fraction(t, lat) for t in times]
+        scale = 0.82 * kwp * cloud  # same left-to-right products as 0.82 * kwp * cloud * f
+        csf = (_clear_sky_series(times, lat) if isinstance(times, _UtcTimes)
+               else [_clear_sky_fraction(t, lat) for t in times])
+        q50 = [scale * f for f in csf]
         spread = 0.08 + 0.25 * (1 - cloud)  # cloudier days are less certain
         q10 = [v * (1 - 1.6 * spread) if v > 0 else 0.0 for v in q50]
         q90 = [min(kwp, v * (1 + spread)) if v > 0 else 0.0 for v in q50]
@@ -109,14 +144,10 @@ class MockPredictor:
     def _load(self, asset, aid, times):
         base = 0.25 + 0.3 * _u(aid, "base")
         heat = asset.get("archetype") in ("heat_pump", "electric_heating")
-        q50 = []
-        for t in times:
-            h = _bucharest_hour(t)
-            morning = 0.6 * math.exp(-((h - 7.5) ** 2) / 1.5)
-            evening = 1.4 * math.exp(-((h - 19.5) ** 2) / 3.0)
-            winter = 0.8 if heat and t.month in (11, 12, 1, 2, 3) else 0.0
-            summer_ac = 0.5 * math.exp(-((h - 15) ** 2) / 8) if t.month in (6, 7, 8) else 0.0
-            q50.append(base + morning + evening + winter + summer_ac)
+        # same left-to-right sum as base + morning + evening + winter + summer_ac
+        terms = (_load_terms(times, heat) if isinstance(times, _UtcTimes)
+                 else [_load_step_terms(t, heat) for t in times])
+        q50 = [base + m + e + w + s for m, e, w, s in terms]
         q10 = [0.65 * v for v in q50]
         q90 = [1.45 * v for v in q50]
         return q10, q50, q90, {"member_std": round(0.12 * sum(q50) / len(q50), 4)}

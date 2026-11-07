@@ -42,19 +42,29 @@ export function AppShell() {
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
-        <SidebarHeader className="flex-row items-center gap-2 p-3 font-semibold">
-          <Zap className="size-4 shrink-0 text-primary" />
-          <span className="truncate group-data-[collapsible=icon]:hidden">Prosumer Sentinel</span>
+        <SidebarHeader className="h-14 flex-row items-center gap-2.5 border-b border-sidebar-border px-3 py-0 group-data-[collapsible=icon]:px-2">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <Zap className="size-4" />
+          </span>
+          <span className="truncate text-sm font-semibold tracking-tight text-foreground group-data-[collapsible=icon]:hidden">
+            Prosumer Sentinel
+          </span>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Modes</SidebarGroupLabel>
-            <SidebarMenu>
+          <SidebarGroup className="px-2 py-4">
+            <SidebarGroupLabel className="h-6 px-2 text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+              Modes
+            </SidebarGroupLabel>
+            <SidebarMenu className="gap-1">
               {MODE_IDS.map((id) => {
                 const { label, icon: Icon } = MODES[id];
                 return (
                   <SidebarMenuItem key={id}>
-                    <SidebarMenuButton isActive={mode === id} onClick={() => setMode(id)}>
+                    <SidebarMenuButton
+                      isActive={mode === id}
+                      onClick={() => setMode(id)}
+                      className="h-9 rounded-md px-2.5 text-[13px] text-text-secondary hover:bg-muted hover:text-foreground data-active:bg-brand-50 data-active:font-semibold data-active:text-brand-900 data-active:[&_svg]:text-primary"
+                    >
                       <Icon />
                       <span>{label}</span>
                     </SidebarMenuButton>
@@ -67,12 +77,22 @@ export function AppShell() {
       </Sidebar>
 
       <SidebarInset className="h-svh overflow-hidden">
-        <header className="flex items-center gap-3 border-b p-2">
-          <SidebarTrigger />
-          <Tabs value={mode} onValueChange={(value) => setMode(value as ModeId)}>
-            <TabsList>
+        <header className="flex h-14 shrink-0 items-stretch gap-4 border-b border-border bg-background px-4">
+          <div className="flex items-center">
+            <SidebarTrigger className="rounded-md text-text-secondary hover:bg-muted hover:text-foreground" />
+          </div>
+          <span aria-hidden className="my-4 w-px bg-border" />
+          <Tabs value={mode} onValueChange={(value) => setMode(value as ModeId)} className="h-full">
+            <TabsList
+              variant="line"
+              className="gap-6 p-0 group-data-horizontal/tabs:h-full"
+            >
               {MODE_IDS.map((id) => (
-                <TabsTrigger key={id} value={id}>
+                <TabsTrigger
+                  key={id}
+                  value={id}
+                  className="h-full flex-none px-0.5 text-sm font-medium text-text-secondary after:h-0.5 after:rounded-full after:bg-primary hover:text-foreground data-active:text-brand-700 group-data-horizontal/tabs:after:bottom-0"
+                >
                   {MODES[id].label}
                 </TabsTrigger>
               ))}
@@ -91,17 +111,17 @@ export function AppShell() {
           {Panel ? (
             <Panel />
           ) : (
-            <aside className="absolute top-3 left-3 z-10 w-72 max-w-[calc(100%-1.5rem)] rounded-md border bg-background/90 p-3 backdrop-blur">
-              <h2 className="font-medium">{active.label}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{active.blurb}</p>
-              <p className="mt-2 text-xs text-muted-foreground">Placeholder panel, see {active.card}</p>
+            <aside className="absolute top-4 left-4 z-10 w-80 max-w-[calc(100%-2rem)] rounded-lg border border-border bg-card p-5 shadow-card">
+              <h2 className="text-base font-semibold text-foreground">{active.label}</h2>
+              <p className="mt-2 text-sm leading-relaxed text-text-secondary">{active.blurb}</p>
+              <p className="mt-3 text-xs text-muted-foreground">Placeholder panel, see {active.card}</p>
             </aside>
           )}
           {/* #31/#32: the flexibility panel opens from Feeders and O&M. */}
           {mode === "feeders" || mode === "om" ? <FlexDock /> : null}
           <SummaryCard />
           {offline ? (
-            <span className="absolute bottom-3 left-14 z-10 rounded border bg-background/90 px-2 py-1 text-xs text-muted-foreground">
+            <span className="absolute bottom-4 left-16 z-10 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-text-secondary shadow-card">
               Offline basemap
             </span>
           ) : null}

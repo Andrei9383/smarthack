@@ -79,10 +79,6 @@ def test_commitment_accounting(cli):
     assert abs(g["p10_hit_rate"] - c["p10_hit_rate"]) <= 0.05
 
 
-@pytest.mark.xfail(strict=False, reason=(
-    "#78 finding: the day-ahead P10 commitment is not revised when per-tick qualify drops stale sites from the live "
-    "pool (loop.run_policy: live_pool.discard, local rule for the rest of the day, no re-admission when telemetry "
-    "returns), so gaps_40 / missing_day / telemetry_dropout commit flexibility that is then not delivered."))
 def test_p10_hit_rate_holds_under_every_drill(cli):
     _, _, rep = cli
     for name, r in rep["drills"].items():

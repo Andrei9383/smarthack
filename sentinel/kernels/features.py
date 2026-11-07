@@ -1,0 +1,72 @@
+"""K4 fused feature build: the heavy part of ``sentinel.model.features.pv_inputs`` / ``load_inputs`` (#94).
+
+The source of truth is the numpy code in ``sentinel.model.features`` (``pv_arrays``, ``load_arrays``); the Python
+references here call it. numpy builds ~40 [B, ...] temporaries per batch; the Rust copy (``sentinel._core``) makes
+one pass per window over its 14-day history and 96 target steps, windows in parallel with rayon, GIL released.
+
+Parity: sums replicate numpy's float32 reductions (pairwise along a row, sequential across days) and max/min/clip
+propagate NaN like numpy, so every channel is bit-identical except the trig ones (cos/sin of zenith/azimuth, the
+hour from atan2), which may differ by 1 ulp (numpy has its own SIMD float32 sin/cos).
+
+    from sentinel.kernels import pv_features, load_features
+    seq, ref, summ, night = pv_features(wx, geom, pvclear, pvlib, hist_pv, kwp)  # [B,96,17] [B,168] [B,14,5] [B,96]
+    seq, ref, summ, scale = load_features(wx, cal, hist_load)                     # [B,96,14] [B,168] [B,14,4] [B]
+
+wx [B,96,7], geom [B,96,3], cal [B,96,8], pvclear / pvlib [B,96], hist_pv [B, >=14*96], hist_load [B, 14*96], kwp [B];
+any float dtype (cast to float32). Other shapes fall back to the reference.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+
+H, HH = 96, 14 * 96
+
+
+def _f32(*a: Any) -> list[np.ndarray]:
+    return [np.ascontiguousarray(x, np.float32) for x in a]
+
+
+def pv_features_py(wx: Any, geom: Any, pvclear: Any, pvlib: Any, hist_pv: Any, kwp: Any):
+    """Reference: ``sentinel.model.features.pv_arrays``."""
+    from sentinel.model.features import pv_arrays
+
+    return pv_arrays(*(np.asarray(x) for x in (wx, geom, pvclear, pvlib, hist_pv, kwp)))
+
+
+def load_features_py(wx: Any, cal: Any, hist_load: Any):
+    """Reference: ``sentinel.model.features.load_arrays``."""
+    from sentinel.model.features import load_arrays
+
+    return load_arrays(*(np.asarray(x) for x in (wx, cal, hist_load)))
+
+
+def pv_features_rust(wx: Any, geom: Any, pvclear: Any, pvlib: Any, hist_pv: Any, kwp: Any):
+    from sentinel import kernels
+
+    wx, geom, pvclear, pvlib, hist_pv, kwp = _f32(wx, geom, pvclear, pvlib, hist_pv, kwp)
+    B = len(kwp)
+    if (wx.shape, geom.shape, pvclear.shape, pvlib.shape) != ((B, H, 7), (B, H, 3), (B, H), (B, H)) \
+            or hist_pv.ndim != 2 or hist_pv.shape[0] != B or hist_pv.shape[1] < HH or not B:
+        return pv_features_py(wx, geom, pvclear, pvlib, hist_pv, kwp)
+    seq, ref = np.empty((B, H, 17), np.float32), np.empty((B, 168), np.float32)
+    summ, night = np.empty((B, 14, 5), np.float32), np.empty((B, H), bool)
+    kernels._load_core().pv_features(wx.reshape(B, -1), geom.reshape(B, -1), pvclear, pvlib, hist_pv, kwp,
+                                     seq.reshape(B, -1), ref, summ.reshape(B, -1), night.view(np.uint8))
+    return seq, ref, summ, night
+
+
+def load_features_rust(wx: Any, cal: Any, hist_load: Any):
+    from sentinel import kernels
+
+    wx, cal, hist_load = _f32(wx, cal, hist_load)
+    B = len(hist_load)
+    if (wx.shape, cal.shape, hist_load.shape) != ((B, H, 7), (B, H, 8), (B, HH)) or not B:
+        return load_features_py(wx, cal, hist_load)
+    seq, ref = np.empty((B, H, 14), np.float32), np.empty((B, 168), np.float32)
+    summ, scale = np.empty((B, 14, 4), np.float32), np.empty(B, np.float32)
+    kernels._load_core().load_features(wx.reshape(B, -1), cal.reshape(B, -1), hist_load, seq.reshape(B, -1), ref,
+                                       summ.reshape(B, -1), scale)
+    return seq, ref, summ, scale

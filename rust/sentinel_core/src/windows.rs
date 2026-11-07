@@ -1,17 +1,12 @@
-//! K2 window gather. Python reference: `sentinel.kernels.windows.window_gather_py`, i.e. numpy's
-//! `np.asarray(arr[rows[:, None], starts[:, None] + offset + arange(length)], dtype)` on #10's window cache.
-//!
-//! The source is a C-contiguous (R, W) array (the Python wrapper flattens (R, T, C) to (R, T*C) and rescales
-//! offset/length). Window b is the contiguous slice src[rows[b], starts[b]*k + offset .. + length], where k is
-//! the number of units per time step (the wrapper passes starts already multiplied, see `step`). Windows are
-//! independent, so they run in parallel; each is a memcpy (same dtype) or a table lookup (float16 -> float32).
-//! The wrapper checks bounds; they are checked again here so a bad call cannot read out of range.
+//! K2 window gather. Python reference: `sentinel.kernels.windows.window_gather_py` (numpy fancy-index gather).
+//! Source is a C-contiguous (R, W) array; window b is the contiguous slice src[rows[b], starts[b]*step + offset ..]
+//! [..length]. Bounds are re-checked here so a bad call cannot read out of range.
 
 use rayon::prelude::*;
 use std::sync::OnceLock;
 
 /// numpy's npy_halfbits_to_floatbits for every float16 bit pattern (NaN payloads kept, no quiet bit added).
-fn f16_table() -> &'static [u32] {
+pub fn f16_table() -> &'static [u32] {
     static TABLE: OnceLock<Vec<u32>> = OnceLock::new();
     TABLE.get_or_init(|| (0..=u16::MAX).map(half_to_float_bits).collect())
 }
@@ -53,42 +48,21 @@ fn window_start(rows: &[i64], starts: &[i64], b: usize, step: i64, offset: i64, 
     Ok(row as usize * w + lo as usize)
 }
 
-fn check_all(rows: &[i64], starts: &[i64], step: i64, offset: i64, length: usize, r: usize, w: usize)
+/// out[b, :] = conv(src[rows[b], starts[b]*step + offset ..][..length]); all windows are checked first.
+#[allow(clippy::too_many_arguments)]
+pub fn gather<S: Copy + Sync, O: Send>(src: &[S], r: usize, w: usize, rows: &[i64], starts: &[i64], step: i64,
+                                       offset: i64, length: usize, out: &mut [O], conv: impl Fn(S) -> O + Sync)
     -> Result<(), String> {
     for b in 0..rows.len() {
         window_start(rows, starts, b, step, offset, length, r, w)?;
     }
-    Ok(())
-}
-
-/// Same-dtype gather on raw units (bytes): out[b, :] = src[rows[b], starts[b]*step + offset ..][..length].
-#[allow(clippy::too_many_arguments)]
-pub fn gather_copy<T: Copy + Send + Sync>(src: &[T], r: usize, w: usize, rows: &[i64], starts: &[i64], step: i64,
-                                          offset: i64, length: usize, out: &mut [T]) -> Result<(), String> {
-    check_all(rows, starts, step, offset, length, r, w)?;
     if length == 0 {
         return Ok(());
     }
     out.par_chunks_mut(length).enumerate().with_min_len(16).for_each(|(b, o)| {
         let a = window_start(rows, starts, b, step, offset, length, r, w).unwrap();
-        o.copy_from_slice(&src[a..a + length]);
-    });
-    Ok(())
-}
-
-/// float16 (as raw u16 bits) -> float32 gather, bit-identical to numpy's astype.
-#[allow(clippy::too_many_arguments)]
-pub fn gather_f16_f32(src: &[u16], r: usize, w: usize, rows: &[i64], starts: &[i64], step: i64, offset: i64,
-                      length: usize, out: &mut [f32]) -> Result<(), String> {
-    check_all(rows, starts, step, offset, length, r, w)?;
-    if length == 0 {
-        return Ok(());
-    }
-    let table = f16_table();
-    out.par_chunks_mut(length).enumerate().with_min_len(16).for_each(|(b, o)| {
-        let a = window_start(rows, starts, b, step, offset, length, r, w).unwrap();
-        for (d, &h) in o.iter_mut().zip(&src[a..a + length]) {
-            *d = f32::from_bits(table[h as usize]);
+        for (d, &x) in o.iter_mut().zip(&src[a..a + length]) {
+            *d = conv(x);
         }
     });
     Ok(())
@@ -110,8 +84,8 @@ mod tests {
     fn gather_small() {
         let src: Vec<u16> = (0..20).collect(); // 2 rows x 10
         let mut out = vec![0u16; 6];
-        gather_copy(&src, 2, 10, &[1, 0], &[2, 5], 1, -1, 3, &mut out).unwrap();
+        gather(&src, 2, 10, &[1, 0], &[2, 5], 1, -1, 3, &mut out, |x| x).unwrap();
         assert_eq!(out, vec![11, 12, 13, 4, 5, 6]);
-        assert!(gather_copy(&src, 2, 10, &[0], &[0], 1, -1, 3, &mut out[..3]).is_err());
+        assert!(gather(&src, 2, 10, &[0], &[0], 1, -1, 3, &mut out[..3], |x| x).is_err());
     }
 }
