@@ -58,6 +58,15 @@ needs   = "gpu"
 gpu_mem = "4G"
 timeout = "30m"
 
+# Imbalance replay (I6 #176, spec I step 8): profile / persistence / forecast_only / sentinel (+ sentinel_id) on the
+# 2025 test year -> $LAB_OUTPUT_DIR/imbalance.sqlite + parquet + LAB_METRIC avoidable_cost_lei etc. needs gpu = the
+# workers that hold the #10 window cache (the server OOMs building it).
+[runs.imbalance]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
+cmd     = "sh rust/build.sh status && .venv/bin/python replay.py --mode imbalance --out $LAB_OUTPUT_DIR/imbalance.sqlite"
+needs   = "gpu"
+timeout = "1h"
+
 # Rust kernels (#48, team/infra.md §4). Not in `submit`/`check`: merges never depend on cargo. The setup uses
 # cargo if present, else installs rustup into $HOME/.cargo; it prints the toolchain + build time (worker probe)
 # and never fails on a build error. rustcheck then fails clearly if sentinel._core did not build; bench falls back
