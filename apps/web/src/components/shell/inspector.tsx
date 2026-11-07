@@ -49,7 +49,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
       aria-label={`${MODES[mode].label} details`}
       data-tour="inspector"
       className={cn(
-        "flex flex-col overflow-hidden rounded-xl bg-card shadow-floating",
+        "flex flex-col overflow-hidden rounded-lg bg-card shadow-floating",
         className,
       )}
     >
@@ -57,12 +57,12 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
         key={mode}
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-3 motion-safe:duration-250"
       >
-        <header className="flex items-start gap-3 border-b border-border px-5 pt-[18px] pb-3.5">
-          <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-primary text-primary-foreground shadow-brand">
+        <header className="flex items-start gap-3 border-b border-border px-4 pt-4 pb-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand">
             <Icon aria-hidden className="size-5" />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-base leading-tight font-semibold text-foreground">{copy.heading}</h2>
+            <h2 className="truncate text-[15px] leading-tight font-semibold text-foreground">{copy.heading}</h2>
             {subline ? <p className="mt-0.5 text-xs leading-snug text-pretty text-text-secondary tabular-nums">{subline}</p> : null}
             {runLabel ? <ProvenancePill label={runLabel} className="mt-1.5" /> : null}
           </div>
@@ -81,13 +81,13 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
                   <PopoverTitle className="text-[13px] font-semibold">{copy.heading}</PopoverTitle>
                   <dl className="mt-2 space-y-2.5 text-[13px] leading-snug">
                     <div>
-                      <dt className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+                      <dt className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
                         The agent now
                       </dt>
                       <dd className="mt-0.5 text-text-secondary">{copy.doing}</dd>
                     </div>
                     <div>
-                      <dt className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
+                      <dt className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
                         Look at
                       </dt>
                       <dd className="mt-0.5 text-text-secondary">{copy.look}</dd>
@@ -101,7 +101,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
 
         {/* #114: the agent loop for this mode, one click away so the live content stays on top. */}
         <details className="group/how border-b border-border">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-sidebar focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               className="size-4 text-muted-foreground transition-transform duration-150 group-open/how:rotate-90"

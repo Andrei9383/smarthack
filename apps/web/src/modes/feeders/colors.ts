@@ -1,22 +1,30 @@
 // Raw colour values for MapLibre paint and SVG charts, which can't read Tailwind classes.
-// Mirrors team/contracts/ui-style.md (PPC light + emerald); keep in sync with the tokens in
-// packages/ui/src/styles/globals.css. Components must not hold hex literals of their own.
+// Mirrors team/contracts/ui-style.md (Cockpit, dark + light); the RGB source is apps/web/src/lib/palette.ts.
+// Components must not hold hex literals of their own.
+import { hex, MAP_SAFE, onPaletteTheme, rgba } from "@/lib/palette";
 
-// Map: feeder status, tuned for the light basemap (land #F7F8FA).
-export const FEEDER_OK = "#0E9F5A"; // --status-ok
-export const FEEDER_WARN = "#D97706"; // --status-warn
-export const FEEDER_OVER = "#E5484D"; // --status-critical
-export const FEEDER_UNKNOWN = "#94A3B8"; // --status-unknown
-export const FEEDER_CASING = "#FFFFFF"; // white halo that lifts lines off the basemap
-export const LOW_TRUST_GAP = "#FFFFFF"; // gaps cut into low-trust lines (reads as dashed)
+// Map: feeder status. Map-safe mid-tones that read on both basemaps (Positron and dark-matter).
+export const FEEDER_OK = hex(MAP_SAFE.ok);
+export const FEEDER_WARN = hex(MAP_SAFE.warn);
+export const FEEDER_OVER = hex(MAP_SAFE.critical);
+export const FEEDER_UNKNOWN = hex(MAP_SAFE.unknown);
 
-// Charts: Sentinel is always --primary, the baseline always #0D0D0D at 55%.
+// Theme-dependent: the halo that lifts lines off the basemap, and the gaps cut into low-trust lines
+// (reads as dashed). Both are the land colour of the current theme; the map remounts on a theme change.
+export let FEEDER_CASING = "";
+export let LOW_TRUST_GAP = "";
+onPaletteTheme((palette) => {
+  FEEDER_CASING = hex(palette.mapCasing);
+  LOW_TRUST_GAP = hex(palette.mapCasing);
+});
+
+// Charts: Sentinel is always --primary, the baseline always --chart-baseline (foreground at 55%).
 export const SENTINEL_SERIES = "var(--primary)";
-export const BASELINE_SERIES = "rgb(13 13 13 / 0.55)";
+export const BASELINE_SERIES = "var(--chart-baseline)";
 export const LIMIT_SERIES = "var(--status-critical)";
 export const SOC_SERIES = "var(--status-soc)";
 
-// Map motion (#115): emerald charging ripples (--brand-500) and the white flow dashes on an over-limit line.
-export const CHARGE_RIPPLE = "#12B76A"; // --brand-500
-export const FLOW_DASH = "rgba(255, 255, 255, 0.95)";
-export const FLOW_GAP = "rgba(255, 255, 255, 0)";
+// Map motion (#115): emerald charging ripples and the light flow dashes on an over-limit (red) line.
+export const CHARGE_RIPPLE = hex(MAP_SAFE.brand);
+export const FLOW_DASH = rgba([255, 255, 255], 0.95);
+export const FLOW_GAP = rgba([255, 255, 255], 0);

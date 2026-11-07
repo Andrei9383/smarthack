@@ -20,7 +20,7 @@ import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/compone
 // sheets trap focus. Both lift with shadow-overlay and fade/scale in from their trigger.
 
 /** 11px uppercase section label (ui-style §4). */
-export const LABEL = "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
+export const LABEL = "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
 
 /** Click (or Enter/Space) opens; Esc, outside click or the trigger again closes. */
 export function Pop({
@@ -50,7 +50,7 @@ export function Pop({
       <PopoverTrigger
         aria-label={triggerLabel}
         className={cn(
-          "cursor-pointer rounded-md text-left transition-[background-color,box-shadow,color] duration-150 outline-none hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-sidebar",
+          "cursor-pointer rounded-md text-left transition-[background-color,box-shadow,color] duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-surface-raised",
           triggerClassName,
         )}
       >
@@ -64,12 +64,12 @@ export function Pop({
   );
 }
 
-/** Units small and muted after the number (anti-AI rule: let tabular numbers carry it). */
+/** Units small and muted after the number; the number itself in Plex Mono, tabular (Cockpit). */
 export function Num({ value, unit, className }: { value: ReactNode; unit?: string; className?: string }) {
   return (
     <span className={cn("inline-flex items-baseline gap-0.5 whitespace-nowrap tabular-nums", className)}>
-      <span>{value}</span>
-      {unit ? <span className="text-[0.62em] font-normal tracking-normal text-muted-foreground">{unit}</span> : null}
+      <span className="font-mono">{value}</span>
+      {unit ? <span className="ml-0.5 font-sans text-[0.6em] font-normal tracking-normal text-muted-foreground">{unit}</span> : null}
     </span>
   );
 }
@@ -102,7 +102,7 @@ export function Metric({
         {label}
         {pop ? <ChevronRight aria-hidden className="size-3 text-muted-foreground transition-transform duration-150 group-data-popup-open/metric:rotate-90" /> : null}
       </span>
-      <Num value={value} unit={unit} className={cn("mt-1 text-[22px] leading-none font-semibold tracking-tight", tone ?? "text-foreground")} />
+      <Num value={value} unit={unit} className={cn("mt-1 text-[22px] leading-none font-semibold tracking-[-0.02em]", tone ?? "text-foreground")} />
       {sub ? <span className="mt-1 block text-[11px] leading-tight whitespace-nowrap text-muted-foreground tabular-nums">{sub}</span> : null}
     </>
   );
@@ -140,7 +140,7 @@ export function RowButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "group/row -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-left text-[13px] text-foreground transition-colors duration-150 outline-none hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring",
+        "group/row -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-2 rounded-md px-2 py-2.5 text-left text-[13px] text-foreground transition-colors duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
     >
@@ -258,7 +258,7 @@ export function Fold({
 }) {
   return (
     <details open={defaultOpen} className="group/fold border-t border-border">
-      <summary className="-mx-2 flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-3 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-sidebar focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+      <summary className="-mx-2 flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-3 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
         <ChevronRight aria-hidden className="size-4 text-muted-foreground transition-transform duration-150 group-open/fold:rotate-90" />
         <span className="min-w-0 flex-1">{title}</span>
         {aside ? <span className="shrink-0 text-xs font-normal text-text-secondary tabular-nums">{aside}</span> : null}
