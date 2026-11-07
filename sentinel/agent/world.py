@@ -608,9 +608,9 @@ DEMO_PARKS = ("WP1",)
 # M4 names the outage correctly. On 5 of the 8 clean battery sites of that feeder it calls the same outage a
 # sensor fault (team/insights.md, error analysis), so the pick is explicit rather than "largest array".
 DEMO_STORY_SOURCE = {"F06": "S0284"}
-# What the weights in models/ are (models/README.md). Interim until #14's fleet-retrained runs are promoted.
-WEIGHTS_LABEL = os.environ.get("SENTINEL_WEIGHTS_LABEL", "INTERIM: M1/M2/M4 trained on #14's own synthetic data "
-                               "(card #29 runs 201-210), M6 WindNBM on synth-v1 wind (#41 run 135); not fleet-trained")
+# What the weights in models/ are (models/README.md).
+WEIGHTS_LABEL = os.environ.get("SENTINEL_WEIGHTS_LABEL", "M1/M2/M4 fleet-trained on the #10 windows (#14 train#383-392, "
+                               "--data lab, commit 54483ca); M6 WindNBM on synth-v1 wind (#41 run 135)")
 
 
 def find_windows(root: Optional[Path] = None) -> Optional[Path]:

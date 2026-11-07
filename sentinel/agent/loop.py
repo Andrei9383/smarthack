@@ -1056,8 +1056,11 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         for s in sites:  # calibration slice for the next days: what was forecast vs what was observed
             ok = np.asarray(oday[s].telemetry_age_s, float) == 0
             for key, p, y in (("pv", pv_p[s], oday[s].pv_kw), ("load", ld_p[s], oday[s].load_kw)):
-                cal_hist[key].append((np.asarray(y, float), np.asarray(p.q10, float), np.asarray(p.q50, float),
-                                      np.asarray(p.q90, float), ok))
+                y, q50 = np.asarray(y, float), np.asarray(p.q50, float)
+                e_obs, e_fc = float(y[ok].sum()), float(q50[ok].sum())
+                if ok.sum() < DAY_STEPS // 2 or e_fc < 1.0 or not 1 / 3 <= e_obs / e_fc <= 3:
+                    continue  # data-quality gate: a site-day off by > 3x in energy is a unit / sensor problem
+                cal_hist[key].append((y, np.asarray(p.q10, float), q50, np.asarray(p.q90, float), ok))
         for fid in world.feeders:
             res.feeder_days[(fid, d)] = fd[fid]
         if sentinel:
@@ -1253,8 +1256,9 @@ def _blind_haircut(c: Commitment, contrib: Mapping[str, np.ndarray], blind: Mapp
 
 def _fit_conformal(hist: Mapping[str, list[tuple[np.ndarray, ...]]], cfg: LoopConfig) -> dict[str, Any]:
     """Split-conformal offsets (sentinel.eval.uncertainty.conformal, normalised asymmetric CQR) per quantity, fitted on
-    every site-day already replayed (observed steps only): no information from the day being committed. {} on day 0
-    or when the module is missing."""
+    every site-day already replayed (observed steps only): no information from the day being committed. Site-days
+    whose observed energy is off the forecast by > 3x are dropped (unit / sensor faults would poison the offsets) and
+    offsets are clipped to +-2 band widths. {} on day 0 or when the module is missing."""
     try:
         from sentinel.eval.uncertainty.conformal import ConformalCalibration, default_mask
     except ImportError:
@@ -1267,8 +1271,11 @@ def _fit_conformal(hist: Mapping[str, list[tuple[np.ndarray, ...]]], cfg: LoopCo
         m = ok & default_mask(y, q10, q90)
         if m.sum() < 200:
             continue
-        out[key] = ConformalCalibration.fit(y, (q10, q50, q90), mask=m, n_buckets=cfg.conformal_buckets,
-                                            model=key, model_version="online-past-days")
+        c = ConformalCalibration.fit(y, (q10, q50, q90), mask=m, n_buckets=cfg.conformal_buckets,
+                                     model=key, model_version="online-past-days")
+        for mc in c.members.values():  # bounded: at most +-2 band widths per quantile
+            mc.offsets = {k: [float(np.clip(v, -2.0, 2.0)) for v in vs] for k, vs in mc.offsets.items()}
+        out[key] = c
     return out
 
 

@@ -102,6 +102,9 @@ class FleetSlice:
     def array(self, name: str) -> np.ndarray:
         return self._a[name]
 
+    def has(self, name: str) -> bool:  # ArraySource API (#14)
+        return name in self._a
+
     def site_meta(self, key: str, dtype=np.float32) -> np.ndarray:
         return np.array([s.get(key, 0) for s in self.sites], dtype=dtype)
 
