@@ -156,6 +156,23 @@ def test_portfolio_behaviour_shape_and_equivalence():
     np.testing.assert_allclose(out[1], ref, atol=1e-5)
 
 
+def test_portfolio_behaviour_locates_home_chunks():
+    """I5 calls behaviour per chunk of homes with fleet.battery.take(slice): the chunk is found from the arrays."""
+    w = _world(2)
+    T, n = 96, 6
+    pv, load = _pv(w, n)[:, :T], np.full((n, T), 0.5, np.float32)
+    code = np.array([0, 1, 2, 1, 2, 0], np.int8)
+    prm = {**_params(n), "cap_kwh": np.array([10.0, 6, 8, 12, 14, 9])}
+    args = (w.price[:T], w.rank[:T], w.med[:T], w.cal["day_index"][:T])
+    fn = N.portfolio_behaviour(code, prm, *args)
+    bat = N.guessed_battery_arrays(code, prm)
+    full = fn(pv[None], load, bat, None)[0]
+    for a, b in ((0, 4), (4, 6), (2, 5)):
+        part = fn(pv[None, a:b], load[a:b], tuple(x[a:b] for x in bat), None)[0]
+        np.testing.assert_allclose(part, full[a:b], atol=1e-5)
+    assert bat[0][0] == 0 and bat[0][5] == 0  # no battery guessed -> capacity 0 in I5's Fleet
+
+
 def test_mix_soft_and_hard():
     var = {0: np.zeros((1, 4), np.float32), 1: np.ones((1, 4), np.float32), 2: np.full((1, 4), 3, np.float32)}
     probs = np.array([[[0.1, 0.2, 0.6, 0.1], [0.7, 0.1, 0.1, 0.1]]])  # 2 days, enrolled counts as self
