@@ -3,10 +3,11 @@
 import { MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
 import { useQuery } from "@tanstack/react-query";
 import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
-import { useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMapRightPadding } from "../use-map-right-padding";
 import { expectedMwh } from "./data";
+import { type MarkerCircle, type MarkerOffset, resolveCollisions } from "./marker-layout";
 import { useProductionData } from "./use-production-data";
 import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field";
@@ -136,6 +137,72 @@ function diameter(mwh: number) {
   return MIN_DIAMETER_PX + mwh * PX_PER_MWH;
 }
 
+type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & { lon: number; lat: number; diameter: number };
+
+const NO_OFFSET: MarkerOffset = { dx: 0, dy: 0 };
+
+// Distances on screen depend only on zoom, so panning never needs a new layout.
+function useMarkerOffsets(markers: PlacedMarker[]) {
+  const { map, isLoaded } = useMap();
+  const [zoom, setZoom] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!map || !isLoaded) return;
+    const sync = () => setZoom(map.getZoom());
+    sync();
+    map.on("zoomend", sync);
+    return () => {
+      map.off("zoomend", sync);
+    };
+  }, [map, isLoaded]);
+
+  return useMemo(() => {
+    if (!map || zoom === null) return new Map<string, MarkerOffset>();
+    return resolveCollisions(
+      markers.map(({ id, kind, lon, lat, diameter: size }) => {
+        const { x, y } = map.project([lon, lat]);
+        return { id, kind, x, y, radius: size / 2 };
+      }),
+    );
+  }, [map, zoom, markers]);
+}
+
+// The marker stays on its real point; only the circle moves, with a line back to that point.
+function Displaced({ offset, children }: { offset: MarkerOffset; children: ReactNode }) {
+  const length = Math.hypot(offset.dx, offset.dy);
+  return (
+    <>
+      {length > 0 && (
+        <>
+          <span
+            className="pointer-events-none absolute top-1/2 left-1/2 h-px origin-left bg-foreground/70"
+            style={{
+              width: length,
+              transform: `rotate(${Math.atan2(offset.dy, offset.dx)}rad)`,
+            }}
+          />
+          <span className="pointer-events-none absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground" />
+        </>
+      )}
+      <div style={{ transform: `translate(${offset.dx}px, ${offset.dy}px)` }}>{children}</div>
+    </>
+  );
+}
+
+// The marker's own box stays on the real point, where it could cover a displaced neighbour, so
+// only the circle takes clicks; they still bubble to the marker's handler.
+const passClicksThrough = (element: HTMLElement | null) => {
+  const marker = element?.closest<HTMLElement>(".maplibregl-marker");
+  if (marker) marker.style.pointerEvents = "none";
+};
+
+// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
+const raiseMarker = (element: HTMLElement | null) => {
+  passClicksThrough(element);
+  const marker = element?.closest<HTMLElement>(".maplibregl-marker");
+  if (marker) marker.style.zIndex = "1";
+};
+
 export function ProductionLayers() {
   useMapRightPadding(PANEL_PADDING_PX);
   const hour = useHour();
@@ -149,24 +216,53 @@ export function ProductionLayers() {
   useWindParticles(meta, hour);
   const { parks, rows, counties } = useProductionData();
 
+  const solarCounties = useMemo(() => counties.filter((county) => county.solarMwh > 0), [counties]);
+  const parkMwh = useMemo(
+    () => new Map(parks.map((park) => [park.id, expectedMwh(rows.filter((row) => row.parkId === park.id))])),
+    [parks, rows],
+  );
+  const placed = useMemo<PlacedMarker[]>(
+    () => [
+      ...parks.map((park) => ({
+        id: park.id,
+        kind: "park" as const,
+        lon: park.lon,
+        lat: park.lat,
+        diameter: diameter(parkMwh.get(park.id) ?? 0),
+      })),
+      ...solarCounties.map((county) => ({
+        id: `county:${county.county}`,
+        kind: "county" as const,
+        lon: county.lon,
+        lat: county.lat,
+        diameter: diameter(county.solarMwh),
+      })),
+    ],
+    [parks, parkMwh, solarCounties],
+  );
+  const offsets = useMarkerOffsets(placed);
+
   return (
     <>
-      {counties.filter((county) => county.solarMwh > 0).map((county) => (
+      {solarCounties.map((county) => (
         <MapMarker key={county.county} longitude={county.lon} latitude={county.lat}>
           <MarkerContent>
-            <span
-              className="flex flex-col items-center justify-center rounded-full border border-amber-300/70 bg-amber-400/20 text-[10px] leading-tight font-semibold text-amber-100"
-              style={{ width: diameter(county.solarMwh), height: diameter(county.solarMwh) }}
-              title={`${county.county} solar, ${county.solarMwh.toFixed(1)} MWh next 24 h`}
-            >
-              {county.county}
-              <span className="font-normal whitespace-nowrap">{county.solarMwh.toFixed(1)} MWh</span>
-            </span>
+            <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
+              <span
+                ref={passClicksThrough}
+                className="pointer-events-auto flex flex-col items-center justify-center rounded-full border border-amber-300/70 bg-amber-950/70 text-[10px] leading-tight font-semibold text-amber-100"
+                style={{ width: diameter(county.solarMwh), height: diameter(county.solarMwh) }}
+                title={`${county.county} solar, ${county.solarMwh.toFixed(1)} MWh next 24 h`}
+              >
+                {county.county}
+                <span className="font-normal whitespace-nowrap">{county.solarMwh.toFixed(1)} MWh</span>
+              </span>
+            </Displaced>
           </MarkerContent>
         </MapMarker>
       ))}
       {parks.map((park) => {
-        const mwh = expectedMwh(rows.filter((row) => row.parkId === park.id));
+        const mwh = parkMwh.get(park.id) ?? 0;
         return (
           <MapMarker
             key={park.id}
@@ -175,16 +271,19 @@ export function ProductionLayers() {
             onClick={() => setSelected(park.id)}
           >
             <MarkerContent>
-              <span
-                className={`flex cursor-pointer flex-col items-center justify-center rounded-full border-2 border-teal-300 bg-teal-500/30 text-[10px] leading-tight font-semibold text-white ${
-                  park.id === selected ? "ring-2 ring-foreground" : ""
-                }`}
-                style={{ width: diameter(mwh), height: diameter(mwh) }}
-                title={`${park.name}, ${Math.round(mwh)} MWh next 24 h`}
-              >
-                {park.id}
-                <span className="font-normal whitespace-nowrap">{Math.round(mwh)} MWh</span>
-              </span>
+              <Displaced offset={offsets.get(park.id) ?? NO_OFFSET}>
+                <span
+                  ref={raiseMarker}
+                  className={`pointer-events-auto flex cursor-pointer flex-col items-center justify-center rounded-full border-2 border-teal-300 bg-teal-950/80 text-[10px] leading-tight font-semibold text-white ${
+                    park.id === selected ? "ring-2 ring-foreground" : ""
+                  }`}
+                  style={{ width: diameter(mwh), height: diameter(mwh) }}
+                  title={`${park.name}, ${Math.round(mwh)} MWh next 24 h`}
+                >
+                  {park.id}
+                  <span className="font-normal whitespace-nowrap">{Math.round(mwh)} MWh</span>
+                </span>
+              </Displaced>
             </MarkerContent>
           </MapMarker>
         );
