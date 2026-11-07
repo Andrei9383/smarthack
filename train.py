@@ -1,6 +1,7 @@
 """Train one registered model: python train.py --model NAME [model flags...]
 
-Also: python train.py --preset NAME [extra flags]  (named configs in PRESETS, for one-submit grids)
+Also: python train.py --preset NAME[@sN] [extra flags]  (named configs in PRESETS for one-submit grids;
+@sN adds --seed N --tag sN, so ensemble members get distinct artifact names: pvnet.sN.onnx)
 
 Registry (lazy imports, so a card's module is only imported when its model is asked for). Each target exposes
 `main(argv: list[str] | None = None) -> None`; everything after --model NAME is passed through unchanged
@@ -88,9 +89,12 @@ def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--preset" in argv:
         i = argv.index("--preset")
-        if i + 1 >= len(argv) or argv[i + 1] not in PRESETS:
-            raise RegistryError(f"train.py: --preset needs one of {', '.join(PRESETS)}")
-        argv = PRESETS[argv[i + 1]] + argv[:i] + argv[i + 2:]
+        pname = argv[i + 1] if i + 1 < len(argv) else ""
+        base, _, seed = pname.partition("@s")  # "pv_now@s2" = preset pv_now with --seed 2 --tag s2
+        if base not in PRESETS or (seed and not seed.isdigit()):
+            raise RegistryError(f"train.py: --preset needs one of {', '.join(PRESETS)} (optionally NAME@sN)")
+        extra = ["--seed", seed, "--tag", f"s{seed}"] if seed else []
+        argv = PRESETS[base] + extra + argv[:i] + argv[i + 2:]
     name, rest = split_argv(argv)
     if name is None:
         print(__doc__)

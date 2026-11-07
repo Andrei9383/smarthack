@@ -269,3 +269,5 @@ def test_train_presets_expand():
         assert model in tm.REGISTRY, name
     with pytest.raises(SystemExit, match="--preset"):
         tm.main(["--preset", "nope"])
+    with pytest.raises(SystemExit, match="--preset"):
+        tm.main(["--preset", "pv_now@sx"])
