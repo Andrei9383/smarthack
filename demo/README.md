@@ -30,6 +30,20 @@ the real simulator week, not model results. The fleet-retrained weights replace 
   below came out "normal" although the classifier gave p(non-normal) ≈ 0.999. The replay marks steps where ≥ 50 %
   of the park has p(curtailment) ≥ its threshold (`runs.notes.wind_m6_park_consensus_steps`).
 
+## Topology geometry and grid-twin
+- `feeders.geometry_json`: a GeoJSON LineString per feeder, `[lon, lat]`: the depth-first walk of a minimum spanning
+  tree from the substation head (the feeder's locality centre in #11's feeders table) through the feeder's sites
+  (`replay.feeder_line`, <= 200 points). A plausible radial layout, not a surveyed one.
+- Feeder `tau`, `limit_kw` (= G_f = tau·G_max + (1-tau)·G_conservative, only ever tightens) and `gis_trust`
+  (`low` if tau < 0.8) come from the grid-twin (#13: `python -m sentinel.gridtwin.run`, cache
+  ~/.cache/sentinel/data-v4/gridtwin; in-process fallback, else contract G with tau = 1). `gis_flags` rows are the
+  twin's phase / feeder flags on demo sites (Point geometry), audited as `gridtwin:sentinel.gridtwin.twin@#13`.
+
+## Mock world (`replay.py --world mock`)
+Same ids and week as this file (F7, 1042, WP01.TIDxx, F5/F6/F8, week from 2025-06-01T21:00Z), so the UI can be
+tested without the caches: 1042's string outage starts day 3 05:00 and is derated + gets a truck work order at the
+10:00 re-check; ~49 MB. Label synthetic RO, all predictors mock (`is_fallback = 1`).
+
 ## Ids (match apps/web: demo-jumps.tsx, replay.ts)
 Feeders `F<n>` (fleet `F0n` without the zero), sites `1000 + n` (fleet `S0nnn`), park `WP01` (fleet `WP1`), turbines
 `WP01.TIDxx`. Two labels are moved, numbers are not: the hero feeder (fleet **F06 Oșorhei, Bihor**, picked from the
