@@ -161,10 +161,54 @@ export function MapSpark({
     ? `${formatAmount(peak.p50 as number)} ${unit} · ${peak.label ?? formatTime(peak.t)}`
     : "";
   const peakTextWidth = peakText.length * (expanded ? CHAR_PX.expanded : CHAR_PX.compact);
-  // Beside the dot on whichever side has room; above it when it sits low enough.
-  const peakLabelLeft = peakX + PEAK_LABEL_GAP + peakTextWidth > width - 2;
-  const peakAnchorX = peakLabelLeft ? peakX - PEAK_LABEL_GAP : peakX + PEAK_LABEL_GAP;
-  const peakLabelY = Math.max(peakY, 7) + 3.5;
+  const fontPx = expanded ? 10 : 9;
+  // The drawn curves in chart pixels, to keep the label off them.
+  const curve = [
+    ...model.past.map((p) => ({ x: x(p.t), y: y(p.actual as number) })),
+    ...model.projection.map((p) => ({ x: x(p.t), y: y(p.value) })),
+  ].sort((a, b) => a.x - b.x);
+  const curveYAt = (at: number) => {
+    const i = curve.findIndex((p) => p.x >= at);
+    if (i <= 0) return curve[Math.max(i, 0)]?.y ?? null;
+    const a = curve[i - 1]!;
+    const b = curve[i]!;
+    return a.y + ((b.y - a.y) * (at - a.x)) / Math.max(b.x - a.x, 1e-6);
+  };
+  // Candidate spots: beside the dot (above or below it) or in the top strip, sliding sideways away
+  // from the dot. Keep the spot that stays inside the chart and clear of the line, nearest the dot.
+  const peakPlacement = (() => {
+    const baselines = [peakY - 3, fontPx, peakY + fontPx + 2];
+    const shifts = [0, 8, 16, 28, 40, 56];
+    const options = baselines.flatMap((baseline) =>
+      shifts.flatMap((shift) =>
+        [false, true].map((left) => {
+          const anchorX = left ? peakX - PEAK_LABEL_GAP - shift : peakX + PEAK_LABEL_GAP + shift;
+          const x0 = left ? anchorX - peakTextWidth : anchorX;
+          const x1 = x0 + peakTextWidth;
+          const top = baseline - fontPx + 1;
+          const fits = x0 >= 1 && x1 <= width - 1 && top >= 0 && baseline <= height - 1;
+          let hits = 0;
+          for (let at = x0; at <= x1; at += 2) {
+            const cy = curveYAt(at);
+            if (cy != null && cy >= top - 2 && cy <= baseline + 2) hits += 1;
+          }
+          // The label shouldn't cover its own dot either.
+          if (peakX >= x0 - 3 && peakX <= x1 + 3 && peakY >= top - 3 && peakY <= baseline + 3) hits += 3;
+          const distance = Math.abs((x0 + x1) / 2 - peakX) + Math.abs(baseline - fontPx / 2 - peakY);
+          return { left, baseline, anchorX, fits, hits, distance };
+        }),
+      ),
+    );
+    const fitting = options.filter((o) => o.fits);
+    return (
+      fitting.filter((o) => o.hits === 0).sort((a, b) => a.distance - b.distance)[0] ??
+      fitting.sort((a, b) => a.hits - b.hits || a.distance - b.distance)[0] ??
+      options[0]!
+    );
+  })();
+  const peakLabelLeft = peakPlacement.left;
+  const peakAnchorX = peakPlacement.anchorX;
+  const peakLabelY = peakPlacement.baseline;
 
   const lineWidth = expanded ? 1.75 : 1.5;
   const dash = expanded ? "4 3" : "3 2.5";

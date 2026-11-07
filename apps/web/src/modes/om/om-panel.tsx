@@ -40,12 +40,15 @@ const SEVERITY_TONE: Record<string, Tone> = {
   warn: "warn",
   info: "info",
 };
-// a truck roll is the costly, urgent one; an inspection is planned; a remote check is informational
+// A truck roll costs the most, so it is amber; it turns red only when the visit is due within a day.
+// An inspection is planned, a remote check is informational.
 const ACTION_TONE: Record<string, Tone> = {
-  truck: "critical",
+  truck: "warn",
   inspection: "warn",
   remote_check: "info",
 };
+const orderTone = (o: { action: string; daysToVisit?: number | null }): Tone =>
+  o.action === "truck" && o.daysToVisit != null && o.daysToVisit <= 1 ? "critical" : (ACTION_TONE[o.action] ?? "unknown");
 const ACTION_WORDS: Record<string, string> = {
   truck: "Truck",
   remote_check: "Remote check",
@@ -165,7 +168,7 @@ function AvailabilityBar({ parts, total }: { parts: { key: string; label: string
 
 /** One line per order on the glance list: rank, asset, fault, money lost, action. */
 function TopOrderRow({ o, index, selected, onOpen }: { o: Order; index: number; selected: boolean; onOpen: () => void }) {
-  const tone = ACTION_TONE[o.action] ?? "unknown";
+  const tone = orderTone(o);
   return (
     <li>
       <button
@@ -214,7 +217,7 @@ const reviewReason = (reason: string) =>
 /** Full work-order row for the Details sheet: the per-row metadata and the "why" live here. */
 function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number; selected: boolean; onOpen: () => void }) {
   const [why, setWhy] = useState(false);
-  const tone = ACTION_TONE[o.action] ?? "unknown";
+  const tone = orderTone(o);
   const detail = evidenceText(o);
   return (
     <li className={`${ROW} py-2.5 ${selected ? ROW_SELECTED : ROW_IDLE}`} onClick={onOpen}>
