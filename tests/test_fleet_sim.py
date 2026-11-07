@@ -139,3 +139,27 @@ def test_raw_weather(tmp_path, monkeypatch, fmt):
     assert w.source == "raw" and w.data["ghi"].shape == (2, len(ts))
     assert np.allclose(w.data["temp_air"], 10.0)
     assert w.data["ghi"].max() > 300 and (w.data["ghi"] >= 0).all()
+
+
+def test_raw_weather_interval_start(tmp_path, monkeypatch):
+    """#9 stamps hourly means at interval start: a GHI symmetric around solar noon must stay centred on it."""
+    from sentinel.sim.fleet import solar
+    from sentinel.sim.fleet import weather as wmod
+    from sentinel.sim.fleet.localities import BY_ID
+    from sentinel.sim.fleet.ro_calendar import utc_index
+
+    loc = BY_ID["voluntari"]
+    ts15 = utc_index(2024)
+    zen, _ = solar.solar_position(ts15, loc.lat, loc.lon)
+    cs = pd.Series(solar.clearsky_ghi(zen), index=ts15)
+    hourly = cs.resample("1h").mean()  # mean over [t, t+1h), stamped at t
+    df = pd.DataFrame({"ts": hourly.index, "point_id": f"loc:{loc.id}", "ghi_wm2": hourly.to_numpy(),
+                       "temp_c": 10.0, "wind10_ms": 3.0, "snow_cm": 0.0, "source": "era5"})
+    path = tmp_path / "w.parquet"
+    df.to_parquet(path)
+    monkeypatch.setenv("SENTINEL_WEATHER", str(path))
+    w = wmod.load_weather([loc], ts15, seed=0)
+    got, want = w.data["ghi"][0], cs.to_numpy()
+    day = slice(96 * 172, 96 * 173)  # a June day
+    assert abs(int(np.argmax(got[day])) - int(np.argmax(want[day]))) <= 1
+    assert np.abs(got[day] - want[day]).max() < 0.08 * want[day].max()
