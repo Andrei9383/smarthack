@@ -2416,11 +2416,11 @@ type MapClusterLayerProps<
   clusterMaxZoom?: number;
   /** Radius of each cluster when clustering points in pixels (default: 50) */
   clusterRadius?: number;
-  /** Colors for cluster circles: [small, medium, large] based on point count (default: ["#3b82f6", "#1d4ed8", "#1e3a8a"]) */
+  /** Colors for cluster circles: [small, medium, large] based on point count (default: brand green ramp) */
   clusterColors?: [string, string, string];
   /** Point count thresholds for color/size steps: [medium, large] (default: [100, 750]) */
   clusterThresholds?: [number, number];
-  /** Color for unclustered individual points (default: "#3b82f6") */
+  /** Color for unclustered individual points (default: brand green) */
   pointColor?: string;
   /** Callback when an unclustered point is clicked */
   onPointClick?: (
@@ -2435,10 +2435,11 @@ type MapClusterLayerProps<
   ) => void;
 };
 
+// MapLibre paint can't read CSS variables, so these mirror --brand-500/600/700.
 const DEFAULT_CLUSTER_COLORS: [string, string, string] = [
-  "#3b82f6",
-  "#1d4ed8",
-  "#1e3a8a",
+  "#12b76a",
+  "#0e9f5a",
+  "#0b7f48",
 ];
 const DEFAULT_CLUSTER_THRESHOLDS: [number, number] = [100, 750];
 
@@ -2450,7 +2451,7 @@ function MapClusterLayer<
   clusterRadius = 50,
   clusterColors = DEFAULT_CLUSTER_COLORS,
   clusterThresholds = DEFAULT_CLUSTER_THRESHOLDS,
-  pointColor = "#3b82f6",
+  pointColor = "#0e9f5a",
   onPointClick,
   onClusterClick,
 }: MapClusterLayerProps<P>) {
