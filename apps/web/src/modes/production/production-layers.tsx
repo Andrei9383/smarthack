@@ -4,8 +4,10 @@ import { MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/ma
 import { useQuery } from "@tanstack/react-query";
 import { Sun, Wind } from "lucide-react";
 import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
+import { parseAsString, useQueryState } from "nuqs";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
+import { useCameraFocus, useFocusIntent } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
 import { PARTICLE_COLOR_RAMP } from "./colors";
 import { expectedMwh } from "./data";
@@ -15,6 +17,7 @@ import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field";
 
 const PANEL_PADDING_PX = 452;
+const PARK_ZOOM = 9; // the park and its neighbouring county markers, readable
 const SOURCE_ID = "wind-speed";
 const LAYER_ID = "wind-speed-raster";
 // The speed PNGs bake a light → emerald ramp (scripts/windfield.py, card #92) under the particles.
@@ -205,20 +208,22 @@ export function Displaced({ offset, children }: { offset: MarkerOffset; children
 const MARKER_Z = { county: "3", park: "4" } as const;
 
 // The marker's own box stays on the real point, where it could cover a displaced neighbour, so
-// only the dot and chip take clicks; they still bubble to the marker's handler.
+// only its visible content takes clicks; they still bubble to the marker's handler. Shared with feeders.
 export const passClicksThrough = (element: HTMLElement | null) => {
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
-  if (!marker) return;
-  marker.style.pointerEvents = "none";
-  marker.style.zIndex = MARKER_Z.county;
+  if (marker) marker.style.pointerEvents = "none";
 };
 
-// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
-const raiseMarker = (element: HTMLElement | null) => {
+const stackMarker = (element: HTMLElement | null, zIndex: string) => {
   passClicksThrough(element);
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
-  if (marker) marker.style.zIndex = MARKER_Z.park;
+  if (marker) marker.style.zIndex = zIndex;
 };
+
+const countyMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.county);
+
+// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
+const raiseMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.park);
 
 // Dot on the point, chip centred below it; the chip doesn't change the marker's box.
 function MarkerPin({
@@ -285,6 +290,16 @@ export function ProductionLayers() {
   );
   const offsets = useMarkerOffsets(placed);
 
+  // Picking a park (chip or link) flies to it; empty-map click or no ?park keeps Romania (#115).
+  const [explicitPark] = useQueryState("park", parseAsString);
+  const [focusedPark, setFocusedPark] = useFocusIntent(explicitPark);
+  const focusPark = parks.find((park) => park.id === focusedPark);
+  useCameraFocus(
+    focusPark ? focusPark.id : focusedPark,
+    focusPark ? { center: [focusPark.lon, focusPark.lat], zoom: PARK_ZOOM } : null,
+    PANEL_PADDING_PX,
+  );
+
   return (
     <>
       {solarCounties.map((county) => (
@@ -293,7 +308,7 @@ export function ProductionLayers() {
             <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
               {/* Info only, not clickable: hollow dot, dashed chip and a sun so it never reads as a park. */}
               <MarkerPin
-                pinRef={passClicksThrough}
+                pinRef={countyMarker}
                 dotClassName="size-2.5 border-2 border-brand-500 bg-card"
                 chipClassName="cursor-default gap-1.5 border border-dashed border-brand-500/60 py-1 pr-2 pl-1.5 leading-tight"
                 title={`${county.county} county, rooftop solar: ${county.solarMwh.toFixed(1)} MWh next 24 h`}
@@ -317,7 +332,10 @@ export function ProductionLayers() {
             key={park.id}
             longitude={park.lon}
             latitude={park.lat}
-            onClick={() => setSelected(park.id)}
+            onClick={() => {
+              setFocusedPark(park.id);
+              void setSelected(park.id);
+            }}
           >
             <MarkerContent>
               <Displaced offset={offsets.get(park.id) ?? NO_OFFSET}>

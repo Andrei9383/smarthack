@@ -1,4 +1,4 @@
-import { Activity, Factory, Network, Wrench, type LucideIcon } from "lucide-react";
+import { Activity, Factory, LayoutDashboard, Network, Wrench, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
 import { DemandLayers } from "./demand/demand-layers";
@@ -7,10 +7,13 @@ import { FeederPanel } from "./feeders/feeder-panel";
 import { FeedersLayers } from "./feeders/feeders-layers";
 import { OmLayers } from "./om/om-layers";
 import { OmPanel } from "./om/om-panel";
+import { OverviewLayers } from "./overview/overview-layers";
+import { OverviewPanel } from "./overview/overview-panel";
 import { ProductionLayers } from "./production/production-layers";
 import { ProductionPanel } from "./production/production-panel";
 
-export const MODE_IDS = ["feeders", "om", "production", "demand"] as const;
+// Overview comes first and is the default when `?mode` is missing (#113).
+export const MODE_IDS = ["overview", "feeders", "om", "production", "demand"] as const;
 export type ModeId = (typeof MODE_IDS)[number];
 
 // Align with ModeConfig in ./types.ts when #38 merges. Layers render inside <Map>, so switching
@@ -25,6 +28,14 @@ export type ModeEntry = {
 };
 
 export const MODES: Record<ModeId, ModeEntry> = {
+  overview: {
+    label: "Overview",
+    icon: LayoutDashboard,
+    blurb: "Every asset at once: what needs attention, what the agent did, one line per mode.",
+    card: "#113",
+    Layers: OverviewLayers,
+    Panel: OverviewPanel,
+  },
   feeders: {
     label: "Feeders",
     icon: Network,

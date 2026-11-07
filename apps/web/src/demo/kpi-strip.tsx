@@ -2,18 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { CountUp } from "@/components/shell/count-up";
 import { orpc } from "@/utils/orpc";
 
 import { dayWindow, stepToTs } from "./replay";
 import { useReplayStep } from "./use-replay";
 
-// Value and unit are rendered separately so the unit can sit small and muted beside the number.
-const format = (value: number | null | undefined, digits: number) =>
-  value === null || value === undefined ? null : value.toFixed(digits);
-
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
-
-export function KpiStrip() {
+// Same query keys everywhere (top bar, inspector, Overview), so React Query fetches each once.
+export function useOverview() {
   const [step] = useReplayStep();
   const { data } = useQuery(
     orpc.manifest.getOverview.queryOptions({
@@ -22,51 +18,41 @@ export function KpiStrip() {
     }),
   );
   const { data: runs } = useQuery(orpc.manifest.getRuns.queryOptions({ input: {} }));
-  const label = runs?.[0]?.label;
+  return { data, label: runs?.[0]?.label, runId: runs?.[0]?.id };
+}
 
-  const tiles: { title: string; value: string | null; unit?: string }[] = [
-    { title: "Production today", value: format(data?.productionMwh, 0), unit: "MWh" },
-    { title: "Avg wind today", value: format(data?.avgWindKmh, 1), unit: "km/h" },
-    { title: "Park availability", value: format(data?.availabilityPct, 1), unit: "%" },
-    {
-      title: "Open work orders",
-      value: data?.activeIssues === null || data?.activeIssues === undefined ? null : String(data.activeIssues),
-    },
+type Chip = { title: string; value: number | null | undefined; digits: number; unit?: string };
+
+/** The KPI chips in the floating top bar: label above, number with a small muted unit. */
+export function KpiChips() {
+  const { data } = useOverview();
+  const chips: Chip[] = [
+    { title: "Production today", value: data?.productionMwh, digits: 0, unit: "MWh" },
+    { title: "Avg wind today", value: data?.avgWindKmh, digits: 1, unit: "km/h" },
+    { title: "Park availability", value: data?.availabilityPct, digits: 1, unit: "%" },
+    { title: "Open work orders", value: data?.activeIssues, digits: 0 },
   ];
 
   return (
-    <section className="shrink-0 border-b border-border bg-sidebar">
-      <div className="grid grid-cols-2 gap-x-6 gap-y-4 px-6 py-4 md:grid-cols-4">
-        {tiles.map(({ title, value, unit }) => (
-          <div key={title} className="min-w-0">
-            <div className="truncate text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
-              {title}
-            </div>
-            <div className="mt-1 flex items-baseline gap-1 whitespace-nowrap">
-              <span className="text-[28px] leading-9 font-semibold tracking-tight text-foreground tabular-nums">
-                {value ?? "—"}
-              </span>
-              {value !== null && unit ? (
-                <span className="text-[13px] text-muted-foreground">{unit}</span>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-      {data && data.homes + data.turbines > 0 ? (
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-6 py-2 text-xs text-text-secondary">
-          <span>
-            {plural(data.homes, "home")} on {plural(data.feeders, "feeder")} ·{" "}
-            {plural(data.turbines, "turbine")} in {plural(data.parks, "park")}
+    <div className="flex min-w-0 items-stretch overflow-x-auto px-1 [scrollbar-width:none]">
+      {chips.map(({ title, value, digits, unit }) => (
+        <div
+          key={title}
+          className="flex shrink-0 flex-col justify-center border-r border-border px-2.5 py-1.5 min-[1440px]:px-3.5 whitespace-nowrap last:border-r-0"
+        >
+          <span className="text-[10px] font-medium tracking-[0.04em] text-muted-foreground uppercase">{title}</span>
+          <span className="text-base leading-snug font-semibold text-foreground tabular-nums">
+            {value === null || value === undefined ? (
+              <span className="text-muted-foreground">—</span>
+            ) : (
+              <>
+                <CountUp value={value} digits={digits} />
+                {unit ? <span className="ml-0.5 text-xs font-normal text-muted-foreground">{unit}</span> : null}
+              </>
+            )}
           </span>
-          {label ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2 py-0.5 font-medium text-foreground">
-              <span aria-hidden className="size-1.5 rounded-full bg-status-warn" />
-              {label}
-            </span>
-          ) : null}
-        </p>
-      ) : null}
-    </section>
+        </div>
+      ))}
+    </div>
   );
 }

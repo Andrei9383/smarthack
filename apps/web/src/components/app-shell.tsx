@@ -1,136 +1,174 @@
 "use client";
 
-import { Map, MapControls } from "@sentinel-app/ui/components/map";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@sentinel-app/ui/components/sidebar";
-import { Tabs, TabsList, TabsTrigger } from "@sentinel-app/ui/components/tabs";
-import { Zap } from "lucide-react";
+import { Map, useMap } from "@sentinel-app/ui/components/map";
+import { cn } from "@sentinel-app/ui/lib/utils";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
+import { useCallback, useEffect, useState } from "react";
 
-import { DemoJumps } from "@/demo/demo-jumps";
-import { KpiStrip } from "@/demo/kpi-strip";
-import { ReplayBar } from "@/demo/replay-bar";
+import { defaultTourSteps, Tour, useTour } from "@/components/help";
+import { PROVENANCE_PILL_CLASS } from "@/components/provenance-pill";
+import { AgentToast } from "@/components/shell/agent-toast";
+import { Inspector } from "@/components/shell/inspector";
+import { LegendCard } from "@/components/shell/legend-card";
+import { ShellMapControls } from "@/components/shell/map-controls";
+import { Rail } from "@/components/shell/rail";
+import { TimelineDock } from "@/components/shell/timeline-dock";
+import { TopBar } from "@/components/shell/top-bar";
 import { SummaryCard } from "@/demo/summary-card";
-import { useBasemapStyles } from "@/demo/use-basemap";
-import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
+import { useBasemapStyles, useRomaniaFocus } from "@/demo/use-basemap";
 import { TurbineSheet } from "@/modes/om/turbine-sheet";
-import { FlexDock } from "@/panels/flex/flex-panel";
+import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
+import { FlexDock, useFlexOpen } from "@/panels/flex/flex-panel";
 import { SiteSheet } from "@/panels/site/site-sheet";
 
 const ROMANIA_CENTER: [number, number] = [25, 45.9];
+const RAIL_KEY = "sentinel.rail";
+
+// Feeders and Demand draw their own legend inside their layers; the shell moves it into the
+// prototype's legend slot (top-left, under the top bar). The other modes use the shell's LegendCard.
+const OWN_LEGEND = new Set<ModeId>(["feeders", "demand"]);
+// Written out in full: Tailwind only generates classes it can read literally in the source.
+const MOVE_MODE_LEGEND =
+  "[&_.maplibregl-map>div.pointer-events-none.bg-card]:top-[80px] [&_.maplibregl-map>div.pointer-events-none.bg-card]:left-4 [&_.maplibregl-map>div.pointer-events-none.bg-card]:bottom-auto [&_.maplibregl-map>div.pointer-events-none.bg-card]:rounded-xl [&_.maplibregl-map>div.pointer-events-none.bg-card]:bg-card/95";
+const HIDE_MODE_LEGEND = "[&_.maplibregl-map>div.pointer-events-none.bg-card]:hidden";
+
+// Inspector width and the gap the map-side surfaces (dock, map controls) keep from it.
+const INSPECTOR_W = "w-[352px] min-[1440px]:w-[392px]";
+const BESIDE_INSPECTOR = "right-[384px] min-[1440px]:right-[424px]";
+
+// Renders inside <Map> so it can style the basemap once it has loaded.
+function RomaniaFocus() {
+  useRomaniaFocus();
+  return null;
+}
+
+// The map lives right of the rail, so collapsing the rail resizes it.
+function ResizeWith({ value }: { value: unknown }) {
+  const { map } = useMap();
+  useEffect(() => {
+    if (!map) return;
+    const timers = [0, 120, 240].map((ms) => setTimeout(() => map.resize(), ms));
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [map, value]);
+  return null;
+}
+
+function useRailExpanded() {
+  const [expanded, setExpanded] = useState(true);
+  useEffect(() => {
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(RAIL_KEY);
+    } catch {
+      // Private mode or blocked storage: fall back to the width rule.
+    }
+    setExpanded(stored ? stored === "expanded" : window.matchMedia("(min-width: 1280px)").matches);
+  }, []);
+  const toggle = useCallback(() => {
+    setExpanded((value) => {
+      try {
+        window.localStorage.setItem(RAIL_KEY, value ? "collapsed" : "expanded");
+      } catch {
+        // Not persisted; the toggle still works for this visit.
+      }
+      return !value;
+    });
+  }, []);
+  return [expanded, toggle] as const;
+}
 
 export function AppShell() {
-  const [mode, setMode] = useQueryState(
-    "mode",
-    parseAsStringLiteral(MODE_IDS).withDefault("feeders"),
-  );
+  const [mode, setMode] = useQueryState("mode", parseAsStringLiteral(MODE_IDS).withDefault("overview"));
   const active = MODES[mode];
   const { Layers, Panel } = active;
   const { offline, styles } = useBasemapStyles();
+  const [railExpanded, toggleRail] = useRailExpanded();
+  const [flexOpen] = useFlexOpen();
+  const hasFlex = mode === "feeders" || mode === "om";
+  const flexShown = hasFlex && flexOpen;
+  const tour = useTour();
 
   return (
-    <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader className="h-14 flex-row items-center gap-2.5 border-b border-sidebar-border px-3 py-0 group-data-[collapsible=icon]:px-2">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Zap className="size-4" />
-          </span>
-          <span className="truncate text-sm font-semibold tracking-tight text-foreground group-data-[collapsible=icon]:hidden">
-            Prosumer Sentinel
-          </span>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup className="px-2 py-4">
-            <SidebarGroupLabel className="h-6 px-2 text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
-              Modes
-            </SidebarGroupLabel>
-            <SidebarMenu className="gap-1">
-              {MODE_IDS.map((id) => {
-                const { label, icon: Icon } = MODES[id];
-                return (
-                  <SidebarMenuItem key={id}>
-                    <SidebarMenuButton
-                      isActive={mode === id}
-                      onClick={() => setMode(id)}
-                      className="h-9 rounded-md px-2.5 text-[13px] text-text-secondary hover:bg-muted hover:text-foreground data-active:bg-brand-50 data-active:font-semibold data-active:text-brand-900 data-active:[&_svg]:text-primary"
-                    >
-                      <Icon />
-                      <span>{label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroup>
-        </SidebarContent>
-      </Sidebar>
+    <div className="flex h-svh w-full overflow-hidden bg-background text-foreground">
+      <Rail
+        mode={mode}
+        onMode={(id) => setMode(id)}
+        expanded={railExpanded}
+        onToggle={toggleRail}
+        onHelp={tour.start}
+      />
 
-      <SidebarInset className="h-svh overflow-hidden">
-        <header className="flex h-14 shrink-0 items-stretch gap-4 border-b border-border bg-background px-4">
-          <div className="flex items-center">
-            <SidebarTrigger className="rounded-md text-text-secondary hover:bg-muted hover:text-foreground" />
-          </div>
-          <span aria-hidden className="my-4 w-px bg-border" />
-          <Tabs value={mode} onValueChange={(value) => setMode(value as ModeId)} className="h-full">
-            <TabsList
-              variant="line"
-              className="gap-6 p-0 group-data-horizontal/tabs:h-full"
+      <main
+        className={cn(
+          "relative min-w-0 flex-1 overflow-hidden bg-sidebar",
+          flexShown ? HIDE_MODE_LEGEND : MOVE_MODE_LEGEND,
+        )}
+      >
+        {/* The tour's "map" target: the free map area between the floating surfaces. */}
+        <div data-tour="map" aria-hidden className="pointer-events-none absolute top-[76px] bottom-[116px] left-[208px] right-[384px] min-[1440px]:right-[424px]" />
+        {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
+        <Map
+          key={offline ? "offline" : "online"}
+          styles={styles}
+          theme="light"
+          center={ROMANIA_CENTER}
+          zoom={5.8}
+          minZoom={4}
+        >
+          <RomaniaFocus />
+          <ResizeWith value={railExpanded} />
+          <ShellMapControls className={cn("absolute bottom-[124px] z-10", BESIDE_INSPECTOR)} />
+          {Layers ? <Layers /> : null}
+        </Map>
+
+        <TopBar mode={mode} className="absolute inset-x-4 top-3 z-30 h-14" />
+
+        {!OWN_LEGEND.has(mode) && !flexShown ? (
+          <LegendCard mode={mode} className="absolute top-[80px] left-4 z-[15]" />
+        ) : null}
+
+        {/* #31/#32: the flexibility panel opens from Feeders and O&M. Closed, its button sits beside
+            the inspector; open, the panel takes the legend's column on the left. */}
+        {hasFlex ? (
+          flexShown ? (
+            <div className="absolute top-[76px] bottom-[116px] left-4 z-[16] w-[380px] max-w-[calc(100%-2rem)] [&>aside]:inset-0">
+              <FlexDock />
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "absolute top-[80px] z-[16] [&>button]:static [&>button]:h-9 [&>button]:rounded-xl",
+                BESIDE_INSPECTOR,
+              )}
             >
-              {MODE_IDS.map((id) => (
-                <TabsTrigger
-                  key={id}
-                  value={id}
-                  className="h-full flex-none px-0.5 text-sm font-medium text-text-secondary after:h-0.5 after:rounded-full after:bg-primary hover:text-foreground data-active:text-brand-700 group-data-horizontal/tabs:after:bottom-0"
-                >
-                  {MODES[id].label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </header>
+              <FlexDock />
+            </div>
+          )
+        ) : null}
 
-        <KpiStrip />
-
-        <main className="relative min-h-0 flex-1">
-          {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
-          <Map key={offline ? "offline" : "online"} styles={styles} theme="light" center={ROMANIA_CENTER} zoom={5.8} minZoom={4}>
-            <MapControls position="bottom-left" />
-            {Layers ? <Layers /> : null}
-          </Map>
+        <Inspector mode={mode} className={cn("absolute top-[76px] right-4 bottom-4 z-20", INSPECTOR_W)}>
           {Panel ? (
             <Panel />
           ) : (
-            <aside className="absolute top-4 left-4 z-10 w-80 max-w-[calc(100%-2rem)] rounded-lg border border-border bg-card p-5 shadow-card">
-              <h2 className="text-base font-semibold text-foreground">{active.label}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-text-secondary">{active.blurb}</p>
-              <p className="mt-3 text-xs text-muted-foreground">Placeholder panel, see {active.card}</p>
-            </aside>
+            <p className="px-5 py-4 text-sm leading-relaxed text-text-secondary">{active.blurb}</p>
           )}
-          {/* #31/#32: the flexibility panel opens from Feeders and O&M. */}
-          {mode === "feeders" || mode === "om" ? <FlexDock /> : null}
-          <SummaryCard />
-          {offline ? (
-            <span className="absolute bottom-4 left-16 z-10 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-text-secondary shadow-card">
-              Offline basemap
-            </span>
-          ) : null}
-        </main>
-        <ReplayBar />
-        <DemoJumps />
-        <SiteSheet />
-        <TurbineSheet />
-      </SidebarInset>
-    </SidebarProvider>
+        </Inspector>
+
+        <AgentToast className="absolute bottom-[116px] left-4 z-[25]" />
+        <TimelineDock className={cn("absolute bottom-4 left-4 z-20", BESIDE_INSPECTOR)} />
+
+        {offline ? (
+          <span className={cn(PROVENANCE_PILL_CLASS, "absolute bottom-[116px] left-4 z-10 bg-card shadow-card")}>
+            Offline basemap
+          </span>
+        ) : null}
+        <SummaryCard />
+      </main>
+      <SiteSheet />
+      <TurbineSheet />
+      <Tour steps={defaultTourSteps} open={tour.open} onOpenChange={tour.onOpenChange} />
+    </div>
   );
 }

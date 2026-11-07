@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { useSelectedSite } from "@/panels/site/use-site";
 
+import { setPaint, useCameraFocus, useFrameLoop, useMotionAllowed } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
 import { OM_COLORS, OM_STATUS_COLORS } from "./colors";
 import { useOmAssets, useWorkOrders } from "./use-om-data";
@@ -14,10 +15,15 @@ import { useFocusedPark, useSelectedTurbine } from "./use-om-state";
 const PANEL_PADDING_PX = 452; // OmPanel width + gutter
 const SOURCE = "om-assets";
 const LAYERS = {
+  // slow red ring on a stopped turbine or one with an open work order (#115)
+  pulse: "om-pulse",
   halo: "om-halo",
+  clusterRing: "om-cluster-ring",
   clusters: "om-clusters",
   count: "om-cluster-count",
   points: "om-points",
+  // invisible, larger circles so a 12px marker still has a ~28px hit area
+  hit: "om-hit",
 };
 const OK = OM_COLORS.ok;
 const ISSUE = OM_COLORS.warn;
@@ -25,6 +31,9 @@ const RISK = OM_COLORS.critical;
 const UNKNOWN = OM_COLORS.unknown;
 // light basemap: solid fills with a white ring, no glows
 const RING = OM_COLORS.ring;
+const PULSE_MS = 2400; // slow: a stopped turbine is urgent, not an alarm bell
+const TURBINE_ZOOM = 13;
+const PARK_ZOOM = 11;
 
 type AssetProps = {
   id: string;
@@ -32,6 +41,7 @@ type AssetProps = {
   status: string;
   ok: number;
   risk: number;
+  pulse: number;
 };
 
 // a turbine that is out of service is stopped, which reads red; an excluded home is just grey
@@ -68,6 +78,7 @@ export function OmLayers() {
         .map((a) => {
           const turbine = a.assetKind === "turbine";
           const ok = a.status === "eligible" ? 1 : 0;
+          const stopped = turbine && a.status === "excluded";
           return {
             type: "Feature",
             geometry: {
@@ -77,10 +88,18 @@ export function OmLayers() {
             properties: {
               id: a.id,
               kind: a.assetKind,
-              status: turbine && a.status === "excluded" ? "stopped" : a.status,
+              status: stopped ? "stopped" : a.status,
               ok,
               // the risk halo is for turbines: stopped, derated, or carrying an open work order
-              risk: turbine && (!ok || withOrder.has(a.id)) ? 1 : 0,
+              // (a turbine with no status yet is unknown, not at risk)
+              risk:
+                turbine &&
+                (a.status === "excluded" ||
+                  a.status === "derated" ||
+                  withOrder.has(a.id))
+                  ? 1
+                  : 0,
+              pulse: stopped || (turbine && withOrder.has(a.id)) ? 1 : 0,
             },
           };
         }),
@@ -97,8 +116,41 @@ export function OmLayers() {
         cluster: true,
         clusterRadius: 38,
         clusterMaxZoom: 9,
-        // a cluster turns amber as soon as one asset in it is not eligible
-        clusterProperties: { issues: ["+", ["-", 1, ["get", "ok"]]] },
+        // a cluster's ring shows the worst status inside: red for a stopped turbine, amber for a
+        // derated / in-review / excluded asset, green otherwise (an asset with no status yet adds nothing)
+        clusterProperties: {
+          issues: [
+            "+",
+            [
+              "match",
+              ["get", "status"],
+              ["derated", "human_review", "excluded"],
+              1,
+              0,
+            ],
+          ],
+          stopped: [
+            "+",
+            ["case", ["==", ["get", "status"], "stopped"], 1, 0],
+          ],
+        },
+      });
+      map.addLayer({
+        id: LAYERS.pulse,
+        type: "circle",
+        source: SOURCE,
+        filter: [
+          "all",
+          ["!", ["has", "point_count"]],
+          ["==", ["get", "pulse"], 1],
+        ],
+        paint: {
+          "circle-radius": 10,
+          "circle-opacity": 0,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": RISK,
+          "circle-stroke-opacity": 0,
+        },
       });
       map.addLayer({
         id: LAYERS.halo,
@@ -111,12 +163,41 @@ export function OmLayers() {
         ],
         // a crisp red ring with a faint fill, readable on a light basemap
         paint: {
-          "circle-radius": 12,
+          "circle-radius": 10,
           "circle-color": RISK,
-          "circle-opacity": 0.12,
-          "circle-stroke-width": 1.5,
+          "circle-opacity": 0.1,
+          "circle-stroke-width": 1.25,
           "circle-stroke-color": RISK,
-          "circle-stroke-opacity": 0.9,
+          "circle-stroke-opacity": 0.85,
+        },
+      });
+      // neutral white disc with a thin outer ring coloured by the worst status inside
+      const clusterSize = [
+        "step",
+        ["get", "point_count"],
+        13,
+        20,
+        15,
+        60,
+        17,
+      ];
+      map.addLayer({
+        id: LAYERS.clusterRing,
+        type: "circle",
+        source: SOURCE,
+        filter: ["has", "point_count"],
+        paint: {
+          "circle-radius": ["+", clusterSize, 3] as never,
+          "circle-opacity": 0,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": [
+            "case",
+            [">", ["get", "stopped"], 0],
+            RISK,
+            [">", ["get", "issues"], 0],
+            ISSUE,
+            OK,
+          ],
         },
       });
       map.addLayer({
@@ -125,11 +206,11 @@ export function OmLayers() {
         source: SOURCE,
         filter: ["has", "point_count"],
         paint: {
-          "circle-color": ["case", [">", ["get", "issues"], 0], ISSUE, OK],
+          "circle-color": OM_COLORS.card,
           "circle-opacity": 1,
-          "circle-radius": ["step", ["get", "point_count"], 12, 20, 16, 60, 21],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": RING,
+          "circle-radius": clusterSize as never,
+          "circle-stroke-width": 1,
+          "circle-stroke-color": OM_COLORS.border,
         },
       });
       map.addLayer({
@@ -139,9 +220,10 @@ export function OmLayers() {
         filter: ["has", "point_count"],
         layout: {
           "text-field": ["get", "point_count_abbreviated"],
-          "text-size": 11,
+          "text-size": 12,
+          "text-allow-overlap": true,
         },
-        paint: { "text-color": OM_COLORS.onFill },
+        paint: { "text-color": OM_COLORS.actual },
       });
       map.addLayer({
         id: LAYERS.points,
@@ -158,6 +240,17 @@ export function OmLayers() {
             1.25,
           ],
           "circle-stroke-color": RING,
+        },
+      });
+      map.addLayer({
+        id: LAYERS.hit,
+        type: "circle",
+        source: SOURCE,
+        filter: ["!", ["has", "point_count"]],
+        paint: {
+          "circle-radius": 14,
+          "circle-color": RING,
+          "circle-opacity": 0.01,
         },
       });
     }
@@ -185,16 +278,16 @@ export function OmLayers() {
     };
     const pointer = () => (map.getCanvas().style.cursor = "pointer");
     const plain = () => (map.getCanvas().style.cursor = "");
-    map.on("click", LAYERS.points, onPoint);
+    map.on("click", LAYERS.hit, onPoint);
     map.on("click", LAYERS.clusters, onCluster);
-    for (const id of [LAYERS.points, LAYERS.clusters]) {
+    for (const id of [LAYERS.hit, LAYERS.clusters]) {
       map.on("mouseenter", id, pointer);
       map.on("mouseleave", id, plain);
     }
     return () => {
-      map.off("click", LAYERS.points, onPoint);
+      map.off("click", LAYERS.hit, onPoint);
       map.off("click", LAYERS.clusters, onCluster);
-      for (const id of [LAYERS.points, LAYERS.clusters]) {
+      for (const id of [LAYERS.hit, LAYERS.clusters]) {
         map.off("mouseenter", id, pointer);
         map.off("mouseleave", id, plain);
       }
@@ -212,33 +305,52 @@ export function OmLayers() {
     (map.getSource(SOURCE) as GeoJSONSource | undefined)?.setData(geojson);
   }, [map, isLoaded, geojson]);
 
-  // demo jump 5 (?park=WP01): fly to the park so its turbines are separate, not one cluster
-  useEffect(() => {
-    if (!map || !isLoaded || !park) return;
+  // Fly to a picked turbine, or to a focused park (demo jump 5, ?park=WP01) so its turbines are
+  // separate, not one cluster; with neither, ease back to the country view (#115).
+  const [turbine] = useSelectedTurbine();
+  const focusTarget = useMemo(() => {
+    if (turbine) {
+      const feature = geojson.features.find((f) => f.properties.id === turbine);
+      return feature
+        ? { center: feature.geometry.coordinates as [number, number], zoom: TURBINE_ZOOM }
+        : null;
+    }
+    if (!park) return null;
     const turbines = geojson.features.filter((f) =>
       f.properties.id.startsWith(`${park}.`),
     );
-    if (turbines.length === 0) return;
+    if (turbines.length === 0) return null;
     const lon =
       turbines.reduce((s, f) => s + (f.geometry.coordinates[0] ?? 0), 0) /
       turbines.length;
     const lat =
       turbines.reduce((s, f) => s + (f.geometry.coordinates[1] ?? 0), 0) /
       turbines.length;
-    // after the panel-padding ease (useMapRightPadding) so it does not cancel this move
-    const timer = setTimeout(
-      () =>
-        map.flyTo({
-          center: [lon, lat],
-          zoom: 11,
-          padding: { right: PANEL_PADDING_PX },
-          duration: 800,
-        }),
-      350,
-    );
-    return () => clearTimeout(timer);
-    // only when the park changes or the first rows arrive
-  }, [map, isLoaded, park, geojson.features.length > 0]);
+    return { center: [lon, lat] as [number, number], zoom: PARK_ZOOM };
+  }, [geojson, turbine, park]);
+  useCameraFocus(
+    turbine ? `turbine:${turbine}` : park ? `park:${park}` : null,
+    focusTarget,
+    PANEL_PADDING_PX,
+  );
+
+  // Pulse rings only while something is stopped or has an open order; static under reduced motion.
+  const motion = useMotionAllowed();
+  const pulsing =
+    motion && geojson.features.some((f) => f.properties.pulse === 1);
+  useEffect(() => {
+    if (map && isLoaded && !pulsing)
+      setPaint(map, LAYERS.pulse, { "circle-stroke-opacity": 0 });
+  }, [map, isLoaded, pulsing]);
+  useFrameLoop(Boolean(map && isLoaded) && pulsing, (now) => {
+    if (!map) return;
+    const phase = (now % PULSE_MS) / PULSE_MS;
+    const eased = 1 - (1 - phase) ** 2;
+    setPaint(map, LAYERS.pulse, {
+      "circle-radius": 8 + eased * 16,
+      "circle-stroke-opacity": (1 - phase) * 0.75,
+    });
+  });
 
   return null;
 }
