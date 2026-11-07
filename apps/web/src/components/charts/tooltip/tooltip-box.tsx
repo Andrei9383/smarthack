@@ -87,16 +87,15 @@ export interface TooltipBoxProps {
 }
 
 /**
- * Popover-style panel: rounded, 1px border, soft layered shadow and a 1px
- * edge highlight (`before:`) — matches shadcn / coss popovers using only theme
- * tokens (`border`, `--radius`) and Tailwind utilities.
+ * Popover-style panel (Cockpit): 4px radius, a 1px --border-strong edge and the
+ * overlay shadow, using only theme tokens.
  */
 export const TOOLTIP_PANEL_CLASS_NAME =
-  "relative min-w-[160px] rounded-xl border not-dark:bg-clip-padding text-chart-tooltip-foreground shadow-lg/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-xl)-1px)] before:shadow-[0_1px_rgb(0_0_0/0.04)] dark:before:shadow-[0_-1px_rgb(255_255_255/0.06)]";
+  "relative min-w-[160px] rounded-md border border-border-strong bg-clip-padding text-[12px] text-chart-tooltip-foreground shadow-overlay";
 
 /** Clips content to the panel's inner radius without clipping the edge highlight. */
 export const TOOLTIP_PANEL_INNER_CLASS_NAME =
-  "overflow-hidden rounded-[calc(var(--radius-xl)-1px)]";
+  "overflow-hidden rounded-[calc(var(--radius-md)-1px)]";
 
 /** Panel scale/fade-in on show. */
 const PANEL_ENTRANCE_SPRING = {
@@ -719,4 +718,3 @@ function TooltipBoxInner({
 
 TooltipBox.displayName = "TooltipBox";
 
-export default TooltipBox;

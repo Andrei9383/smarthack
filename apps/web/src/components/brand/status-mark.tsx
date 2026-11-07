@@ -59,12 +59,12 @@ export function StatusMark({ kind, size = "sm", pulse = false, level, label, cla
       <svg viewBox="0 0 16 16" width={px} height={px} className="relative overflow-visible">
         <defs>
           <radialGradient id={dome} cx="38%" cy="30%" r="75%">
-            <stop offset="0%" stopColor="#fff" stopOpacity="0.55" />
+            <stop offset="0%" stopColor="white" stopOpacity="0.35" />
             <stop offset="45%" stopColor="currentColor" stopOpacity="1" />
             <stop offset="100%" stopColor="currentColor" stopOpacity="1" />
           </radialGradient>
           <filter id={shade} x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="0.8" stdDeviation="0.7" floodColor="currentColor" floodOpacity="0.45" />
+            <feDropShadow dx="0" dy="0.8" stdDeviation="0.7" floodColor="currentColor" floodOpacity="0.3" />
           </filter>
         </defs>
         <Shape kind={kind} dome={dome} shade={shade} level={level} />
@@ -76,14 +76,15 @@ export function StatusMark({ kind, size = "sm", pulse = false, level, label, cla
 function Shape({ kind, dome, shade, level }: { kind: StatusKind; dome: string; shade: string; level?: number }) {
   const fill = `url(#${dome})`;
   const filter = `url(#${shade})`;
-  const ring = "rgb(255 255 255 / 0.9)";
+  // The contact ring and hollow cores take the surface colour, so marks sit flat on a card in either theme.
+  const ring = "var(--card)";
   switch (kind) {
     case "ok":
     case "live":
       return (
         <g filter={filter}>
           <circle cx="8" cy="8" r="6.5" fill={fill} stroke={ring} strokeWidth="1.2" />
-          <ellipse cx="6.3" cy="5.6" rx="2.2" ry="1.3" fill="#fff" opacity="0.55" />
+          <ellipse cx="6.3" cy="5.6" rx="2.2" ry="1.3" fill="white" opacity="0.35" />
         </g>
       );
     case "warn":
@@ -96,7 +97,7 @@ function Shape({ kind, dome, shade, level }: { kind: StatusKind; dome: string; s
             strokeWidth="1.1"
             strokeLinejoin="round"
           />
-          <ellipse cx="7" cy="7" rx="1.6" ry="1" fill="#fff" opacity="0.5" />
+          <ellipse cx="7" cy="7" rx="1.6" ry="1" fill="white" opacity="0.3" />
         </g>
       );
     case "critical":
@@ -113,7 +114,7 @@ function Shape({ kind, dome, shade, level }: { kind: StatusKind; dome: string; s
             stroke={ring}
             strokeWidth="1.2"
           />
-          <ellipse cx="6.8" cy="5.8" rx="1.7" ry="1" fill="#fff" opacity="0.5" />
+          <ellipse cx="6.8" cy="5.8" rx="1.7" ry="1" fill="white" opacity="0.3" />
         </g>
       );
     case "review":
@@ -126,7 +127,7 @@ function Shape({ kind, dome, shade, level }: { kind: StatusKind; dome: string; s
             strokeWidth="1.1"
             strokeLinejoin="round"
           />
-          <circle cx="8" cy="8" r="2.3" fill="#fff" opacity="0.92" />
+          <circle cx="8" cy="8" r="2.3" fill="var(--card)" />
         </g>
       );
     case "forecast":
@@ -138,13 +139,13 @@ function Shape({ kind, dome, shade, level }: { kind: StatusKind; dome: string; s
       const h = 9 * l;
       return (
         <g filter={filter}>
-          <rect x="4.5" y="2.6" width="7" height="12" rx="2" fill="#fff" stroke="currentColor" strokeWidth="1.3" />
+          <rect x="4.5" y="2.6" width="7" height="12" rx="2" fill="var(--card)" stroke="currentColor" strokeWidth="1.3" />
           <rect x="6.5" y="1" width="3" height="1.8" rx="0.6" fill="currentColor" />
           <rect x="6" y={13.1 - h} width="4" height={h} rx="0.8" fill={fill} />
         </g>
       );
     }
     case "unknown":
-      return <circle cx="8" cy="8" r="5.6" fill="#fff" stroke="currentColor" strokeWidth="2" />;
+      return <circle cx="8" cy="8" r="5.6" fill="var(--card)" stroke="currentColor" strokeWidth="2" />;
   }
 }

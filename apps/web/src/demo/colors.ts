@@ -1,10 +1,16 @@
 // Raw basemap colours for MapLibre paint properties, which can't read CSS variables.
-// Mirrors team/contracts/ui-style.md §1: Romania reads as the subject, neighbours recede.
-export const BASEMAP = {
-  sea: "#e6eef2",
-  land: "#ffffff", // Romania
-  neighbour: "#f2f3f5",
-  border: "#c9ced4", // other country borders
-  focusBorder: "#b8bec6", // Romania's border
-  county: "#dde1e5",
-} as const;
+// Mirrors team/contracts/ui-style.md §1: Romania reads as the subject, neighbours recede. One set per theme
+// (CARTO Positron in light, dark-matter in dark); the RGB source is apps/web/src/lib/palette.ts.
+import { hex, paletteFor, type ThemeName } from "@/lib/palette";
+
+export function basemapFor(theme: ThemeName) {
+  const palette = paletteFor(theme);
+  return {
+    sea: hex(palette.mapSea),
+    land: hex(palette.mapLand), // Romania
+    neighbour: hex(palette.mapNeighbour),
+    border: hex(palette.mapBorder), // other country borders
+    focusBorder: hex(palette.mapFocusBorder), // Romania's border
+    county: hex(palette.mapCounty),
+  } as const;
+}

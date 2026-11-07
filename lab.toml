@@ -33,6 +33,17 @@ needs   = "gpu"
 gpu_mem = "4G"                      # only GPUs with this much memory take it (lab status lists them)
 timeout = "2h"
 
+# Judge (#148): replays 12 + 12 weeks in a process pool (about 6 min per year on rtx5070, cached under
+# ~/.cache/sentinel/judge_rows keyed by code + config), then LightGBM per family on CPU (the OpenCL GPU build was
+# 0.3-0.6x the speed of 20 CPU threads in train#861/#908). No torch. 12G pins it to rtx5070 (31 GB RAM; the 16 GB
+# server cannot hold 4 week processes next to its other runs). `lab submit <card> --run judge`.
+[runs.judge]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
+cmd     = "sh rust/build.sh status && .venv/bin/python train.py --model judge --bench-device --device auto"
+needs   = "gpu"
+gpu_mem = "12G"
+timeout = "1h"
+
 [runs.train_cpu]
 setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
 cmd     = "sh rust/build.sh status && .venv/bin/python train.py --model ${MODEL:-demandnet}"   # demandnet | windpower | windfailure | gridtwin
@@ -57,6 +68,15 @@ cmd     = "sh rust/build.sh status && .venv/bin/python eval.py"         # scores
 needs   = "gpu"
 gpu_mem = "4G"
 timeout = "30m"
+
+# Imbalance replay (I6 #176, spec I step 8): profile / persistence / forecast_only / sentinel (+ sentinel_id) on the
+# 2025 test year -> $LAB_OUTPUT_DIR/imbalance.sqlite + parquet + LAB_METRIC avoidable_cost_lei etc. needs gpu = the
+# workers that hold the #10 window cache (the server OOMs building it).
+[runs.imbalance]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
+cmd     = "sh rust/build.sh status && .venv/bin/python replay.py --mode imbalance --out $LAB_OUTPUT_DIR/imbalance.sqlite"
+needs   = "gpu"
+timeout = "1h"
 
 # Rust kernels (#48, team/infra.md §4). Not in `submit`/`check`: merges never depend on cargo. The setup uses
 # cargo if present, else installs rustup into $HOME/.cargo; it prints the toolchain + build time (worker probe)

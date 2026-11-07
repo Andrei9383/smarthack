@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 
 import { StatusMark } from "@/components/brand/status-mark";
 import { useBasemapStyles, useRomaniaFocus } from "@/demo/use-basemap";
+import { useMapTheme } from "@/lib/palette";
 
 import { OverviewLayers } from "./overview-layers";
 
@@ -23,11 +24,12 @@ function RomaniaFocus() {
  */
 export function MiniMap({ onOpen, className }: { onOpen: () => void; className?: string }) {
   const { offline, styles } = useBasemapStyles();
+  const mapTheme = useMapTheme();
   return (
     <section
       aria-label="Map of Romania with every asset"
       data-tour="map"
-      className={cn("relative flex flex-col overflow-hidden rounded-2xl bg-card shadow-floating", className)}
+      className={cn("relative flex flex-col overflow-hidden rounded-lg border border-border bg-card", className)}
     >
       <header className="flex items-baseline justify-between gap-3 px-4 pt-3 pb-2">
         <h2 className="text-[13px] font-semibold text-foreground">Romania, every asset</h2>
@@ -42,9 +44,9 @@ export function MiniMap({ onOpen, className }: { onOpen: () => void; className?:
       </header>
       <div className="relative min-h-0 flex-1 [&_.maplibregl-ctrl-attrib]:scale-90">
         <Map
-          key={offline ? "offline" : "online"}
+          key={`${offline ? "offline" : "online"}-${mapTheme}`}
           styles={styles}
-          theme="light"
+          theme={mapTheme}
           center={ROMANIA_CENTER}
           zoom={5}
           minZoom={4}

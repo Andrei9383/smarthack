@@ -27,8 +27,3 @@ export function formatKpiParts(kpi: Kpi): { number: string; unit: string } {
   return { number, unit };
 }
 
-export function formatKpi(kpi: Kpi): string {
-  const { number, unit } = formatKpiParts(kpi);
-  if (unit === "%") return `${number}%`;
-  return unit ? `${number} ${unit}` : number;
-}
