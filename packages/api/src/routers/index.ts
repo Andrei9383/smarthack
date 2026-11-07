@@ -5,6 +5,7 @@ import { auditRouter } from "./audit";
 import { demandRouter } from "./demand";
 import { feedersRouter } from "./feeders";
 import { flexRouter } from "./flex";
+import { imbalanceRouter } from "./imbalance";
 import { judgeRouter } from "./judge";
 import { manifestRouter } from "./manifest";
 import { notifyRouter } from "./notify";
@@ -18,6 +19,7 @@ export const appRouter = {
   manifest: manifestRouter,
   production: productionRouter,
   flex: flexRouter,
+  imbalance: imbalanceRouter,
   sites: sitesRouter,
   om: omRouter,
   audit: auditRouter,

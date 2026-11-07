@@ -2,6 +2,7 @@
 import { implement } from "@orpc/server";
 import type { Database } from "@sentinel-app/db";
 import {
+  assetColumns,
   assets,
   assetSteps,
   feederCurves,
@@ -61,7 +62,7 @@ async function buildNotice(db: Database, feederId: string, day: DayInput): Promi
   if (!feeder) return null;
   const runIds = await currentRunIds(db, day.runId);
   const homes = await db
-    .select()
+    .select(assetColumns)
     .from(assets)
     .where(and(eq(assets.assetKind, "prosumer"), eq(assets.feederId, feederId)))
     .orderBy(asc(assets.id));

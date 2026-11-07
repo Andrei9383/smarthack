@@ -1,3 +1,4 @@
+import { getTableColumns } from "drizzle-orm";
 import {
   index,
   integer,
@@ -85,6 +86,8 @@ export const assets = sqliteTable(
     batteryKwh: real("battery_kwh"),
     batteryKw: real("battery_kw"),
     comfortReserveKwh: real("comfort_reserve_kwh"),
+    contract: text("contract"), // standard | maxcontrol (I2 #172 prosumers_v2 homes)
+    meter: text("meter"), // smart | profile
     recordedKwp: real("recorded_kwp"), // what the GIS says
     trueKwp: real("true_kwp"), // what M8 / grid-twin estimates
     recordedTiltDeg: real("recorded_tilt_deg"),
@@ -102,6 +105,11 @@ export const assets = sqliteTable(
     index("assets_county_idx").on(table.county),
   ],
 );
+
+// The assets columns without the I7 additions (#177): `select(assetColumns)` keeps reading DBs replayed before
+// contract/meter existed (demo/sentinel.sqlite), where `select()` would ask for missing columns.
+const { contract: _contract, meter: _meter, ...assetColumns } = getTableColumns(assets);
+export { assetColumns };
 
 // ---------------------------------------------------------------- telemetry & actuals
 

@@ -2,6 +2,7 @@
 // Shapes come from contract/sites.ts. getStatuses, getSchedule and getWorkOrders are additions
 // the site drawer needs that the contract does not cover yet (noted on #31).
 import {
+  assetColumns,
   assets,
   assetSteps,
   measurements,
@@ -99,7 +100,7 @@ export const sitesRouter = {
     .handler(async ({ input, context: { db } }) => {
       const runId = await resolveRunId(db, input.runId);
       const [asset] = await emptyIfNoTables(() =>
-        db.select().from(assets).where(eq(assets.id, input.assetId)).limit(1),
+        db.select(assetColumns).from(assets).where(eq(assets.id, input.assetId)).limit(1),
       );
       if (!asset)
         throw new ORPCError("NOT_FOUND", {

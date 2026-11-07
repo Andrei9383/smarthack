@@ -3,6 +3,7 @@ import { auditContract } from "./audit";
 import { demandContract } from "./demand";
 import { feedersContract } from "./feeders";
 import { flexContract } from "./flex";
+import { imbalanceContract } from "./imbalance";
 import { manifestContract } from "./manifest";
 import { notifyContract } from "./notify";
 import { omContract } from "./om";
@@ -13,6 +14,7 @@ export * from "./audit";
 export * from "./demand";
 export * from "./feeders";
 export * from "./flex";
+export * from "./imbalance";
 export * from "./manifest";
 export * from "./notify";
 export * from "./om";
@@ -25,6 +27,7 @@ export const appContract = {
   production: productionContract,
   demand: demandContract,
   flex: flexContract,
+  imbalance: imbalanceContract,
   sites: sitesContract,
   audit: auditContract,
   manifest: manifestContract,
