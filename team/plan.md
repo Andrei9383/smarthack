@@ -271,7 +271,8 @@ a new config, not a new page. The mode lives in the URL (`?mode=feeders`), so a 
   registry (line/area bands, scatter for power curves, gauges); shadcn charts (Recharts) as fallback · mapcn
   (`@mapcn`, MapLibre GL) · maplibre-gl-wind + deck.gl for particles · TanStack Table · nuqs (`?mode=`, `?t=`,
   selected asset) · Turf.js · sonner, motion, lucide. next-intl RO/EN is OPTIONAL.
-- Look: WindMon's dashboard is the visual reference (dark theme, KPI strip on top: production MWh, avg wind,
+- Look: PPC-style light theme with emerald green instead of PPC blue; spec in `team/contracts/ui-style.md` (#83).
+  Layout still follows WindMon's dashboard (KPI strip on top: production MWh, avg wind,
   availability, active issues; map in the centre; detail drawer; reports). Open its frontend before inventing a
   layout; its code is not ported (Vite, not Next).
 - Roles: a role switcher sets the default mode (network operator → Feeders, wind O&M → O&M, trader → Production,
@@ -485,7 +486,7 @@ per-turbine baselines, no power-curve analysis, no trend detection, no suppressi
 
 - **Reuse**: the PPC SCADA schema from its data dictionary (§3.4); its six quality rules and OK / DEGRADED /
   SUSPECT flags (#22); its four anomaly rules as the wind baseline (#24); deduplicated anomalies table and the
-  TSO-style daily park report idea; its dashboard layout as the visual reference (§3.8).
+  TSO-style daily park report idea; its dashboard layout as the layout reference (§3.8; colours/theme now follow `team/contracts/ui-style.md`).
 - **Not reused**: its code (Vite React, Spring Boot, Postgres, Redis, Grafana, DeepSeek). Python rules are re-written
   on polars; if any file is copied, copy files only, never its git history (it holds AWS and DeepSeek keys).
 - **Credit** in the README and slides as prior work; models, data pipeline, LP, agent and app are built in these 24 h.
