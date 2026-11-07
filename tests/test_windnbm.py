@@ -196,3 +196,26 @@ def test_train_export_predict_end_to_end(tmp_path):
     p.validate()
     assert p.model == "windnbm" and p.horizon == 96 and p.anomaly_class in CLASSES
     assert p.ood_score >= 0 and p.member_std >= 0
+
+
+def test_label_free_normal_selection_beats_base_rate():
+    """#70: telemetry-only normal selection is cleaner than taking every step, and never peeks at the labels."""
+    from sentinel.model.wind.features import density_inputs
+    from sentinel.model.wind.normal_select import select_normal, selection_quality
+
+    d = generate(SynthConfig(days=120, scale=0.12))
+    vn, vm, _ = density_inputs(d.sensors, d.meteo, d.weather["pressure_hpa"][:, d.park_of])
+    fit = np.zeros(d.n_steps, dtype=bool)
+    fit[: int(0.7 * d.n_steps)] = True
+    power_ok, temp_ok = select_normal(d.sensors, d.err, d.rated_kw, vn, vm, fit, d.meteo["wdir_deg"])
+    assert power_ok.shape == temp_ok.shape == d.labels.shape
+    q = selection_quality(power_ok, d.labels)
+    assert q["precision"] > (d.labels == 0).mean() + 0.05
+    assert q["recall"] > 0.7
+    assert q["kept_data_gap"] == 0.0
+    assert q["kept_curtailment"] < 0.15
+    # same telemetry, scrambled labels -> same selection (labels are diagnostics only)
+    d2 = generate(SynthConfig(days=120, scale=0.12))
+    d2.labels[:] = 0
+    p2, _ = select_normal(d2.sensors, d2.err, d2.rated_kw, vn, vm, fit, d2.meteo["wdir_deg"])
+    np.testing.assert_array_equal(power_ok, p2)
