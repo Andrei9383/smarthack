@@ -1,8 +1,12 @@
 import { Activity, Factory, Network, Wrench, type LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 
+import { DemandLayers } from "./demand/demand-layers";
+import { DemandPanel } from "./demand/demand-panel";
 import { FeederPanel } from "./feeders/feeder-panel";
 import { FeedersLayers } from "./feeders/feeders-layers";
+import { OmLayers } from "./om/om-layers";
+import { OmPanel } from "./om/om-panel";
 import { ProductionLayers } from "./production/production-layers";
 import { ProductionPanel } from "./production/production-panel";
 
@@ -34,6 +38,8 @@ export const MODES: Record<ModeId, ModeEntry> = {
     icon: Wrench,
     blurb: "Sites and turbines by status, alert and work-order queues.",
     card: "#32",
+    Layers: OmLayers,
+    Panel: OmPanel,
   },
   production: {
     label: "Production",
@@ -48,5 +54,7 @@ export const MODES: Record<ModeId, ModeEntry> = {
     icon: Activity,
     blurb: "Zones by peak-stress score, peak hour and MW.",
     card: "#40",
+    Layers: DemandLayers,
+    Panel: DemandPanel,
   },
 };

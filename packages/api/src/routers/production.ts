@@ -1,32 +1,14 @@
 import { implement } from "@orpc/server";
-import type { Database } from "@sentinel-app/db";
-import { assets, assetSteps, parkForecasts, parks, runs } from "@sentinel-app/db/schema/sentinel";
-import { and, asc, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import { assets, assetSteps, parkForecasts, parks } from "@sentinel-app/db/schema/sentinel";
+import { and, asc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 
 import type { Context } from "../context";
 import { productionContract } from "../contract/production";
+import { emptyIfNoTables, latestRunWith } from "./runs";
 
 const os = implement(productionContract).$context<Context>();
 
 const STEP_HOURS = 0.25;
-
-// A clean checkout runs on an empty in-memory DB (env.server.ts): no rows, not an error.
-async function hasSchema(db: Database) {
-  const rows = await db.all(sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runs'`);
-  return rows.length > 0;
-}
-
-// Replay writes shared inputs into only one of its per-policy runs, so ask per table.
-async function latestRunWith(db: Database, table: typeof parkForecasts | typeof assetSteps) {
-  if (!(await hasSchema(db))) return null;
-  const [run] = await db
-    .select({ runId: runs.id, label: runs.label })
-    .from(runs)
-    .where(sql`EXISTS (SELECT 1 FROM ${table} WHERE ${table.runId} = ${runs.id})`)
-    .orderBy(desc(runs.createdAt))
-    .limit(1);
-  return run ?? null;
-}
 
 function inWindow(ts: typeof assetSteps.ts | typeof parkForecasts.ts, from?: string, to?: string) {
   const bounds: SQL[] = [];
@@ -39,8 +21,7 @@ export const productionRouter = os.router({
   getRun: os.getRun.handler(({ context }) => latestRunWith(context.db, parkForecasts)),
 
   listParks: os.listParks.handler(async ({ context }) => {
-    if (!(await hasSchema(context.db))) return [];
-    return context.db.select().from(parks).orderBy(asc(parks.id));
+    return emptyIfNoTables(() => context.db.select().from(parks).orderBy(asc(parks.id)));
   }),
 
   getParkForecasts: os.getParkForecasts.handler(async ({ context, input }) => {

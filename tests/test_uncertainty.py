@@ -22,6 +22,7 @@ from sentinel.eval.uncertainty import (
 )
 from sentinel.eval.uncertainty.conformal import Z90, quantile_at
 from sentinel.eval.uncertainty.demo import make_feeder, mock_members, rule_schedule, run
+import sentinel.opt.commit as commit_mod
 from sentinel.opt.commit import (
     battery_params,
     commit,
@@ -254,6 +255,41 @@ def test_p10_hit_rate_on_same_distribution(feeder_day):
                  f.batteries, f.soc0)
     assert len(c1.realised) == DAY_STEPS
     assert c1.hit_rate() == pytest.approx(hit_stats(c1)["p10_hit_rate"])
+
+
+def _deliverable_ref(sched, soc0, specs, pv, load):
+    """The pre-#77 _deliverable: numpy rollout / rollout_baseline directly."""
+    _, _, x_plan = rollout(sched, soc0, battery_params(specs, respect_reserve=True), pv, load)
+    _, _, x_base = rollout_baseline(soc0, battery_params(specs, respect_reserve=False), pv, load)
+    return (x_base - x_plan).sum(axis=-2)
+
+
+@pytest.mark.parametrize("mode", ["python", "auto"])
+def test_deliverable_kernel_matches_numpy_rollout(feeder_day, monkeypatch, mode):
+    monkeypatch.setenv("SENTINEL_KERNELS", mode)
+    f, pv, ld = feeder_day
+    cap = {s["site_id"]: s["kwp_true"] for s in f.sites}
+    sc = make_scenarios(pv, ld, n=64, seed=7, pv_cap=cap, batteries=f.batteries, soc0=f.soc0)
+    sched_map = rule_schedule(sc.site_ids, sc.pv_p50, sc.load_p50, f.batteries, f.soc0, T0)
+    ids = list(sc.site_ids)
+    sched = np.array([sched_map[s] for s in ids], dtype=float)
+    specs = [f.batteries.get(s) for s in ids]
+    specs[0] = None  # a site without a battery
+    specs[1] = BatterySpec(capacity_kwh=0.0, p_max_kw=0.0)  # and a zero-capacity one
+    s0 = np.array([float(f.soc0.get(s, 0.5)) for s in ids])
+    rng = np.random.default_rng(3)
+    wild = rng.uniform(-8, 8, sched.shape)  # infeasible requests exercise every clip
+    for req in (sched, wild):
+        for pv_x, ld_x in ((sc.pv, sc.load), (sc.pv_p50, sc.load_p50), (sc.pv[:5], sc.load_p50)):
+            got = commit_mod._deliverable(req, s0, specs, pv_x, ld_x)
+            ref = _deliverable_ref(req, s0, specs, pv_x, ld_x)
+            assert got.shape == ref.shape == pv_x.shape[:-2] + (DAY_STEPS,)
+            assert np.array_equal(got, ref)
+    # per-scenario requests and soc0 (the general (N, S, T) path)
+    req3 = rng.uniform(-6, 6, sc.pv[:5].shape)
+    s03 = rng.uniform(0.1, 0.9, (5, len(ids)))
+    assert np.array_equal(commit_mod._deliverable(req3, s03, specs, sc.pv[:5], sc.load[:5]),
+                          _deliverable_ref(req3, s03, specs, sc.pv[:5], sc.load[:5]))
 
 
 # --- end to end ----------------------------------------------------------------------------------------------
