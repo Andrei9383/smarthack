@@ -365,4 +365,3 @@ export function Band({
 
 Band.displayName = "Band";
 
-export default Band;
