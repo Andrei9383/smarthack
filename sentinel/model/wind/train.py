@@ -46,6 +46,7 @@ from .features import (
     run_nbm,
 )
 from .metrics import event_metrics, step_confusion
+from .normal_select import select_normal, selection_quality
 from .synth import SynthConfig
 from .windmon_rules import RULES, raw_alert_count, windmon_classes, windmon_flags
 
@@ -118,6 +119,8 @@ def parse_args(argv):
     ap.add_argument("--clf-lr", type=float, default=0.05)
     ap.add_argument("--clf-normal", type=int, default=300_000, help="normal rows sampled for the classifier")
     ap.add_argument("--clf-per-class", type=int, default=80_000)
+    ap.add_argument("--normal-select", choices=("labels", "label_free"), default="labels",
+                    help="how NBM training picks 'normal' steps: injector labels (optimistic) or telemetry only (#70)")
     ap.add_argument("--no-eval-seen", action="store_true")
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default=None)
@@ -144,7 +147,7 @@ def main(argv: list[str] | None = None) -> None:
     dev = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     use_amp = dev.type == "cuda" and torch.cuda.is_bf16_supported()
     run_id = os.environ.get("LAB_RUN_ID") or os.environ.get("LAB_RUN") or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    version = f"windnbm-r{run_id}"
+    version = f"windnbm-r{run_id}" + ("-lf" if args.normal_select == "label_free" else "")
     print(f"[windnbm] device={dev} bf16={use_amp} out={out} version={version}", flush=True)
 
     # --- data -------------------------------------------------------------------------------------------------
@@ -156,13 +159,32 @@ def main(argv: list[str] | None = None) -> None:
         rated = data.rated_kw.astype(np.float64)
         is_large = (rated >= 4000).astype(np.float32)
         pres_turb = data.weather["pressure_hpa"][:, park_of]
+    label = LABEL + (" (stand-in)" if data.source.startswith("synth") else "")  # until #22 lands
     if data.labels is None:
         raise SystemExit("no labels in the wind data (fault_labels missing): cannot train/evaluate M6")
     print(f"[windnbm] {len(data.turbines)} turbines, {data.n_steps} steps, source={data.source}; splits {sp.describe()}")
     N, T = len(data.turbines), data.n_steps
 
     with run.stage("windows"):
-        X, Y, M = nbm_inputs(data.sensors, data.meteo, pres_turb, data.ts, rated, is_large, labels=data.labels)
+        label_free = args.normal_select == "label_free"
+        X, Y, M = nbm_inputs(data.sensors, data.meteo, pres_turb, data.ts, rated, is_large, labels=data.labels,
+                             train_mask_labels=not label_free)
+        sel_quality = None
+        if label_free:
+            # #70: real SCADA has no labels, so pick normal steps from telemetry alone (labels only for diagnostics)
+            v_nac = np.where(X[..., 1] > 0, X[..., 0] * V_SCALE, np.nan).T
+            v_met = np.where(X[..., 3] > 0, X[..., 2] * V_SCALE, np.nan).T
+            power_ok, temp_ok = select_normal(data.sensors, data.err, rated, v_nac, v_met, sp.train_t,
+                                              data.meteo.get("wdir_deg"))
+            M[..., 0] &= power_ok.T
+            M[..., 1:] &= temp_ok.T[..., None]
+            where = np.zeros_like(power_ok)
+            where[np.ix_(sp.train_t, sp.train_turbines)] = True
+            sel_quality = selection_quality(power_ok, data.labels, where)
+            for k, v in sel_quality.items():
+                run.emit(f"normal_sel_{k}", v)
+            del v_nac, v_met
+        run.emit("normal_label_free", float(label_free))
         emb_idx = np.zeros(N, dtype=np.int64)
         emb_idx[sp.train_turbines] = np.arange(1, len(sp.train_turbines) + 1)
         L, warm = args.seq_len, args.warm
@@ -274,9 +296,13 @@ def main(argv: list[str] | None = None) -> None:
 
     # NBM quality on validation (seen turbines, unseen time; normal steps) and on the held-out park (test year)
     y = data.sensors["act_pwt"] / rated[None]
-    normal = (data.labels == 0) & np.isfinite(y)
+    normal = (data.labels == 0) & np.isfinite(y)  # truth, for the reported metrics only
     vm = normal & sp.val_t[:, None]
     vm[:, sp.holdout_turbines] = False
+    # what training-side calibration may use: label-free mode never sees the labels
+    fit_normal = (power_ok & np.isfinite(y)) if label_free else normal
+    vm_fit = fit_normal & sp.val_t[:, None]
+    vm_fit[:, sp.holdout_turbines] = False
     err50 = np.abs(y - pq[..., 1])
     run.emit("val_nmae_wind", float(err50[vm].mean()))
     taus = np.array([0.1, 0.5, 0.9])
@@ -295,15 +321,15 @@ def main(argv: list[str] | None = None) -> None:
         tmae.append(float(e[ok].mean()))
     run.emit("val_temp_mae_c", float(np.mean(tmae)))
     # conformal-style additive offsets for the power interval (validation, normal steps)
-    o10 = float(np.quantile((y - pq[..., 0])[vm], 0.1))
-    o90 = float(np.quantile((y - pq[..., 2])[vm], 0.9))
+    o10 = float(np.quantile((y - pq[..., 0])[vm_fit], 0.1))
+    o90 = float(np.quantile((y - pq[..., 2])[vm_fit], 0.9))
     cal_cover = ((y >= pq[..., 0] + o10) & (y <= pq[..., 2] + o90))[hm].mean()
     run.emit("test_coverage_wind_holdout_cal", float(cal_cover))
     ranges = input_ranges(X[sp.train_turbines][:, sp.train_t])
     ood = ood_steps(X, ranges).T  # [T, N]
     vn_met = X[..., 2].T * V_SCALE
     met_curve = fit_met_curve(vn_met[:, sp.train_turbines][sp.train_t], y[:, sp.train_turbines][sp.train_t],
-                              is_large[sp.train_turbines], normal[:, sp.train_turbines][sp.train_t])
+                              is_large[sp.train_turbines], fit_normal[:, sp.train_turbines][sp.train_t])
     del X, Y, M
 
     # --- classifier features ----------------------------------------------------------------------------------
@@ -510,12 +536,12 @@ def main(argv: list[str] | None = None) -> None:
         booster.save_model(str(out / "windnbm_clf.txt"), num_iteration=booster.best_iteration)
         torch.save({"state_dict": model_cpu.state_dict(), "args": vars(args)}, out / "windnbm.pt")
 
-        vm_ = vm  # validation thresholds for the qualify step (#26/#27)
+        vm_ = vm_fit  # validation thresholds for the qualify step (#26/#27)
         width = (pq[..., 2] - pq[..., 0])[vm_]
         calib = {
             "model": "windnbm",
             "model_version": version,
-            "label": LABEL,
+            "label": label,
             "quantile_offsets": {"all": {"q10": o10, "q90": o90, "unit": "fraction of rated_kw"}},
             "thresholds": {
                 "ood": float(np.quantile(ood[sp.val_t][:, sp.train_turbines], 0.99)),
@@ -544,8 +570,11 @@ def main(argv: list[str] | None = None) -> None:
         report = {
             "model": "windnbm",
             "model_version": version,
-            "label": LABEL,
+            "label": label,
             "data_source": data.source,
+            "normal_select": {"mode": args.normal_select, "quality_on_train": sel_quality,
+                              "note": "the LightGBM classifier and threshold tuning still use labels (supervised); "
+                                      "label_free only changes what the NBM and its calibration treat as normal"},
             "splits": sp.describe(),
             "eval_scope": f"held-out park {sp.holdout_park}, test year {sp.test_year}",
             "definitions": __import__("sentinel.model.wind.metrics", fromlist=["x"]).__doc__,
