@@ -1,6 +1,6 @@
 import type { Database } from "@sentinel-app/db";
-import { runs } from "@sentinel-app/db/schema/sentinel";
-import { desc } from "drizzle-orm";
+import { assetSteps, parkForecasts, runs, zoneDemand } from "@sentinel-app/db/schema/sentinel";
+import { desc, sql } from "drizzle-orm";
 
 // An empty DB (clean checkout, no fixtures yet) has no tables: the app shows no data, not an error.
 export async function emptyIfNoTables<T>(query: () => Promise<T[]>): Promise<T[]> {
@@ -27,4 +27,20 @@ export async function currentRunIds(db: Database, runId?: string): Promise<strin
     if (!newest.has(key)) newest.set(key, row.id);
   }
   return [...newest.values()];
+}
+
+// Replay writes shared inputs into only one of its per-policy runs, so ask per table.
+export async function latestRunWith(
+  db: Database,
+  table: typeof parkForecasts | typeof assetSteps | typeof zoneDemand,
+) {
+  const [run] = await emptyIfNoTables(() =>
+    db
+      .select({ runId: runs.id, label: runs.label })
+      .from(runs)
+      .where(sql`EXISTS (SELECT 1 FROM ${table} WHERE ${table.runId} = ${runs.id})`)
+      .orderBy(desc(runs.createdAt))
+      .limit(1),
+  );
+  return run ?? null;
 }
