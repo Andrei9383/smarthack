@@ -17,6 +17,10 @@ export const auditLogItemSchema = z.object({
   modelVersion: z.string().nullable().optional(),
   committedKw: z.number().nullable().optional(),
   realisedKw: z.number().nullable().optional(),
+  // #32: the audit trail shows what the decision was based on
+  inputHash: z.string().nullable().optional(),
+  predictionJson: z.string().nullable().optional(),
+  threshold: z.number().nullable().optional(),
 });
 export type AuditLogItem = z.infer<typeof auditLogItemSchema>;
 
@@ -30,6 +34,7 @@ export const auditContract = {
           actionType: z.string().optional(),
           actionId: z.string().optional(),
           limit: z.number().optional(),
+          until: z.string().optional(),
         })
         .optional(),
     )

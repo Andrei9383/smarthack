@@ -11,6 +11,12 @@ export const assetListItemSchema = z.object({
   county: z.string(),
   locality: z.string().nullable().optional(),
   gisTrust: z.enum(["ok", "low"]).nullable().optional(),
+  // #32: the O&M map needs a position and an owner for every marker
+  lat: z.number().optional(),
+  lon: z.number().optional(),
+  feederId: z.string().nullable().optional(),
+  parkId: z.string().nullable().optional(),
+  ratedKw: z.number().optional(),
 });
 export type AssetListItem = z.infer<typeof assetListItemSchema>;
 
@@ -54,6 +60,9 @@ export type WorkOrderItem = z.infer<typeof workOrderItemSchema>;
 export const turbineDrawerSchema = z.object({
   assetId: z.string(),
   name: z.string(),
+  parkId: z.string().nullable().optional(),
+  ratedKw: z.number().nullable().optional(),
+  turbineModel: z.string().nullable().optional(),
   powerCurve: z.array(
     z.object({
       wdSpdKmh: z.number(),
@@ -64,6 +73,7 @@ export const turbineDrawerSchema = z.object({
   tempTrends: z.array(
     z.object({
       ts: z.string(),
+      ambientTempC: z.number().nullable().optional(), // #32: residual = component - ambient
       convTempC: z.number().nullable().optional(),
       gearboxTempC: z.number().nullable().optional(),
       genTempC: z.number().nullable().optional(),
@@ -81,6 +91,8 @@ export const parkReportItemSchema = z.object({
   expectedMwh: z.number().nullable().optional(),
   availabilityPct: z.number().nullable().optional(),
   curtailedMwh: z.number().nullable().optional(),
+  dataQualityPct: z.number().nullable().optional(),
+  issuesJson: z.string().nullable().optional(),
 });
 export type ParkReportItem = z.infer<typeof parkReportItemSchema>;
 
@@ -104,6 +116,7 @@ export const omContract = {
           status: z.string().optional(),
           assetKind: z.string().optional(),
           runId: z.string().optional(),
+          at: z.string().optional(), // status as of this ts (default: newest step)
         })
         .optional(),
     )
@@ -114,6 +127,8 @@ export const omContract = {
         .object({
           runId: z.string().optional(),
           severity: z.string().optional(),
+          parkId: z.string().optional(),
+          until: z.string().optional(), // only rows with ts <= until
         })
         .optional(),
     )
@@ -124,6 +139,9 @@ export const omContract = {
         .object({
           runId: z.string().optional(),
           status: z.string().optional(),
+          crewType: z.string().optional(),
+          assetId: z.string().optional(),
+          until: z.string().optional(),
         })
         .optional(),
     )
@@ -134,6 +152,7 @@ export const omContract = {
         .object({
           runId: z.string().optional(),
           resolved: z.boolean().optional(),
+          until: z.string().optional(),
         })
         .optional(),
     )

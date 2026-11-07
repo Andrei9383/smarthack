@@ -638,11 +638,11 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
             steps.append((RUN_ID, tid, ts, ts_["power"][g], q10, q50, q90))
             age = 60.0
             if anomaly == "fault_stop":
-                st, hf, reason, age = "excluded", 0.0, "sensor_fault", 900.0
+                st, hf, reason, age = "excluded", 0.0, "fault_stop", 900.0
             elif anomaly == "curtailment":
                 st, hf, reason = "eligible", 1.0, "curtailment"
             elif anomaly == "overheating":
-                st, hf, reason = "derated", 0.9, "ok"
+                st, hf, reason = "derated", 0.9, "overheating"
             else:
                 st, hf, reason = "eligible", 1.0, "ok"
             stats.append((RUN_ID, tid, ts, st, hf, reason, age))
@@ -792,9 +792,13 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                 issues.append({"asset_id": "WP02.T07", "code": "anemometer_fault"})
             if pid == "WP03" and d >= 4:
                 issues.append({"asset_id": DRIFT_TURBINE, "code": "overheating"})
+            # time-based availability: share of turbine-steps not stopped by a fault
+            up = sum(1 for tid in tids for g in range(lo, hi)
+                     if not (tseries[tid]["fault_from"] is not None and g >= tseries[tid]["fault_from"]))
+            rng.uniform(94.0, 100.0)    # keep the draw so later random values do not move
             reports.append((f"rep-{pid}-d{d}", RUN_ID, pid, clock.day_key(d),
                             round(mwh * DT_H / 1000.0, 3), round(exp * DT_H / 1000.0, 3),
-                            round(rng.uniform(94.0, 100.0), 2),
+                            round(100.0 * up / (len(tids) * (hi - lo)), 2),
                             13.1 if (pid == CURTAILED_PARK and d == FAULT_DAY) else 0.0,
                             round(rng.uniform(96.0, 100.0), 2), json.dumps(issues)))
     put("reports", "action_id,run_id,park_id,date,energy_mwh,expected_mwh,availability_pct,"
