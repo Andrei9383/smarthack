@@ -20,7 +20,7 @@ from .localities import BY_ID
 from .pv import simulate_pv
 from .ro_calendar import local_features, utc_index
 from .sites import build_world
-from .weather import load_weather
+from .weather import load_weather, weather_key
 
 PQ = dict(compression="zstd", compression_level=6)
 
@@ -38,7 +38,8 @@ def _ids(ids: np.ndarray, T: int) -> pa.Array:
 
 def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False, plots: bool = True,
              log=print) -> Path:
-    out = Path(out_dir) if out_dir else cfg.out_dir()
+    wkey = weather_key(cfg.weather_source)
+    out = Path(out_dir) if out_dir else cfg.out_dir(weather_key=wkey)
     if (out / "manifest.json").exists() and not force:
         log(f"cached: {out}")
         return out
@@ -97,7 +98,7 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
     seconds = time.perf_counter() - t0
     congested = int((st.sunny_exceed_share >= 0.5).sum())
     manifest = {
-        "data_version": DATA_VERSION, "config": cfg.to_json(), "digest": cfg.digest(), "weather_source": weather.source,
+        "data_version": DATA_VERSION, "config": cfg.to_json(), "digest": cfg.digest(wkey), "weather_source": weather.source, "weather_key": wkey,
         "n_sites": len(sites), "n_feeders": len(feeders), "steps_per_year": {y: len(utc_index(y)) for y in cfg.years},
         "feeders_congested_on_sunny_days": congested, "seconds": round(seconds, 1),
         "files": sorted(str(p.relative_to(tmp)) for p in tmp.rglob("*.parquet")),

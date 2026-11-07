@@ -52,13 +52,14 @@ class FleetConfig:
     def to_json(self) -> dict:
         return dataclasses.asdict(self)
 
-    def digest(self) -> str:
-        blob = json.dumps({"v": DATA_VERSION, **self.to_json()}, sort_keys=True, ensure_ascii=False)
+    def digest(self, weather_key: str = "") -> str:
+        blob = json.dumps({"v": DATA_VERSION, "weather": weather_key, **self.to_json()}, sort_keys=True,
+                          ensure_ascii=False)
         return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
-    def out_dir(self, root: Path | None = None) -> Path:
+    def out_dir(self, root: Path | None = None, weather_key: str = "") -> Path:
         root = root or default_cache_root()
-        return root / f"data-v{DATA_VERSION}" / f"fleet-{self.digest()}"
+        return root / f"data-v{DATA_VERSION}" / f"fleet-{self.digest(weather_key)}"
 
 
 QUICK = dict(n_sites=120, n_feeders=6, n_congested=3, start_year=2024, end_year=2024)
