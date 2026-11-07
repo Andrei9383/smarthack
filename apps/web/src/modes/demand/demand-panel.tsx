@@ -8,6 +8,7 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
+import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 
 import { hhmm, wallClock } from "@/panels/site/time";
 
@@ -104,6 +105,7 @@ export function DemandPanel() {
   const selected = selectedId ? zones.get(selectedId) : undefined;
   // Nothing picked: chart the most stressed county, without zooming to it.
   const shown = selected ?? counties[0];
+  const showPill = useShowOwnPill(shown?.label);
 
   const trail = useMemo(() => {
     const path: Zone[] = [];
@@ -174,9 +176,11 @@ export function DemandPanel() {
               {selected ? shown.level : "most stressed county"}
             </span>
           )}
-          <span className="ml-auto">
-            <ProvenancePill label={shown?.label ?? (isLoading ? "loading" : "no run loaded")} />
-          </span>
+          {showPill ? (
+            <span className="ml-auto">
+              <ProvenancePill label={shown?.label ?? (isLoading ? "loading" : "no run loaded")} />
+            </span>
+          ) : null}
         </div>
       </header>
 

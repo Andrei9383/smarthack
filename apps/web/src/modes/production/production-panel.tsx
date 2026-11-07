@@ -10,6 +10,7 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { stepToDate } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
+import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 
 import { expectedMwh, hourly } from "./data";
 import { FanHourTicks, FanNowMarker, FanYAxis } from "./fan-chart-overlays";
@@ -86,6 +87,7 @@ export function ProductionPanel() {
     staleTime: Number.POSITIVE_INFINITY,
   });
   const { label, parks, rows, counties, isLoading } = useProductionData();
+  const showPill = useShowOwnPill(label);
   const park = parks.find((p) => p.id === selected) ?? parks[0];
 
   const { fan, bestHours, parkMwh } = useMemo(() => {
@@ -122,15 +124,18 @@ export function ProductionPanel() {
             {park ? (
               <>
                 {`${park.id} · ${parkName}`}
-                {parkTag && <span className="text-sm font-normal text-muted-foreground"> {parkTag}</span>}
+                {/* The tag repeats the provenance pill; hide it when the shell pill already says it. */}
+                {parkTag && showPill && <span className="text-sm font-normal text-muted-foreground"> {parkTag}</span>}
               </>
             ) : (
               "Production"
             )}
           </h2>
-          <span className="shrink-0 pt-0.5">
-            <Pill text={label ?? (isLoading ? "loading" : "no run loaded")} />
-          </span>
+          {showPill ? (
+            <span className="shrink-0 pt-0.5">
+              <Pill text={label ?? (isLoading ? "loading" : "no run loaded")} />
+            </span>
+          ) : null}
         </div>
         {park && (
           <p className="text-[13px] text-text-secondary tabular-nums">

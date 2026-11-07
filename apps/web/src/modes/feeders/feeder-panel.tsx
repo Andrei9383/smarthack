@@ -9,6 +9,7 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
+import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 import { stepToTs, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import { orpc } from "@/utils/orpc";
@@ -87,6 +88,7 @@ export function FeederPanel() {
   const { data: feeders, isLoading } = useFeederList();
   const { data: overLimit } = useOverLimit();
   const label = useRunLabel();
+  const showPill = useShowOwnPill(label);
   const feeder = feeders?.find((f) => f.id === selected) ?? feeders?.[0];
   const feederId = feeder?.id ?? "";
   const input = { feederId, ...window };
@@ -236,9 +238,11 @@ export function FeederPanel() {
           ) : (
             <span>GIS trust {feeder.gisTrust ?? "unknown"}</span>
           )}
-          <span className="ml-auto">
-            <ProvenancePill label={label ?? "no run"} />
-          </span>
+          {showPill ? (
+            <span className="ml-auto">
+              <ProvenancePill label={label ?? "no run"} />
+            </span>
+          ) : null}
         </div>
       </header>
 
