@@ -28,6 +28,14 @@
   --ring: var(--brand-600);
   --text-secondary: #4b5563;
   --shadow-card: 0 1px 2px rgb(13 13 13 / 0.04), 0 8px 24px rgb(13 13 13 / 0.06);
+  /* Elevation (ui-style.md §5.1): a 1px contact ring + a tight key shadow + a soft ambient one.
+     raised = chips, rows on hover; floating = inspector, dock, top bar, legend; overlay = popovers,
+     dialogs, toasts. inset-hi = top highlight on raised surfaces and buttons. brand = primary CTA. */
+  --shadow-raised: 0 0 0 1px rgb(13 13 13 / 0.05), 0 1px 2px rgb(13 13 13 / 0.06), 0 2px 6px -2px rgb(13 13 13 / 0.06);
+  --shadow-floating: 0 0 0 1px rgb(13 13 13 / 0.05), 0 2px 4px -1px rgb(13 13 13 / 0.06), 0 12px 28px -6px rgb(13 13 13 / 0.12);
+  --shadow-overlay: 0 0 0 1px rgb(13 13 13 / 0.06), 0 8px 16px -4px rgb(13 13 13 / 0.1), 0 28px 56px -12px rgb(13 13 13 / 0.22);
+  --shadow-inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.8), inset 0 -1px 0 rgb(13 13 13 / 0.04);
+  --shadow-brand: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(6 78 45 / 0.25), 0 8px 18px -6px rgb(14 159 90 / 0.55);
   --radius: 0.75rem;
 
   /* Brand */
@@ -100,6 +108,11 @@
 @theme inline {
   --font-sans: "Inter Variable", sans-serif;
   --shadow-card: var(--shadow-card);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-floating: var(--shadow-floating);
+  --shadow-overlay: var(--shadow-overlay);
+  --shadow-inset-hi: var(--shadow-inset-hi);
+  --shadow-brand: var(--shadow-brand);
   --color-text-secondary: var(--text-secondary);
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
@@ -224,4 +237,13 @@
   .maplibregl-ctrl-attrib-button {
     @apply bg-transparent! dark:invert;
   }
+}
+/* Status-mark halo (components/brand/status-mark.tsx) and shader-banner fade-in. */
+@keyframes status-halo {
+  0% { transform: scale(0.6); opacity: 0.35; }
+  80%, 100% { transform: scale(1.6); opacity: 0; }
+}
+@keyframes shader-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

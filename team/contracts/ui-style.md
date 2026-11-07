@@ -101,3 +101,18 @@ Badges use the status colour as text plus the same colour at 10% as background, 
 - No hex literals in components (see §2).
 - Check at 1440×900 and on a projector. Text must have AA contrast; never put grey-on-grey below `#8A929C` on white.
 - Put before/after screenshots of every mode on the card.
+
+## 7. Depth, status marks and the shader banner (v3, card #123)
+The user asked for a UI that does not read as generic or AI-generated. Three shared pieces carry that:
+- **Elevation** (tokens in `globals.css`): `shadow-raised` for chips and hover rows, `shadow-floating` for the
+  inspector, dock, top bar and legend, `shadow-overlay` for popovers, dialogs and toasts, `shadow-inset-hi` for a top
+  highlight on raised surfaces and buttons, `shadow-brand` for the one primary CTA. Each is a 1px contact ring plus a
+  key and an ambient shadow, so a surface needs no border. Don't stack cards inside cards to fake depth.
+- **Status marks** (`components/brand/status-mark.tsx`): replace plain 6px dots. Shape carries the meaning as well as
+  colour: ok = round LED, warn = triangle, critical = diamond (`pulse` adds a halo, only for "act now"), review = hexagon
+  with a hollow core, forecast = dashed ring, soc = battery cell with a `level`, unknown = hollow ring, live = breathing
+  LED. Sizes xs 8 / sm 10 / md 12 / lg 16 px. Pass `label` when no visible text sits beside it.
+- **Shader banner** (`components/brand/shader-banner.tsx`, `shaders@4.0.5`, telemetry off): an animated WebGPU
+  background (pale emerald swirl, cursor-reactive colour flow, fluted glass, fine grain). Tones `emerald` (default),
+  `calm`, `alert`. **At most one per screen**, on a hero surface such as the Overview briefing. Never behind dense text
+  or charts. Its CSS gradient poster shows under reduced motion, without WebGPU and while off-screen.
