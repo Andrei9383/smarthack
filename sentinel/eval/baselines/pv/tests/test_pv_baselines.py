@@ -161,3 +161,42 @@ def test_metrics():
     assert nmae(y + 1, y, m) == pytest.approx(0.4)
     q = np.stack([y - 1, y, y + 1])
     assert coverage(q, y, m) == 1.0 and pinball(q, y, m) < pinball(q + 2, y, m)
+
+
+def test_sitehealth_day_by_day_with_model14_window_conventions():
+    """Array weather with meta weather_channels, telemetry in W, ratios remembered across calls."""
+    wx, _ = _clear_weather()
+    chans = ["ghi", "dni", "dhi", "temp", "cloud", "wind", "snow"]
+    arr = np.stack([wx["ghi"], wx["dni"], wx["dhi"], wx["temp_c"], np.zeros(96), wx["wind10_ms"], wx["snow_cm"]], 1)
+    det = ThresholdCusumPredictor()
+    expected = PvlibPredictor().expected_kw(SITE, Window(t0=T0, weather=arr, meta={"weather_channels": chans}))
+    out = []
+    for d in range(8):
+        t0 = (pd.Timestamp(T0) + pd.Timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        factor = 1.0 if d < 4 else 0.5  # half the strings lost from day 4 (same weather every day)
+        tel = {"pv_ac_w": expected * 1000 * factor, "inv_status": np.zeros(96), "load_w": np.full(96, 400.0)}
+        out.append(det.predict(SITE, Window(t0=t0, weather=arr, meta={"weather_channels": chans, "telemetry": tel})))
+    assert all(p.p_fault < 0.5 for p in out[:4])
+    assert out[-1].p_fault >= 0.5 and out[-1].extra["threshold_alarm"]
+    assert out[-1].extra["p_fault_threshold"] == 0.5
+
+
+def test_predictors_registry_on_tiny_fleet(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_CACHE", str(tmp_path))
+    from sentinel.eval.baselines.pv import predictors
+    from sentinel.sim.fleet import FleetConfig, generate
+
+    fleet = generate(FleetConfig(n_sites=12, n_feeders=2, n_congested=1, start_year=2023, end_year=2023), plots=False)
+    lgbm.PARAMS["min_data_in_leaf"] = 20
+    try:
+        P = predictors(fleet, max_sites=4, rounds=10, log=lambda *a: None)
+    finally:
+        lgbm.PARAMS["min_data_in_leaf"] = 200
+    assert set(P) == {"pvlib", "persistence", "lgbm", "threshold_cusum"}
+    assert set(P["lgbm"]) == {"pv", "load"} and set(P["threshold_cusum"]) == {"sitehealth"}
+    w = _window()
+    for name, kinds in P.items():
+        for kind, pred in kinds.items():
+            assert isinstance(pred, Predictor)
+            assert pred.predict(SITE, w).horizon == 96, (name, kind)
+    assert P["threshold_cusum"]["sitehealth"].predict(SITE, w).fault_probs is not None
