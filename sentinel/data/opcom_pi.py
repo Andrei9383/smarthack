@@ -350,6 +350,13 @@ def build(year: int = TEST_YEAR, cache: Path = CACHE, offline: bool = False, gap
             print(f"  {day}: {client.requests} requests, {time.time() - t0:.0f}s", file=sys.stderr)
     trades = pl.concat(frames)
     a, b = quarter_grid(year)["ts"][[0, -1]]
+    # Delivery CET day D is complete only with the pages of D-1 and D: stop before the first missing 15-min page
+    gaps = [d for d, tip in missing if tip == "15"]
+    if gaps:
+        cut = dt.datetime.combine(min(gaps), dt.time(), LABEL_TZ).astimezone(UTC)
+        b = min(b, cut - dt.timedelta(minutes=15))
+        print(f"  partial year: trades kept for delivery before {cut:%Y-%m-%d %H:%M} UTC "
+              f"(first missing page {min(gaps)}); later intervals stay null (pi = pzu)")
     trades = trades.filter(pl.col("ts").is_between(a, b))
     if unknown:
         print(f"  unknown labels (skipped): {dict(sorted(unknown.items())[:20])}", file=sys.stderr)
