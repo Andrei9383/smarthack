@@ -93,7 +93,7 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   return (
-    <div className="flex h-svh w-full overflow-hidden bg-background text-foreground">
+    <div className="flex h-svh w-full overflow-hidden bg-muted text-foreground">
       <Rail
         mode={mode}
         onMode={(id) => setMode(id)}
@@ -104,7 +104,8 @@ export function AppShell() {
 
       <main
         className={cn(
-          "relative min-w-0 flex-1 overflow-hidden bg-sidebar",
+          // Inset layer: the content sits on the rail's surface as a rounded card, like shadcn's inset sidebar.
+          "relative my-2 mr-2 min-w-0 flex-1 overflow-hidden rounded-2xl bg-sidebar shadow-raised",
           flexShown ? HIDE_MODE_LEGEND : MOVE_MODE_LEGEND,
         )}
       >
