@@ -15,7 +15,6 @@ import { chartCssVars, useChartStable, useYScale } from "./chart-context";
 import { type PatternPresetId, renderPatternPreset } from "./pattern-preset";
 import { useAnimatedBand } from "./use-animated-band";
 
-export type { BandFadeEdges } from "./band-geometry";
 
 export type BandFillType = "solid" | "gradient" | "pattern";
 

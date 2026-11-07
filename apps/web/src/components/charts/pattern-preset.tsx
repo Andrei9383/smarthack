@@ -30,11 +30,6 @@ export interface PatternPresetOptions {
   tileBackground?: string;
 }
 
-/** Presets rendered with `PatternCircles`. */
-export function isCirclePattern(preset: PatternPresetId): boolean {
-  return preset === "circles" || preset === "dots";
-}
-
 export function patternPresetTileSize(
   preset: PatternPresetId,
   scale = 1
