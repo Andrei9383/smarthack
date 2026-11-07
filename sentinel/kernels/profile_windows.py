@@ -54,7 +54,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--old-rev", help="git revision to take the older sentinel/data/windows.py from (instead of --old)")
     p.add_argument("--out", type=Path, default=Path(os.environ.get("LAB_OUTPUT_DIR", ".")) / "windows-profile")
     a = p.parse_args(argv)
-    feeders = round(a.homes / 25)
+    from sentinel.sim.fleet.localities import LOCALITIES
+
+    # main's generator allows one feeder per locality (card #118 lifts that); the windows build scales with homes
+    feeders = min(round(a.homes / 25), len(LOCALITIES))
     cfg = FleetConfig(n_sites=a.homes, n_feeders=feeders, n_congested=round(feeders * 0.25), start_year=2025,
                       end_year=2025, battery_share=0.20, county_weights=COUNTY_WEIGHTS)
     fleet = generate(cfg, out_dir=cfg.out_dir(weather_key=weather_key(cfg.weather_source)), plots=False)
