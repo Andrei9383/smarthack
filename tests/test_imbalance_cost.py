@@ -113,7 +113,8 @@ from sentinel.data.prices import load_prices, prices_at  # noqa: E402
 
 
 def test_prices_15min_and_hourly_repeat():
-    df = load_prices("2025-09-30T18:00", "2025-09-30T22:00")
+    # PZU switched to 15 min on 2025-10-01 00:00 CEST = 2025-09-30 22:00 UTC (#186)
+    df = load_prices("2025-09-30T19:00", "2025-09-30T23:00")
     assert df.height == 16
     assert (df["ts"].diff().drop_nulls().dt.total_minutes() == 15).all()
     hourly = df.filter(pl.col("pzu_res") == "PT60M_x4")
