@@ -238,3 +238,19 @@ def test_end_to_end_tiny(tmp_path):
     fn = bm.behaviour_for(fc, "2025-06-02")
     pv = np.zeros((2, 5, 96))
     assert fn(pv, np.ones((5, 96)), None, None).shape == (2, 5, 96)
+
+
+def test_residual_bias_uses_only_past_meter_days():
+    w = _world(40)
+    steps = np.arange(w.T)
+    rng = np.random.default_rng(3)
+    resid = rng.normal(0.2, 0.05, (2, w.T)).astype(np.float32)
+    resid[1] = np.nan  # profile meter: no correction
+    b = N.residual_bias(w, steps, resid)
+    d = 30
+    a, e = w.day_start[d], w.day_start[d + 1]
+    assert np.allclose(b[0, a:e].mean(), 0.2, atol=0.03) and (b[1] == 0).all()
+    r2 = resid.copy()
+    r2[0, w.day_start[d - 1]:] += 5  # days D-1 and later are not known when forecasting day D
+    np.testing.assert_allclose(N.residual_bias(w, steps, r2)[0, a:e], b[0, a:e], rtol=1e-5)
+    assert (b[0, :w.day_start[3]] == 0).all()  # no history yet

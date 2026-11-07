@@ -31,7 +31,7 @@ import pandas as pd
 from . import data as D
 from . import features as F
 from .classifier import PARAMS, PRIOR, STRATEGIES, StrategyClassifier, macro_f1
-from .net_model import NetQuantileModel, mix, simulate, simulate_guess
+from .net_model import CAL_DAYS, NetQuantileModel, mix, residual_bias, simulate, simulate_guess
 
 LABEL = "synthetic RO homes (data-v2) / real RO ERA5 weather + OPCOM PZU / proxy M1-M2 (physics + profile)"
 
@@ -112,22 +112,30 @@ def forecast_chunk(world: D.World, ch: Chunk, years, clf: StrategyClassifier, ne
     steps = world.steps_of_years(years)
     days = world.days_of_years(years)
     n = len(ch.homes)
-    Xc = ch.cls_rows(np.arange(n), days)
-    g = clf.guess(Xc)
-    probs = g["probs"].reshape(n, len(days), len(STRATEGIES))
-    step_day = world.cal["day_index"][steps] - days[0]
+    # run from CAL_DAYS before the period so the first days already have a residual history
+    d0 = max(0, int(days[0]) - CAL_DAYS)
+    days_x = np.arange(d0, days[-1] + 1)
+    steps_x = np.arange(world.day_start[d0], steps[-1] + 1)
+    crop_d, crop_s = slice(len(days_x) - len(days), None), slice(len(steps_x) - len(steps), None)
+    g = clf.guess(ch.cls_rows(np.arange(n), days_x))
+    nd = len(days_x)
+    probs = g["probs"].reshape(n, nd, len(STRATEGIES))
+    step_day = world.cal["day_index"][steps_x] - d0
     month_params = []
-    sm = world.day_month[world.cal["day_index"][steps]]
+    sm = world.day_month[world.cal["day_index"][steps_x]]
     for m in np.unique(sm):
-        first = int(np.flatnonzero(world.day_month[days] == m)[0])  # params estimated on the month's first day
-        prm = {k: g[k].reshape(n, len(days))[:, first] for k in PARAMS}
+        first = int(np.flatnonzero(world.day_month[days_x] == m)[0])  # params estimated on the month's first day
+        prm = {k: g[k].reshape(n, nd)[:, first] for k in PARAMS}
         month_params.append((sm == m, prm))
-    var = simulate_guess(world, steps, ch.pv[:, steps], ch.load[:, steps], month_params)
-    out = {"steps": steps, "days": days, "probs": probs,
-           "code": g["code"].reshape(n, len(days)), "conf": g["confidence"].reshape(n, len(days)),
-           "params": {k: g[k].reshape(n, len(days)) for k in PARAMS},
-           "sim_soft": mix(var, probs, step_day) * D.DT_H, "sim_hard": mix(var, probs, step_day, hard=True) * D.DT_H,
-           "fo": var[0] * D.DT_H}
+    var = simulate_guess(world, steps_x, ch.pv[:, steps_x], ch.load[:, steps_x], month_params)
+    soft = mix(var, probs, step_day) * D.DT_H
+    net_x = (ch.imp - ch.exp)[:, steps_x]
+    cal = soft + residual_bias(world, steps_x, net_x - soft)
+    out = {"steps": steps, "days": days, "probs": probs[:, crop_d],
+           "code": g["code"].reshape(n, nd)[:, crop_d], "conf": g["confidence"].reshape(n, nd)[:, crop_d],
+           "params": {k: g[k].reshape(n, nd)[:, crop_d] for k in PARAMS},
+           "sim_soft": soft[:, crop_s], "sim_hard": (mix(var, probs, step_day, hard=True) * D.DT_H)[:, crop_s],
+           "sim_cal": cal[:, crop_s], "fo": var[0][:, crop_s] * D.DT_H}
     net = ch.imp - ch.exp
     lag = np.clip(steps - 7 * 96, 0, None)
     out["persist"] = np.where(np.isfinite(net[:, lag]), net[:, lag], out["fo"]).astype(np.float32)
@@ -274,7 +282,7 @@ def run(argv=None) -> dict:
           f"{sum(map(len, Ry))} rows", flush=True)
 
     # ---------------------------------------------------------------------------------------------- pass 2
-    methods = ["sim_soft", "sim_hard", "lgbm", "fo", "persist"]
+    methods = ["sim_soft", "sim_hard", "sim_cal", "lgbm", "fo", "persist"]
     res = {"strategy_f1_val_seen_homes": f1v}
     t = time.perf_counter()
     vh = train_homes.iloc[np.sort(rng.choice(len(train_homes), min(a.val_homes, len(train_homes)), replace=False))]
@@ -318,7 +326,7 @@ def run(argv=None) -> dict:
     timing["eval"] = time.perf_counter() - t
 
     # the two-stage model's mixing is chosen on validation (train homes, 2024), then reported on test
-    best = min(("sim_soft", "sim_hard"), key=lambda m: res[f"val_{m}_net_nmae"])
+    best = min(("sim_soft", "sim_hard", "sim_cal"), key=lambda m: res[f"val_{m}_net_nmae"])
     res["sim_mode"] = best
     for k in ("net_nmae", "net_nmae_17_21", "portfolio_nmae", "portfolio_nmae_17_21"):
         res[f"{k}" if k.startswith("net") else f"net_{k}"] = res[f"{best}_{k}"]

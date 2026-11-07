@@ -94,6 +94,38 @@ def mix(variants: Mapping[int, np.ndarray], probs: np.ndarray, step_day: np.ndar
     return (w[..., 0] * variants[0] + w[..., 1] * variants[1] + w[..., 2] * variants[2]).astype(np.float32)
 
 
+CAL_DAYS = 35   # history simulated before a forecast period, for the residual calibration
+
+
+def residual_bias(world: World, steps: np.ndarray, resid: np.ndarray, lookback: int = 28, lag: int = 2,
+                  min_obs: int = 20) -> np.ndarray:
+    """Per home and local clock hour: the mean of (meter - two-stage forecast) over meter days [D-lag-lookback+1,
+    D-lag] (data PPC has when forecasting day D), as an additive correction (n, len(steps)). 0 where fewer than
+    ``min_obs`` readings (profile meters, first days). Corrects the stage-2 inputs' level errors (proxy M1/M2)
+    while the simulated battery shape stays the explanation."""
+    from scipy import sparse
+
+    n, T = resid.shape
+    day = world.cal["day_index"][steps]
+    day = day - day[0]
+    nd = int(day[-1]) + 1
+    hr = np.minimum(world.cal["hour"][steps].astype(np.int64), 23)
+    key = day * 24 + hr
+    M = sparse.csr_matrix((np.ones(T), (np.arange(T), key)), shape=(T, nd * 24))
+    ok = np.isfinite(resid)
+    Mt = M.T.tocsr()
+    S = np.asarray(Mt @ np.where(ok, resid, 0.0).astype(np.float64).T).T.reshape(n, nd, 24)
+    C = np.asarray(Mt @ ok.astype(np.float64).T).T.reshape(n, nd, 24)
+    z = np.zeros((n, 1, 24))
+    cs, cc = np.concatenate([z, S.cumsum(1)], 1), np.concatenate([z, C.cumsum(1)], 1)
+    d = np.arange(nd)
+    hi = np.clip(d - lag + 1, 0, nd)
+    lo = np.clip(d - lag + 1 - lookback, 0, nd)
+    ws, wc = cs[:, hi] - cs[:, lo], cc[:, hi] - cc[:, lo]
+    bias = np.where(wc >= min_obs, ws / np.maximum(wc, 1), 0.0)
+    return bias[:, day, hr].astype(np.float32)
+
+
 def portfolio_behaviour(code: np.ndarray, params: Mapping[str, np.ndarray], price: np.ndarray, rank: np.ndarray,
                         med: np.ndarray, day: np.ndarray) -> Callable:
     """A ``behaviour(pv, load, battery, soc0)`` for I5's ``sentinel.eval.portfolio.set_behaviour`` on data-v2:
