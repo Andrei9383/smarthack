@@ -322,7 +322,7 @@ def mock_load_scenarios(sites: Any, t0: str, n_scenarios: int = 200, *, seed: in
 
 ROW_FIELDS = (
     "run_id", "zone_type", "level", "zone_id", "zone_name", "parent_zone_id", "ts", "t", "step",
-    "p10_mw", "p50_mw", "p90_mw", "stress", "peak_stress", "is_peak_hour", "label", "model_version",
+    "q10_mw", "q50_mw", "q90_mw", "p10_mw", "p50_mw", "p90_mw", "stress", "peak_stress", "is_peak_hour", "label", "model_version",
 )
 
 
@@ -331,7 +331,8 @@ def zone_demand_rows(agg: DemandAggregate | Sequence[ZoneDemand], run_id: str) -
 
     `ts` = UTC ISO step start, `t` = unix seconds (draft schema), `step` = 0..95 index in the Europe/Bucharest
     local day. `stress` = q90 at this step / capacity (drives the 24 h slider); `peak_stress` = zone peak stress
-    clipped 0..1 (same on every row of a zone). `zone_type` and `level` carry the same value (draft vs replay.md).
+    clipped 0..1 (same on every row of a zone). `zone_type`/`level` and `q*_mw`/`p*_mw` carry the same values
+    (#38 schema names first, older draft names until #38 merges; #17 inserts only the columns the schema has).
     """
     zones = agg.zones if isinstance(agg, DemandAggregate) else list(agg)
     rows: list[dict[str, Any]] = []
@@ -355,7 +356,10 @@ def zone_demand_rows(agg: DemandAggregate | Sequence[ZoneDemand], run_id: str) -
                 "ts": utc_iso(times[k]),
                 "t": int(times[k].astype("datetime64[s]").astype(np.int64)),
                 "step": int(steps[k]),
-                "p10_mw": z.q10_mw[k],
+                "q10_mw": z.q10_mw[k],  # final #38 schema names
+                "q50_mw": z.q50_mw[k],
+                "q90_mw": z.q90_mw[k],
+                "p10_mw": z.q10_mw[k],  # older draft names, kept until #38 merges
                 "p50_mw": z.q50_mw[k],
                 "p90_mw": z.q90_mw[k],
                 "stress": z.q90_mw[k] / z.capacity_mw if z.capacity_mw > 0 else None,
