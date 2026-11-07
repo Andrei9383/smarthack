@@ -152,6 +152,24 @@ def window_gather(arr: Any, rows: Any, starts: Any, offset: int, length: int, dt
     return get("window_gather")(arr, rows, starts, offset, length, dtype, out)
 
 
+# --------------------------------------------------------------------------- K4: fused feature build (features.py)
+from sentinel.kernels.features import (load_features_py, load_features_rust, pv_features_py,  # noqa: E402
+                                       pv_features_rust)
+
+register("pv_features", pv_features_py, pv_features_rust)
+register("load_features", load_features_py, load_features_rust)
+
+
+def pv_features(wx: Any, geom: Any, pvclear: Any, pvlib: Any, hist_pv: Any, kwp: Any) -> tuple[np.ndarray, ...]:
+    """Dispatched PV feature build -> (seq, ref, summ, night); reference = sentinel.model.features.pv_arrays."""
+    return get("pv_features")(wx, geom, pvclear, pvlib, hist_pv, kwp)
+
+
+def load_features(wx: Any, cal: Any, hist_load: Any) -> tuple[np.ndarray, ...]:
+    """Dispatched load feature build -> (seq, ref, summ, scale); reference = sentinel.model.features.load_arrays."""
+    return get("load_features")(wx, cal, hist_load)
+
+
 __all__ = [
     "backend",
     "battery_rollout",
@@ -159,7 +177,11 @@ __all__ = [
     "cusum_two_sided",
     "cusum_two_sided_py",
     "get",
+    "load_features",
+    "load_features_py",
     "names",
+    "pv_features",
+    "pv_features_py",
     "register",
     "rust_available",
     "window_gather",

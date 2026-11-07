@@ -40,6 +40,7 @@ class Case:
     run: Callable[[Callable[..., Any], tuple[Any, ...]], None]  # full-size run, outputs discarded
     sample: Callable[[tuple[Any, ...]], tuple[Any, ...]]  # smaller slice of the inputs for the parity check
     desc: str
+    atol: float = 0.0  # parity tolerance (0 = bit-exact)
 
 
 # ---- cusum: 2,000 series x 35,040 steps (one year of 15-min data), standardised residuals with gaps.
@@ -136,6 +137,37 @@ def _windows_sample(args: tuple[Any, ...]) -> tuple[Any, ...]:
     return (pv, sites[0, :256], starts[0, :256], -_HIST, _HIST + 96, np.float32)
 
 
+# ---- feature build: the model data path's per-batch numpy features (#94) on batches of 256 windows, the way
+# features.build sees them after the gather (float32 [B, 96, C] target-day arrays + 14-day history).
+_FEAT_BATCHES, _FEAT_B = 40, 256
+
+
+def _feat_raw(scale: float, rng: np.random.Generator) -> list[dict]:
+    b = max(1, int(round(_FEAT_B * scale)))
+    out = []
+    for _ in range(_FEAT_BATCHES):
+        kwp = rng.uniform(3, 12, b).astype(np.float32)
+        tod = np.arange(96) / 96 * 2 * np.pi
+        prof = np.clip(np.sin(tod - np.pi / 2), 0, None).astype(np.float32)
+        geom = np.stack([rng.uniform(0, 180, (b, 96)), rng.uniform(0, 360, (b, 96)), rng.uniform(0, 1000, (b, 96))],
+                        -1).astype(np.float32)
+        hist = (prof[None, None] * kwp[:, None, None] * rng.uniform(0, 1, (b, 14, 1))).reshape(b, -1)
+        hist[:, ::7] = hist[:, 1::7]  # some stuck (frozen) readings
+        cal = np.tile(np.stack([np.sin(tod), np.cos(tod)], -1), (b, 1, 4)).astype(np.float32)
+        out.append({"wx": rng.random((b, 96, 7), np.float32) * 500, "geom": geom, "cal": cal,
+                    "pvclear": prof[None] * kwp[:, None], "pvlib": prof[None] * kwp[:, None] * 0.8,
+                    "hist": hist.astype(np.float32), "kwp": kwp})
+    return out
+
+
+def _pv_args(r: dict) -> tuple[Any, ...]:
+    return r["wx"], r["geom"], r["pvclear"], r["pvlib"], r["hist"], r["kwp"]
+
+
+def _load_args(r: dict) -> tuple[Any, ...]:
+    return r["wx"], r["cal"], r["hist"]
+
+
 CASES = [
     Case("cusum_two_sided", "cusum", _cusum_make, _cusum_run, _cusum_sample, "2000 series x 35040 steps, f64, 0.2% NaN gaps"),
     Case("cusum_two_sided", "cusum_cap", _cusum_cap_make, _cusum_run, _cusum_sample,
@@ -144,6 +176,12 @@ CASES = [
          f"{_ROLLOUT_CALLS} feeder-days x 200 scenarios x 50 sites x 96 steps"),
     Case("window_gather", "windows", _windows_make, _windows_run, _windows_sample,
          f"{_WIN_BATCHES} batches x {_WIN_B} windows: 14 d hist + 24 h target, f16 -> f32, from 600 x 140160"),
+    Case("pv_features", "features_pv", lambda sc, rng: (_feat_raw(sc, rng),),
+         lambda fn, a: [fn(*_pv_args(r)) for r in a[0]], lambda a: _pv_args(a[0][0]),
+         f"{_FEAT_BATCHES} batches x {_FEAT_B} PV windows (features.pv_inputs)", atol=1e-6),  # cos/sin: 1 ulp
+    Case("load_features", "features_load", lambda sc, rng: (_feat_raw(sc, rng),),
+         lambda fn, a: [fn(*_load_args(r)) for r in a[0]], lambda a: _load_args(a[0][0]),
+         f"{_FEAT_BATCHES} batches x {_FEAT_B} load windows (features.load_inputs)"),
 ]
 
 
@@ -156,9 +194,11 @@ def _time(fn: Callable[[], Any], repeat: int) -> tuple[float, Any]:
     return best, out
 
 
-def _same(a: tuple[np.ndarray, ...], b: tuple[np.ndarray, ...]) -> bool:
+def _same(a: tuple[np.ndarray, ...], b: tuple[np.ndarray, ...], atol: float = 0.0) -> bool:
     return all(
-        x.shape == y.shape and x.dtype == y.dtype and np.array_equal(x, y, equal_nan=x.dtype.kind == "f")
+        x.shape == y.shape and x.dtype == y.dtype and (
+            np.allclose(x, y, rtol=0, atol=atol, equal_nan=True) if atol and x.dtype.kind == "f"
+            else np.array_equal(x, y, equal_nan=x.dtype.kind == "f"))
         for x, y in zip(a, b, strict=True)
     )
 
@@ -204,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         metric(f"t_rust_{case.key}_s", t_rs)
         metric(f"speedup_{case.key}", t_py / t_rs if t_rs > 0 else float("nan"))
         small = case.sample(args)
-        ok = _same(kernels.get(case.kernel, "python")(*small), rust_fn(*small))
+        ok = _same(kernels.get(case.kernel, "python")(*small), rust_fn(*small), case.atol)
         metric(f"parity_{case.key}", int(ok))
         if not ok:
             print(f"bench: PARITY FAILURE for {case.kernel}: Rust output differs from the Python reference",
