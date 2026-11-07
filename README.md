@@ -88,7 +88,7 @@ external API). Each one has a fallback, so a missing model degrades a panel, nev
 | M1 | PVNet | What should this PV system produce? | PatchTST-style encoder, 0.29 M params, weather + solar geometry + the site's own past-power reference window | MUST | trained, 4-seed ensemble (#14) | LightGBM quantile (#15) |
 | M2 | LoadNet | What will this household consume? | same encoder, separate weights, 0.21 M params | MUST | trained, 4 seeds (#14) | persistence |
 | M4 | SiteHealth | Is this prosumer site healthy? | 1D-CNN on M1/M2 residuals + telemetry + 14-day summary, focal loss, 8 classes, 56 k params | MUST | trained (#14) | threshold rule + CUSUM (#15) |
-| M6 | WindNBM | Is this turbine behaving normally? | GRU normal-behaviour model (power + component temps) + LightGBM classifier on residuals and park context, 0.13 M params | SHOULD | trained, sweep running (#41) | WindMon rules (#24) |
+| M6 | WindNBM | Is this turbine behaving normally? | GRU normal-behaviour model (power + component temps) + LightGBM classifier on residuals and park context, 0.13 M params | SHOULD | trained, best run #135 on RTX 5070 (#41) | WindMon rules (#24) |
 | M3 | DemandNet | Where and when will demand peak? | v1 sum of LoadNet scenarios per zone; v2 LightGBM quantile per county | SHOULD | on main (#44) | persistence |
 | M8 | GridTwin | Is the GIS feeder/phase right? | voltage correlation + spectral clustering | SHOULD | pending (#13) | GIS as-is (τ = 1) |
 | M5 | WindPower | What will each park produce? | probabilistic power-curve MLP | OPTIONAL | pending (#42) | binned empirical curve |
@@ -166,7 +166,7 @@ are the ones reported on the cards.
 | PV day-ahead forecast nMAE | **0.227** | pvlib 0.316 | synthetic RO | train #125 (#14) |
 | Household load nMAE | **0.20**, coverage 0.80 | persistence (yesterday) 0.35 (−42 %) | synthetic RO | train #126–#129 (#14) |
 | Site fault detection | **PR-AUC 0.63**; 81 % of faults detected within 72 h, mean 25.8 h | threshold rule 0.22 / CUSUM 0.21 PR-AUC; 29 % / 46 % detected within 72 h | synthetic RO | train #131 (#14) |
-| Wind anomalies (held-out park) | precision **0.83**, recall **0.87**, 0.104 alerts / turbine-day, curtailment-vs-fault F1 **0.99** | WindMon rules: 0.53 / 0.43 / 0.107 / F1 0.31 | synthetic RO | train #113 (#41) |
+| Wind anomalies (held-out park WP2, test 2025) | precision **0.854**, recall **0.819**, 0.101 alerts / turbine-day, curtailment-vs-fault F1 **0.764** (171/171 stops caught, 2/990 curtailments called faults) | WindMon rules: 0.530 / 0.440 / 0.114 / F1 0.318 | synthetic RO | train #135 (#41) |
 | National demand, day ahead | **nMAE 0.039**, peak-hour error 0.30 h, 10–90 coverage 0.74 | persistence week 0.067, day 0.069, national-shape scaling 0.070 | **real RO** | `make demand` (#44) |
 | P10 commitment method | coverage 0.62 → 0.795 after conformal; P10 hit rate 0.938 | — | synthetic (mock truth), method check | `make uncertainty` (#27) |
 | Feeder LP | 100-site feeder solved in 1.9 s; slack 0 vs baseline +19.5 kW; evening peak 10.9 vs 52.8 kW | self-consumption rule | synthetic (mock forecasts) | #18 |
