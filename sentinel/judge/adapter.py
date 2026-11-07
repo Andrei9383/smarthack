@@ -123,7 +123,7 @@ class NoJudge:
 
 
 class MemoryVerdicts:
-    """Verdicts in memory. `rows`: iterable of mappings / objects with asset_id, model, day (+ the §7.7 fields),
+    """Verdicts in memory. `rows`: iterable of mappings / objects with asset_id, model (or witness), day (+ §7.7),
     or a mapping {(asset_id, model, day): verdict-like}."""
 
     def __init__(self, rows: Union[Iterable[Any], Mapping[tuple, Any]] = ()):
@@ -132,9 +132,9 @@ class MemoryVerdicts:
             for (a, m, d), v in rows.items():
                 self.put(a, m, d, v)
         else:
-            for r in rows:
-                get = r.get if isinstance(r, Mapping) else (lambda k, r=r: getattr(r, k))
-                self.put(get("asset_id"), get("model"), get("day"), r)
+            for r in rows:  # J4 rows may name the model "witness"
+                get = r.get if isinstance(r, Mapping) else (lambda k, r=r: getattr(r, k, None))
+                self.put(get("asset_id"), get("model") or get("witness"), get("day"), r)
 
     def put(self, asset_id: Any, model: str, day: Any, v: Any) -> None:
         self._d[(str(asset_id), str(model), day_key(day))] = as_verdict(v)

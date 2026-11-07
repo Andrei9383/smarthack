@@ -161,3 +161,11 @@ def test_sqlite_verdicts_and_predictions(tmp_path):
     assert list(b.verdict) == ["widen", "use"] and b.reasons[0] == ("a", "b")
     np.testing.assert_allclose(b.q90[0], 3.8)
     assert as_verdict({"verdict": "use", "band_scale": float("nan")}).band_scale == 1.0
+
+
+def test_memory_verdicts_accept_j4_witness_rows():
+    class Row:  # J4 objects name the model "witness"
+        asset_id, witness, day, verdict, band_scale, reasons, rule = "s1", "pvnet", DAY, "widen", 1.5, ["x"], "widen"
+    j = MemoryVerdicts([Row()])
+    v = validated("s1", "pvnet", DAY, raw=pred("pvnet", 3.0, 1.0), judge=j)
+    assert v.verdict == "widen" and v.band_scale == 1.5 and v.reasons == ("x",)
