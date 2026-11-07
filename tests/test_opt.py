@@ -445,8 +445,15 @@ def test_supplier_only_tracks_a_feasible_position(sunny):
     pos = -np.asarray(dso.export_curve)
     plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, params=LPParams(bill_weight=0.0),
                        supplier=SupplierObjective(pos, a=1.44, b=0.72, weight=1.0))
-    assert plan.extra["supplier_planned_lei"] < 0.05
+    # ~0: the per-site near-limit guard (#188) leaves stage 2 a little less room, so it trades 0.23 kWh of deviation
+    # (0.1 lei) for less battery throughput (c_deg); without the guard the match is exact
+    assert plan.extra["supplier_planned_lei"] < 0.15
+    assert plan.extra["supplier_planned_abs_dev_kwh"] < 1e-3 * 0.25 * np.abs(pos).sum()
     assert plan.max_slack_kw <= 1e-6
+    free = plan_feeder("F", rows, None, fc, G=G, prices=0.6,
+                       params=LPParams(bill_weight=0.0, supplier_guard_margin=None),
+                       supplier=SupplierObjective(pos, a=1.44, b=0.72, weight=1.0))
+    assert free.extra["supplier_planned_lei"] < 1e-6
 
 
 def test_supplier_single_solve_and_validation(sunny):
@@ -507,3 +514,54 @@ def test_supplier_guard_keeps_charge_at_near_limit_steps(sunny):
     assert (np.asarray(plan.worst_export_curve)[risk] <= np.asarray(dso.worst_export_curve)[risk] + 1e-3).all()
     with pytest.raises(ValueError):
         LPParams(supplier_guard_margin=1.5)
+
+
+def _realised_export(plan, rows, fc, drop=None, k0=0):
+    """Feeder export (kW) when the weather is the P50 and every pool site follows the plan, except `drop`, which
+    leaves the pool at step k0 (e.g. a battery_fault exclusion) and runs the self-consumption rule from there."""
+    x = np.zeros(plan.horizon)
+    for r in rows:
+        sid, b = r["site_id"], site_from_row(r).battery
+        pv, ld = np.asarray(fc[sid]["pv"].q50), np.asarray(fc[sid]["load"].q50)
+        p = np.asarray(plan.schedule[sid], float).copy()
+        if sid == drop:
+            e = plan.soc_kwh[sid][k0]
+            for k in range(k0, plan.horizon):
+                p[k], e, _ = self_consumption_step(b, e, pv[k], ld[k])
+        x += pv - ld - p
+    return x
+
+
+@pytest.mark.parametrize("bill_weight", [1.0, 0.0], ids=["sup", "sup_only"])
+def test_supplier_guard_survives_a_site_leaving_the_pool(sunny, bill_weight):
+    """#188 (replay#892: sup_only +15 min on F7 day 2). The pooled guard (Σ_i charge >= DSO at near-limit steps) let
+    the supplier plan spread the same feeder kW differently over the sites, fill them earlier, and end the day
+    fuller. When one site then left the pool mid-day (battery_fault -> its own rule), the others charged less than
+    under the DSO plan and realised export went over G. With a per-site guard (charge >= and SoC <= the DSO-only
+    stage 1, also at the end of the day) realised export at near-limit steps can never exceed the DSO plan's,
+    whichever single site drops out, also with the bill term off. (Old guard here: 39-40 of 40 dropout cases worse,
+    up to +7.5 kW, and the day ended 85 vs 62 kWh in the batteries.)"""
+    from sentinel.opt.lp import SupplierObjective
+
+    rows, fc, peak = sunny
+    G = 0.4 * peak
+    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
+    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, params=LPParams(bill_weight=bill_weight),
+                       supplier=SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72))
+    risk = worst_no_battery(fc) >= 0.75 * G
+    ri = np.flatnonzero(risk)
+    last = ri[-1] + 1
+    for r in rows:
+        sid = r["site_id"]
+        assert (np.asarray(plan.schedule[sid])[risk] >= np.asarray(dso.schedule[sid])[risk] - 1e-3).all(), sid
+        assert (np.asarray(plan.soc_kwh[sid])[1:last + 1] <= np.asarray(dso.soc_kwh[sid])[1:last + 1] + 1e-3).all()
+        assert plan.soc_kwh[sid][-1] <= dso.soc_kwh[sid][-1] + 1e-3  # tomorrow starts no fuller
+    for k0 in (int(ri[0]), int(ri[len(ri) // 2])):
+        for r in rows:
+            x_dso = _realised_export(dso, rows, fc, r["site_id"], k0)
+            x_sup = _realised_export(plan, rows, fc, r["site_id"], k0)
+            assert (x_sup[risk] <= x_dso[risk] + 1e-3).all(), (r["site_id"], k0)
+    from sentinel.opt.lp import _supplier_extra  # the supplier still pays less than for the DSO plan
+
+    w = SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72).arrays(96, np.full(96, 0.6))
+    assert plan.extra["supplier_planned_lei"] < _supplier_extra(dso, w, None)["supplier_planned_lei"]

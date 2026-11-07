@@ -6,8 +6,8 @@ Same world, same forecasts, same prices for every variant; only the planner's ob
     baseline   the self-consumption rule (no plan), for reference
     dso        the #18 LP as in replay#506 (`plan_feeder`, supplier=None)
     sup        + the supplier term (`SupplierObjective`, weight 1, bill kept), lexicographic hard feeder limit
-    sup_only   + the supplier term with the prosumer-bill term off (bill_weight 0)
-    sup_noguard as `sup` without the near-limit charge guard (slack bound only; replay#882's `sup`)
+    sup_only   + the supplier term with the prosumer-bill term off (bill_weight 0; stage 1 keeps the bill, #188)
+    sup_noguard as `sup` without the near-limit guard (slack bound only; replay#882's `sup`)
     sup_nolex  as `sup` but one solve (limit kept only through M >> supplier weights)
 
 The supplier's day-ahead position per feeder-day = I5's purchase (`sentinel.eval.portfolio.forecast_day(...).bought`,
@@ -104,7 +104,10 @@ def make_planner(world: Any, positions: dict, sources: dict, plans: dict, weight
             pl = plan_feeder(spec, eligible, rest, fc, G, prices, statuses=statuses, t0=t0, params=params,
                              supplier=SupplierObjective(positions[key], weight=weight), **kw)
         _, ws, wl = SupplierObjective(positions[key], weight=1.0).arrays(pl.horizon, price_vector(prices, pl.horizon))
-        plans[key] = supplier_cost_lei(-np.asarray(pl.export_curve, float), positions[key], ws, wl)[0]
+        p_sum = sum((np.asarray(x, float) for x in pl.schedule.values()), np.zeros(pl.horizon))
+        plans[key] = (supplier_cost_lei(-np.asarray(pl.export_curve, float), positions[key], ws, wl)[0],
+                      {"p": p_sum, "nobatt_worst": np.asarray(pl.worst_export_curve, float) + p_sum, "g": pl.g_kw,
+                       "e0": float(sum(v[0] for v in pl.soc_kwh.values())) if pl.soc_kwh else 0.0})
         return pl
 
     return plan
@@ -162,6 +165,7 @@ def run(world_kind: str = "sim", days: int = 7, seed: int = 0, variants: Sequenc
         raise RuntimeError(f"planner is {comps.sources.get('planner')}: the LP must import")
     a, b = imbalance_ab()
     positions: dict = {}
+    diag: dict = {}
     sources: dict[str, int] = {}
     order = [v for v in variants if v != "baseline"] + (["baseline"] if "baseline" in variants else [])
     out: dict[str, Any] = {"world": w.describe(), "label": w.label, "a": a, "b": b, "variants": {}}
@@ -189,14 +193,46 @@ def run(world_kind: str = "sim", days: int = 7, seed: int = 0, variants: Sequenc
             m["p10_hit_rate"] = r.p10_hit_rate
         m["feeder_days"] = {f"{f}_d{d}": [x["minutes_over"], round(x.get("kwh_over", 0.0), 3)]
                             for (f, d), x in sorted(r.feeder_days.items())}
-        m.update(score(w, realised_net_import(sink, list(w.feeders), w.days), positions, a, b))
+        net = realised_net_import(sink, list(w.feeders), w.days)
+        m.update(score(w, net, positions, a, b))
         if plans:
-            m["supplier_planned_lei"] = float(sum(plans.values()))  # P50 plan vs position, every variant alike
+            m["supplier_planned_lei"] = float(sum(c for c, _ in plans.values()))  # P50 plan vs position, all alike
+        diag[v] = {"plans": {k: i for k, (_, i) in plans.items()}, "net": net}
         m["seconds"] = time.perf_counter() - t0
         out["variants"][v] = m
         print(f"[g4] {v}: {json.dumps({k: (round(x, 4) if isinstance(x, float) else x) for k, x in m.items()})}",
               file=sys.stderr, flush=True)
     out["position_source"] = sources
+    out["diagnose"] = _diagnose(w, out["variants"], diag)
+    return out
+
+
+def _diagnose(w: Any, var: Mapping[str, Any], diag: Mapping[str, Any]) -> dict:
+    """Steps where a supplier variant is over the limit and dso is not: realised export, no-battery worst export
+    (guard zone if >= 0.75 G), planned feeder battery kW and day-start pool energy, dso vs variant."""
+    out: dict = {}
+    if "dso" not in diag:
+        return out
+    for v in diag:
+        if not v.startswith("sup"):
+            continue
+        for (f, d), x in ((k, var[v]["feeder_days"][f"{k[0]}_d{k[1]}"]) for k in
+                          ((f, d) for f in w.feeders for d in range(w.days))):
+            key = (f, w.day_t0(d))
+            pd, pv = diag["dso"]["plans"].get(key), diag[v]["plans"].get(key)
+            if pd is None or pv is None:
+                continue
+            g = pd["g"]
+            xd = -diag["dso"]["net"][f][d * 96:(d + 1) * 96]
+            xv = -diag[v]["net"][f][d * 96:(d + 1) * 96]
+            ks = [k for k in range(96) if xv[k] > g + 1e-6 and xv[k] > xd[k] + 1e-6]
+            if ks:
+                out[f"{v}:{f}_d{d}"] = {"g_kw": g, "e0_dso": round(pd["e0"], 2), "e0_var": round(pv["e0"], 2),
+                                        "steps": [{"k": k, "x_dso": round(xd[k], 2), "x_var": round(xv[k], 2),
+                                                   "nobatt_worst": round(pv["nobatt_worst"][k], 2),
+                                                   "guard": bool(pv["nobatt_worst"][k] >= 0.75 * g),
+                                                   "p_dso": round(pd["p"][k], 2), "p_var": round(pv["p"][k], 2)}
+                                                  for k in ks]}
     return out
 
 
@@ -215,6 +251,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if od:
         with open(os.path.join(od, "supplier_replay.json"), "w") as fh:
             json.dump(res, fh, indent=1, default=str)
+    print(f"# diagnose: {json.dumps(res['diagnose'], default=float)}")
     print(f"# label: {res['label']} homes/feeders; PZU real RO; imbalance price proxy (a={res['a']}, b={res['b']}); "
           f"position: {res['position_source']}")
     keys = ("minutes_over_limit", "energy_over_limit_kwh", "peak_overshoot_kw", "comfort_breaches",
