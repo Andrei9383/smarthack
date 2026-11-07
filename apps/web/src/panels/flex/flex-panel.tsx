@@ -380,7 +380,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               {(feeders.data ?? []).map((f) => (
                 <tr
                   key={f.feederId}
-                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-brand-50 font-medium text-brand-900" : "hover:bg-muted"}`}
+                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-brand-50 font-medium text-brand-900 shadow-[inset_2px_0_0_var(--primary)]" : "hover:bg-surface-raised"}`}
                   onClick={() => {
                     void setFeeder(f.feederId);
                     setPoolOpen(false);

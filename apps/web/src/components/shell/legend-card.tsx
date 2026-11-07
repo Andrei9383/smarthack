@@ -121,7 +121,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
           Evening <Term id="stress">stress</Term>
         </Title>
         <Ramp low="low" high="at capacity" />
-        <Row swatch={<span aria-hidden className="block size-[9px] rounded-[2px] border border-border bg-sidebar" />}>
+        <Row swatch={<span aria-hidden className="block size-[9px] rounded-[2px] border border-border-strong bg-surface-raised" />}>
           No data
         </Row>
       </>

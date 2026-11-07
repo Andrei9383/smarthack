@@ -64,12 +64,12 @@ export function Pop({
   );
 }
 
-/** Units small and muted after the number (anti-AI rule: let tabular numbers carry it). */
+/** Units small and muted after the number; the number itself in Plex Mono, tabular (Cockpit). */
 export function Num({ value, unit, className }: { value: ReactNode; unit?: string; className?: string }) {
   return (
     <span className={cn("inline-flex items-baseline gap-0.5 whitespace-nowrap tabular-nums", className)}>
-      <span>{value}</span>
-      {unit ? <span className="text-[0.62em] font-normal tracking-normal text-muted-foreground">{unit}</span> : null}
+      <span className="font-mono">{value}</span>
+      {unit ? <span className="ml-0.5 font-sans text-[0.6em] font-normal tracking-normal text-muted-foreground">{unit}</span> : null}
     </span>
   );
 }
@@ -102,7 +102,7 @@ export function Metric({
         {label}
         {pop ? <ChevronRight aria-hidden className="size-3 text-muted-foreground transition-transform duration-150 group-data-popup-open/metric:rotate-90" /> : null}
       </span>
-      <Num value={value} unit={unit} className={cn("mt-1 text-[22px] leading-none font-semibold tracking-tight", tone ?? "text-foreground")} />
+      <Num value={value} unit={unit} className={cn("mt-1 text-[22px] leading-none font-semibold tracking-[-0.02em]", tone ?? "text-foreground")} />
       {sub ? <span className="mt-1 block text-[11px] leading-tight whitespace-nowrap text-muted-foreground tabular-nums">{sub}</span> : null}
     </>
   );
