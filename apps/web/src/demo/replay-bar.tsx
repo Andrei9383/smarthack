@@ -3,7 +3,7 @@
 import { cn } from "@sentinel-app/ui/lib/utils";
 import { useEffect, useSyncExternalStore } from "react";
 
-import { clampStep, clockLabel, STEPS_IN_WEEK } from "./replay";
+import { clampStep, STEPS_IN_WEEK } from "./replay";
 import { useReplayStep } from "./use-replay";
 
 const TICK_MS = 250;
@@ -64,22 +64,3 @@ export function LiveDot({ playing, className }: { playing: boolean; className?: 
   );
 }
 
-/** Quiet status line for the rail footer, driven by the same replay state as the dock. */
-export function ReplayStatus({ runLabel }: { runLabel?: string }) {
-  const [step] = useReplayStep();
-  const playing = useReplayPlaying();
-  return (
-    <div className="flex min-w-0 items-center gap-2.5 text-xs">
-      <LiveDot playing={playing} />
-      <span className="min-w-0 leading-tight">
-        <span className="block truncate font-mono text-[12px] font-medium text-foreground tabular-nums">
-          {clockLabel(clampStep(step))}
-        </span>
-        <span className="block truncate text-[11px] text-muted-foreground">
-          {playing ? "Replaying the test week" : "Replay paused"}
-          {runLabel ? ` · ${runLabel}` : ""}
-        </span>
-      </span>
-    </div>
-  );
-}
