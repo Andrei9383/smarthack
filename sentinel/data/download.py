@@ -4,10 +4,8 @@
     python -m sentinel.data.download --only prices,grid_ro
     python -m sentinel.data.download --list
 
-Re-runnable: every HTTP response is cached under data/.cache/ (gitignored), so an interrupted run resumes where it
-stopped and a re-run only rebuilds the Parquet files. No source needs a key or token. Sources, licences and the
-RO / non-RO label of every file are in data/README.md; data/raw/MANIFEST.json records rows, bytes and sha256.
-Column names follow sentinel/contracts/schemas.py (team/contracts/data.md); extra columns are allowed.
+Every HTTP response is cached under data/.cache/ (gitignored), so re-runs resume / only rebuild Parquet. No keys.
+Sources, licences and RO / non-RO labels: data/README.md. Columns follow team/contracts/data.md.
 """
 
 from __future__ import annotations
@@ -37,17 +35,14 @@ CACHE = REPO / "data" / ".cache"
 UA = "prosumer-sentinel/0.1 (SmartHack 2026; research use)"
 RO_TZ = zoneinfo.ZoneInfo("Europe/Bucharest")
 
-YEARS = (2022, 2025)              # weather + grid data: train 2022-23, val 2024, test 2025 (plan §4)
+YEARS = (2022, 2025)  # train 2022-23, val 2024, test 2025 (plan §4)
 PRICE_START = dt.date(2023, 1, 1)
-GRID_YEAR = 2025                  # coarse wind field for Production mode: the test year only (size + rate limit)
-GRID_STEP = 0.5                   # degrees
+GRID_YEAR, GRID_STEP = 2025, 0.5  # coarse RO wind field (degrees): test year only (size + rate limit)
 ZSTD = dict(compression="zstd", compression_level=19)
 
 
-# ---------------------------------------------------------------- HTTP + cache
-
 def fetch(url: str, *, data: bytes | None = None, cache: str | None = None, retries: int = 5) -> bytes:
-    """GET (or POST) with an on-disk cache keyed by URL + body, and retries on network errors."""
+    """GET (POST if data) with an on-disk cache keyed by URL + body, and retries on network errors."""
     key = cache or hashlib.sha1(url.encode() + (data or b"")).hexdigest()
     path = CACHE / key
     if path.exists():
@@ -81,82 +76,49 @@ def write(df: pl.DataFrame, name: str) -> None:
     print(f"  wrote {path.relative_to(REPO)}: {df.height:,} rows, {path.stat().st_size / 1e6:.2f} MB")
 
 
-# ---------------------------------------------------------------- Open-Meteo (ERA5)
-
 OM_URL = "https://archive-api.open-meteo.com/v1/archive"
-# Open-Meteo variable -> contract column (team/contracts/data.md "weather").
-OM_VARS = {
-    "shortwave_radiation": "ghi_wm2",
-    "direct_normal_irradiance": "dni_wm2",
-    "diffuse_radiation": "dhi_wm2",
-    "cloud_cover": "cloud_pct",
-    "temperature_2m": "temp_c",
-    "relative_humidity_2m": "rh_pct",
-    "precipitation": "precip_mm",
-    "snow_depth": "snow_cm",          # metres in the API, converted below
-    "surface_pressure": "pressure_hpa",
-    "wind_speed_10m": "wind10_ms",
-    "wind_speed_100m": "wind100_ms",
-    "wind_direction_10m": "wdir10_deg",
-    "wind_direction_100m": "wdir100_deg",
-    "wind_gusts_10m": "gust_ms",
-}
+OM_VARS = {  # Open-Meteo variable -> contract column; snow_depth is metres in the API, converted to cm
+    "shortwave_radiation": "ghi_wm2", "direct_normal_irradiance": "dni_wm2", "diffuse_radiation": "dhi_wm2",
+    "cloud_cover": "cloud_pct", "temperature_2m": "temp_c", "relative_humidity_2m": "rh_pct",
+    "precipitation": "precip_mm", "snow_depth": "snow_cm", "surface_pressure": "pressure_hpa",
+    "wind_speed_10m": "wind10_ms", "wind_speed_100m": "wind100_ms", "wind_direction_10m": "wdir10_deg",
+    "wind_direction_100m": "wdir100_deg", "wind_gusts_10m": "gust_ms"}
 PERIOD_COLS = ("ghi_wm2", "dni_wm2", "dhi_wm2", "precip_mm")
 GRID_VARS = ("shortwave_radiation", "temperature_2m", "wind_speed_100m", "wind_direction_100m")
 WEATHER_COLS = ["ts", "point_id", "lat", "lon", *OM_VARS.values(), "source"]
 
 
-class OpenMeteoBudget:
-    """Open-Meteo weights each call by variables x days (~146 for 14 vars x 4 years) and allows 600 per minute,
-    5,000 per hour and 10,000 per day. Wait for the minute window instead of hammering into 429s."""
-
-    def __init__(self) -> None:
-        self.remaining = 600.0
-        self.reset = 0.0
-
-    @staticmethod
-    def cost(n_vars: int, days: int) -> float:
-        return max(1.0, n_vars / 10) * max(1.0, days / 14)
-
-    def wait_for(self, cost: float) -> None:
-        if self.remaining < cost and self.reset > time.time():
-            pause = self.reset - time.time() + 1
-            print(f"  open-meteo: waiting {pause:.0f}s for the rate-limit window")
-            time.sleep(pause)
-            self.remaining = 600.0
-
-    def update(self, headers) -> None:
-        if headers.get("X-RateLimit-Remaining"):
-            self.remaining = float(headers["X-RateLimit-Remaining"])
-            self.reset = float(headers.get("X-RateLimit-Reset", 0))
-
-
-BUDGET = OpenMeteoBudget()
+# Open-Meteo weights each call by max(1, vars/10) x max(1, days/14) and allows 600 per minute (5,000 / h,
+# 10,000 / day): wait for the minute window instead of hammering into 429s.
+BUDGET = {"remaining": 600.0, "reset": 0.0}
 
 
 def open_meteo(lat: float, lon: float, start: dt.date, end: dt.date, variables, model: str = "era5") -> pl.DataFrame:
-    """Hourly ERA5 (0.25°) or ERA5-Land (0.1°) for one point, UTC. One request per point keeps the weighting
-    predictable."""
+    """Hourly ERA5 (0.25°) or ERA5-Land (0.1°) for one point, UTC."""
     q = urllib.parse.urlencode(dict(
         latitude=f"{lat:.4f}", longitude=f"{lon:.4f}", start_date=start.isoformat(), end_date=end.isoformat(),
         hourly=",".join(variables), models=model, wind_speed_unit="ms", timezone="GMT"))
     url = f"{OM_URL}?{q}"
     key = "openmeteo/" + hashlib.sha1(url.encode()).hexdigest() + ".json"
     if not (CACHE / key).exists():
-        cost = BUDGET.cost(len(variables), (end - start).days + 1)
-        BUDGET.wait_for(cost)
+        cost = max(1.0, len(variables) / 10) * max(1.0, ((end - start).days + 1) / 14)
+        if BUDGET["remaining"] < cost and BUDGET["reset"] > time.time():
+            pause = BUDGET["reset"] - time.time() + 1
+            print(f"  open-meteo: waiting {pause:.0f}s for the rate-limit window")
+            time.sleep(pause)
+            BUDGET["remaining"] = 600.0
         for attempt in range(8):
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": UA})
                 with urllib.request.urlopen(req, timeout=180) as r:
                     body = r.read()
-                    BUDGET.update(r.headers)
+                    if r.headers.get("X-RateLimit-Remaining"):
+                        BUDGET.update(remaining=float(r.headers["X-RateLimit-Remaining"]),
+                                      reset=float(r.headers.get("X-RateLimit-Reset", 0)))
                 break
             except urllib.error.HTTPError as e:
                 reason = e.read()[:200].decode(errors="replace")
-                wait = 65 if "Minutely" in reason or e.code == 429 else 10
-                if "Hourly" in reason:
-                    wait = 600
+                wait = 600 if "Hourly" in reason else 65 if "Minutely" in reason or e.code == 429 else 10
                 if "Daily" in reason:
                     raise RuntimeError(f"open-meteo daily limit reached; re-run tomorrow (cache keeps progress): {reason}")
                 print(f"  open-meteo HTTP {e.code}: {reason.strip()} -> retry in {wait}s", file=sys.stderr)
@@ -169,18 +131,15 @@ def open_meteo(lat: float, lon: float, start: dt.date, end: dt.date, variables, 
         (CACHE / key).parent.mkdir(parents=True, exist_ok=True)
         (CACHE / key).write_bytes(body)
     d = json.loads((CACHE / key).read_bytes())
-    h = d["hourly"]
-    df = pl.DataFrame({"ts": h["time"], **{OM_VARS[v]: h[v] for v in variables}}, strict=False)
+    df = pl.DataFrame({"ts": d["hourly"]["time"], **{OM_VARS[v]: d["hourly"][v] for v in variables}}, strict=False)
     df = df.with_columns(
         pl.col("ts").str.to_datetime("%Y-%m-%dT%H:%M", time_zone="UTC"),
         pl.exclude("ts").cast(pl.Float32),
         era5_lat=pl.lit(d["latitude"]), era5_lon=pl.lit(d["longitude"]))
     if "snow_cm" in df.columns:
         df = df.with_columns(pl.col("snow_cm") * 100)
-    # Open-Meteo stamps radiation and precipitation at the END of the hour they cover; the contract stamps the
-    # interval START, so move those back one hour (instantaneous variables stay where they are).
-    period = [c for c in PERIOD_COLS if c in df.columns]
-    return df.with_columns(pl.col(period).shift(-1))
+    # Radiation / precipitation are stamped at the END of their hour; the contract stamps the interval START.
+    return df.with_columns(pl.col([c for c in PERIOD_COLS if c in df.columns]).shift(-1))
 
 
 def add_land_snow(df: pl.DataFrame, points: list[dict], start: dt.date, end: dt.date) -> pl.DataFrame:
@@ -195,33 +154,25 @@ def add_land_snow(df: pl.DataFrame, points: list[dict], start: dt.date, end: dt.
     return df.drop("snow_cm").join(snow, on=["point_id", "ts"], how="left").select(df.columns)
 
 
-def era5_cell(lat: float, lon: float) -> tuple[float, float]:
-    return round(lat * 4) / 4, round(lon * 4) / 4
-
-
 def weather_table(points: list[dict], start: dt.date, end: dt.date, variables) -> pl.DataFrame:
     """Fetch each distinct ERA5 cell once, then fan rows out to every point in that cell."""
     cells: dict[tuple[float, float], list[dict]] = {}
     for p in points:
-        cells.setdefault(era5_cell(p["lat"], p["lon"]), []).append(p)
+        cells.setdefault((round(p["lat"] * 4) / 4, round(p["lon"] * 4) / 4), []).append(p)
     print(f"  {len(points)} points -> {len(cells)} ERA5 cells, {start}..{end}, {len(variables)} vars")
     frames = []
     for i, (cell, members) in enumerate(cells.items(), 1):
         df = open_meteo(*cell, start, end, variables)
-        for p in members:
-            frames.append(df.with_columns(point_id=pl.lit(p["point_id"]), lat=pl.lit(p["lat"]), lon=pl.lit(p["lon"])))
+        frames += [df.with_columns(point_id=pl.lit(p["point_id"]), lat=pl.lit(p["lat"]), lon=pl.lit(p["lon"]))
+                   for p in members]
         if i % 10 == 0:
             print(f"  {i}/{len(cells)} cells")
     out = pl.concat(frames, how="vertical")
-    for col in OM_VARS.values():
-        if col not in out.columns:
-            out = out.with_columns(pl.lit(None, pl.Float32).alias(col))
+    out = out.with_columns([pl.lit(None, pl.Float32).alias(c) for c in OM_VARS.values() if c not in out.columns])
     return (out.with_columns(source=pl.lit("era5"))
                .select(WEATHER_COLS + ["era5_lat", "era5_lon"])
                .sort("point_id", "ts"))
 
-
-# ---------------------------------------------------------------- points: localities, parks, grid
 
 # Public park data (plan §4). Coordinates are approximate and refined from OSM turbine positions when available.
 WIND_PARKS = [
@@ -234,53 +185,32 @@ WIND_PARKS = [
 ]
 
 
-def locality_points() -> list[dict]:
-    sys.path.insert(0, str(REPO))
-    from sentinel.sim.fleet.localities import LOCALITIES  # #11 owns the list; we download exactly these points
-    return [dict(point_id=f"loc:{l.id}", kind="locality", name=l.name, county=l.county, lat=l.lat, lon=l.lon)
-            for l in LOCALITIES]
-
-
-def park_points(parks: list[dict]) -> list[dict]:
-    return [dict(point_id=f"park:{p['park_id']}", kind="park", name=p["name"], county=p["county"],
-                 lat=p["lat"], lon=p["lon"]) for p in parks]
-
-
 def in_polygon(lon: np.ndarray, lat: np.ndarray, rings: list[np.ndarray]) -> np.ndarray:
     """Even-odd ray casting over every ring of a (multi)polygon."""
     inside = np.zeros(lon.shape, bool)
     for ring in rings:
         x, y = ring[:, 0], ring[:, 1]
-        x2, y2 = np.roll(x, -1), np.roll(y, -1)
-        for xa, ya, xb, yb in zip(x, y, x2, y2):
-            cross = ((ya > lat) != (yb > lat)) & (lon < (xb - xa) * (lat - ya) / (yb - ya + 1e-12) + xa)
-            inside ^= cross
+        for xa, ya, xb, yb in zip(x, y, np.roll(x, -1), np.roll(y, -1)):
+            inside ^= ((ya > lat) != (yb > lat)) & (lon < (xb - xa) * (lat - ya) / (yb - ya + 1e-12) + xa)
     return inside
 
 
 def grid_points() -> list[dict]:
     geo = json.loads((RAW / "geo" / "ro_country.geojson").read_text())
-    rings = []
-    for feat in geo["features"]:
-        g = feat["geometry"]
-        polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
-        rings += [np.asarray(poly[0]) for poly in polys]
-    lats = np.arange(43.5, 48.5 + 1e-9, GRID_STEP)
-    lons = np.arange(20.0, 30.0 + 1e-9, GRID_STEP)
-    LON, LAT = np.meshgrid(lons, lats)
+    geoms = [f["geometry"] for f in geo["features"]]
+    rings = [np.asarray(poly[0]) for g in geoms
+             for poly in (g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]])]
+    LON, LAT = np.meshgrid(np.arange(20.0, 30.0 + 1e-9, GRID_STEP), np.arange(43.5, 48.5 + 1e-9, GRID_STEP))
     keep = in_polygon(LON.ravel(), LAT.ravel(), rings)
     return [dict(point_id=f"grid:{la:.2f}_{lo:.2f}", kind="grid", name="", county="", lat=float(la), lon=float(lo))
             for la, lo in zip(LAT.ravel()[keep], LON.ravel()[keep])]
 
 
-# ---------------------------------------------------------------- jobs
-
 def job_geo() -> None:
     """County boundaries (ADM1) + country outline, simplified, from geoBoundaries (CC BY 4.0)."""
     for level, name in (("ADM0", "ro_country"), ("ADM1", "ro_counties")):
         meta = json.loads(fetch(f"https://www.geoboundaries.org/api/current/gbOpen/ROU/{level}/"))
-        body = fetch(meta["simplifiedGeometryGeoJSON"], cache=f"geo/{name}.geojson")
-        gj = json.loads(body)
+        gj = json.loads(fetch(meta["simplifiedGeometryGeoJSON"], cache=f"geo/{name}.geojson"))
         for f in gj["features"]:  # 4 decimals ≈ 10 m, plenty for a county map
             f["geometry"]["coordinates"] = _round_coords(f["geometry"]["coordinates"])
         out = RAW / "geo" / f"{name}.geojson"
@@ -310,38 +240,34 @@ def job_parks() -> None:
             print(f"  overpass {url}: {e!r}", file=sys.stderr)
     parks = [dict(p) for p in WIND_PARKS]
     if elements:
-        tb = pl.DataFrame([dict(osm_id=e["id"], lat=e["lat"], lon=e["lon"],
-                                operator=e.get("tags", {}).get("operator"),
-                                name=e.get("tags", {}).get("name"),
-                                rated=e.get("tags", {}).get("generator:output:electricity"),
-                                model=e.get("tags", {}).get("model")) for e in elements])
-        # nearest park within 12 km, else unassigned
-        lat0, lon0 = tb["lat"].to_numpy(), tb["lon"].to_numpy()
-        dist = np.stack([_km(lat0, lon0, p["lat"], p["lon"]) for p in parks])
-        near = dist.argmin(0)
+        tb = pl.DataFrame([dict(osm_id=e["id"], lat=e["lat"], lon=e["lon"], operator=t.get("operator"),
+                                name=t.get("name"), rated=t.get("generator:output:electricity"), model=t.get("model"))
+                           for e in elements for t in [e.get("tags", {})]])
+        lat0, lon0 = tb["lat"].to_numpy(), tb["lon"].to_numpy()  # nearest park within 12 km, else unassigned
+        dist = np.stack([6371 * np.hypot(np.radians(lat0 - p["lat"]),
+                                         np.radians(lon0 - p["lon"]) * math.cos(math.radians(p["lat"])))
+                         for p in parks])
         tb = tb.with_columns(park_id=pl.Series([parks[i]["park_id"] if dist[i, j] < 12 else None
-                                                for j, i in enumerate(near)]))
+                                                for j, i in enumerate(dist.argmin(0))]))
         write(tb, "osm_wind_turbines.parquet")
         for p in parks:
             sel = tb.filter(pl.col("park_id") == p["park_id"])
             p["osm_turbines"] = sel.height
             if sel.height >= 5:
                 p["lat"], p["lon"] = round(sel["lat"].mean(), 4), round(sel["lon"].mean(), 4)
-                p["coords_from"] = "osm turbine centroid"
-            else:
-                p["coords_from"] = "approximate (to verify)"
+            p["coords_from"] = "osm turbine centroid" if sel.height >= 5 else "approximate (to verify)"
     write(pl.DataFrame(parks), "wind_parks.parquet")
-
-
-def _km(lat, lon, lat0, lon0):
-    return 6371 * np.hypot(np.radians(lat - lat0), np.radians(lon - lon0) * math.cos(math.radians(lat0)))
 
 
 def job_weather() -> None:
     """ERA5 hourly at every prosumer locality and wind park, 2022-2025, all contract variables."""
     parks = pl.read_parquet(RAW / "wind_parks.parquet").to_dicts() if (RAW / "wind_parks.parquet").exists() \
         else WIND_PARKS
-    points = locality_points() + park_points(parks)
+    sys.path.insert(0, str(REPO))
+    from sentinel.sim.fleet.localities import LOCALITIES  # #11 owns the list; we download exactly these points
+    points = ([dict(point_id=f"loc:{l.id}", kind="locality", name=l.name, county=l.county, lat=l.lat, lon=l.lon)
+               for l in LOCALITIES] + [dict(point_id=f"park:{p['park_id']}", kind="park", name=p["name"],
+                                            county=p["county"], lat=p["lat"], lon=p["lon"]) for p in parks])
     start, end = dt.date(YEARS[0], 1, 1), dt.date(YEARS[1], 12, 31)
     df = weather_table(points, start, end, list(OM_VARS))
     write(add_land_snow(df, points, start, end), "weather.parquet")
@@ -354,8 +280,8 @@ def job_grid_ro() -> None:
         job_geo()
     points = grid_points()
     df = weather_table(points, dt.date(GRID_YEAR, 1, 1), dt.date(GRID_YEAR, 12, 31), GRID_VARS)
-    keep = ["ts", "point_id", "lat", "lon", "ghi_wm2", "temp_c", "wind100_ms", "wdir100_deg", "source"]
-    write(df.select(keep), "weather_grid_ro.parquet")
+    write(df.select("ts", "point_id", "lat", "lon", "ghi_wm2", "temp_c", "wind100_ms", "wdir100_deg", "source"),
+          "weather_grid_ro.parquet")
 
 
 EC_SERIES = {  # Energy-Charts production type -> entsoe_ro series name (contract: ts, series, mw)
@@ -370,14 +296,11 @@ def job_energy_charts() -> None:
     """Real-RO national load + generation by type (Energy-Charts, ENTSO-E-derived; replaces the ENTSO-E API)."""
     frames = []
     for year in range(YEARS[0], YEARS[1] + 1):
-        url = (f"https://api.energy-charts.info/public_power?country=ro"
-               f"&start={year}-01-01T00:00Z&end={year + 1}-01-01T00:00Z")
-        d = json.loads(fetch(url))
+        d = json.loads(fetch(f"https://api.energy-charts.info/public_power?country=ro"
+                             f"&start={year}-01-01T00:00Z&end={year + 1}-01-01T00:00Z"))
         ts = pl.Series("ts", d["unix_seconds"]).cast(pl.Int64) * 1_000_000
-        for p in d["production_types"]:
-            series = EC_SERIES.get(p["name"])
-            if series:
-                frames.append(pl.DataFrame({"ts": ts, "series": series, "mw": p["data"]}, strict=False))
+        frames += [pl.DataFrame({"ts": ts, "series": EC_SERIES[p["name"]], "mw": p["data"]}, strict=False)
+                   for p in d["production_types"] if p["name"] in EC_SERIES]
     df = (pl.concat(frames)
             .with_columns(pl.col("ts").cast(pl.Datetime("us", "UTC")), pl.col("mw").cast(pl.Float64))
             .drop_nulls("mw")
@@ -440,10 +363,10 @@ def _pvdaq_day(args) -> pl.DataFrame | None:
         tot = df.filter(pl.col("metric_id") == total)
         if tot.height:
             return tot.select("measured_on", "value")
-    # Some systems only log per-inverter AC power: sum it, keeping only timestamps where every inverter reported.
-    inv = df.filter(pl.col("metric_id").is_in(inverters))
-    return (inv.group_by("measured_on").agg(pl.col("value").sum(), pl.len().alias("n"))
-               .filter(pl.col("n") == len(inverters)).select("measured_on", "value"))
+    # else sum per-inverter AC power, keeping only timestamps where every inverter reported
+    return (df.filter(pl.col("metric_id").is_in(inverters))
+              .group_by("measured_on").agg(pl.col("value").sum(), pl.len().alias("n"))
+              .filter(pl.col("n") == len(inverters)).select("measured_on", "value"))
 
 
 def _utc_offset_by_month(power: pl.DataFrame, ghi: pl.DataFrame) -> dict[int, int]:
@@ -463,27 +386,18 @@ def _utc_offset_by_month(power: pl.DataFrame, ghi: pl.DataFrame) -> dict[int, in
                     best, best_r = off, r
         out[m] = best
     found = [v for v in out.values() if v is not None]
-    common = max(set(found), key=found.count)
-    # A month with little or noisy data can pick a nonsense shift; only standard <-> DST (±1 h) is plausible.
+    common = max(set(found), key=found.count)  # noisy months may pick nonsense; only standard <-> DST is plausible
     return {m: common if v is None or abs(v - common) > 1 else v for m, v in out.items()}
 
 
-# Standard UTC offset -> the US zone with that offset, for loggers whose clock follows DST.
 US_ZONES = {-5: "America/New_York", -6: "America/Chicago", -7: "America/Denver", -8: "America/Los_Angeles"}
 
 
 def _logger_zone(offsets: dict[int, int]) -> str:
-    """A logger on standard time all year gets a fixed offset ("Etc/GMT+7" = UTC-7). One whose offset changes by
-    an hour in summer follows DST: use the IANA zone, so the switch lands on the right day, not on month bounds."""
+    """Fixed offset ("Etc/GMT+7" = UTC-7) for a logger on standard time all year; the US IANA zone if the offset
+    changes by an hour in summer (DST), so the switch lands on the right day, not on month bounds."""
     std = min(offsets.values())
-    if len(set(offsets.values())) > 1 and std in US_ZONES:
-        return US_ZONES[std]
-    return f"Etc/GMT{-std:+d}"
-
-
-def _local_to_utc(col: pl.Expr, tz: str) -> pl.Expr:
-    # The repeated hour in autumn and the skipped hour in spring cannot be placed: drop them (null).
-    return col.dt.replace_time_zone(tz, ambiguous="null", non_existent="null").dt.convert_time_zone("UTC")
+    return US_ZONES[std] if len(set(offsets.values())) > 1 and std in US_ZONES else f"Etc/GMT{-std:+d}"
 
 
 def job_pvdaq() -> None:
@@ -504,12 +418,13 @@ def job_pvdaq() -> None:
         lat, lon = float(site["latitude"]), float(site["longitude"])
         wx = weather_table([dict(point_id=f"pvdaq:{sid}", lat=lat, lon=lon)],
                            dt.date(year - 1, 12, 31), dt.date(year + 1, 1, 1), list(OM_VARS))
-        offsets = _utc_offset_by_month(raw, wx)
-        tz = _logger_zone(offsets)
+        tz = _logger_zone(offsets := _utc_offset_by_month(raw, wx))
         q15 = (raw.with_columns(pl.col("ac_w").clip(lower_bound=0))
                   .group_by(pl.col("measured_on").dt.truncate("15m").alias("local"))
                   .agg(pl.col("ac_w").mean(), pl.len().alias("n_samples"))
-                  .with_columns(ts=_local_to_utc(pl.col("local"), tz))
+                  # the repeated autumn hour and the skipped spring hour cannot be placed: dropped (null)
+                  .with_columns(ts=pl.col("local").dt.replace_time_zone(tz, ambiguous="null", non_existent="null")
+                                .dt.convert_time_zone("UTC"))
                   .drop_nulls("ts")
                   .select("ts", pl.lit(f"pvdaq:{sid}").alias("system_id"), pl.col("ac_w").cast(pl.Float32),
                           "n_samples")
@@ -534,13 +449,10 @@ JOBS = {"geo": job_geo, "parks": job_parks, "energy_charts": job_energy_charts, 
 
 
 def write_manifest() -> None:
-    files = {}
-    for p in sorted(RAW.rglob("*")):
-        if p.is_file() and p.name != "MANIFEST.json":
-            entry = dict(bytes=p.stat().st_size, sha256=hashlib.sha256(p.read_bytes()).hexdigest())
-            if p.suffix == ".parquet":
-                entry["rows"] = pl.scan_parquet(p).select(pl.len()).collect().item()
-            files[str(p.relative_to(RAW))] = entry
+    files = {str(p.relative_to(RAW)): dict(bytes=p.stat().st_size, sha256=hashlib.sha256(p.read_bytes()).hexdigest(),
+                                           **({"rows": pl.scan_parquet(p).select(pl.len()).collect().item()}
+                                              if p.suffix == ".parquet" else {}))
+             for p in sorted(RAW.rglob("*")) if p.is_file() and p.name != "MANIFEST.json"}
     total = sum(f["bytes"] for f in files.values())
     (RAW / "MANIFEST.json").write_text(json.dumps(dict(total_bytes=total, files=files), indent=1) + "\n")
     print(f"data/raw total: {total / 1e6:.1f} MB in {len(files)} files")
@@ -554,8 +466,7 @@ def main() -> None:
     if args.list:
         print("\n".join(f"{k:14s} {v.__doc__.splitlines()[0]}" for k, v in JOBS.items()))
         return
-    names = args.only.split(",") if args.only else list(JOBS)
-    for name in names:
+    for name in args.only.split(",") if args.only else JOBS:
         t = time.time()
         print(f"[{name}]")
         JOBS[name]()
