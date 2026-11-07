@@ -9,7 +9,7 @@ Built in 24 h at Smarthack XI (PPC theme "24h to Power PPC"). Challenge summary:
 binding plan: [team/plan.md](team/plan.md).
 
 ```bash
-make reproduce                                 # offline after the first install, ~4 min on a laptop CPU
+make reproduce                                 # offline after the first install, ~8 min on a laptop CPU
 npm ci && npm run build && npm start           # the app on http://localhost:3000
 ```
 
@@ -135,8 +135,8 @@ table of every number it printed, the step and card that produced it, and its la
 | `make setup` | `.venv` (Python 3.12) + `requirements.txt` | `.venv/` | ~5 s cached |
 | `make test` | `pytest tests` (contracts, simulator, faults, LP, qualify, uncertainty, demand, agent, kernels) | pass/fail | ~30 s |
 | `make sim` | RO prosumer fleet, 600 sites / 15 feeders / 2022–2025 (#11) + PV fault injector (#12) | `fleet/`, `faults/` | ~40 s |
-| `make baselines` | pvlib (recorded metadata), persistence, LightGBM quantiles, threshold rule, CUSUM on a 100-site fleet (#15); `eval.py --baselines` once #16 lands | `baselines/` | ~2 min |
-| `make eval` | `eval.py`: model test-set metrics by label, from the weights in `models/` (#16, #29) | `eval/` | skipped until #16 merges |
+| `make baselines` | `eval.py --baselines`: pvlib (recorded metadata), persistence, LightGBM quantiles, threshold rule + CUSUM (#15) on the test fleet, PVDAQ and real RO series | `baselines/` | ~5 min (builds the test fleet once) |
+| `make eval` | `eval.py`: model test-set metrics grouped by label (#16). Scores `models/*.onnx` (#29); until those are committed it runs the `MockPredictor`, a pipeline check | `eval/` | ~1 min |
 | `make demand` | M3 DemandNet on real RO load, test 2025 (#44) | `demand/` | ~8 s |
 | `make uncertainty` | conformal calibration + P10 commitment on mock forecasts (#27) | `uncertainty.json` | ~3 s |
 | `make replay` | baseline vs Sentinel, same 2025 test week, through the whole agent (#17) | `sentinel.sqlite` | ~15 s |
@@ -144,7 +144,7 @@ table of every number it printed, the step and card that produced it, and its la
 | `make train` | prints the lab commands; `TRAIN_LOCAL=1 MODEL=…` trains locally | `train/` | — |
 | `make clean` | removes `.lab-out/reproduce/` | | |
 
-\*Apple-silicon laptop. Useful variables: `REPLAY_WORLD=sim` (replay the simulated 600-site fleet instead of the
+\*Apple-silicon laptop. Useful variables: `EVAL_ARGS=--quick` (150-site eval fleet), `REPLAY_WORLD=sim` (replay the simulated 600-site fleet instead of the
 mock world), `FULL=1` (fault injector on the full fleet, ~4 min), `SEED`, `PROMOTE=1` (allow writing a committed
 `demo/sentinel.sqlite`). Steps whose code has not merged yet print `skipped: … (#card)` and the target stays green.
 
@@ -171,7 +171,7 @@ are the ones reported on the cards.
 | P10 commitment method | coverage 0.62 → 0.795 after conformal; P10 hit rate 0.938 | — | synthetic (mock truth), method check | `make uncertainty` (#27) |
 | Feeder LP | 100-site feeder solved in 1.9 s; slack 0 vs baseline +19.5 kW; evening peak 10.9 vs 52.8 kW | self-consumption rule | synthetic (mock forecasts) | #18 |
 | Feeder peak shaving, minutes over limit, P10 hit rate, comfort breaches, lei/home, alerts/turbine-day | pending | self-consumption rule, tuned per-home threshold rule | synthetic RO | replay run → #29 |
-| PV nowcast on real systems | pending | pvlib | non-RO (NREL PVDAQ) | #16 |
+| PV nowcast on real systems | pending: `make eval` once #29 commits the M1 ONNX | pvlib, LightGBM (`make baselines`) | non-RO (NREL PVDAQ) | #16, #29 |
 | GIS feeder/phase recovery | pending | GIS as-is | non-RO (IEEE LV feeder) | #13 |
 
 **Error analysis so far (#14).** PVNet is weakest on snow days and on unseen sites (coverage 0.73); SiteHealth finds
@@ -187,9 +187,9 @@ logged in [team/insights.md](team/insights.md).
 - **Model training data.** M1/M2/M4 (#14) and M6 (#41) were trained on their cards' own deterministic RO stand-in
   generators (`sentinel/model/synth.py`, `sentinel/model/wind/synth.py`) while the shared windows (#10) and the wind
   simulator (#22, #23) were being built. They are meant to drop in unchanged.
-- **Strong LightGBM baseline on the shared fleet.** On the #11 fleet (validation 2024), the LightGBM quantile
-  baseline reaches PV nMAE ≈ 0.03 vs pvlib 0.09–0.18 (lab baseline#186; `make baselines`). M1 has not been scored on
-  that fleet yet, so M1 vs LightGBM is an open comparison (#10, #16), not a claim.
+- **Strong LightGBM baseline on the shared fleet.** On the #11 fleet the LightGBM quantile baseline (#15) beats pvlib
+  by a wide margin (lab baseline#186: PV nMAE 0.031 vs 0.178, validation 2024; `make baselines` prints the test-2025
+  numbers). M1 has not been scored on that fleet yet, so M1 vs LightGBM is an open comparison (#14, #16), not a claim.
 - **Mock components in the replay.** Until #29 promotes the ONNX weights, `replay.py` uses the contract
   `MockPredictor` for PV/load/site health and built-in WindMon-style rules for wind. The replay prints
   `FALLBACK components in use` and stores it in `runs.notes`, so its KPIs are a pipeline check, not results.

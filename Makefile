@@ -26,6 +26,7 @@ REPLAY_DAYS  ?= 7
 # REPLAY_OUT may point at a committed file (demo/sentinel.sqlite, #29) only with PROMOTE=1.
 REPLAY_OUT   ?= $(OUT)/sentinel.sqlite
 PROMOTE      ?= 0
+# EVAL_ARGS: extra eval.py flags, e.g. --quick (150-site fleet) or --drills (#28).
 EVAL_ARGS    ?=
 TRAIN_LOCAL  ?= 0
 # MODEL: pvnet | loadnet | sitehealth | windnbm | demandnet | windpower | windfailure | gridtwin (train.py registry)
@@ -54,11 +55,11 @@ endef
 
 help:
 	@echo "Prosumer Sentinel"
-	@echo "  make reproduce   setup, test, sim, baselines, eval, demand, uncertainty, replay, summary (~4 min)"
+	@echo "  make reproduce   setup, test, sim, baselines, eval, demand, uncertainty, replay, summary (~8 min)"
 	@echo "  make setup       $(VENV) with Python $(PY_VERSION) + requirements.txt (uv, else python$(PY_VERSION) -m venv)"
 	@echo "  make test        pytest tests/"
 	@echo "  make sim         RO prosumer fleet (#11) + PV fault injector (#12)        -> $(OUT)/fleet, $(OUT)/faults"
-	@echo "  make baselines   pvlib / persistence / LightGBM / threshold / CUSUM (#15)  -> $(OUT)/baselines"
+	@echo "  make baselines   eval.py --baselines: pvlib, persistence, LightGBM, CUSUM  -> $(OUT)/baselines"
 	@echo "  make eval        eval.py: model test-set metrics by label (#16)            -> $(OUT)/eval"
 	@echo "  make demand      M3 DemandNet on real RO load (#44)                        -> $(OUT)/demand"
 	@echo "  make uncertainty conformal + P10 commitment demo (#27)                    -> $(OUT)/uncertainty.json"
@@ -105,11 +106,12 @@ sim: setup
 	  $(PYTHON) -m sentinel.sim.faults --fleet $$F --out $(OUT)/faults)
 
 # ------------------------------------------------------------------------------------------------------ baselines
-# The numbers the models must beat (PV / load / fault: #15; wind WindMon rules: #24). Fleet cached under $(OUT)/cache.
+# The numbers the models must beat (PV / load / fault: #15; wind WindMon rules: #24). eval.py builds the 600-site
+# test fleet + injected faults once (~4 min) under $(OUT)/cache; `eval` reuses it.
 baselines: setup
 ifneq ($(wildcard eval.py),)
 	$(call step,baselines,mkdir -p $(OUT)/baselines && \
-	  SENTINEL_CACHE=$(abspath $(OUT))/cache LAB_OUTPUT_DIR=$(OUT)/baselines $(PYTHON) eval.py --baselines)
+	  SENTINEL_CACHE=$(abspath $(OUT))/cache LAB_OUTPUT_DIR=$(OUT)/baselines $(PYTHON) eval.py --baselines $(EVAL_ARGS))
 else ifneq ($(wildcard sentinel/eval/baselines/pv/run.py),)
 	$(call step,baselines,mkdir -p $(OUT)/baselines && \
 	  SENTINEL_CACHE=$(abspath $(OUT))/cache $(PYTHON) -m sentinel.eval.baselines.pv.run --seed $(SEED) \
@@ -120,7 +122,8 @@ else
 endif
 
 # ----------------------------------------------------------------------------------------------------------- eval
-# Model test-set metrics grouped by label; scores the ONNX weights committed in models/ (#29).
+# Model test-set metrics grouped by label. Scores models/*.onnx (#29) when present, else the MockPredictor (a
+# pipeline check, not a result: eval.py prints which predictor it loaded).
 eval: setup
 ifeq ($(wildcard eval.py),)
 	$(call skip,eval,eval.py not on main yet (#16); model numbers in the README cite lab train runs (#14 / #41))
@@ -189,8 +192,8 @@ summary:
 	label() { case $$1 in \
 	  test) echo "n/a: unit + contract tests";; \
 	  sim) echo "synthetic RO (driven by real RO ERA5 in data/raw); #11, #12";; \
-	  baselines) echo "synthetic RO, validation 2024 (100-site fleet); #15";; \
-	  eval) echo "per line, as printed by eval.py (synthetic RO / real RO / non-RO); #16";; \
+	  baselines) echo "label per block below (synthetic_RO test 2025 / non_RO PVDAQ / real_RO); #15 via eval.py";; \
+	  eval) echo "label per block below; ONNX from models/ if present, else MockPredictor = pipeline check; #16";; \
 	  demand) echo "real RO: Energy-Charts/ENTSO-E RO load + ERA5 temp, test 2025; #44";; \
 	  uncertainty) echo "synthetic (MockPredictor truth): method check, not a model result; #27";; \
 	  replay) echo "synthetic RO; components marked real vs FALLBACK below; #17 (lab [runs.replay])";; \
@@ -207,11 +210,13 @@ summary:
 	    sim) grep -E "^wrote " $$L/$$s.log | sed "s/^/    /" || true;; \
 	    replay) grep -E '^\[agent\] (world|FALLBACK)|^# replay:' $$L/$$s.log | sed 's/^/    /' || true;; \
 	  esac; \
-	  grep -E '^LAB_METRIC ' $$L/$$s.log | sed 's/^LAB_METRIC /    /' || true; \
+	  if grep -q '^== ' $$L/$$s.log; then grep -E '^predictors:' $$L/$$s.log | sed 's/^/    /' || true; \
+	    sed -n '/^== /,/^eval report:/p' $$L/$$s.log | sed 's/^/    /'; \
+	  else grep -E '^LAB_METRIC ' $$L/$$s.log | sed 's/^LAB_METRIC /    /' || true; fi; \
 	done; \
 	echo; echo "outputs: $(OUT)/  (replay DB: $(REPLAY_OUT))"; \
 	[ -f $$L/total.time ] && echo "total: $$(cat $$L/total.time)s" || true; \
-	echo "Model numbers (M1/M2/M4/M6) come from lab train runs until eval.py + promoted weights land: README.md#results"
+	echo "Model numbers (M1/M2/M4/M6) come from lab train runs until #29 commits the ONNX weights for eval.py: README.md#results"
 
 # ---------------------------------------------------------------------------------------------------------- clean
 clean:
