@@ -3,11 +3,13 @@
 - `nbm_inputs`: per-step NBM inputs [N, T, F_IN] and targets (density-normalised winds per plan §3.5).
 - `run_nbm`: chunked causal inference through any backend (torch in train, onnxruntime in the predictor).
 - `clf_features`: residual + park-context features for the anomaly classifier, one park at a time.
-- `decide`: per-class thresholds + run-length smoothing → WindAnomaly index per step.
+- `curtail_ok` / `decide`: per-class thresholds + park-wide curtailment rule (common ceiling or park consensus)
+  + run-length smoothing → WindAnomaly index per step. Training, eval and the predictor all go through these.
 """
 
 from __future__ import annotations
 
+import itertools
 from typing import Callable, Optional
 
 import numpy as np
@@ -293,28 +295,70 @@ DEFAULT_MERGE = {"fault_stop": 4, "curtailment": 4, "icing": 8, "underperformanc
 
 
 CURTAIL_MIN_PARK_FRAC = 0.15
+# Park consensus (#99): a cap to 0 % leaves noisy near-zero power with no common ceiling, so the ceiling test alone
+# turns a park-wide cap the classifier is sure about into "normal". Curtailment is therefore also allowed where at
+# least this share of the park's reporting turbines has p_curtailment >= θ_curtailment in the same step ...
+CURTAIL_CONSENSUS_FRAC = 0.5
+# ... and at least this many turbines agree, so a lone turbine (also in a 1- or 2-turbine park) never qualifies.
+CURTAIL_CONSENSUS_MIN_TURBINES = 2
+
+# What `curtail_ok` returns: one park's curtailment context per step and turbine. Structured so that the masks of
+# several parks can be concatenated along the turbine axis (train.py tunes on all validation parks at once) and
+# `decide` still counts the consensus within each park.
+CURTAIL_CTX = np.dtype([("ceiling", "?"), ("reporting", "?"), ("park", "<i8")])
+_park_ids = itertools.count()
 
 
 def curtail_ok(F: np.ndarray, names: list[str]) -> np.ndarray:
-    """Curtailment is park-wide by definition (plan §3.5): allowed only where >= 15 % of the park sits at one
-    ceiling below its expected power (park_cap_frac over the last hour)."""
-    return F[..., names.index("park_cap_frac_m4")] >= CURTAIL_MIN_PARK_FRAC
+    """Curtailment context [T, n] (dtype CURTAIL_CTX) for the turbines of ONE park, F as from `clf_features`.
+
+    Curtailment is park-wide by definition (plan §3.5). `decide` allows it where `ceiling` holds (>= 15 % of the
+    park sits at one ceiling below its expected power, park_cap_frac over the last hour) OR where the park agrees
+    (>= CURTAIL_CONSENSUS_FRAC of the `reporting` turbines, i.e. those with a valid power reading, have
+    p_curtailment >= θ_curtailment). Each call gets its own `park` id."""
+    out = np.empty(F.shape[:2], dtype=CURTAIL_CTX)
+    out["ceiling"] = F[..., names.index("park_cap_frac_m4")] >= CURTAIL_MIN_PARK_FRAC
+    out["reporting"] = F[..., names.index("missing")] < 0.5
+    out["park"] = next(_park_ids)
+    return out
+
+
+def curtail_allowed(p_curt: np.ndarray, theta: float, ctx: np.ndarray) -> np.ndarray:
+    """[T, N] bool: where curtailment may be called. `ctx` from `curtail_ok` (possibly several parks concatenated
+    on axis 1); a plain bool [T, N] is read as the ceiling test of one park whose turbines all report."""
+    if ctx.dtype.names is None:
+        ceiling = np.asarray(ctx, dtype=bool)
+        reporting = np.ones_like(ceiling)
+        park = np.zeros(ceiling.shape[1], dtype=np.int64)
+    else:
+        ceiling, reporting = ctx["ceiling"], ctx["reporting"]
+        park = ctx["park"][0] if len(ctx) else np.zeros(ctx.shape[1], dtype=np.int64)
+    hit = (p_curt >= theta) & reporting
+    allowed = ceiling.copy()
+    for g in np.unique(park):
+        cols = park == g
+        n_hit = hit[:, cols].sum(1)
+        n_rep = reporting[:, cols].sum(1)
+        agree = (n_hit >= CURTAIL_CONSENSUS_MIN_TURBINES) & (n_hit >= CURTAIL_CONSENSUS_FRAC * np.maximum(n_rep, 1))
+        allowed[:, cols] |= agree[:, None]
+    return allowed
 
 
 def decide(probs: np.ndarray, thresholds: dict, min_run: Optional[dict] = None, merge: Optional[dict] = None,
            curtail_mask: Optional[np.ndarray] = None) -> np.ndarray:
     """probs [T, N, K] → class index [T, N] (uint8): argmax of p_c/θ_c over anomaly classes if p_c ≥ θ_c, then
     fill short holes inside same-class runs and drop runs shorter than min_run. `curtail_mask` [T, N] (from
-    `curtail_ok`) vetoes curtailment without park consensus, so a lone underperforming turbine is never hidden
-    as curtailment."""
+    `curtail_ok`) vetoes curtailment unless the park has a common ceiling or a consensus of its reporting
+    turbines (`curtail_allowed`), so a lone underperforming turbine is never hidden as curtailment."""
     min_run = min_run or DEFAULT_MIN_RUN
     merge = merge or DEFAULT_MERGE
     th = np.array([1.0] + [thresholds[c] for c in CLASSES[1:]], dtype=np.float32)
     r = probs[..., 1:] / th[None, None, 1:]
     if curtail_mask is not None:
-        ci = CLASS_INDEX["curtailment"] - 1
+        ci = CLASS_INDEX["curtailment"]
+        ok = curtail_allowed(probs[..., ci], float(th[ci]), curtail_mask)
         r = r.copy()
-        r[..., ci] = np.where(curtail_mask, r[..., ci], 0.0)
+        r[..., ci - 1] = np.where(ok, r[..., ci - 1], 0.0)
     c = r.argmax(-1) + 1
     keep = np.take_along_axis(r, (c - 1)[..., None], -1)[..., 0] >= 1.0
     out = np.where(keep, c, 0).astype(np.uint8)
