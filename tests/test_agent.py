@@ -226,3 +226,43 @@ def test_actions_validate_against_contract():
     assert Action.from_json(a.to_json()).payload["site_id"] == "S1"
     with pytest.raises(ValueError):
         A.make("work_order", "2025-06-16T00:00:00Z", "sentinel", "r", {"asset_id": "S1"}, rec)
+
+
+# --- observation vs physics (#78 drills finding): blind sites, re-admission, commit-time blind haircut ----------
+class _BlindMorning(MockWorld):
+    """Every site reports nothing from step 20 to 44 of each day (05:00-11:00 UTC); the physics is untouched."""
+
+    def observed_site_day(self, site_id, d):
+        sd = self.site_day(site_id, d)
+        age = list(sd.telemetry_age_s)
+        for k in range(20, 45):
+            age[k] = max(age[k], (k - 19) * 900.0)
+        return type(sd)(sd.pv_kw, sd.load_kw, age, sd.inv_status, sd.inv_voltage_v)
+
+
+def _hit(res):
+    return res.hits / max(1, res.commit_steps)
+
+
+def test_blind_sites_keep_their_schedule_and_commitment_holds():
+    clean, blind = MockWorld(days=2, scale=0.5, with_wind=False), _BlindMorning(days=2, scale=0.5, with_wind=False)
+    run = lambda w, **kw: L.run_policy(w, L.default_components(w, force_fallback=True),  # noqa: E731
+                                       L.LoopConfig(policy="sentinel", run_id="b", **kw))
+    c, b = run(clean), run(blind)
+    old = run(blind, readmit=False, hold_blind=False, blind_haircut=False)  # pre-fix behaviour
+    assert b.comfort_breaches == 0 and old.comfort_breaches == 0
+    assert _hit(b) >= _hit(c) - 0.1
+    assert _hit(old) < _hit(b)  # dropping blind sites to their local rule for the rest of the day loses the P10
+
+
+def test_blind_haircut_removes_the_blind_share_by_step():
+    import numpy as np
+
+    c = L.Commitment("F1", "2025-06-16T00:00:00Z", [2.0] * 4, [2.0] * 4, [1.0] * 4, haircut=0.05, horizon=4)
+    blind = {"a": np.array([True, True, False, False])}
+    out = L._blind_haircut(c, {"a": np.array([1.0, 1.0, 1.0, 0.0]), "b": np.array([1.0, 3.0, 1.0, 1.0])}, blind)
+    assert out.committed == pytest.approx([0.5, 0.75, 1.0, 1.0])
+    assert out.extra["haircut_k"][0] == pytest.approx(1 - 0.95 * 0.5) and out.extra["haircut_k"][3] == 0.05
+    prof = L._blind_profile({"a": type("SD", (), {"telemetry_age_s": [0.0] * 40 + [4000.0] + [0.0] * 55})()},
+                            L.LoopConfig())
+    assert prof["a"][36:45].all() and not prof["a"][35] and not prof["a"][45]

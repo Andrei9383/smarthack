@@ -9,6 +9,18 @@ review), execute the plan through the battery model with a feasibility clip that
 reserve (MUST), optional hourly re-solve on the remaining horizon (SHOULD, `resolve_hourly`). Wind: statuses ->
 work orders / curtailment log / park report; turbines never enter the LP (R20).
 
+Observation vs physics: every read of telemetry (input hashes, telemetry ages at t0 and per tick, measured PV for
+qualify, measurements rows) goes through `world.observed_site_day`; `world.site_day` is the physics (battery step,
+grid, realised flex). Telemetry loss (#78 drills) is handled in three places, all switchable in LoopConfig:
+  hold_blind     a pool site that qualify drops only for missing telemetry (stale_telemetry / data_gap) leaves
+                 re-planning but keeps running today's schedule already on its device (feasibility clip and comfort
+                 floor still apply on the device); a site dropped for a fault / review goes to its own local rule.
+  readmit        a dropped pool site rejoins the live pool as soon as its telemetry is fresh and it re-qualifies.
+  blind_haircut  at commit time (t0), the share of the planned reduction coming from pool sites expected to be
+                 blind at a step (same step of the trailing day's observation over the 60-min stale limit, +-1 h)
+                 is not committed: committed_k *= 1 - loss_k, h_k = 1 - (1 - h)(1 - loss_k) in commitments.haircut_h.
+                 Sites already stale at t0 are out of the pool (qualify) and so out of the commitment.
+
 Policies: `baseline` (= `self_consumption`, contract rule on every site), `threshold` (per-home export threshold),
 `sentinel`. All policies run the same perceive + estimate stages on the same world, so their inputs are identical
 (`PolicyResult.input_hashes`); only decide/act differ.
@@ -61,10 +73,12 @@ from sentinel.contracts import (
 
 from . import actions as A
 from .audit import Ts, iso, local_dt
-from .world import World
+from .world import SiteDay, World
 
 DT = 0.25
 EPS = 1e-6
+BLIND_REASONS = ("stale_telemetry", "data_gap")  # qualify reasons that mean "not seen", not "not fit"
+STALE_AGE_S = 3600.0  # qualify DEFAULT_THRESHOLDS["site"]["stale_minutes"] = 60: older telemetry = out of the pool
 BASELINE_ALIASES = {"baseline": "baseline", "self_consumption": "baseline", "threshold": "threshold",
                     "sentinel": "sentinel"}
 
@@ -605,6 +619,9 @@ class LoopConfig:
     c_deg_lei_kwh: float = 0.12  # ~EUR 0.025/kWh per direction (plan §3.5), both policies
     threshold_alpha: float = 0.5
     haircut: float = 0.05
+    readmit: bool = True  # re-admit a dropped pool site to the live pool once its telemetry is fresh and it re-qualifies
+    hold_blind: bool = True  # a pool site dropped only for missing telemetry keeps running the schedule on its device
+    blind_haircut: bool = True  # haircut committed flex by the share expected to be unobserved (trailing-day profile)
     n_scenarios: int = 200
     seed: int = 0
 
@@ -745,6 +762,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 "geometry": {"type": "Point", "coordinates": [fl["lon"], fl["lat"]]}}, rec, fl["section_id"])
             act(a, world.day_ts(0))
 
+    prev_oday: dict[str, SiteDay] = {}  # yesterday's observation: the blind-haircut profile at commit time
     for d in range(world.days):
         t0 = world.day_t0(d)
         day_ts = world.day_ts(d)
@@ -753,7 +771,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         pdig = _digest(prices)
         mean_price = float(np.mean(prices))
         # ---------------------------------------------------------------- perceive
-        sday = {s: world.site_day(s, d) for s in sites}
+        sday = {s: world.site_day(s, d) for s in sites}  # physics (truth): battery step, grid, realised
+        oday = {s: world.observed_site_day(s, d) for s in sites}  # observation: everything the agent reads
         tday = {t: world.turbine_day(t, d) for t in world.turbines}
         # ---------------------------------------------------------------- estimate
         pv_p = {s: _predict(preds["pv"], sites[s].row, t0) for s in sites}
@@ -767,7 +786,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         for s in sites:
             g = world.feeders[sites[s].feeder_id].spec.g_kw
             inp = A.site_inputs(sites[s].row, {"pv": pv_p[s], "load": ld_p[s], "sitehealth": hl_p[s]},
-                                _digest(sday[s].pv_kw, sday[s].load_kw, sday[s].telemetry_age_s), pdig, g)
+                                _digest(oday[s].pv_kw, oday[s].load_kw, oday[s].telemetry_age_s), pdig, g)
             res.input_hashes[(d, s)] = day_inputs[s] = input_hash(inp)
         res.day_hashes[d] = input_hash([day_inputs, {t: _digest([x if x is not None else -1 for x in tday[t].act_pwt_kw])
                                                      for t in tday}, {t: wd_p[t].to_dict() for t in wd_p}])
@@ -803,14 +822,15 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         e_day0 = dict(energy)
         if sentinel:
             ass = _safe_qualify(comps, [site_rows[s] for s in sites], hl_p,
-                                {s: sday[s].telemetry_age_s[0] / 60 for s in sites}, None, {})
+                                {s: oday[s].telemetry_age_s[0] / 60 for s in sites}, None, {})
             for x in ass:
                 statuses[x.asset_id] = x.status
+            blind = _blind_profile(prev_oday, cfg) if cfg.blind_haircut else {}
             for fid, feeder in world.feeders.items():
                 members = feeder.site_ids
                 pool[fid] = [s for s in members if s in energy and statuses[s].in_pool and statuses[s].battery_ok]
                 pl, comm = _plan_and_commit(comps, cfg, world, feeder.spec, members, pool[fid], pv_p, ld_p,
-                                            statuses, energy, prices_kwh, t0, res)
+                                            statuses, energy, prices_kwh, t0, res, blind)
                 plans[fid], commitments[fid] = pl, comm
                 gi = feeder.spec.g_kw
                 for s in pool[fid]:
@@ -829,6 +849,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 thresholds[s] = cfg.threshold_alpha * max(0.0, max(a - b for a, b in zip(pv_p[s].q50, ld_p[s].q50)))
         # ---------------------------------------------------------------- tick loop: act + log
         live_pool = {f: set(pool[f]) for f in pool}
+        held = {f: set() for f in pool}  # blind pool sites still running today's schedule on the device (no re-plan)
         cf_e = {s: e_day0[s] for f in pool for s in pool[f]}  # rule counterfactual for realised
         realised = {f: [0.0] * DAY_STEPS for f in world.feeders}
         executed = {s: [0.0] * DAY_STEPS for s in batt_sites}
@@ -856,7 +877,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                prices_kwh[k:], iso(ts), res)
                     old = plans[fid]
                     plans[fid] = FeederPlan(fid, old.t0, old.policy, old.g_kw,
-                                            {s: old.schedule.get(s, [0.0] * DAY_STEPS)[:k] + pl.schedule.get(s, [0.0] * (DAY_STEPS - k))
+                                            {s: old.schedule[s] if s in held[fid] else  # the device keeps its copy
+                                             old.schedule.get(s, [0.0] * DAY_STEPS)[:k] + pl.schedule.get(s, [0.0] * (DAY_STEPS - k))
                                              for s in set(old.schedule) | set(pl.schedule)},
                                             old.export_curve[:k] + pl.export_curve, old.slack[:k] + pl.slack,
                                             solver_status=pl.solver_status)
@@ -870,8 +892,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                                revision=revision), ts)
             # -- perceive this tick
             for s in sites:
-                if sday[s].telemetry_age_s[k] == 0:
-                    pv_obs[s][k] = sday[s].pv_kw[k]
+                if oday[s].telemetry_age_s[k] == 0:
+                    pv_obs[s][k] = oday[s].pv_kw[k]
             # -- intraday SiteHealth re-check (real M4 on the 24 h ending now): new fault evidence mid-day
             if k in reassess:
                 if hasattr(preds["sitehealth"], "prefetch"):
@@ -889,7 +911,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                                  "is_fallback": _is_fallback(h, comps)})
             # -- qualify every tick (sentinel): telemetry age + measured loss; triage
             if sentinel:
-                ages_min = {**{s: sday[s].telemetry_age_s[k] / 60 for s in sites},
+                ages_min = {**{s: oday[s].telemetry_age_s[k] / 60 for s in sites},
                             **{t: _gap_age(tday[t].act_pwt_kw, k) for t in world.turbines}}
                 ass = _safe_qualify(comps, [site_rows[s] for s in sites] + [world.turbines[t].row for t in world.turbines],
                                     {**hl_p, **_wind_preds(world, wd_p, tday, k, tb_obs, under_run)}, ages_min,
@@ -907,7 +929,16 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     if x.asset_kind == "site":
                         fid = sites[x.asset_id].feeder_id
                         if x.asset_id in live_pool[fid] and not st.in_pool:
-                            live_pool[fid].discard(x.asset_id)  # drops to its local rule for the rest of the day
+                            live_pool[fid].discard(x.asset_id)  # out of re-planning
+                            if cfg.hold_blind and st.reason in BLIND_REASONS:
+                                held[fid].add(x.asset_id)  # blind only: the device keeps today's schedule
+                        elif x.asset_id in held[fid] and not st.in_pool and st.reason not in BLIND_REASONS:
+                            held[fid].discard(x.asset_id)  # a real problem now: its own local rule
+                        elif (cfg.readmit and x.asset_id in cf_e and x.asset_id not in live_pool[fid]
+                              and st.in_pool and st.battery_ok):
+                            live_pool[fid].add(x.asset_id)  # telemetry fresh again and re-qualified: back on plan
+                            held[fid].discard(x.asset_id)
+                            statuses[x.asset_id] = st  # (the next hourly re-solve starts from its current energy)
                 tri = _safe_triage(comps, ass, t_iso, triage_state, comps.triage_config(mean_price, run_id, policy))
                 triage_state = tri.state
                 for a in [*tri.work_orders, *tri.alerts, *tri.human_reviews]:
@@ -931,7 +962,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     p, grid = 0.0, pv - ld
                 else:
                     e = energy[s]
-                    if sentinel and s in live_pool[fid]:
+                    if sentinel and (s in live_pool[fid] or s in held[fid]):
                         req = plans[fid].schedule.get(s, [0.0] * DAY_STEPS)[k]
                         p, e2 = _clip_step(b, e, req)
                         clipped = abs(p - req) > 1e-3
@@ -956,14 +987,16 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 fexp[fid] += grid
                 res.cost_lei += prices_kwh[k] * (max(-grid, 0.0) - cfg.beta * max(grid, 0.0)) * DT \
                     + cfg.c_deg_lei_kwh * abs(executed[s][k] if b else 0.0) * DT
-                stale = sd.telemetry_age_s[k] > 0
+                od = oday[s]
+                stale = od.telemetry_age_s[k] > 0
                 if write_inputs:  # telemetry once per DB (per-policy battery rows are in schedules)
                     sink.add("measurements", {"run_id": run_id, "asset_id": s, "ts": tsx,
-                                              "pv_ac_kw": None if stale else pv, "load_kw": None if stale else ld,
+                                              "pv_ac_kw": None if stale else od.pv_kw[k],
+                                              "load_kw": None if stale else od.load_kw[k],
                                               "batt_kw": None if (stale or b is None) else round(p, 4),
                                               "soc": None if (stale or b is None) else round(energy[s] / b.capacity_kwh, 4),
-                                              "inv_voltage_v": None if stale else sd.inv_voltage_v[k],
-                                              "inv_status": str(sd.inv_status[k]), "data_quality": "gap" if stale else "ok"})
+                                              "inv_voltage_v": None if stale else od.inv_voltage_v[k],
+                                              "inv_status": str(od.inv_status[k]), "data_quality": "gap" if stale else "ok"})
                 if asset_steps and write_inputs and (cfg.step_predictions or not _night_interior(sd.pv_kw, pv_p[s], k)):
                     sink.add("asset_steps", {"run_id": run_id, "asset_id": s, "ts": tsx, "actual_kw": pv,
                                              "q10_kw": pv_p[s].q10[k], "q50_kw": pv_p[s].q50[k],
@@ -995,6 +1028,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                            "limit_kw": g, "slack_kw": round(max(0.0, x - g), 4),
                                            "is_violation": int(over)})
         # ---------------------------------------------------------------- end of day: log
+        prev_oday = oday
         for fid in world.feeders:
             res.feeder_days[(fid, d)] = fd[fid]
         if sentinel:
@@ -1011,7 +1045,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     sink.add("commitments", {"run_id": run_id, "feeder_id": fid, "ts": Ts(world.tick_ts(d, k)),
                                              "nominal_kw": c.nominal[k], "available_kw": c.available[k],
                                              "committed_kw": cm, "realised_kw": round(r, 4),
-                                             "haircut_h": c.haircut, "hit": None if hit is None else int(hit)})
+                                             "haircut_h": c.extra.get("haircut_k", [c.haircut] * DAY_STEPS)[k],
+                                             "hit": None if hit is None else int(hit)})
                 c.realised = [round(v, 4) for v in realised[fid]]
                 rec = A.audit(comps.sources["committer"], {"feeder": fid, "t0": t0, "pool": sorted(pool[fid]),
                                                            "inputs": [day_inputs[s] for s in sorted(pool[fid])]},
@@ -1155,19 +1190,54 @@ def _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, p
     return pl
 
 
+def _blind_profile(prev_oday: Mapping[str, SiteDay], cfg: LoopConfig) -> dict[str, np.ndarray]:
+    """Per site, the steps of the day it is expected to be blind (telemetry age over the qualify stale limit), from
+    the same steps of the trailing day's observation, widened by +-1 h. Only what is known at t0; {} on day 0."""
+    out = {}
+    w = 4
+    for s, od in prev_oday.items():
+        blind = np.asarray(od.telemetry_age_s, float) > STALE_AGE_S
+        if blind.any():
+            pad = np.concatenate([np.zeros(w, bool), blind, np.zeros(w, bool)])
+            out[s] = np.array([pad[k:k + 2 * w + 1].any() for k in range(len(blind))])
+    return out
+
+
+def _blind_haircut(c: Commitment, contrib: Mapping[str, np.ndarray], blind: Mapping[str, np.ndarray]) -> Commitment:
+    """Commit-time telemetry haircut by step: committed_k *= 1 - loss_k, loss_k = share of the planned reduction at
+    step k that comes from pool sites expected to be blind then (their flex cannot be verified or steered, so it is
+    not sold). Effective h_k = 1 - (1 - h)(1 - loss_k) goes to extra['haircut_k'] and to commitments.haircut_h."""
+    T = len(c.committed)
+    num, den = np.zeros(T), np.zeros(T)
+    for s, r in contrib.items():
+        r = np.maximum(0.0, np.asarray(r, float)[:T])
+        den += r
+        if s in blind:
+            num += r * blind[s][:T]
+    loss = np.divide(num, den, out=np.zeros(T), where=den > 1e-9)
+    if loss.any():
+        c.committed = [float(x) * (1.0 - l) for x, l in zip(c.committed, loss)]
+        c.extra["haircut_k"] = [round(1.0 - (1.0 - c.haircut) * (1.0 - l), 4) for l in loss]
+        c.extra["blind_sites"] = sorted(s for s in contrib if s in blind)
+    return c
+
+
 def _plan_and_commit(comps, cfg, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, prices_kwh, t0,
-                     res):
+                     res, blind: Optional[Mapping[str, np.ndarray]] = None):
     pl = _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, prices_kwh, t0, res)
     sites = world.sites
     pv_d = {s: _scaled(pv_p[s], _pv_factor(statuses.get(s))) for s in pool_ids}
     red = np.zeros(pl.horizon)
-    for s in pool_ids:  # planned export reduction vs the rule on P50 (fallback committer, audit)
+    contrib = {}
+    for s in pool_ids:  # planned export reduction vs the rule on P50 (fallback committer, audit, blind haircut)
         b = sites[s].battery
         e = energy[s]
         sched = pl.schedule.get(s, [0.0] * pl.horizon)
+        r = contrib[s] = np.zeros(pl.horizon)
         for t in range(pl.horizon):
             p_rule, e, _ = self_consumption_step(b, e, pv_d[s].q50[t], ld_p[s].q50[t])
-            red[t] += sched[t] - p_rule
+            r[t] = sched[t] - p_rule
+        red += r
     ctx = {"planned_reduction": red, "haircut": cfg.haircut, "pv": pv_d, "load": {s: ld_p[s] for s in pool_ids},
            "batteries": {s: sites[s].battery for s in pool_ids},
            "soc0": {s: energy[s] / sites[s].battery.capacity_kwh for s in pool_ids},
@@ -1180,6 +1250,8 @@ def _plan_and_commit(comps, cfg, world, spec, members, pool_ids, pv_p, ld_p, sta
             raise
         comps.note_error("committer", e)
         c = fallback_commit(spec, pl, ctx)
+    if blind:
+        c = _blind_haircut(c, contrib, blind)
     return pl, c
 
 

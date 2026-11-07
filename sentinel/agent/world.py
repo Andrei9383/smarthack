@@ -170,6 +170,11 @@ class World:
     def site_day(self, site_id: str, d: int) -> SiteDay:
         raise NotImplementedError
 
+    def observed_site_day(self, site_id: str, d: int) -> SiteDay:
+        """What the agent receives (telemetry): every observation read in run_policy goes through this; `site_day`
+        stays the physics. Identical by default; replay drills (#78) override it to corrupt only the observation."""
+        return self.site_day(site_id, d)
+
     def turbine_day(self, turbine_id: str, d: int) -> TurbineDay:
         raise NotImplementedError
 
