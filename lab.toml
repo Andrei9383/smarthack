@@ -33,6 +33,17 @@ needs   = "gpu"
 gpu_mem = "4G"                      # only GPUs with this much memory take it (lab status lists them)
 timeout = "2h"
 
+# Judge (#148): replays 12 + 12 weeks in a process pool (about 6 min per year on rtx5070, cached under
+# ~/.cache/sentinel/judge_rows keyed by code + config), then LightGBM per family on CPU (the OpenCL GPU build was
+# 0.3-0.6x the speed of 20 CPU threads in train#861/#908). No torch. 12G pins it to rtx5070 (31 GB RAM; the 16 GB
+# server cannot hold 4 week processes next to its other runs). `lab submit <card> --run judge`.
+[runs.judge]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
+cmd     = "sh rust/build.sh status && .venv/bin/python train.py --model judge --bench-device --device auto"
+needs   = "gpu"
+gpu_mem = "12G"
+timeout = "1h"
+
 [runs.train_cpu]
 setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
 cmd     = "sh rust/build.sh status && .venv/bin/python train.py --model ${MODEL:-demandnet}"   # demandnet | windpower | windfailure | gridtwin
