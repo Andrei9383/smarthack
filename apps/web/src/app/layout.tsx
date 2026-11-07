@@ -1,3 +1,4 @@
+import "@fontsource-variable/inter";
 import type { Metadata } from "next";
 
 import "../index.css";
