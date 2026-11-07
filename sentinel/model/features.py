@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sentinel.kernels import window_gather
+from sentinel.kernels import load_features, pv_features, window_gather
 
 from . import physics as ph
 
@@ -73,42 +73,49 @@ def pv_summary(hist_pv, pvclear, geom, kwp):
     return np.clip(np.nan_to_num(out), -3, 3).astype(np.float32)
 
 
-def pv_inputs(raw: dict) -> dict:
-    kwp = raw["kwp_recorded"].astype(np.float32)
+def pv_arrays(wx, geom, pvclear, pvlib, hist_pv, kwp):
+    """K4 reference (sentinel.kernels.pv_features): float32 seq [B,H,17], hourly ref [B,168], summ [B,14,5], night."""
+    kwp = kwp.astype(np.float32)
     k = kwp[:, None]
-    wx = raw["wx"].astype(np.float32)
-    cz, sa, ca, cs = _geom_feats(raw["geom"])
-    pvc = raw["pvclear"].astype(np.float32) / k
-    ref = _hist_days(raw["hist_pv"], REF_DAYS).astype(np.float32) / k[:, :, None]
+    wx = wx.astype(np.float32)
+    cz, sa, ca, cs = _geom_feats(geom)
+    pvc = pvclear.astype(np.float32) / k
+    ref = _hist_days(hist_pv, REF_DAYS).astype(np.float32) / k[:, :, None]
     ref_mean, ref_max = ref.mean(1), ref.max(1)
     seq = np.stack([
         wx[..., 0] / 1000, wx[..., 1] / 1000, wx[..., 2] / 500, wx[..., 3] / 20, wx[..., 4] / 100,
         wx[..., 5] / 10, wx[..., 6] / 10, cz, sa, ca, cs,
-        raw["pvlib"].astype(np.float32) / k, pvc, ref_mean, ref_max, ref[:, -1],
+        pvlib.astype(np.float32) / k, pvc, ref_mean, ref_max, ref[:, -1],
         np.clip(ref_max / np.maximum(pvc, 0.02), 0, 2) * (pvc > 0.01),
     ], -1)
     B = seq.shape[0]
     refh = ref.reshape(B, REF_DAYS * 24, 4).mean(-1)
-    summ = pv_summary(raw["hist_pv"], raw["pvclear"], raw["geom"], kwp)
+    summ = pv_summary(hist_pv, pvclear, geom, kwp)
+    night = (cz <= 0.0) & (cs <= 0.0)
+    return seq.astype(np.float32), refh.astype(np.float32), summ, night
+
+
+def pv_inputs(raw: dict) -> dict:
+    kwp = raw["kwp_recorded"].astype(np.float32)
+    seq, refh, summ, night = pv_features(raw["wx"], raw["geom"], raw["pvclear"], raw["pvlib"], raw["hist_pv"], kwp)
     azr = np.deg2rad(raw["azimuth_recorded"].astype(np.float32))
     stat = np.stack([
         (raw["lat"] - 45.5) / 1.5, (raw["lon"] - 25.0) / 2.5, kwp / 10, raw["tilt_recorded"] / 45,
         np.sin(azr), np.cos(azr), raw["inverter_kw"] / kwp, raw["has_batt"],
         raw["doy_sin"], raw["doy_cos"],
     ], -1).astype(np.float32)
-    night = (cz <= 0.0) & (cs <= 0.0)
-    return {"seq": seq.astype(np.float32), "ref": refh.astype(np.float32), "summ": summ, "stat": stat,
-            "scale": kwp, "night": night}
+    return {"seq": seq, "ref": refh, "summ": summ, "stat": stat, "scale": kwp, "night": night}
 
 
-def load_inputs(raw: dict) -> dict:
-    hl = raw["hist_load"].astype(np.float32)
+def load_arrays(wx, cal, hist_load):
+    """K4 reference (sentinel.kernels.load_features): float32 seq [B,H,14], hourly ref [B,168], summ [B,14,4], scale."""
+    hl = hist_load.astype(np.float32)
     scale = hl.mean(1) + 0.05
     s = scale[:, None]
     days = _hist_days(hl, HIST_DAYS)
     ref = days[:, -REF_DAYS:] / s[:, :, None]
-    wx = raw["wx"].astype(np.float32)
-    cal = raw["cal"].astype(np.float32)
+    wx = wx.astype(np.float32)
+    cal = cal.astype(np.float32)
     seq = np.concatenate([
         np.stack([wx[..., 3] / 20, wx[..., 0] / 1000], -1), cal,
         np.stack([ref[:, -1], ref[:, 0], ref.mean(1), ref.max(1)], -1),
@@ -120,14 +127,20 @@ def load_inputs(raw: dict) -> dict:
     summ = np.stack([
         days.mean(-1) / s, days.max(-1) / s, days.min(-1) / s, (days * eve).sum(-1) / (days.sum(-1) + 1e-3),
     ], -1)
+    return seq.astype(np.float32), refh.astype(np.float32), summ.astype(np.float32), scale.astype(np.float32)
+
+
+def load_inputs(raw: dict) -> dict:
+    seq, refh, summ, scale = load_features(raw["wx"], raw["cal"], raw["hist_load"])
+    B = seq.shape[0]
     arch = np.zeros((B, len(ARCHETYPES)), np.float32)
     a_idx = raw["arch_idx"].astype(int)
     arch[np.arange(B)[a_idx >= 0], a_idx[a_idx >= 0]] = 1
     flags = np.stack([np.asarray(raw.get(k, np.zeros(B)), np.float32) for k in HOUSE_FLAGS], -1)
     stat = np.concatenate([arch, np.stack([raw["has_batt"], (raw["lat"] - 45.5) / 1.5, (raw["lon"] - 25.0) / 2.5,
                                            np.log(scale)], -1), flags], -1).astype(np.float32)
-    return {"seq": seq.astype(np.float32), "ref": refh.astype(np.float32), "summ": summ.astype(np.float32),
-            "stat": stat, "scale": scale.astype(np.float32), "night": np.zeros(seq.shape[:2], bool)}
+    return {"seq": seq, "ref": refh, "summ": summ, "stat": stat, "scale": scale,
+            "night": np.zeros(seq.shape[:2], bool)}
 
 
 def site_summary(raw: dict) -> np.ndarray:
