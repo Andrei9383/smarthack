@@ -2,6 +2,7 @@
 
 import { MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
 import { useQuery } from "@tanstack/react-query";
+import { Sun, Wind } from "lucide-react";
 import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
@@ -16,10 +17,8 @@ import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field
 const PANEL_PADDING_PX = 452;
 const SOURCE_ID = "wind-speed";
 const LAYER_ID = "wind-speed-raster";
-// The speed PNGs bake in a blue→red ramp (scripts/windfield.py), so on the light basemap they
-// stay a faint, desaturated tint and the green particles carry the wind.
-const RASTER_OPACITY = 0.22;
-const RASTER_SATURATION = -0.6;
+// The speed PNGs bake a light → emerald ramp (scripts/windfield.py, card #92) under the particles.
+const RASTER_OPACITY = 0.45;
 
 function imageCoordinates([west, south, east, north]: WindMeta["bounds"]) {
   return [
@@ -49,7 +48,6 @@ function useWindRaster(meta: WindMeta | undefined, hour: number) {
         source: SOURCE_ID,
         paint: {
           "raster-opacity": RASTER_OPACITY,
-          "raster-saturation": RASTER_SATURATION,
           "raster-fade-duration": 0,
         },
       },
@@ -75,6 +73,10 @@ type Overlay = {
   finalize: () => void;
 };
 
+// A particle moves about speedFactor × 0.014 px per frame per m/s at any zoom, and lives about
+// maxAge frames, which is also its trail length: 10 m/s draws a ~40 px streak, not a ~170 px line.
+const PARTICLES = { numParticles: 3000, maxAge: 30, speedFactor: 10, width: 1.5 };
+
 // Stretch layer: loaded on demand so deck.gl never slows the first paint of the app.
 function useWindParticles(meta: WindMeta | undefined, hour: number) {
   const { map, isLoaded } = useMap();
@@ -89,27 +91,27 @@ function useWindParticles(meta: WindMeta | undefined, hour: number) {
 
     (async () => {
       try {
-        const [{ MapboxOverlay }, { WindParticleLayer }] = await Promise.all([
+        const [{ MapboxOverlay }, { SteadyWindLayer }] = await Promise.all([
           import("@deck.gl/mapbox"),
-          import("maplibre-gl-wind"),
+          import("./steady-wind-layer"),
         ]);
         if (cancelled) return;
         const control = new MapboxOverlay({ interleaved: false, layers: [] });
         map.addControl(control as never);
         overlay = control as unknown as Overlay;
+        const bounds = [...meta.bounds];
+        const imageUnscale = [...meta.imageUnscale];
+        const speedRange: [number, number] = [0, meta.speedMax];
         render.current = (nextHour) => {
           overlay?.setProps({
             layers: [
-              new WindParticleLayer({
+              new SteadyWindLayer({
                 id: "wind-particles",
                 image: textureUrl(nextHour),
-                bounds: [...meta.bounds],
-                imageUnscale: [...meta.imageUnscale],
-                speedRange: [0, meta.speedMax],
-                numParticles: 3000,
-                maxAge: 40,
-                speedFactor: 30,
-                width: 1.5,
+                bounds,
+                imageUnscale,
+                speedRange,
+                ...PARTICLES,
                 colorRamp: PARTICLE_COLOR_RAMP,
               }),
             ],
@@ -133,14 +135,20 @@ function useWindParticles(meta: WindMeta | undefined, hour: number) {
   }, [hour]);
 }
 
-const MIN_DIAMETER_PX = 44;
-const PX_PER_MWH = 0.03;
+// Each marker is a dot on its point with a label chip below it. Collisions are resolved on a
+// circle around the chip: its radius and how far its centre sits below the point.
+const FOOTPRINT = {
+  county: { diameter: 96, below: 28 },
+  park: { diameter: 132, below: 36 },
+} as const;
 
-function diameter(mwh: number) {
-  return MIN_DIAMETER_PX + mwh * PX_PER_MWH;
-}
-
-export type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & { lon: number; lat: number; diameter: number };
+// Feeders reuse this layout for plain labels, which sit centred on their point (no `below`).
+export type PlacedMarker = Omit<MarkerCircle, "x" | "y" | "radius"> & {
+  lon: number;
+  lat: number;
+  diameter: number;
+  below?: number;
+};
 
 export const NO_OFFSET: MarkerOffset = { dx: 0, dy: 0 };
 
@@ -162,9 +170,9 @@ export function useMarkerOffsets(markers: PlacedMarker[]) {
   return useMemo(() => {
     if (!map || zoom === null) return new Map<string, MarkerOffset>();
     return resolveCollisions(
-      markers.map(({ id, kind, lon, lat, diameter: size }) => {
+      markers.map(({ id, kind, lon, lat, diameter: size, below = 0 }) => {
         const { x, y } = map.project([lon, lat]);
-        return { id, kind, x, y, radius: size / 2 };
+        return { id, kind, x, y: y + below, radius: size / 2 };
       }),
     );
   }, [map, zoom, markers]);
@@ -192,19 +200,53 @@ export function Displaced({ offset, children }: { offset: MarkerOffset; children
   );
 }
 
+// The wind particles draw in a deck.gl canvas inside MapLibre's control corner (z-index 2), so
+// markers sit at 3+ to keep their chips above the particles.
+const MARKER_Z = { county: "3", park: "4" } as const;
+
 // The marker's own box stays on the real point, where it could cover a displaced neighbour, so
-// only the circle takes clicks; they still bubble to the marker's handler.
+// only its visible content takes clicks; they still bubble to the marker's handler. Shared with feeders.
 export const passClicksThrough = (element: HTMLElement | null) => {
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
   if (marker) marker.style.pointerEvents = "none";
 };
 
-// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
-const raiseMarker = (element: HTMLElement | null) => {
+const stackMarker = (element: HTMLElement | null, zIndex: string) => {
   passClicksThrough(element);
   const marker = element?.closest<HTMLElement>(".maplibregl-marker");
-  if (marker) marker.style.zIndex = "1";
+  if (marker) marker.style.zIndex = zIndex;
 };
+
+const countyMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.county);
+
+// Markers mount as their queries resolve, so DOM order can't keep parks above counties.
+const raiseMarker = (element: HTMLElement | null) => stackMarker(element, MARKER_Z.park);
+
+// Dot on the point, chip centred below it; the chip doesn't change the marker's box.
+function MarkerPin({
+  dotClassName,
+  chipClassName,
+  title,
+  pinRef,
+  children,
+}: {
+  dotClassName: string;
+  chipClassName: string;
+  title: string;
+  pinRef: (element: HTMLElement | null) => void;
+  children: ReactNode;
+}) {
+  return (
+    <span ref={pinRef} className="relative block" title={title}>
+      <span className={`pointer-events-auto block rounded-full ring-2 ring-card shadow-card ${dotClassName}`} />
+      <span
+        className={`pointer-events-auto absolute top-full left-1/2 mt-1.5 flex -translate-x-1/2 items-center rounded-lg bg-card whitespace-nowrap shadow-card transition-colors duration-150 ${chipClassName}`}
+      >
+        {children}
+      </span>
+    </span>
+  );
+}
 
 export function ProductionLayers() {
   useMapRightPadding(PANEL_PADDING_PX);
@@ -231,14 +273,14 @@ export function ProductionLayers() {
         kind: "park" as const,
         lon: park.lon,
         lat: park.lat,
-        diameter: diameter(parkMwh.get(park.id) ?? 0),
+        ...FOOTPRINT.park,
       })),
       ...solarCounties.map((county) => ({
         id: `county:${county.county}`,
         kind: "county" as const,
         lon: county.lon,
         lat: county.lat,
-        diameter: diameter(county.solarMwh),
+        ...FOOTPRINT.county,
       })),
     ],
     [parks, parkMwh, solarCounties],
@@ -251,15 +293,21 @@ export function ProductionLayers() {
         <MapMarker key={county.county} longitude={county.lon} latitude={county.lat}>
           <MarkerContent>
             <Displaced offset={offsets.get(`county:${county.county}`) ?? NO_OFFSET}>
-              <span
-                ref={passClicksThrough}
-                className="pointer-events-auto flex flex-col items-center justify-center rounded-full border-[1.5px] border-brand-500/60 bg-card/85 text-[10px] leading-tight font-semibold text-foreground tabular-nums shadow-card"
-                style={{ width: diameter(county.solarMwh), height: diameter(county.solarMwh) }}
-                title={`${county.county} solar, ${county.solarMwh.toFixed(1)} MWh next 24 h`}
+              {/* Info only, not clickable: hollow dot, dashed chip and a sun so it never reads as a park. */}
+              <MarkerPin
+                pinRef={countyMarker}
+                dotClassName="size-2.5 border-2 border-brand-500 bg-card"
+                chipClassName="cursor-default gap-1.5 border border-dashed border-brand-500/60 py-1 pr-2 pl-1.5 leading-tight"
+                title={`${county.county} county, rooftop solar: ${county.solarMwh.toFixed(1)} MWh next 24 h`}
               >
-                {county.county}
-                <span className="font-normal whitespace-nowrap text-text-secondary">{county.solarMwh.toFixed(1)} MWh</span>
-              </span>
+                <Sun className="size-3.5 shrink-0 text-brand-700" aria-hidden />
+                <span className="flex flex-col">
+                  <span className="text-xs font-semibold text-foreground">{county.county}</span>
+                  <span className="text-[11px] text-text-secondary tabular-nums">
+                    {county.solarMwh.toFixed(1)} MWh solar
+                  </span>
+                </span>
+              </MarkerPin>
             </Displaced>
           </MarkerContent>
         </MapMarker>
@@ -275,19 +323,24 @@ export function ProductionLayers() {
           >
             <MarkerContent>
               <Displaced offset={offsets.get(park.id) ?? NO_OFFSET}>
-                <span
-                  ref={raiseMarker}
-                  className={`pointer-events-auto flex cursor-pointer flex-col items-center justify-center rounded-full border-2 text-[10px] leading-tight font-semibold text-foreground tabular-nums shadow-card transition-colors ${
-                    park.id === selected
-                      ? "border-brand-700 bg-brand-50 ring-4 ring-primary/25"
-                      : "border-primary bg-card hover:bg-brand-50"
+                <MarkerPin
+                  pinRef={raiseMarker}
+                  dotClassName="size-3.5 bg-primary"
+                  chipClassName={`cursor-pointer gap-2 border py-1.5 pr-3 pl-1.5 ${
+                    park.id === selected ? "border-primary ring-4 ring-primary/15" : "border-transparent hover:border-brand-100"
                   }`}
-                  style={{ width: diameter(mwh), height: diameter(mwh) }}
                   title={`${park.name}, ${Math.round(mwh)} MWh next 24 h`}
                 >
-                  {park.id}
-                  <span className="font-normal whitespace-nowrap text-text-secondary">{Math.round(mwh)} MWh</span>
-                </span>
+                  <span className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Wind className="size-4" aria-hidden />
+                  </span>
+                  <span className="flex flex-col leading-tight">
+                    <span className="text-[13px] font-semibold text-foreground">{park.id}</span>
+                    <span className="text-[11px] text-text-secondary tabular-nums">
+                      <span className="font-semibold text-brand-700">{Math.round(mwh)} MWh</span> next 24 h
+                    </span>
+                  </span>
+                </MarkerPin>
               </Displaced>
             </MarkerContent>
           </MapMarker>

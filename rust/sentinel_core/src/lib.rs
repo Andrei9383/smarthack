@@ -236,6 +236,62 @@ fn load_features<'py>(
     Ok(())
 }
 
+/// site_features(pv, m1 [b, H*3], m2, geom [b, H*3], pvlib, pvclear, volt, status i8, soc, batt, load, valid,
+///               hist_pv [b, hh], hist_load [b, hl], hist_volt, hist_status i8, hist_soc, hist_batt [b, ht],
+///               kwp, battery_kw, battery_kwh, has_batt f32[b], seq f32[b, H*18], summ f32[b, 14*8])
+///
+/// Per-step arrays are f32 [b, H] unless noted. Fills the output buffers; the wrapper
+/// `sentinel.kernels.features.site_features_rust` allocates and reshapes.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn site_features<'py>(
+    py: Python<'py>,
+    pv: PyReadonlyArray2<'py, f32>, m1: PyReadonlyArray2<'py, f32>, m2: PyReadonlyArray2<'py, f32>,
+    geom: PyReadonlyArray2<'py, f32>, pvlib: PyReadonlyArray2<'py, f32>, pvclear: PyReadonlyArray2<'py, f32>,
+    volt: PyReadonlyArray2<'py, f32>, status: PyReadonlyArray2<'py, i8>, soc: PyReadonlyArray2<'py, f32>,
+    batt: PyReadonlyArray2<'py, f32>, load: PyReadonlyArray2<'py, f32>, valid: PyReadonlyArray2<'py, f32>,
+    hist_pv: PyReadonlyArray2<'py, f32>, hist_load: PyReadonlyArray2<'py, f32>, hist_volt: PyReadonlyArray2<'py, f32>,
+    hist_status: PyReadonlyArray2<'py, i8>, hist_soc: PyReadonlyArray2<'py, f32>,
+    hist_batt: PyReadonlyArray2<'py, f32>, kwp: PyReadonlyArray1<'py, f32>, bkw: PyReadonlyArray1<'py, f32>,
+    bkwh: PyReadonlyArray1<'py, f32>, has_batt: PyReadonlyArray1<'py, f32>,
+    mut seq: PyReadwriteArray2<'py, f32>, mut summ: PyReadwriteArray2<'py, f32>,
+) -> PyResult<()> {
+    use features::{H, SITE_SEQ, SITE_SUM};
+    let (b, hh, hl, ht) = (pv.shape()[0], hist_pv.shape()[1], hist_load.shape()[1], hist_volt.shape()[1]);
+    if hh < 14 * H || ht < 14 * H || hl == 0 {
+        return Err(PyValueError::new_err("hist_pv / hist_volt must have >= 14*96 steps, hist_load >= 1"));
+    }
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let x = features::Site {
+        pv: pv.as_slice().map_err(contig)?, m1: m1.as_slice().map_err(contig)?, m2: m2.as_slice().map_err(contig)?,
+        geom: geom.as_slice().map_err(contig)?, pvlib: pvlib.as_slice().map_err(contig)?,
+        clear: pvclear.as_slice().map_err(contig)?, volt: volt.as_slice().map_err(contig)?,
+        status: status.as_slice().map_err(contig)?, soc: soc.as_slice().map_err(contig)?,
+        batt: batt.as_slice().map_err(contig)?, load: load.as_slice().map_err(contig)?,
+        valid: valid.as_slice().map_err(contig)?, hist_pv: hist_pv.as_slice().map_err(contig)?,
+        hist_load: hist_load.as_slice().map_err(contig)?, hist_volt: hist_volt.as_slice().map_err(contig)?,
+        hist_status: hist_status.as_slice().map_err(contig)?, hist_soc: hist_soc.as_slice().map_err(contig)?,
+        hist_batt: hist_batt.as_slice().map_err(contig)?, hh, hl, ht, kwp: kwp.as_slice().map_err(contig)?,
+        bkw: bkw.as_slice().map_err(contig)?, bkwh: bkwh.as_slice().map_err(contig)?,
+        has_batt: has_batt.as_slice().map_err(contig)?,
+    };
+    let (seq, summ) = (seq.as_slice_mut().map_err(contig)?, summ.as_slice_mut().map_err(contig)?);
+    for (name, len, n) in [("m1", x.m1.len(), b * H * 3), ("geom", x.geom.len(), b * H * 3), ("pv", x.pv.len(), b * H),
+                           ("m2", x.m2.len(), b * H), ("pvlib", x.pvlib.len(), b * H), ("pvclear", x.clear.len(), b * H),
+                           ("volt", x.volt.len(), b * H), ("status", x.status.len(), b * H),
+                           ("soc", x.soc.len(), b * H), ("batt", x.batt.len(), b * H), ("load", x.load.len(), b * H),
+                           ("valid", x.valid.len(), b * H), ("hist_pv", x.hist_pv.len(), b * hh),
+                           ("hist_load", x.hist_load.len(), b * hl), ("hist_volt", x.hist_volt.len(), b * ht),
+                           ("hist_status", x.hist_status.len(), b * ht), ("hist_soc", x.hist_soc.len(), b * ht),
+                           ("hist_batt", x.hist_batt.len(), b * ht), ("kwp", x.kwp.len(), b), ("bkw", x.bkw.len(), b),
+                           ("bkwh", x.bkwh.len(), b), ("has_batt", x.has_batt.len(), b),
+                           ("seq", seq.len(), b * H * SITE_SEQ), ("summ", summ.len(), b * 14 * SITE_SUM)] {
+        k4_len(name, len, n)?;
+    }
+    py.detach(|| features::site_batch(&x, seq, summ));
+    Ok(())
+}
+
 /// Number of rayon worker threads (for the bench log).
 #[pyfunction]
 fn num_threads() -> usize {
@@ -251,6 +307,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(window_gather_f16_f32, m)?)?;
     m.add_function(wrap_pyfunction!(pv_features, m)?)?;
     m.add_function(wrap_pyfunction!(load_features, m)?)?;
+    m.add_function(wrap_pyfunction!(site_features, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;

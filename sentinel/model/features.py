@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sentinel.kernels import load_features, pv_features, window_gather
+from sentinel.kernels import load_features, pv_features, site_features, window_gather
 
 from . import physics as ph
 
@@ -163,7 +163,8 @@ def site_summary(raw: dict) -> np.ndarray:
     return np.concatenate([base, np.nan_to_num(extra).astype(np.float32)], -1)
 
 
-def site_inputs(raw: dict) -> dict:
+def site_arrays(raw: dict):
+    """K4 reference (sentinel.kernels.site_features): float32 seq [B,H,18] (nan_to_num), summ [B,14,8]."""
     kwp = raw["kwp_recorded"].astype(np.float32)
     k = kwp[:, None]
     pv = raw["pv"].astype(np.float32)
@@ -185,9 +186,15 @@ def site_inputs(raw: dict) -> dict:
         np.clip(pv / (q50 + 0.05 * k), 0, 3),
         np.asarray(raw.get("valid", np.ones(pv.shape, bool)), np.float32),  # logger dropout (0-filled) != a fault
     ], -1)
+    return np.nan_to_num(seq).astype(np.float32), site_summary(raw)
+
+
+def site_inputs(raw: dict) -> dict:
+    kwp = raw["kwp_recorded"].astype(np.float32)
+    seq, summ = site_features(raw)
     stat = np.stack([raw["has_batt"], kwp / 10, raw["inverter_kw"] / kwp, raw["battery_kwh"] / 10,
                      raw["battery_kw"] / 5], -1).astype(np.float32)
-    return {"seq": np.nan_to_num(seq).astype(np.float32), "summ": site_summary(raw), "stat": stat, "scale": kwp}
+    return {"seq": seq, "summ": summ, "stat": stat, "scale": kwp}
 
 
 # --- gathering raw windows from a WindowSource -------------------------------------------------------------

@@ -11,17 +11,17 @@ import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX } from "d3-shape";
 import { useMemo } from "react";
 
-import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { XAxis } from "@/components/charts/x-axis";
 import { timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { dayName, wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
+import { OmTimeAxis, OmYAxis } from "./chart-axes";
 import { OM_COLORS } from "./colors";
 import { ParkReport } from "./park-report";
+import { Meter, ProvenancePill, SECTION_LABEL } from "./ui";
 import { useOmAssets, useReplayTs } from "./use-om-data";
 import { useSelectedTurbine } from "./use-om-state";
 
@@ -50,8 +50,6 @@ const RESIDUALS = [
     swatch: "border-status-ok",
   },
 ] as const;
-const SECTION_LABEL =
-  "text-[11px] font-medium tracking-[.04em] text-muted-foreground uppercase";
 // an excluded turbine is stopped (red)
 const STATUS_TEXT: Record<string, string> = {
   eligible: "text-status-ok",
@@ -59,7 +57,7 @@ const STATUS_TEXT: Record<string, string> = {
   human_review: "text-status-review",
   excluded: "text-status-critical",
 };
-const CHART_MARGIN = { left: 8, right: 8, top: 8, bottom: 24 };
+const CHART_MARGIN = { left: 48, right: 8, top: 10, bottom: 24 };
 
 function parseJson(
   text: string | null | undefined,
@@ -103,12 +101,17 @@ function PowerCurve({
 }) {
   const W = 400;
   const H = 200;
-  const pad = { l: 42, r: 8, t: 8, b: 22 };
+  const pad = { l: 46, r: 8, t: 10, b: 22 };
   const maxV = 25;
   const maxP = Math.max(ratedKw, ...points.map((p) => p.actPwtKw)) * 1.05 || 1;
   const x = (ms: number) =>
     pad.l + (Math.min(ms, maxV) / maxV) * (W - pad.l - pad.r);
   const y = (kw: number) => H - pad.b - (kw / maxP) * (H - pad.t - pad.b);
+  // 3–4 y ticks on a round MW step
+  const stepKw =
+    [250, 500, 1000, 2000].find((st) => maxP / st <= 4) ?? 5000;
+  const yTicks: number[] = [];
+  for (let kw = 0; kw <= maxP; kw += stepKw) yTicks.push(kw);
   // expected curve: mean expected power per 1 m/s bin
   const bins = new Map<number, { sum: number; n: number }>();
   for (const p of points) {
@@ -142,23 +145,24 @@ function PowerCurve({
       {bandPath ? (
         <polygon points={bandPath} fill={FAULTY} fillOpacity={0.08} />
       ) : null}
-      {[0, 0.5, 1].map((f) => (
-        <g key={f}>
+      {yTicks.map((kw, i) => (
+        <g key={kw}>
           <line
             x1={pad.l}
             x2={W - pad.r}
-            y1={y(maxP * f)}
-            y2={y(maxP * f)}
+            y1={y(kw)}
+            y2={y(kw)}
             stroke={GRID}
           />
           <text
             x={pad.l - 6}
-            y={y(maxP * f) + 4}
+            y={y(kw) + 4}
             textAnchor="end"
             fontSize={11}
             className="fill-muted-foreground tabular-nums"
           >
-            {Math.round((maxP * f) / 100) / 10} MW
+            {kw / 1000}
+            {i === yTicks.length - 1 ? " MW" : ""}
           </text>
         </g>
       ))}
@@ -167,11 +171,11 @@ function PowerCurve({
           key={v}
           x={x(v)}
           y={H - 4}
-          textAnchor="middle"
+          textAnchor={v === 25 ? "end" : "middle"}
           fontSize={11}
           className="fill-muted-foreground tabular-nums"
         >
-          {v}
+          {v === 25 ? `${v} m/s` : v}
         </text>
       ))}
       {points.map((p, i) => {
@@ -241,6 +245,18 @@ function TurbineView({ assetId }: { assetId: string }) {
 
   const order = (orders.data ?? []).filter((o) => o.ts <= nowTs).at(-1);
   const evidence = parseJson(order?.evidenceJson);
+  // evidence the triage already wrote down as shares (0–1), shown as small bars
+  const factors = (
+    [
+      { key: "p_fault", label: "Fault probability", tone: "critical" },
+      { key: "headroom_factor", label: "Headroom factor", tone: "ok" },
+    ] as const
+  ).flatMap((f) => {
+    const v = evidence?.[f.key];
+    return typeof v === "number" && v >= 0 && v <= 1
+      ? [{ label: f.label, value: v, tone: f.tone }]
+      : [];
+  });
   const turbineAlerts = (alerts.data ?? []).filter(
     (a) =>
       a.ts <= nowTs &&
@@ -262,18 +278,14 @@ function TurbineView({ assetId }: { assetId: string }) {
         <SheetTitle className="text-base font-semibold text-foreground">
           Turbine {assetId}
         </SheetTitle>
-        <SheetDescription className="text-xs text-muted-foreground tabular-nums">
+        <SheetDescription className="text-xs text-text-secondary tabular-nums">
           {d
             ? `${d.turbineModel ?? "turbine"} · ${((d.ratedKw ?? 0) / 1000).toFixed(1)} MW · park ${parkId}`
             : "Loading…"}
           {run.data ? (
             <>
               {" "}
-              ·{" "}
-              <span className="inline-flex items-center gap-1 rounded-full border border-status-warn/30 bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-foreground">
-                <span className="inline-block size-1.5 rounded-full bg-status-warn" />
-                {run.data.label}
-              </span>
+              · <ProvenancePill label={run.data.label} />
             </>
           ) : null}
         </SheetDescription>
@@ -310,7 +322,7 @@ function TurbineView({ assetId }: { assetId: string }) {
         </div>
 
         {order ? (
-          <section className="rounded-lg border border-border bg-card p-4 text-xs shadow-card">
+          <section className="space-y-3 rounded-lg border border-border bg-card p-4 text-xs shadow-card">
             <div className="flex items-center justify-between gap-2">
               <span className="rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
                 {order.fault?.replaceAll("_", " ") ?? "anomaly"}
@@ -324,32 +336,66 @@ function TurbineView({ assetId }: { assetId: string }) {
                 {order.daysToVisit != null ? ` · ≤ ${order.daysToVisit} d` : ""}
               </span>
             </div>
-            <p className="mt-2 text-[13px] text-foreground tabular-nums">
-              Confidence {Math.round(order.confidence * 100)}%
-              {order.lostKwhDay
-                ? ` · ${(order.lostKwhDay / 1000).toFixed(1)} MWh/day lost`
-                : ""}
-              {order.lostLeiDay
-                ? ` · ${Math.round(order.lostLeiDay).toLocaleString("en-GB")} lei/day`
-                : ""}
-              {order.mwAtRisk ? ` · ${order.mwAtRisk} MW at risk` : ""}
-            </p>
-            {typeof evidence?.evidence === "string" ||
-            typeof evidence?.note === "string" ? (
-              <div className="mt-3 space-y-1 border-t border-border pt-3">
-                <div className={SECTION_LABEL}>Why this decision</div>
-                {typeof evidence?.evidence === "string" ? (
-                  <p className="leading-relaxed text-text-secondary">
-                    Evidence: {evidence.evidence}
-                  </p>
-                ) : null}
-                {typeof evidence?.note === "string" ? (
-                  <p className="leading-relaxed text-text-secondary">
-                    {evidence.note}
-                  </p>
-                ) : null}
-              </div>
+            {order.lostKwhDay || order.lostLeiDay || order.mwAtRisk ? (
+              <p className="text-[13px] font-medium text-foreground tabular-nums">
+                {[
+                  order.lostKwhDay
+                    ? `${(order.lostKwhDay / 1000).toFixed(1)} MWh/day lost`
+                    : null,
+                  order.lostLeiDay
+                    ? `${Math.round(order.lostLeiDay).toLocaleString("en-GB")} lei/day`
+                    : null,
+                  order.mwAtRisk
+                    ? `${order.mwAtRisk.toLocaleString("en-GB", { maximumSignificantDigits: 2 })} MW at risk`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
             ) : null}
+            <div className="space-y-2.5 rounded-lg border border-border bg-sidebar p-3">
+              <div className={SECTION_LABEL}>Why this decision</div>
+              <div className="flex items-center justify-between gap-3 text-text-secondary">
+                <span>Confidence</span>
+                <Meter
+                  value={order.confidence}
+                  width="w-24"
+                  label={`${Math.round(order.confidence * 100)}%`}
+                />
+              </div>
+              {factors.length ? (
+                <ul className="space-y-1.5">
+                  {factors.map((f) => (
+                    <li
+                      key={f.label}
+                      className="flex items-center justify-between gap-3 text-text-secondary"
+                    >
+                      <span>{f.label}</span>
+                      <Meter
+                        value={f.value}
+                        width="w-24"
+                        tone={f.tone}
+                        label={`${Math.round(f.value * 100)}%`}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {typeof evidence?.evidence === "string" ? (
+                <p className="leading-relaxed text-text-secondary">
+                  Evidence: {evidence.evidence}
+                </p>
+              ) : typeof evidence?.detail === "string" ? (
+                <p className="leading-relaxed text-text-secondary">
+                  {evidence.detail}
+                </p>
+              ) : null}
+              {typeof evidence?.note === "string" ? (
+                <p className="leading-relaxed text-text-secondary">
+                  {evidence.note}
+                </p>
+              ) : null}
+            </div>
           </section>
         ) : (
           <p className="text-xs text-muted-foreground">
@@ -426,7 +472,8 @@ function TurbineView({ assetId }: { assetId: string }) {
               margin={CHART_MARGIN}
               animationDuration={0}
             >
-              <Grid />
+              <OmYAxis unit="°C" />
+              <OmTimeAxis />
               {RESIDUALS.map((r) => (
                 <Line
                   key={r.key}
@@ -436,12 +483,6 @@ function TurbineView({ assetId }: { assetId: string }) {
                   fadeEdges={false}
                 />
               ))}
-              <XAxis
-                numTicks={4}
-                labels={residuals.map(
-                  (r) => `${r.date.getDate()}/${r.date.getMonth() + 1}`,
-                )}
-              />
               <ChartTooltip />
             </LineChart>
           ) : null}
