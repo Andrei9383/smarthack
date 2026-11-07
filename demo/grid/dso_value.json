@@ -1,0 +1,721 @@
+{
+ "run_id": "1092",
+ "world": "sim",
+ "label": "synthetic RO",
+ "adapter": "sentinel.judge.adapter",
+ "recovery": {
+  "gis_recovery_rate": 0.8714,
+  "gis_flag_precision": 0.7531,
+  "n_records": 600,
+  "n_corrupted": 70,
+  "corrupted_share": 0.1167,
+  "n_wrong_feeder": 16,
+  "n_wrong_phase": 54,
+  "recovered_feeder": 16,
+  "recovered_phase": 45,
+  "n_flags": 81,
+  "false_flags_on_clean": 18,
+  "source": "cache /var/lib/lab-gpu/.cache/sentinel/data-v4/gridtwin"
+ },
+ "tau_effect": {
+  "tau": {
+   "F7": 0.685,
+   "F3": 0.675,
+   "F10": 0.797,
+   "F6": 0.902,
+   "F11": 0.886
+  },
+  "g_max_kw": {
+   "F7": 65.5,
+   "F3": 76.6,
+   "F10": 65.7,
+   "F6": 57.1,
+   "F11": 125.3
+  },
+  "g_tau_kw": {
+   "F7": 61.85,
+   "F3": 71.07,
+   "F10": 63.63,
+   "F6": 56.22,
+   "F11": 122.35
+  },
+  "arms": {
+   "baseline": {
+    "vs_g_max": {
+     "minutes": 5985.0,
+     "kwh": 1059.28,
+     "peak_overshoot_kw": 25.04,
+     "feeder_days_over": 27,
+     "per_feeder_minutes": {
+      "F10": 1470.0,
+      "F11": 0.0,
+      "F3": 1560.0,
+      "F6": 1290.0,
+      "F7": 1665.0
+     }
+    },
+    "vs_g_tau": {
+     "minutes": 6645.0,
+     "kwh": 1397.37,
+     "peak_overshoot_kw": 29.14,
+     "feeder_days_over": 27,
+     "per_feeder_minutes": {
+      "F10": 1605.0,
+      "F11": 0.0,
+      "F3": 1860.0,
+      "F6": 1395.0,
+      "F7": 1785.0
+     }
+    },
+    "lei_cost": 803.55,
+    "comfort_breaches": 1165,
+    "plan_status": {}
+   },
+   "sentinel_tau": {
+    "vs_g_max": {
+     "minutes": 480.0,
+     "kwh": 16.02,
+     "peak_overshoot_kw": 5.04,
+     "feeder_days_over": 4,
+     "per_feeder_minutes": {
+      "F10": 0.0,
+      "F11": 0.0,
+      "F3": 210.0,
+      "F6": 15.0,
+      "F7": 255.0
+     }
+    },
+    "vs_g_tau": {
+     "minutes": 1905.0,
+     "kwh": 94.46,
+     "peak_overshoot_kw": 10.57,
+     "feeder_days_over": 12,
+     "per_feeder_minutes": {
+      "F10": 0.0,
+      "F11": 0.0,
+      "F3": 1020.0,
+      "F6": 15.0,
+      "F7": 870.0
+     }
+    },
+    "lei_cost": 83.34,
+    "comfort_breaches": 0,
+    "plan_status": {
+     "optimal": 35
+    }
+   },
+   "sentinel_no_tau": {
+    "vs_g_max": {
+     "minutes": 480.0,
+     "kwh": 16.02,
+     "peak_overshoot_kw": 5.04,
+     "feeder_days_over": 4,
+     "per_feeder_minutes": {
+      "F10": 0.0,
+      "F11": 0.0,
+      "F3": 210.0,
+      "F6": 15.0,
+      "F7": 255.0
+     }
+    },
+    "vs_g_tau": {
+     "minutes": 1980.0,
+     "kwh": 95.92,
+     "peak_overshoot_kw": 10.57,
+     "feeder_days_over": 14,
+     "per_feeder_minutes": {
+      "F10": 45.0,
+      "F11": 0.0,
+      "F3": 1035.0,
+      "F6": 30.0,
+      "F7": 870.0
+     }
+    },
+    "lei_cost": 76.95,
+    "comfort_breaches": 0,
+    "plan_status": {
+     "optimal": 35
+    }
+   }
+  },
+  "adapter": "sentinel.judge.adapter",
+  "minutes_over_g_max_tau": 480.0,
+  "minutes_over_g_max_no_tau": 480.0,
+  "minutes_over_g_tau_tau": 1905.0,
+  "minutes_over_g_tau_no_tau": 1980.0,
+  "kwh_over_g_max_tau": 16.02,
+  "kwh_over_g_max_no_tau": 16.02,
+  "lei_cost_delta_tau": 6.39
+ },
+ "moved_home": {
+  "found": true,
+  "hero": "F7",
+  "day": 2,
+  "local_date": "2025-06-04",
+  "case": "recorded_feeder=F7",
+  "site_id": "1425",
+  "recorded_feeder": "F7",
+  "suggested_feeder": "F11",
+  "true_feeder": "F11",
+  "score": 1.0,
+  "message": "likely L3 of F11, GIS says L3 of F7, 1.00",
+  "verdict": "use",
+  "site_has_battery": false,
+  "site_battery_kwh": null,
+  "site_kwp": 6.92,
+  "limit_kw": 61.85,
+  "tau": 0.685,
+  "pool_gis": 12,
+  "pool_m8": 12,
+  "planned_peak_gis_kw": 71.73,
+  "planned_peak_m8_kw": 67.4,
+  "physical_gis": {
+   "minutes_over": 0.0,
+   "kwh_over": 0.0,
+   "peak_kw": 61.62,
+   "limit_kw": 61.85
+  },
+  "physical_m8": {
+   "minutes_over": 0.0,
+   "kwh_over": 0.0,
+   "peak_kw": 61.78,
+   "limit_kw": 61.85
+  },
+  "export_kw_gis": [
+   -4.95,
+   -6.01,
+   -4.97,
+   -4.87,
+   -7.18,
+   -5.21,
+   -5.01,
+   -5.3,
+   -4.89,
+   -5.03,
+   -5.34,
+   -5.24,
+   -5.28,
+   -6.94,
+   -5.94,
+   -4.92,
+   -5.02,
+   -4.96,
+   -5.14,
+   -5.13,
+   -5.99,
+   -6.13,
+   -5.84,
+   -5.68,
+   -9.08,
+   -4.81,
+   -4.85,
+   -9.63,
+   -9.83,
+   -7.13,
+   0.46,
+   6.32,
+   11.34,
+   16.16,
+   16.59,
+   23.09,
+   31.34,
+   38.36,
+   45.33,
+   45.98,
+   49.03,
+   50.89,
+   51.94,
+   54.59,
+   57.84,
+   58.28,
+   61.08,
+   61.62,
+   57.81,
+   61.58,
+   57.88,
+   58.6,
+   58.72,
+   58.3,
+   57.99,
+   57.11,
+   57.51,
+   59.4,
+   56.06,
+   57.02,
+   55.91,
+   55.79,
+   55.17,
+   57.78,
+   57.05,
+   58.09,
+   56.09,
+   52.05,
+   44.66,
+   39.76,
+   35.17,
+   28.8,
+   22.63,
+   17.7,
+   15.24,
+   12.51,
+   4.48,
+   -2.33,
+   -7.86,
+   -7.26,
+   6.23,
+   6.52,
+   3.86,
+   -0.0,
+   24.61,
+   26.09,
+   28.13,
+   28.03,
+   24.41,
+   22.57,
+   19.9,
+   17.73,
+   -5.22,
+   -3.7,
+   -4.35,
+   -4.96
+  ],
+  "export_kw_m8": [
+   -4.95,
+   -6.01,
+   -4.97,
+   -4.87,
+   -7.18,
+   -5.21,
+   -5.01,
+   -5.3,
+   -4.89,
+   -5.03,
+   -5.34,
+   -5.24,
+   -5.28,
+   -6.94,
+   -5.94,
+   -4.92,
+   -5.02,
+   -4.96,
+   -5.14,
+   -5.13,
+   -5.99,
+   -6.13,
+   -5.84,
+   -5.68,
+   -9.08,
+   -4.81,
+   -4.85,
+   -9.63,
+   -9.83,
+   -7.13,
+   0.46,
+   6.32,
+   11.34,
+   16.16,
+   16.59,
+   23.09,
+   31.34,
+   38.36,
+   45.33,
+   45.98,
+   49.03,
+   50.89,
+   51.5,
+   53.96,
+   57.42,
+   58.01,
+   61.03,
+   61.67,
+   58.0,
+   61.78,
+   58.29,
+   59.01,
+   59.19,
+   58.76,
+   58.49,
+   57.53,
+   57.89,
+   59.59,
+   56.23,
+   56.99,
+   55.85,
+   55.53,
+   54.81,
+   57.21,
+   56.29,
+   58.09,
+   56.09,
+   52.05,
+   44.66,
+   39.76,
+   35.17,
+   28.8,
+   22.63,
+   17.7,
+   15.24,
+   12.51,
+   2.53,
+   -0.29,
+   -7.86,
+   -7.35,
+   7.02,
+   6.95,
+   3.24,
+   -0.62,
+   24.61,
+   26.09,
+   28.13,
+   28.03,
+   22.19,
+   24.79,
+   18.7,
+   18.93,
+   -5.22,
+   -3.7,
+   -4.35,
+   -4.96
+  ],
+  "n_sites_changed": 12,
+  "plan_diff": [
+   {
+    "site_id": "1286",
+    "midday_charge_kwh_gis": 11.38,
+    "midday_charge_kwh_m8": 11.0,
+    "max_abs_delta_kw": 4.445,
+    "moved": false
+   },
+   {
+    "site_id": "1042",
+    "midday_charge_kwh_gis": 7.1,
+    "midday_charge_kwh_m8": 6.6,
+    "max_abs_delta_kw": 4.27,
+    "moved": false
+   },
+   {
+    "site_id": "1294",
+    "midday_charge_kwh_gis": 5.62,
+    "midday_charge_kwh_m8": 5.47,
+    "max_abs_delta_kw": 3.6,
+    "moved": false
+   },
+   {
+    "site_id": "1297",
+    "midday_charge_kwh_gis": 11.23,
+    "midday_charge_kwh_m8": 9.48,
+    "max_abs_delta_kw": 3.6,
+    "moved": false
+   },
+   {
+    "site_id": "1274",
+    "midday_charge_kwh_gis": 9.12,
+    "midday_charge_kwh_m8": 8.56,
+    "max_abs_delta_kw": 3.306,
+    "moved": false
+   },
+   {
+    "site_id": "1276",
+    "midday_charge_kwh_gis": 8.58,
+    "midday_charge_kwh_m8": 8.09,
+    "max_abs_delta_kw": 3.14,
+    "moved": false
+   },
+   {
+    "site_id": "1279",
+    "midday_charge_kwh_gis": 10.24,
+    "midday_charge_kwh_m8": 10.21,
+    "max_abs_delta_kw": 3.0,
+    "moved": false
+   },
+   {
+    "site_id": "1283",
+    "midday_charge_kwh_gis": 5.51,
+    "midday_charge_kwh_m8": 7.76,
+    "max_abs_delta_kw": 3.0,
+    "moved": false
+   },
+   {
+    "site_id": "1291",
+    "midday_charge_kwh_gis": 3.42,
+    "midday_charge_kwh_m8": 4.17,
+    "max_abs_delta_kw": 3.0,
+    "moved": false
+   },
+   {
+    "site_id": "1293",
+    "midday_charge_kwh_gis": 7.43,
+    "midday_charge_kwh_m8": 7.93,
+    "max_abs_delta_kw": 3.0,
+    "moved": false
+   },
+   {
+    "site_id": "1273",
+    "midday_charge_kwh_gis": 10.92,
+    "midday_charge_kwh_m8": 10.92,
+    "max_abs_delta_kw": 2.471,
+    "moved": false
+   },
+   {
+    "site_id": "1278",
+    "midday_charge_kwh_gis": 7.74,
+    "midday_charge_kwh_m8": 7.6,
+    "max_abs_delta_kw": 1.71,
+    "moved": false
+   }
+  ],
+  "n_moves": 3,
+  "adapter": "sentinel.judge.adapter",
+  "world_note": "demo feeder subset"
+ },
+ "dso_value": {
+  "deferred_capex_lei": 488005.0,
+  "deferred_capex_lei_deo_basis": [
+   213394.0,
+   320094.0
+  ],
+  "hosting_capacity_gain": 151.0,
+  "feeders": [
+   {
+    "feeder_id": "F1",
+    "n_homes": 54,
+    "hc_baseline": 27,
+    "hc_sentinel": 36,
+    "hosting_capacity_gain": 9.0,
+    "years_deferred": 0.754,
+    "deferred_capex_lei": 24863.0,
+    "deo_basis_lei": [
+     5931.0,
+     8897.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F10",
+    "n_homes": 27,
+    "hc_baseline": 0,
+    "hc_sentinel": 2,
+    "hosting_capacity_gain": 2.0,
+    "years_deferred": 0.511,
+    "deferred_capex_lei": 17001.0,
+    "deo_basis_lei": [
+     901.0,
+     1352.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F11",
+    "n_homes": 18,
+    "hc_baseline": 12,
+    "hc_sentinel": 14,
+    "hosting_capacity_gain": 2.0,
+    "years_deferred": 0.462,
+    "deferred_capex_lei": 15380.0,
+    "deo_basis_lei": [
+     815.0,
+     1223.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F12",
+    "n_homes": 75,
+    "hc_baseline": 68,
+    "hc_sentinel": 115,
+    "hosting_capacity_gain": 47.0,
+    "years_deferred": 2.033,
+    "deferred_capex_lei": 64264.0,
+    "deo_basis_lei": [
+     80061.0,
+     120091.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F13",
+    "n_homes": 25,
+    "hc_baseline": 10,
+    "hc_sentinel": 21,
+    "hosting_capacity_gain": 11.0,
+    "years_deferred": 1.955,
+    "deferred_capex_lei": 61961.0,
+    "deo_basis_lei": [
+     18066.0,
+     27099.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F14",
+    "n_homes": 28,
+    "hc_baseline": 13,
+    "hc_sentinel": 29,
+    "hosting_capacity_gain": 16.0,
+    "years_deferred": 2.357,
+    "deferred_capex_lei": 73715.0,
+    "deo_basis_lei": [
+     31263.0,
+     46895.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F15",
+    "n_homes": 36,
+    "hc_baseline": 23,
+    "hc_sentinel": 36,
+    "hosting_capacity_gain": 13.0,
+    "years_deferred": 1.425,
+    "deferred_capex_lei": 45949.0,
+    "deo_basis_lei": [
+     15833.0,
+     23750.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F2",
+    "n_homes": 125,
+    "hc_baseline": 46,
+    "hc_sentinel": 53,
+    "hosting_capacity_gain": 7.0,
+    "years_deferred": 0.287,
+    "deferred_capex_lei": 9617.0,
+    "deo_basis_lei": [
+     1784.0,
+     2677.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F3",
+    "n_homes": 27,
+    "hc_baseline": 0,
+    "hc_sentinel": 0,
+    "hosting_capacity_gain": 0.0,
+    "years_deferred": 0.0,
+    "deferred_capex_lei": 0.0,
+    "deo_basis_lei": [
+     0.0,
+     0.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F4",
+    "n_homes": 44,
+    "hc_baseline": 21,
+    "hc_sentinel": 34,
+    "hosting_capacity_gain": 13.0,
+    "years_deferred": 1.305,
+    "deferred_capex_lei": 42239.0,
+    "deo_basis_lei": [
+     14555.0,
+     21833.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F5",
+    "n_homes": 21,
+    "hc_baseline": 5,
+    "hc_sentinel": 13,
+    "hosting_capacity_gain": 8.0,
+    "years_deferred": 1.919,
+    "deferred_capex_lei": 60894.0,
+    "deo_basis_lei": [
+     12913.0,
+     19369.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F6",
+    "n_homes": 19,
+    "hc_baseline": 0,
+    "hc_sentinel": 0,
+    "hosting_capacity_gain": 0.0,
+    "years_deferred": 0.0,
+    "deferred_capex_lei": 0.0,
+    "deo_basis_lei": [
+     0.0,
+     0.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F7",
+    "n_homes": 27,
+    "hc_baseline": 0,
+    "hc_sentinel": 0,
+    "hosting_capacity_gain": 0.0,
+    "years_deferred": 0.0,
+    "deferred_capex_lei": 0.0,
+    "deo_basis_lei": [
+     0.0,
+     0.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F8",
+    "n_homes": 48,
+    "hc_baseline": 30,
+    "hc_sentinel": 51,
+    "hosting_capacity_gain": 21.0,
+    "years_deferred": 1.706,
+    "deferred_capex_lei": 54502.0,
+    "deo_basis_lei": [
+     30338.0,
+     45507.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   },
+   {
+    "feeder_id": "F9",
+    "n_homes": 26,
+    "hc_baseline": 0,
+    "hc_sentinel": 2,
+    "hosting_capacity_gain": 2.0,
+    "years_deferred": 0.53,
+    "deferred_capex_lei": 17620.0,
+    "deo_basis_lei": [
+     934.0,
+     1401.0
+    ],
+    "hc_source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)",
+    "hc_run_id": "1092"
+   }
+  ],
+  "assumptions": {
+   "reinforcement_cost_lei": 500000.0,
+   "cost_is_placeholder": true,
+   "cost_note": "PLACEHOLDER [COST POST / CABLU]: ask the GIS mentor",
+   "discount_rate": 0.07,
+   "growth_rate": 0.15,
+   "eur_ron": 4.97,
+   "deo_cost_per_prosumer_lei": [
+    13253,
+    19880
+   ],
+   "hosting_capacity": "G1 #159"
+  },
+  "label": "proxy (placeholder cost)",
+  "label_deo": "other-operator (DEO), not PPC"
+ }
+}
