@@ -13,3 +13,4 @@ One line per decision, newest last. Format: `HH:MM — decision (who)`.
 13:52 — Wind (Windmon) moves to OPTIONAL: #22-#24 only after MUST is on track; O&M list only, never the LP (yolooo332)
 13:52 — LP feeder constraint includes non-eligible sites' forecast net export; day-ahead plan + per-tick clip is MUST, hourly re-solve SHOULD (yolooo332)
 13:52 — 10-90% interval coverage target is 78-82% (v1's 88-92% was inconsistent) (yolooo332)
+13:56 — Owners: Andrei data/sim/grid-twin, Stefan ML/baselines/eval, yolooo332 contracts/LP/agent/uncertainty, Tudor + Alexandra front-end (cards tagged by owner; plan §13) (yolooo332)
