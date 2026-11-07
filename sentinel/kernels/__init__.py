@@ -198,6 +198,18 @@ def battery_rollout(req: Any, soc0: Any, cap: Any, pmax: Any, eta_c: Any, eta_d:
     return get("battery_rollout")(req, soc0, cap, pmax, eta_c, eta_d, e_lo, e_hi, dt_h)
 
 
+# --------------------------------------------------------------------------- K2: window gather (windows.py)
+from sentinel.kernels.windows import window_gather_py, window_gather_rust  # noqa: E402
+
+register("window_gather", window_gather_py, window_gather_rust)
+
+
+def window_gather(arr: Any, rows: Any, starts: Any, offset: int, length: int, dtype: Any = None,
+                  out: np.ndarray | None = None) -> np.ndarray:
+    """Dispatched window gather; see ``sentinel.kernels.windows`` (reference = numpy fancy-index gather)."""
+    return get("window_gather")(arr, rows, starts, offset, length, dtype, out)
+
+
 __all__ = [
     "backend",
     "battery_rollout",
@@ -208,4 +220,6 @@ __all__ = [
     "names",
     "register",
     "rust_available",
+    "window_gather",
+    "window_gather_py",
 ]
