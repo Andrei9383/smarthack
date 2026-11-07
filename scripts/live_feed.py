@@ -25,12 +25,12 @@ from sentinel.live.feed import LiveFeed, parse, run_realtime, run_speed, summary
 from sentinel.live.source import SimulatedSource  # noqa: E402
 
 
-def make_world(kind: str, days: int, seed: int, scale: float):
+def make_world(kind: str, days: int, seed: int, scale: float, wind: bool = False):
     from sentinel.agent.world import MockWorld, SimWorld
 
     if kind == "mock":
-        return MockWorld(days=days, seed=seed, scale=scale, with_wind=False)
-    return SimWorld(days=days, seed=seed, wind=False)
+        return MockWorld(days=days, seed=seed, scale=scale, with_wind=wind)
+    return SimWorld(days=days, seed=seed, wind=wind)
 
 
 def main(argv=None) -> int:
@@ -52,11 +52,11 @@ def main(argv=None) -> int:
                     help="#129 gate: whole week tick by tick vs the batch replay loop, print both KPI sets, exit")
     a = ap.parse_args(argv)
 
-    world = make_world(a.world, a.days, a.seed, a.scale)
+    world = make_world(a.world, a.days, a.seed, a.scale, wind=a.gate)  # gate: replay#506's world (wind + judge on)
     if a.gate:
         from sentinel.live.agent import gate
 
-        g = gate(world, a.db)
+        g = gate(world, a.db, judge=True)
         for k, v in g.items():
             print(f"LAB_METRIC {k}={v}", flush=True)
         return 0 if g["gate_identical"] else 1
