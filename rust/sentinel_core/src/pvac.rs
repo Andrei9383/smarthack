@@ -1,4 +1,4 @@
-//! K7 pv_ac_batch (#133): pvlib isotropic plane-of-array irradiance + the PVWatts-like AC model, fused, for many
+//! K8 pv_ac_batch (#133): pvlib isotropic plane-of-array irradiance + the PVWatts-like AC model, fused, for many
 //! sites under one locality's weather. Python reference: `sentinel.kernels.pvac.pv_ac_batch_py`
 //! (= `sentinel.model.physics.poa` + `ac_power_kw` broadcast over sites; the source of truth).
 //!

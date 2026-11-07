@@ -1,4 +1,4 @@
-"""K7 pv_ac_batch (#133): the reference equals per-site physics.pvlib_expected_kw / pvlib_clear_kw bit for bit, and the
+"""K8 pv_ac_batch (#133): the reference equals per-site physics.pvlib_expected_kw / pvlib_clear_kw bit for bit, and the
 Rust copy matches the reference (bit-exact where numpy's float64 cos/arccos are libm's, within a few ulp otherwise)."""
 
 import math

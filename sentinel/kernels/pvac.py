@@ -1,4 +1,4 @@
-"""K7 pv_ac_batch (#133): pvlib AC power for many sites under one locality's weather, for the window cache build.
+"""K8 pv_ac_batch (#133): pvlib AC power for many sites under one locality's weather, for the window cache build.
 
 Source of truth: ``sentinel.model.physics`` (``poa`` + ``ac_power_kw``, the code the ONNX predictor runs). The
 reference ``pv_ac_batch_py`` is exactly ``physics.pvlib_expected_kw`` / ``pvlib_clear_kw`` with the site metadata as
