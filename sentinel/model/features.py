@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from sentinel.kernels import window_gather
+
 from . import physics as ph
 
 H = ph.DAY
@@ -205,38 +207,40 @@ def gather(src, sites: np.ndarray, starts: np.ndarray, kind: str, mode: str = "n
     sites = np.asarray(sites, np.int64)
     starts = np.asarray(starts, np.int64)
     idx = starts[:, None] + np.arange(H)[None]
-    hidx = starts[:, None] + np.arange(-HIST_DAYS * H, 0)[None]
-    s2 = sites[:, None]
-    loc = src.loc_idx()[sites][:, None]
+    loc = src.loc_idx()[sites]
     raw = _site_static(src, sites)
-    wname = "weather_fc" if mode == "forecast" else "weather_act"
-    raw["wx"] = np.asarray(src.array(wname)[loc, idx], np.float32)
-    raw["geom"] = np.asarray(src.array("geom")[loc, idx], np.float32)
+
+    def g(a, rows=sites, off=0, n=H, dt=np.float32):  # Rust window gather (sentinel.kernels), numpy fallback
+        return window_gather(a, rows, starts, off, n, dt)
+
+    hist = dict(off=-HIST_DAYS * H, n=HIST_DAYS * H)
+    fc = mode == "forecast"
+    raw["wx"] = g(src.array("weather_fc" if fc else "weather_act"), loc)
+    raw["geom"] = g(src.array("geom"), loc)
     raw["cal"] = np.asarray(src.array("calendar")[idx], np.float32)
-    raw["pvclear"] = np.asarray(src.array("pvclear_rec")[s2, idx], np.float32)
-    raw["pvlib"] = np.asarray(src.array("pvlib_rec_fc" if mode == "forecast" else "pvlib_rec")[s2, idx], np.float32)
+    raw["pvclear"] = g(src.array("pvclear_rec"))
+    raw["pvlib"] = g(src.array("pvlib_rec_fc" if fc else "pvlib_rec"))
     raw["doy_sin"], raw["doy_cos"] = raw["cal"][:, 0, 6], raw["cal"][:, 0, 7]
-    raw["fault"] = np.asarray(src.array("fault")[s2, idx])
-    raw["valid"] = (np.asarray(src.array("valid")[s2, idx]) > 0) if src.has("valid") else np.ones(idx.shape, bool)
+    raw["fault"] = g(src.array("fault"), dt=None)
+    raw["valid"] = g(src.array("valid"), dt=None) > 0 if src.has("valid") else np.ones(idx.shape, bool)
     if kind in ("pv", "site"):
-        raw["hist_pv"] = np.asarray(src.array("pv_ac")[s2, hidx], np.float32)
+        raw["hist_pv"] = g(src.array("pv_ac"), **hist)
     if kind == "pv":
-        raw["y"] = np.asarray(src.array("pv_ac")[s2, idx], np.float32)
+        raw["y"] = g(src.array("pv_ac"))
         if "pv_healthy" in src.index["arrays"]:
-            raw["y_healthy"] = np.asarray(src.array("pv_healthy")[s2, idx], np.float32)
+            raw["y_healthy"] = g(src.array("pv_healthy"))
     if kind in ("load", "site"):
-        raw["hist_load"] = np.asarray(src.array("load")[s2, hidx], np.float32)
+        raw["hist_load"] = g(src.array("load"), **hist)
     if kind == "load":
-        raw["y"] = np.asarray(src.array("load")[s2, idx], np.float32)
+        raw["y"] = g(src.array("load"))
     if kind == "site":
         for k_src, k in (("pv_ac", "pv"), ("inv_v", "volt"), ("inv_status", "status"), ("soc", "soc"),
                          ("batt", "batt"), ("load", "load")):
-            raw[k] = np.asarray(src.array(k_src)[s2, idx])
+            raw[k] = g(src.array(k_src), dt=None)
         for k_src, k in (("inv_v", "hist_volt"), ("inv_status", "hist_status"), ("soc", "hist_soc"),
                          ("batt", "hist_batt")):
-            raw[k] = np.asarray(src.array(k_src)[s2, hidx])
-        raw["m1"] = np.asarray(m1[s2, idx], np.float32)
-        raw["m2"] = np.asarray(m2[s2, idx], np.float32)
+            raw[k] = g(src.array(k_src), dt=None, **hist)
+        raw["m1"], raw["m2"] = g(np.ascontiguousarray(m1)), g(np.ascontiguousarray(m2))
     return raw
 
 

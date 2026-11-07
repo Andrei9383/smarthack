@@ -290,13 +290,13 @@ def run(argv=None):
                 if step < total - 1:
                     sched.step()
                 step += 1
-                losses.append(float(loss.detach()))
+                losses.append(loss.detach())  # no per-step GPU sync
             P, _, L, _ = infer(vs, vst)
             mac, _ = M.prauc_macro(P, L)
             binp = M.ap(L > 0, 1 - P[:, 0])
-            history.append({"epoch": ep, "loss": float(np.mean(losses)), "val_prauc": mac, "val_prauc_binary": binp,
+            history.append({"epoch": ep, "loss": float(torch.stack(losses).mean()), "val_prauc": mac, "val_prauc_binary": binp,
                             "sec": round(time.time() - t_ep, 1)})
-            print(f"[train] ep {ep} loss {np.mean(losses):.4f} val_prauc {mac:.4f} binary {binp:.4f} "
+            print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_prauc {mac:.4f} binary {binp:.4f} "
                   f"({time.time() - t_ep:.1f}s, {ctx.elapsed_min():.1f} min)", flush=True)
             score = mac if not np.isnan(mac) else -1
             if score > best + 1e-4:
