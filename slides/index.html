@@ -144,10 +144,10 @@ nominal ≥ available ≥ committed</pre>
     <tr><td>Load nMAE, seen / unseen</td><td>LightGBM 0.256 / 0.284; persistence 0.361 / 0.390</td><td>0.246 / 0.285 (tie unseen)</td><td>synthetic RO</td><td>eval#521</td></tr>
     <tr><td>Site faults PR-AUC, seen / unseen</td><td>threshold + CUSUM 0.49 / 0.40</td><td><b>0.73 / 0.56</b></td><td>synthetic RO</td><td>eval#521</td></tr>
     <tr><td>Fault episodes found; median detect</td><td>40%; 35.9 h</td><td><b>97.5%; 21.5 h</b></td><td>synthetic RO</td><td>eval#521</td></tr>
-    <tr><td>Wind: recall; precision; curtail-vs-fault F1</td><td>WindMon 0.75; 0.84; 0.39</td><td><b>0.91; 0.89; 0.62</b></td><td>synthetic RO, held-out park</td><td>train#302/303</td></tr>
+    <tr><td>Wind: recall; precision; curtail-vs-fault F1</td><td>WindMon 0.75; 0.84; 0.39</td><td><b>0.89; 0.92; 0.93</b></td><td>synthetic RO, held-out park</td><td>train#593/594</td></tr>
     <tr><td>National demand nMAE, day ahead</td><td>persistence 0.067</td><td><b>0.039</b></td><td>real RO</td><td>make demand</td></tr>
   </table>
-  <p class="small muted">The simulator is pvlib-based, so a synthetic win is partly circular: PVDAQ sits beside it. Tuned per-home rule not run.</p>
+  <p class="small muted"><b style="color:var(--text)">Replay is 5 picked feeders with 46% batteries.</b> A whole fleet cuts energy over limit 67% at 45% batteries, 30% at the real 20% (replay#583, #568), so value scales with adoption. The simulator is pvlib-based, so synthetic wins are partly circular. Tuned per-home rule not run.</p>
 </section>
 
 <section class="slide">
@@ -198,6 +198,7 @@ nominal ≥ available ≥ committed</pre>
         <li>Balancing revenue is not assumed.</li></ul></div>
     <div class="card"><h3>Assumptions, not verified</h3>
       <ul class="small"><li>Battery control is simulated; no hardware was touched.</li>
+        <li>Demo feeders are hand-picked, with 46% batteries vs about 20% in Romania (ANRE, Nov 2025).</li>
         <li>Export remuneration β and compensation rules.</li>
         <li>Aggregator rules for small assets; distribution/supply data sharing; GDPR consent.</li>
         <li>Prosumer market figures and PPC wind fleet details.</li>
