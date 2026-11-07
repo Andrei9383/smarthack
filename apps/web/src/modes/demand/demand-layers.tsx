@@ -11,8 +11,13 @@ import {
   COUNTY_OUTLINE,
   FEEDER_CASING,
   FEEDER_RAMP,
+  NO_DATA_FILL,
+  NO_DATA_HATCH,
+  rampColor,
   SELECTED_OUTLINE,
+  SELECTED_SHADOW,
   STRESS_FILL_OPACITY,
+  STRESS_HOVER_OPACITY,
   STRESS_RAMP,
 } from "./colors";
 import { countyOf, zonesByCountyCode } from "./data";
@@ -32,6 +37,43 @@ const rampExpression = (input: unknown, ramp: typeof STRESS_RAMP) => [
   input,
   ...ramp.flat(),
 ];
+const HATCH_IMAGE = "demand-no-data-hatch";
+const HATCH_TILE_PX = 20; // drawn at 2× (10 px spacing) so the diagonals stay crisp and quiet
+const LEGEND_HATCH = `repeating-linear-gradient(135deg, ${NO_DATA_HATCH} 0 1px, ${NO_DATA_FILL} 1px 5px)`;
+const EMPTY = { type: "FeatureCollection" as const, features: [] };
+
+function hatchPixels() {
+  const hex = (color: string) => [1, 3, 5].map((index) => Number.parseInt(color.slice(index, index + 2), 16));
+  const [line, ground] = [hex(NO_DATA_HATCH), hex(NO_DATA_FILL)];
+  const data = new Uint8Array(HATCH_TILE_PX * HATCH_TILE_PX * 4);
+  for (let y = 0; y < HATCH_TILE_PX; y += 1) {
+    for (let x = 0; x < HATCH_TILE_PX; x += 1) {
+      const color = (x + y) % HATCH_TILE_PX < 2 ? line : ground;
+      data.set([...color, 255], (y * HATCH_TILE_PX + x) * 4);
+    }
+  }
+  return { width: HATCH_TILE_PX, height: HATCH_TILE_PX, data };
+}
+
+// The hatch is a style image; a basemap swap drops it, so re-add it whenever the style reloads.
+function useHatchImage() {
+  const { map, isLoaded } = useMap();
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!map || !isLoaded) return;
+    const ensure = () => {
+      if (!map.hasImage(HATCH_IMAGE)) map.addImage(HATCH_IMAGE, hatchPixels(), { pixelRatio: 2 });
+      setReady(true);
+    };
+    ensure();
+    map.on("styledata", ensure);
+    return () => {
+      map.off("styledata", ensure);
+    };
+  }, [map, isLoaded]);
+  return ready;
+}
+
 const LEGEND_GRADIENT = `linear-gradient(to right, ${STRESS_RAMP.map(
   ([stress, color]) => `${color} ${stress * 100}%`,
 ).join(", ")})`;
@@ -104,8 +146,9 @@ export function DemandLayers() {
   useMapRightPadding(PANEL_PADDING_PX);
   const { map, isLoaded } = useMap();
   const [selectedId, setSelected] = useSelectedZone();
-  const { zones, counties, ts } = useDemandData();
+  const { zones, counties, ts, isLoading } = useDemandData();
   const [hovered, setHovered] = useState<CountyProperties | null>(null);
+  const hatchReady = useHatchImage();
   const { data: shapes } = useQuery({
     queryKey: ["ro-counties"],
     queryFn: fetchCounties,
@@ -130,29 +173,30 @@ export function DemandLayers() {
   useCountyFocus(shapes, selectedCode, countyFeederLines);
 
   // Counties with no rows stay empty: no data must never read as low stress.
-  const { fillColor, fillOpacity } = useMemo(() => {
+  const { fillColor, fillOpacity, hoverOpacity, noDataOpacity } = useMemo(() => {
     const stressPairs = [...byCode].flatMap(([code, county]) => {
       const stress = county.stressByTs.get(ts);
       return stress === undefined ? [] : [code, stress];
     });
-    if (stressPairs.length === 0) return { fillColor: STRESS_RAMP[0]?.[1], fillOpacity: 0 };
+    if (stressPairs.length === 0) {
+      return { fillColor: STRESS_RAMP[0]?.[1], fillOpacity: 0, hoverOpacity: 0, noDataOpacity: 1 };
+    }
     const codes = stressPairs.filter((_, index) => index % 2 === 0);
+    const withData = (value: number, otherwise: number) => ["match", ["get", "code"], codes, value, otherwise];
     return {
       fillColor: rampExpression(["match", ["get", "code"], ...stressPairs, 0], STRESS_RAMP),
-      fillOpacity: ["match", ["get", "code"], codes, STRESS_FILL_OPACITY, 0],
+      fillOpacity: withData(STRESS_FILL_OPACITY, 0),
+      hoverOpacity: withData(STRESS_HOVER_OPACITY, 0),
+      noDataOpacity: withData(0, 1),
     };
   }, [byCode, ts]);
 
-  const lineColor = useMemo(
-    () =>
-      selectedCode
-        ? ["match", ["get", "code"], selectedCode, SELECTED_OUTLINE, COUNTY_OUTLINE]
-        : COUNTY_OUTLINE,
-    [selectedCode],
-  );
-  const lineWidth = useMemo(
-    () => (selectedCode ? ["match", ["get", "code"], selectedCode, 2.5, 0.75] : 0.75),
-    [selectedCode],
+  const selectedShape = useMemo(
+    () => ({
+      type: "FeatureCollection" as const,
+      features: shapes?.features.filter((feature) => feature.properties.code === selectedCode) ?? [],
+    }),
+    [shapes, selectedCode],
   );
 
   const feeders = useMemo(() => {
@@ -171,7 +215,7 @@ export function DemandLayers() {
       type: "FeatureCollection" as const,
       features: feeders.map(({ zone, line, stress }) => ({
         type: "Feature" as const,
-        properties: { stress, width: zone.id === selected?.id ? 6 : 3 },
+        properties: { stress, width: zone.id === selected?.id ? 6 : 4 },
         geometry: { type: "LineString" as const, coordinates: line },
       })),
     }),
@@ -194,8 +238,10 @@ export function DemandLayers() {
         data={shapes}
         beforeId={beforeLabels}
         interactive
+        promoteId="code"
         fillPaint={{ "fill-color": fillColor as never, "fill-opacity": fillOpacity as never }}
-        linePaint={{ "line-color": lineColor as never, "line-width": lineWidth as never }}
+        fillHoverPaint={{ "fill-opacity": hoverOpacity as never }}
+        linePaint={{ "line-color": COUNTY_OUTLINE, "line-width": 0.75 }}
         onHover={(event) => setHovered((event?.feature?.properties as CountyProperties) ?? null)}
         onClick={(event) => {
           // The map also reports clicks on markers; those belong to the feeder under the cursor.
@@ -204,6 +250,44 @@ export function DemandLayers() {
           const county = byCode.get((event.feature.properties as CountyProperties).code);
           if (county) setSelected(county.id);
         }}
+      />
+      {/* Counties without rows: grey hatch and a dashed edge, so no data never reads as low. */}
+      <MapGeoJSON
+        id="demand-no-data"
+        data={shapes}
+        beforeId={beforeLabels}
+        fillPaint={{
+          "fill-color": NO_DATA_FILL,
+          ...(hatchReady ? { "fill-pattern": HATCH_IMAGE } : {}),
+          "fill-opacity": (isLoading ? 0 : noDataOpacity) as never,
+        }}
+        linePaint={{
+          "line-color": COUNTY_OUTLINE,
+          "line-width": 0.75,
+          "line-dasharray": [2, 2],
+          "line-opacity": (isLoading ? 0 : noDataOpacity) as never,
+        }}
+      />
+      {/* Selected county: soft blurred shadow under a 2px brand outline (no glow). */}
+      <MapGeoJSON
+        id="demand-selected-shadow"
+        data={selectedCode ? selectedShape : EMPTY}
+        beforeId={beforeLabels}
+        fillPaint={false}
+        linePaint={{
+          "line-color": SELECTED_SHADOW,
+          "line-opacity": 0.16,
+          "line-width": 6,
+          "line-blur": 5,
+          "line-translate": [0, 2],
+        }}
+      />
+      <MapGeoJSON
+        id="demand-selected-outline"
+        data={selectedCode ? selectedShape : EMPTY}
+        beforeId={beforeLabels}
+        fillPaint={false}
+        linePaint={{ "line-color": SELECTED_OUTLINE, "line-width": 2 }}
       />
       {/* White casing keeps feeder lines readable on top of the county fill. */}
       <MapGeoJSON
@@ -234,33 +318,43 @@ export function DemandLayers() {
         >
           <MarkerContent>
             <span
-              className={`flex cursor-pointer items-center rounded-full border border-border bg-card px-2 py-0.5 text-[11px] leading-none font-semibold text-foreground shadow-card ${
-                zone.id === selected?.id ? "ring-2 ring-foreground ring-offset-1 ring-offset-card" : ""
+              className={`flex h-7 -translate-y-5 cursor-pointer items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-bold whitespace-nowrap text-foreground shadow-card transition-shadow duration-150 ${
+                zone.id === selected?.id ? "border-primary ring-2 ring-primary/30" : "border-border"
               }`}
               title={`${zone.id}, stress ${stress.toFixed(2)}`}
             >
+              <span className="size-2 rounded-full" style={{ backgroundColor: rampColor(stress) }} />
               {zone.id}
             </span>
           </MarkerContent>
         </MapMarker>
       ))}
-      <div className="pointer-events-none absolute top-3 left-3 z-10 w-60 rounded-lg border border-border bg-card p-3 text-xs text-card-foreground shadow-card">
+      <div className="pointer-events-none absolute top-3 left-3 z-10 w-64 rounded-lg border border-border bg-card p-3 text-xs text-card-foreground shadow-card">
         <div className="font-semibold text-foreground">Stress, P90 demand / capacity</div>
         <div
-          className="mt-2 mb-1 h-2.5 rounded-full ring-1 ring-border ring-inset"
+          className="mt-2.5 h-2.5 rounded-full ring-1 ring-border ring-inset"
           style={{ background: LEGEND_GRADIENT, opacity: STRESS_FILL_OPACITY }}
         />
-        <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
-          <span>0</span>
-          <span>1</span>
+        <div className="mt-1.5 flex items-baseline justify-between text-[11px] font-medium text-text-secondary">
+          <span>
+            Low <span className="ml-0.5 text-[10px] font-normal text-muted-foreground tabular-nums">0</span>
+          </span>
+          <span>
+            <span className="mr-0.5 text-[10px] font-normal text-muted-foreground tabular-nums">1</span> High
+          </span>
         </div>
-        <div className="mt-2 border-t border-border pt-2 text-text-secondary tabular-nums">
-          {hovered
-            ? hoveredStress === undefined
-              ? `${hovered.name}: no data`
-              : `${hoveredZone?.name}: ${hoveredStress.toFixed(2)}`
-            : "Empty counties have no data"}
+        <div className="mt-2.5 flex items-center gap-2 border-t border-border pt-2.5 text-text-secondary">
+          <span
+            className="h-3 w-5 shrink-0 rounded-[3px] border border-dashed"
+            style={{ background: LEGEND_HATCH, borderColor: NO_DATA_HATCH }}
+          />
+          Empty counties have no data
         </div>
+        {hovered && (
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-sm bg-muted px-2 py-1.5 font-medium text-foreground tabular-nums">
+            {hoveredStress === undefined ? `${hovered.name}: no data` : `${hoveredZone?.name}: ${hoveredStress.toFixed(2)}`}
+          </div>
+        )}
       </div>
     </>
   );
