@@ -5,9 +5,22 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { MapSpark, type SparkPoint, SparkKey } from "@/components/map-spark/map-spark";
+import { dayWindow, stepToDate } from "@/demo/replay";
+import { useReplayStep } from "@/demo/use-replay";
 import { orpc } from "@/utils/orpc";
 
 import { tweenPaint, useMotionAllowed } from "../feeders/map-motion";
+import {
+  type ChipBox,
+  Displaced,
+  hoverPlacement,
+  NO_OFFSET,
+  passClicksThrough,
+  type PlacedMarker,
+  useKeepInView,
+  useMarkerOffsets,
+} from "../production/production-layers";
 import { useMapRightPadding } from "../use-map-right-padding";
 import {
   DATA_BORDER,
@@ -21,7 +34,7 @@ import {
   STRESS_HOVER_OPACITY,
   STRESS_RAMP,
 } from "./colors";
-import { countyOf, zonesByCountyCode } from "./data";
+import { countyOf, type Zone, zonesByCountyCode } from "./data";
 import { useDemandData, useSelectedZone } from "./use-demand-data";
 
 type Geometry = GeoJSON.Polygon | GeoJSON.MultiPolygon;
@@ -59,6 +72,36 @@ const stressKind = (stress: number): StatusKind => (stress >= 1 ? "critical" : s
 const LEGEND_GRADIENT = `linear-gradient(to right, ${STRESS_RAMP.map(
   ([stress, color]) => `${color} ${stress * 100}%`,
 ).join(", ")})`;
+
+// County chips at country view (#137): the day's P50 demand with its P10–P90 band, so the evening
+// peak shows before anyone clicks. Demand here is tens of kW, so the chart reads in kW.
+const KW_PER_MW = 1000;
+const COUNTY_CHIP = { diameter: 132, halfWidth: 68, halfHeight: 33 } as const;
+const BUCHAREST_TIME = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Bucharest",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+const sparkTime = (ms: number) => BUCHAREST_TIME.format(new Date(ms));
+
+function boxCentre(geometry: Geometry): [number, number] {
+  const points = positions(geometry);
+  const lons = points.map((point) => point[0] as number);
+  const lats = points.map((point) => point[1] as number);
+  return [(Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2];
+}
+
+function demandSpark(zone: Zone): SparkPoint[] {
+  return [...zone.rows]
+    .sort((a, b) => a.ts.localeCompare(b.ts))
+    .map((row) => ({
+      t: Date.parse(row.ts),
+      p10: row.q10Mw == null ? null : row.q10Mw * KW_PER_MW,
+      p50: row.q50Mw * KW_PER_MW,
+      p90: row.q90Mw == null ? null : row.q90Mw * KW_PER_MW,
+    }));
+}
 
 async function fetchCounties(): Promise<Counties> {
   const response = await fetch("/geo/ro_counties.geojson");
@@ -290,6 +333,42 @@ export function DemandLayers() {
     [map, isLoaded],
   );
 
+  // Chips belong to the country view; a selected county shows its feeder chips instead.
+  const [step] = useReplayStep();
+  const day = dayWindow(step);
+  const [hoveredChip, setHoveredChip] = useState<string | null>(null);
+  const countyChips = useMemo(
+    () =>
+      selectedCounty
+        ? []
+        : [...byCode].flatMap(([code, zone]) => {
+            const shape = shapes?.features.find((feature) => feature.properties.code === code);
+            if (!shape) return [];
+            const [lon, lat] = boxCentre(shape.geometry);
+            return [{ code, zone, lon, lat, points: demandSpark(zone) }];
+          }),
+    [byCode, shapes, selectedCounty],
+  );
+  const chipPlaced = useMemo<(PlacedMarker & ChipBox)[]>(
+    () =>
+      countyChips.map(({ code, lon, lat }) => ({
+        id: code,
+        kind: "county" as const,
+        lon,
+        lat,
+        diameter: COUNTY_CHIP.diameter,
+        halfWidth: COUNTY_CHIP.halfWidth,
+        halfHeight: COUNTY_CHIP.halfHeight,
+      })),
+    [countyChips],
+  );
+  const chipOffsets = useKeepInView(chipPlaced, useMarkerOffsets(chipPlaced));
+  const hoveredPlaced = hoveredChip ? chipPlaced.find((marker) => marker.id === hoveredChip) : undefined;
+  const chipNudge =
+    map && hoveredPlaced
+      ? hoverPlacement(map, hoveredPlaced, chipOffsets.get(hoveredPlaced.id) ?? NO_OFFSET, "centre")
+      : null;
+
   if (!shapes) return null;
   const hoveredZone = hovered ? byCode.get(hovered.code) : undefined;
   const hoveredStress = hoveredZone?.stressByTs.get(ts);
@@ -393,8 +472,55 @@ export function DemandLayers() {
           </MarkerContent>
         </MapMarker>
       ))}
+      {countyChips.map(({ code, zone, lon, lat, points }) => {
+        const stress = stressByCode.get(code);
+        const nudge = hoveredChip === code ? chipNudge : null;
+        return (
+          <MapMarker key={code} longitude={lon} latitude={lat} onClick={() => setSelected(zone.id)}>
+            <MarkerContent>
+              <Displaced offset={chipOffsets.get(code) ?? NO_OFFSET}>
+                <span
+                  ref={passClicksThrough}
+                  onPointerEnter={(event) => {
+                    const marker = event.currentTarget.closest<HTMLElement>(".maplibregl-marker");
+                    if (marker) marker.style.zIndex = "6";
+                    setHoveredChip(code);
+                  }}
+                  onPointerLeave={(event) => {
+                    const marker = event.currentTarget.closest<HTMLElement>(".maplibregl-marker");
+                    if (marker) marker.style.zIndex = "";
+                    setHoveredChip((current) => (current === code ? null : current));
+                  }}
+                  style={nudge ? { transform: `translate(${nudge.dx}px, ${nudge.dy}px)` } : undefined}
+                  className="pointer-events-auto flex cursor-pointer flex-col rounded-lg bg-card px-2 pt-1 pb-1.5 whitespace-nowrap text-foreground shadow-floating transition-shadow duration-150 hover:shadow-overlay"
+                  title={`${zone.name}: evening demand${stress === undefined ? "" : `, stress ${stress.toFixed(2)}`}`}
+                >
+                  <span className="flex h-5 items-center gap-1.5 text-xs font-semibold">
+                    {stress !== undefined && <StatusMark kind={stressKind(stress)} size="sm" />}
+                    {zone.name}
+                  </span>
+                  <MapSpark
+                    className="mt-0.5"
+                    points={points}
+                    now={stepToDate(step).getTime()}
+                    from={Date.parse(day.from)}
+                    to={Date.parse(day.to) - 3_600_000}
+                    unit="kW"
+                    expanded={hoveredChip === code}
+                    formatTime={sparkTime}
+                    showKey
+                  />
+                </span>
+              </Displaced>
+            </MarkerContent>
+          </MapMarker>
+        );
+      })}
       {/* `pointer-events-none … bg-card` must stay: components/app-shell.tsx moves this card by selector. */}
-      <div className="pointer-events-none absolute top-3 left-3 z-10 w-64 rounded-lg bg-card p-3 text-xs text-card-foreground shadow-floating">
+      <div
+        data-map-legend
+        className="pointer-events-none absolute top-3 left-3 z-10 w-64 rounded-lg bg-card p-3 text-xs text-card-foreground shadow-floating"
+      >
         <div className="font-semibold text-foreground">Stress, P90 demand / capacity</div>
         <div
           className="mt-2.5 h-2.5 rounded-full ring-1 ring-border ring-inset"
@@ -423,6 +549,10 @@ export function DemandLayers() {
               <StatusMark kind="critical" size="xs" />
             </span>
             Feeder chips: calm, busy, at capacity
+          </li>
+          <li>
+            <span className="mb-1 block">County chips: demand today</span>
+            <SparkKey measured={false} />
           </li>
         </ul>
         {hovered && (
