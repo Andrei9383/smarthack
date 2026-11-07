@@ -229,6 +229,11 @@ def test_park_capped_to_zero_is_curtailment_not_a_work_order():
     hot[40:100, 30, oi] = 0.95
     out_h = decide(hot, th, curtail_mask=ctx)
     assert (out_h[40:100, 30] == oi).all() and (out_h[40:100, 31:60] == ci).all()
+    # ... also when its run has short sub-threshold gaps the smoothing fills (the consensus never splits it)
+    gap = hot.copy()
+    gap[60:64, 30, oi] = 0.3
+    out_g = decide(gap, th, curtail_mask=ctx)
+    assert (out_g[40:100, 30] == oi).all()
     # a park-wide cap at a common ceiling is still allowed by the ceiling test alone
     assert (decide(weak, th, curtail_mask=_park_ctx(T, n, cap_frac=0.5))[40:100, 35:] == ci).all()
 
