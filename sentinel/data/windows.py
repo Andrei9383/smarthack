@@ -26,9 +26,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 
 from sentinel.contracts.envelope import PvFault
+from sentinel.kernels import pv_ac_batch
+from sentinel.kernels.sitebatch import SiteReader
 from sentinel.sim.faults import FaultConfig, inject_dataset
 from sentinel.sim.faults.kinds import INV_OVERVOLTAGE
 from sentinel.sim.fleet import FleetConfig, generate
@@ -163,21 +164,11 @@ def build_windows(fleet_dir: Path | None = None, fault_dir: Path | None = None, 
     arr = {k: mm(k, np.float16) for k in SITE_F16}
     arr.update({k: mm(k, np.int8) for k in SITE_I8})
     site_order = list(sites.site_id)
+    faulted, clean = SiteReader(files), SiteReader(clean_files)  # #133: row-group reads + numpy order
     for b0 in range(0, S, batch):
         ids = site_order[b0:b0 + batch]
-
-        def read(fs, cols):
-            parts = []
-            for f in fs:
-                d = pq.read_table(f, columns=["ts", "site_id", *cols], filters=[("site_id", "in", ids)]).to_pandas()
-                d["site_id"] = d.site_id.astype(str)
-                parts.append(d)
-            d = pd.concat(parts).sort_values(["site_id", "ts"], kind="stable").set_index("site_id").loc[ids]
-            n = len(d) // len(ids)
-            return {c: d[c].to_numpy().reshape(len(ids), n)[:, i0:i1] for c in cols}
-
-        f = read(files, ["pv_ac_w", "load_w", "batt_w", "soc", "inv_voltage_v", "inv_status"])
-        c = read(clean_files, ["pv_ac_w"])
+        f = faulted.read(ids, ["pv_ac_w", "load_w", "batt_w", "soc", "inv_voltage_v", "inv_status"], i0, i1)
+        c = clean.read(ids, ["pv_ac_w"], i0, i1)
         sl = slice(b0, b0 + len(ids))
         valid = np.isfinite(f["pv_ac_w"]) & np.isfinite(f["load_w"])
         arr["valid"][sl] = valid
@@ -194,14 +185,25 @@ def build_windows(fleet_dir: Path | None = None, fault_dir: Path | None = None, 
         st[(pv >= 0.995 * inv_kw) & (pv > 0.1)] = 2
         st[f["inv_status"] == INV_OVERVOLTAGE] = 3
         arr["inv_status"][sl] = st
-        for r, s in enumerate(sb.itertuples()):
-            li = loc_index[s.locality_id]
-            meta = {"kwp_recorded": s.kwp_recorded, "tilt_recorded": s.tilt_recorded,
-                    "azimuth_recorded": s.azimuth_recorded, "inverter_kw": s.inverter_kw}
-            arr["pvlib_rec"][b0 + r] = ph.pvlib_expected_kw(meta, act[li].astype(np.float64), geom[li].astype(np.float64))
-            arr["pvlib_rec_fc"][b0 + r] = ph.pvlib_expected_kw(meta, fc[li].astype(np.float64), geom[li].astype(np.float64))
-            arr["pvclear_rec"][b0 + r] = ph.pvlib_clear_kw(meta, times, geom[li].astype(np.float64))
         log(f"[windows] sites {b0 + len(ids)}/{S} ({time.perf_counter() - t_all:.0f}s)")
+
+    # pvlib channels (#133): per locality, all its sites at once through kernels.pv_ac_batch
+    # (= physics.pvlib_expected_kw / pvlib_clear_kw with the metadata broadcast over sites; same bytes as one call
+    # per site), clear sky once per locality.
+    site_loc = np.array([loc_index[x] for x in sites.locality_id])
+    meta = [sites[m].to_numpy(np.float64) for m in ("kwp_recorded", "tilt_recorded", "azimuth_recorded", "inverter_kw")]
+    for li in range(L):
+        g64, a64, f64 = geom[li].astype(np.float64), act[li].astype(np.float64), fc[li].astype(np.float64)
+        zen, saz = g64[:, 0], g64[:, 1]
+        cs = ph.clearsky(times + pd.Timedelta(minutes=ph.STEP_MIN / 2), zen)
+        rows_l = np.flatnonzero(site_loc == li)
+        for k in range(0, len(rows_l), batch):
+            rows = rows_l[k:k + batch]
+            m = [x[rows] for x in meta]
+            arr["pvlib_rec"][rows] = pv_ac_batch(*m, a64[:, 0], a64[:, 1], a64[:, 2], a64[:, 3], a64[:, 5], zen, saz)
+            arr["pvlib_rec_fc"][rows] = pv_ac_batch(*m, f64[:, 0], f64[:, 1], f64[:, 2], f64[:, 3], f64[:, 5], zen, saz)
+            arr["pvclear_rec"][rows] = pv_ac_batch(*m, cs["ghi"], cs["dni"], cs["dhi"], 20.0, None, zen, saz)
+    log(f"[windows] pvlib channels ({time.perf_counter() - t_all:.0f}s)")
 
     # --- labels ---------------------------------------------------------------------------------------------
     pos = {sid: i for i, sid in enumerate(site_order)}
