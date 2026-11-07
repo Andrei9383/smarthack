@@ -5,7 +5,13 @@ export type TipInput = {
   status: string | undefined;
   reason: string | undefined;
   hasBattery: boolean;
-  workOrder?: { fault?: string | null; daysToVisit?: number | null; lostKwhDay?: number | null; lostLeiDay?: number | null; action: string };
+  workOrder?: {
+    fault?: string | null;
+    daysToVisit?: number | null;
+    lostKwhDay?: number | null;
+    lostLeiDay?: number | null;
+    action: string;
+  };
   absorbedKwhToday: number;
   reserveKwh?: number | null;
   reserveTouched: boolean;
@@ -26,8 +32,13 @@ export function customerTip(t: TipInput): string {
   if (t.status === "excluded" && t.reason === "stale_telemetry") {
     return "We have not heard from your inverter for a while. Check that it is on and connected to your home Wi-Fi; until then your battery simply runs on its own.";
   }
-  if (t.workOrder && (t.status === "derated" || t.workOrder.action === "truck")) {
-    const what = FAULT_WORDS[t.workOrder.fault ?? ""] ?? "your system is producing less than expected";
+  if (
+    t.workOrder &&
+    (t.status === "derated" || t.workOrder.action === "truck")
+  ) {
+    const what =
+      FAULT_WORDS[t.workOrder.fault ?? ""] ??
+      "your system is producing less than expected";
     const visit =
       t.workOrder.daysToVisit != null
         ? ` A technician is booked within ${t.workOrder.daysToVisit} day${t.workOrder.daysToVisit === 1 ? "" : "s"}.`

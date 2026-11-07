@@ -1,7 +1,16 @@
 // Site view (#31): one prosumer site over the replay week, read from the shared SQLite.
 // Shapes come from contract/sites.ts. getStatuses, getSchedule and getWorkOrders are additions
 // the site drawer needs that the contract does not cover yet (noted on #31).
-import { assets, assetSteps, measurements, predictions, runs, schedules, statuses, workOrders } from "@sentinel-app/db/schema/index";
+import {
+  assets,
+  assetSteps,
+  measurements,
+  predictions,
+  runs,
+  schedules,
+  statuses,
+  workOrders,
+} from "@sentinel-app/db/schema/index";
 import type { Database } from "@sentinel-app/db";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
@@ -15,18 +24,31 @@ import {
   workOrderItemSchema,
 } from "../contract";
 import { publicProcedure } from "../index";
+import { emptyIfNoTables } from "./runs";
 
-const siteInput = z.object({ assetId: z.string(), runId: z.string().optional() });
+const siteInput = z.object({
+  assetId: z.string(),
+  runId: z.string().optional(),
+});
 
 // Without an explicit run, read the newest run, preferring Sentinel over baseline: the site view
 // shows what Sentinel did. Fixtures have policy NULL, which sorts with Sentinel.
-export async function resolveRunId(db: Database, runId?: string): Promise<string | null> {
+export async function resolveRunId(
+  db: Database,
+  runId?: string,
+): Promise<string | null> {
   if (runId) return runId;
-  const [row] = await db
-    .select({ id: runs.id })
-    .from(runs)
-    .orderBy(sql`case when ${runs.policy} = 'baseline' then 1 else 0 end`, desc(runs.createdAt))
-    .limit(1);
+  // a clean checkout has no tables yet: no run, so every procedure returns no data
+  const [row] = await emptyIfNoTables(() =>
+    db
+      .select({ id: runs.id })
+      .from(runs)
+      .orderBy(
+        sql`case when ${runs.policy} = 'baseline' then 1 else 0 end`,
+        desc(runs.createdAt),
+      )
+      .limit(1),
+  );
   return row?.id ?? null;
 }
 
@@ -49,7 +71,11 @@ export const schedulePointSchema = z.object({
 });
 export type SchedulePoint = z.infer<typeof schedulePointSchema>;
 
-export const runLabelSchema = z.object({ id: z.string(), label: z.string(), kind: z.string() });
+export const runLabelSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  kind: z.string(),
+});
 
 export const sitesRouter = {
   // The run the panels read, so each can say on screen whether it is synthetic, real RO or non-RO.
@@ -72,13 +98,23 @@ export const sitesRouter = {
     .output(siteDetailSchema)
     .handler(async ({ input, context: { db } }) => {
       const runId = await resolveRunId(db, input.runId);
-      const [asset] = await db.select().from(assets).where(eq(assets.id, input.assetId)).limit(1);
-      if (!asset) throw new ORPCError("NOT_FOUND", { message: `no asset ${input.assetId}` });
+      const [asset] = await emptyIfNoTables(() =>
+        db.select().from(assets).where(eq(assets.id, input.assetId)).limit(1),
+      );
+      if (!asset)
+        throw new ORPCError("NOT_FOUND", {
+          message: `no asset ${input.assetId}`,
+        });
       const [last] = runId
         ? await db
             .select({ status: statuses.status, reason: statuses.reason })
             .from(statuses)
-            .where(and(eq(statuses.runId, runId), eq(statuses.assetId, input.assetId)))
+            .where(
+              and(
+                eq(statuses.runId, runId),
+                eq(statuses.assetId, input.assetId),
+              ),
+            )
             .orderBy(desc(statuses.ts))
             .limit(1)
         : [];
@@ -93,7 +129,10 @@ export const sitesRouter = {
         batteryKwh: asset.batteryKwh,
         status: last?.status ?? "unknown",
         reason: last?.reason,
-        gisTrust: asset.gisTrust === "ok" || asset.gisTrust === "low" ? asset.gisTrust : null,
+        gisTrust:
+          asset.gisTrust === "ok" || asset.gisTrust === "low"
+            ? asset.gisTrust
+            : null,
       };
     }),
 
@@ -112,7 +151,12 @@ export const sitesRouter = {
           soc: measurements.soc,
         })
         .from(measurements)
-        .where(and(eq(measurements.runId, runId), eq(measurements.assetId, input.assetId)))
+        .where(
+          and(
+            eq(measurements.runId, runId),
+            eq(measurements.assetId, input.assetId),
+          ),
+        )
         .orderBy(asc(measurements.ts));
     }),
 
@@ -131,7 +175,12 @@ export const sitesRouter = {
           q90Kw: assetSteps.q90Kw,
         })
         .from(assetSteps)
-        .where(and(eq(assetSteps.runId, runId), eq(assetSteps.assetId, input.assetId)))
+        .where(
+          and(
+            eq(assetSteps.runId, runId),
+            eq(assetSteps.assetId, input.assetId),
+          ),
+        )
         .orderBy(asc(assetSteps.ts));
     }),
 
@@ -141,7 +190,10 @@ export const sitesRouter = {
     .handler(async ({ input, context: { db } }) => {
       const runId = await resolveRunId(db, input.runId);
       if (!runId) return [];
-      const where = [eq(predictions.runId, runId), eq(predictions.assetId, input.assetId)];
+      const where = [
+        eq(predictions.runId, runId),
+        eq(predictions.assetId, input.assetId),
+      ];
       if (input.model) where.push(eq(predictions.model, input.model));
       return db
         .select({
@@ -179,7 +231,9 @@ export const sitesRouter = {
           headroomFactor: statuses.headroomFactor,
         })
         .from(statuses)
-        .where(and(eq(statuses.runId, runId), eq(statuses.assetId, input.assetId)))
+        .where(
+          and(eq(statuses.runId, runId), eq(statuses.assetId, input.assetId)),
+        )
         .orderBy(asc(statuses.ts));
       const segments: StatusSegment[] = [];
       for (const row of rows) {
@@ -187,7 +241,13 @@ export const sitesRouter = {
         if (prev && prev.status === row.status && prev.reason === row.reason) {
           prev.to = row.ts;
         } else {
-          segments.push({ from: row.ts, to: row.ts, status: row.status, reason: row.reason, headroomFactor: row.headroomFactor });
+          segments.push({
+            from: row.ts,
+            to: row.ts,
+            status: row.status,
+            reason: row.reason,
+            headroomFactor: row.headroomFactor,
+          });
         }
       }
       return segments;
@@ -247,7 +307,12 @@ export const sitesRouter = {
           evidenceJson: workOrders.evidenceJson,
         })
         .from(workOrders)
-        .where(and(eq(workOrders.runId, runId), eq(workOrders.assetId, input.assetId)))
+        .where(
+          and(
+            eq(workOrders.runId, runId),
+            eq(workOrders.assetId, input.assetId),
+          ),
+        )
         .orderBy(asc(workOrders.ts));
     }),
 };

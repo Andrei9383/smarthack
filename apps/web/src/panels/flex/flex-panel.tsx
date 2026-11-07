@@ -20,10 +20,30 @@ import { dayRange, hhmm, inRange, stepTs, wallClock } from "../site/time";
 
 // Ordered from the most the fleet could ever do to what it actually delivered (plan §3.5).
 const SERIES = [
-  { key: "nominal", label: "Nominal", color: "#64748b", hint: "every battery, no doubts" },
-  { key: "available", label: "Available", color: "#38bdf8", hint: "after excluding and derating sites" },
-  { key: "committed", label: "Committed (P10)", color: "#2dd4bf", hint: "what we sell: (1−h)·P10" },
-  { key: "realised", label: "Realised", color: "#f8fafc", hint: "measured afterwards" },
+  {
+    key: "nominal",
+    label: "Nominal",
+    color: "#64748b",
+    hint: "every battery, no doubts",
+  },
+  {
+    key: "available",
+    label: "Available",
+    color: "#38bdf8",
+    hint: "after excluding and derating sites",
+  },
+  {
+    key: "committed",
+    label: "Committed (P10)",
+    color: "#2dd4bf",
+    hint: "what we sell: (1−h)·P10",
+  },
+  {
+    key: "realised",
+    label: "Realised",
+    color: "#f8fafc",
+    hint: "measured afterwards",
+  },
 ] as const;
 const CHART_MARGIN = { left: 8, right: 8, top: 8, bottom: 24 };
 const SCOPES = ["feeder", "fleet"] as const;
@@ -32,8 +52,10 @@ export function useFlexOpen() {
   return useQueryState("flex", parseAsBoolean.withDefault(false));
 }
 
-const fmtKw = (v: number | null | undefined) => (v == null ? "—" : `${v.toFixed(1)} kW`);
-const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+const fmtKw = (v: number | null | undefined) =>
+  v == null ? "—" : `${v.toFixed(1)} kW`;
+const pct = (v: number | null | undefined) =>
+  v == null ? "—" : `${Math.round(v * 100)}%`;
 
 /** A button on the map that opens the panel; the open state lives in the URL (`?flex=true`). */
 export function FlexDock() {
@@ -57,13 +79,20 @@ export function FlexDock() {
 export function FlexPanel({ onClose }: { onClose?: () => void }) {
   const [step] = useReplayStep();
   const [feederId, setFeeder] = useSelectedFeeder();
-  const [scope, setScope] = useQueryState("flexScope", parseAsStringLiteral(SCOPES).withDefault("feeder"));
+  const [scope, setScope] = useQueryState(
+    "flexScope",
+    parseAsStringLiteral(SCOPES).withDefault("feeder"),
+  );
   const scopeFeeder = scope === "feeder" ? feederId : undefined;
 
   const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const overview = useQuery(orpc.flex.getOverview.queryOptions({ input: {} }));
-  const feeders = useQuery(orpc.flex.getFeedersFlex.queryOptions({ input: {} }));
-  const hourly = useQuery(orpc.flex.getCommitments.queryOptions({ input: { feederId: scopeFeeder } }));
+  const feeders = useQuery(
+    orpc.flex.getFeedersFlex.queryOptions({ input: {} }),
+  );
+  const hourly = useQuery(
+    orpc.flex.getCommitments.queryOptions({ input: { feederId: scopeFeeder } }),
+  );
 
   const range = dayRange(step);
   const nowHour = `${stepTs(step).slice(0, 13)}:00:00Z`;
@@ -89,7 +118,10 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
     };
   }, [hourly.data, range[0], nowHour]);
 
-  const values: Record<(typeof SERIES)[number]["key"], number | null | undefined> = {
+  const values: Record<
+    (typeof SERIES)[number]["key"],
+    number | null | undefined
+  > = {
     nominal: now?.nominalKw,
     available: now?.availableKw,
     committed: now?.committedKw,
@@ -103,11 +135,20 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
           <h2 className="font-semibold">Flexibility</h2>
           <p className="text-xs text-muted-foreground">
             We never sell the nominal number.
-            {run.data ? <span className="ml-1 font-medium text-amber-400">· {run.data.label}</span> : null}
+            {run.data ? (
+              <span className="ml-1 font-medium text-amber-400">
+                · {run.data.label}
+              </span>
+            ) : null}
           </p>
         </div>
         {onClose ? (
-          <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="Close flexibility panel">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={onClose}
+            aria-label="Close flexibility panel"
+          >
             <X />
           </Button>
         ) : null}
@@ -115,14 +156,21 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
 
       <div className="flex gap-1">
         {SCOPES.map((s) => (
-          <Button key={s} size="sm" variant={scope === s ? "default" : "ghost"} onClick={() => setScope(s)}>
+          <Button
+            key={s}
+            size="sm"
+            variant={scope === s ? "default" : "ghost"}
+            onClick={() => setScope(s)}
+          >
             {s === "feeder" ? `Feeder ${feederId}` : "Fleet total"}
           </Button>
         ))}
       </div>
 
       <section className="space-y-1">
-        <h3 className="text-sm font-medium">Hour starting {timeLabel(step - (step % 4))}</h3>
+        <h3 className="text-sm font-medium">
+          Hour starting {timeLabel(step - (step % 4))}
+        </h3>
         <ul className="space-y-1">
           {SERIES.map(({ key, label, color, hint }) => {
             const v = values[key];
@@ -139,7 +187,13 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
                   <span className="font-semibold">{fmtKw(v)}</span>
                 </div>
                 <div className="mt-0.5 h-1.5 rounded bg-muted">
-                  <div className="h-full rounded" style={{ width: `${Math.min(100, ((v ?? 0) / top) * 100)}%`, background: color }} />
+                  <div
+                    className="h-full rounded"
+                    style={{
+                      width: `${Math.min(100, ((v ?? 0) / top) * 100)}%`,
+                      background: color,
+                    }}
+                  />
                 </div>
               </li>
             );
@@ -162,22 +216,38 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
         <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
           {SERIES.map(({ label, color }) => (
             <span key={label} className="flex items-center gap-1">
-              <span className="inline-block w-3 border-t-2" style={{ borderColor: color }} />
+              <span
+                className="inline-block w-3 border-t-2"
+                style={{ borderColor: color }}
+              />
               {label}
             </span>
           ))}
         </div>
         {chart.length ? (
-          <LineChart data={chart} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
+          <LineChart
+            data={chart}
+            aspectRatio="5 / 2"
+            margin={CHART_MARGIN}
+            animationDuration={0}
+          >
             <Grid />
             {SERIES.map(({ key, color }) => (
-              <Line key={key} dataKey={key} stroke={color} curve={curveStepAfter} fadeEdges={false} />
+              <Line
+                key={key}
+                dataKey={key}
+                stroke={color}
+                curve={curveStepAfter}
+                fadeEdges={false}
+              />
             ))}
             <XAxis numTicks={6} labels={chart.map((r) => hhmm(r.date))} />
             <ChartTooltip />
           </LineChart>
         ) : (
-          <p className="text-xs text-muted-foreground">{hourly.isLoading ? "Loading…" : "No commitments in this run."}</p>
+          <p className="text-xs text-muted-foreground">
+            {hourly.isLoading ? "Loading…" : "No commitments in this run."}
+          </p>
         )}
       </section>
 
@@ -202,17 +272,25 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               >
                 <td>{f.feederId}</td>
                 <td className="text-right">{f.eligibleSites}</td>
-                <td className="text-right text-amber-400">{f.deratedSites || ""}</td>
-                <td className="text-right text-muted-foreground">{f.excludedSites || ""}</td>
-                <td className="text-right">{f.flexibleHeadroomKw.toFixed(0)} kW</td>
+                <td className="text-right text-amber-400">
+                  {f.deratedSites || ""}
+                </td>
+                <td className="text-right text-muted-foreground">
+                  {f.excludedSites || ""}
+                </td>
+                <td className="text-right">
+                  {f.flexibleHeadroomKw.toFixed(0)} kW
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
         {overview.data ? (
           <p className="text-[11px] text-muted-foreground">
-            Fleet: {overview.data.totalBatteries} batteries · {overview.data.totalKwh.toFixed(0)} kWh ·{" "}
-            {overview.data.totalKw.toFixed(0)} kW. Peak hour committed {overview.data.dispatchedKw.toFixed(0)} of{" "}
+            Fleet: {overview.data.totalBatteries} batteries ·{" "}
+            {overview.data.totalKwh.toFixed(0)} kWh ·{" "}
+            {overview.data.totalKw.toFixed(0)} kW. Peak hour committed{" "}
+            {overview.data.dispatchedKw.toFixed(0)} of{" "}
             {overview.data.availableKw.toFixed(0)} kW available.
           </p>
         ) : null}

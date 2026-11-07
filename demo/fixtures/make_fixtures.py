@@ -18,7 +18,7 @@ golden-path screenshots stay stable.
     python3 demo/fixtures/make_fixtures.py --schema path/to/migration.sql --out /tmp/f.sqlite
 
 Columns follow team/contracts/app.md section 2 (#38 @ d362a39): every `ts` is TEXT ISO-8601 UTC
-('2025-06-02T21:00:00Z'), `day`/`date` are 'YYYY-MM-DD', and there is no `step` column.
+('2025-06-01T21:00:00Z'), `day`/`date` are 'YYYY-MM-DD', and there is no `step` column.
 
 The database is NOT committed: at full fidelity it is ~100+ MB (over GitHub's 100 MB limit and
 R18's 50 MB). Whatever needs it (the preview, a UI dev) runs this script; it takes ~5 s.
@@ -40,10 +40,10 @@ from datetime import datetime, timedelta, timezone
 
 # ----------------------------------------------------------------- shape of the week
 
-# 00:00 Europe/Bucharest on Tue 3 June 2025 (EEST, UTC+3), the same instant the UI's replay clock
-# starts at (apps/web/src/demo/replay.ts). Far from both DST switches (R19), so local time is a
+# 00:00 Europe/Bucharest on Mon 2 June 2025 (EEST, UTC+3), the same instant the UI's replay clock
+# starts at (apps/web/src/demo/replay.ts, WEEK_START_UTC). Far from both DST switches (R19), so local time is a
 # fixed +3 h all week and every "hour of day" below is Bucharest wall-clock time.
-WEEK_START = datetime(2025, 6, 2, 21, 0, tzinfo=timezone.utc)
+WEEK_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
 LOCAL_OFFSET = timedelta(hours=3)
 DAYS = 7
 STEPS_PER_DAY = 96                      # 15-min grid

@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { feederFlexItemSchema, flexOverviewSchema } from "../contract";
 import { publicProcedure } from "../index";
+import { emptyIfNoTables } from "./runs";
 import { resolveRunId } from "./sites";
 
 const runInput = z.object({ runId: z.string().optional() }).optional();
@@ -24,7 +25,10 @@ export const hourlyCommitmentSchema = z.object({
 export type HourlyCommitment = z.infer<typeof hourlyCommitmentSchema>;
 
 // Status per site at the newest step of the run.
-async function latestStatuses(db: Parameters<typeof resolveRunId>[0], runId: string) {
+async function latestStatuses(
+  db: Parameters<typeof resolveRunId>[0],
+  runId: string,
+) {
   return db
     .select({
       assetId: statuses.assetId,
@@ -46,14 +50,16 @@ export const flexRouter = {
     .output(flexOverviewSchema)
     .handler(async ({ input, context: { db } }) => {
       const runId = await resolveRunId(db, input?.runId);
-      const [fleet] = await db
-        .select({
-          totalBatteries: sql<number>`coalesce(sum(${assets.hasBattery}), 0)`,
-          totalKwh: sql<number>`coalesce(sum(${assets.batteryKwh}), 0)`,
-          totalKw: sql<number>`coalesce(sum(${assets.batteryKw}), 0)`,
-        })
-        .from(assets)
-        .where(eq(assets.assetKind, "prosumer"));
+      const [fleet] = await emptyIfNoTables(() =>
+        db
+          .select({
+            totalBatteries: sql<number>`coalesce(sum(${assets.hasBattery}), 0)`,
+            totalKwh: sql<number>`coalesce(sum(${assets.batteryKwh}), 0)`,
+            totalKw: sql<number>`coalesce(sum(${assets.batteryKw}), 0)`,
+          })
+          .from(assets)
+          .where(eq(assets.assetKind, "prosumer")),
+      );
       // Peak hour of the week: the most the fleet committed, and what was available then.
       const [peak] = runId
         ? await db
@@ -84,7 +90,11 @@ export const flexRouter = {
       if (!runId) return [];
       const [sites, latest] = await Promise.all([
         db
-          .select({ id: assets.id, feederId: assets.feederId, batteryKw: assets.batteryKw })
+          .select({
+            id: assets.id,
+            feederId: assets.feederId,
+            batteryKw: assets.batteryKw,
+          })
           .from(assets)
           .where(eq(assets.assetKind, "prosumer")),
         latestStatuses(db, runId),
@@ -110,13 +120,25 @@ export const flexRouter = {
         byFeeder.set(site.feederId, item);
       }
       return [...byFeeder.values()]
-        .map((item) => ({ ...item, flexibleHeadroomKw: Math.round(item.flexibleHeadroomKw * 10) / 10 }))
-        .sort((a, b) => a.feederId.localeCompare(b.feederId, "en", { numeric: true }));
+        .map((item) => ({
+          ...item,
+          flexibleHeadroomKw: Math.round(item.flexibleHeadroomKw * 10) / 10,
+        }))
+        .sort((a, b) =>
+          a.feederId.localeCompare(b.feederId, "en", { numeric: true }),
+        );
     }),
 
   // One feeder, or the whole fleet when feederId is omitted.
   getCommitments: publicProcedure
-    .input(z.object({ feederId: z.string().optional(), runId: z.string().optional() }).optional())
+    .input(
+      z
+        .object({
+          feederId: z.string().optional(),
+          runId: z.string().optional(),
+        })
+        .optional(),
+    )
     .output(z.array(hourlyCommitmentSchema))
     .handler(async ({ input, context: { db } }) => {
       const runId = await resolveRunId(db, input?.runId);
@@ -128,12 +150,20 @@ export const flexRouter = {
         .select({
           ts: commitments.ts,
           nominal: sql<number>`sum(${commitments.nominalKw})`.as("nominal"),
-          available: sql<number>`sum(${commitments.availableKw})`.as("available"),
-          committed: sql<number>`sum(${commitments.committedKw})`.as("committed"),
-          realised: sql<number | null>`sum(${commitments.realisedKw})`.as("realised"),
+          available: sql<number>`sum(${commitments.availableKw})`.as(
+            "available",
+          ),
+          committed: sql<number>`sum(${commitments.committedKw})`.as(
+            "committed",
+          ),
+          realised: sql<number | null>`sum(${commitments.realisedKw})`.as(
+            "realised",
+          ),
           // the scope delivered if its total realised met its total commitment
           hit: sql<number | null>`case when sum(${commitments.committedKw}) > 0
-            then sum(${commitments.realisedKw}) >= sum(${commitments.committedKw}) end`.as("hit"),
+            then sum(${commitments.realisedKw}) >= sum(${commitments.committedKw}) end`.as(
+            "hit",
+          ),
         })
         .from(commitments)
         .where(and(...where))
@@ -151,7 +181,8 @@ export const flexRouter = {
         .from(perStep)
         .groupBy(sql`substr(${perStep.ts}, 1, 13)`)
         .orderBy(sql`substr(${perStep.ts}, 1, 13)`);
-      const r1 = (v: number | null) => (v == null ? null : Math.round(Number(v) * 10) / 10);
+      const r1 = (v: number | null) =>
+        v == null ? null : Math.round(Number(v) * 10) / 10;
       return rows.map((row) => ({
         hour: row.hour,
         nominalKw: r1(row.nominalKw) ?? 0,
