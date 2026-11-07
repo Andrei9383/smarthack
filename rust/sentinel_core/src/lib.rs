@@ -10,6 +10,7 @@ use pyo3::prelude::*;
 mod battery_resim;
 mod cusum;
 mod features;
+mod median;
 mod pvac;
 mod rollout;
 mod rolling;
@@ -313,6 +314,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(site_features, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
+    m.add_function(wrap_pyfunction!(median::rolling_median, m)?)?;
+    m.add_function(wrap_pyfunction!(median::binned_median_mad, m)?)?;
     m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
     m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
     m.add_function(wrap_pyfunction!(scenarios::park_scenarios, m)?)?;

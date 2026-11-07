@@ -34,13 +34,17 @@ FROZEN_STEPS = 8
 
 def _frozen(x: np.ndarray, n: int) -> np.ndarray:
     """True where the value equals the previous n-1 values (finite)."""
-    T = x.shape[0]
     same = np.zeros_like(x, dtype=bool)
     same[1:] = (x[1:] == x[:-1]) & np.isfinite(x[1:])
-    run = np.zeros(x.shape, dtype=np.int32)
-    for t in range(1, T):  # vectorised over turbines
-        run[t] = np.where(same[t], run[t - 1] + 1, 0)
-    return run >= n - 1
+    # the run of `same` ending at t is >= n-1 long  <=>  same[t-n+2 .. t] are all True (same[0] is False, so a window
+    # reaching back to step 0 fails); a rolling AND, vectorised over time too (#136: the per-step loop took ~1-2 s)
+    if n - 1 <= 0:
+        return np.ones(x.shape, dtype=bool)
+    out = same.copy()
+    for s in range(1, n - 1):
+        out[s:] &= same[:-s]
+        out[:s] = False
+    return out
 
 
 def windmon_flags(sensors: dict[str, np.ndarray], err: np.ndarray, rated_kw: np.ndarray) -> dict[str, np.ndarray]:
