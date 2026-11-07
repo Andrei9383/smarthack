@@ -127,8 +127,8 @@ export function DemoPopover() {
         aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          "flex items-center gap-2 rounded-xl border border-border bg-card/95 px-3.5 text-[13px] font-semibold text-foreground shadow-card transition-colors duration-150 hover:bg-sidebar focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-          open && "bg-sidebar",
+          "flex items-center gap-2 rounded-lg bg-card px-3.5 text-[13px] font-semibold text-foreground shadow-floating transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+          open && "bg-surface-raised",
         )}
       >
         <Play aria-hidden className="size-4" />
@@ -142,13 +142,13 @@ export function DemoPopover() {
         role="dialog"
         aria-label="Demo script"
         className={cn(
-          "absolute top-[calc(100%+8px)] right-0 z-50 w-[340px] origin-top-right rounded-xl border border-border bg-card p-2 shadow-[0_1px_2px_rgb(13_13_13/0.05),0_16px_40px_rgb(13_13_13/0.10)] transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+          "absolute top-[calc(100%+8px)] right-0 z-50 w-[340px] origin-top-right rounded-xl border border-border bg-card p-2 shadow-overlay transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
           open ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-1.5 opacity-0",
         )}
       >
         <header className="flex items-center justify-between px-2.5 pt-2 pb-1.5">
           <b className="text-[13px] font-semibold">Demo script</b>
-          <span className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">keys 1–6</span>
+          <span className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">keys 1–6</span>
         </header>
         {steps.map((step, index) => {
           const current = index === next;
@@ -161,7 +161,7 @@ export function DemoPopover() {
               onClick={() => run(index)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-150",
-                current ? "bg-brand-50" : "hover:bg-sidebar",
+                current ? "bg-brand-50" : "hover:bg-surface-raised",
               )}
             >
               <span

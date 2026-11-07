@@ -1,18 +1,201 @@
-// RGB mirrors of the --status-* and brand tokens in packages/ui/src/styles/globals.css, for
-// deck.gl and canvas code that can't read CSS variables. Keep the two in step.
-export type Rgb = [number, number, number];
+// Theme-aware RGB mirrors of the tokens in packages/ui/src/styles/globals.css, for deck.gl, MapLibre and
+// canvas code that can't read CSS variables (team/contracts/ui-style.md §2). Keep the three in step.
+//
+// - `paletteFor(theme)` / `usePalette()` give the palette for the current theme (dark = Cockpit, the default).
+// - `MAP_SAFE` holds the status hues drawn on the map. They read on both basemaps (≥ 3:1 against
+//   Positron's white land and our dark land), so layer modules may capture them at import.
+// - `onPaletteTheme()` lets a per-mode colors.ts keep its theme-dependent exports (casings, borders,
+//   no-data fills, basemap tints) in step; app-shell remounts the map when the theme changes, so the
+//   layers re-read them.
+import { useTheme } from "next-themes";
 
-export const PALETTE = {
+export type Rgb = [number, number, number];
+export type Rgba = [number, number, number, number];
+export type ThemeName = "light" | "dark";
+
+/** The app opens in the Cockpit dark theme (providers.tsx). */
+export const DEFAULT_THEME: ThemeName = "dark";
+
+const LIGHT = {
+  background: [244, 246, 248],
+  surface: [255, 255, 255],
+  surfaceRaised: [238, 241, 244],
+  frame: [235, 238, 242],
+  border: [213, 220, 227],
+  borderStrong: [180, 192, 204],
+  foreground: [13, 20, 28],
+  textSecondary: [61, 75, 89],
+  mutedForeground: [95, 110, 124],
+  primary: [11, 127, 72],
   brand50: [236, 251, 242],
+  brand100: [209, 245, 224],
   brand500: [18, 183, 106],
-  primary: [14, 159, 90],
-  brand700: [11, 127, 72],
-  statusOk: [14, 159, 90],
-  statusWarn: [217, 119, 6],
-  statusCritical: [229, 72, 77],
-  statusForecast: [2, 132, 199],
-  statusSoc: [99, 102, 241],
-  statusReview: [139, 92, 246],
-  statusUnknown: [148, 163, 184],
-  statusActual: [13, 13, 13],
+  brand700: [9, 107, 60],
+  brand900: [6, 78, 45],
+  ring: [14, 116, 144],
+  live: [0, 220, 85],
+  statusOk: [11, 127, 72],
+  statusWarn: [180, 83, 9],
+  statusCritical: [201, 53, 59],
+  statusForecast: [3, 105, 161],
+  statusSoc: [79, 70, 229],
+  statusReview: [124, 58, 237],
+  statusUnknown: [100, 116, 139],
+  statusActual: [13, 20, 28],
+  chartGrid: [227, 232, 237],
+  // Basemap tints painted over CARTO Positron by demo/use-basemap.ts.
+  mapSea: [230, 238, 242],
+  mapLand: [255, 255, 255],
+  mapNeighbour: [242, 243, 245],
+  mapBorder: [201, 206, 212],
+  mapFocusBorder: [184, 190, 198],
+  mapCounty: [221, 225, 229],
+  /** Halo under map lines and gaps cut into them: the land colour, so lines lift off the basemap. */
+  mapCasing: [255, 255, 255],
+  /** Map line or particle colour for brand green on this basemap. */
+  mapBrand: [11, 127, 72],
 } as const satisfies Record<string, Rgb>;
+
+const DARK = {
+  background: [16, 23, 32],
+  surface: [24, 35, 48],
+  surfaceRaised: [32, 48, 65],
+  frame: [13, 17, 23],
+  border: [43, 58, 73],
+  borderStrong: [61, 81, 102],
+  foreground: [237, 243, 247],
+  textSecondary: [195, 208, 219],
+  mutedForeground: [166, 183, 197],
+  primary: [61, 214, 140],
+  brand50: [21, 53, 42],
+  brand100: [28, 69, 53],
+  brand500: [47, 191, 122],
+  brand700: [110, 224, 168],
+  brand900: [167, 243, 201],
+  ring: [166, 234, 242],
+  live: [0, 220, 85],
+  statusOk: [61, 214, 140],
+  statusWarn: [243, 197, 106],
+  statusCritical: [238, 138, 145],
+  statusForecast: [105, 212, 228],
+  statusSoc: [165, 180, 252],
+  statusReview: [196, 181, 253],
+  statusUnknown: [135, 150, 166],
+  statusActual: [237, 243, 247],
+  chartGrid: [31, 44, 58],
+  // Basemap tints painted over CARTO dark-matter: Romania sits a step above the frame, like a panel.
+  mapSea: [11, 18, 25],
+  mapLand: [27, 38, 51],
+  mapNeighbour: [19, 27, 36],
+  mapBorder: [47, 62, 78],
+  mapFocusBorder: [74, 95, 117],
+  mapCounty: [38, 50, 63],
+  mapCasing: [16, 23, 32],
+  mapBrand: [61, 214, 140],
+} as const satisfies Record<string, Rgb>;
+
+export type Palette = { readonly [K in keyof typeof LIGHT]: Rgb };
+
+export const PALETTES: Record<ThemeName, Palette> = { light: LIGHT, dark: DARK };
+
+/** Narrows next-themes' `resolvedTheme` (or anything else) to a theme name; unknown means the default. */
+export function themeName(theme: string | null | undefined): ThemeName {
+  return theme === "light" || theme === "dark" ? theme : DEFAULT_THEME;
+}
+
+/** The RGB palette for a theme. */
+export function paletteFor(theme: string | null | undefined): Palette {
+  return PALETTES[themeName(theme)];
+}
+
+/** The current theme's name, from next-themes (client components only). */
+export function useThemeName(): ThemeName {
+  const { resolvedTheme } = useTheme();
+  return themeName(resolvedTheme);
+}
+
+/** The current theme's RGB palette (client components only). */
+export function usePalette(): Palette {
+  return paletteFor(useThemeName());
+}
+
+/** `#rrggbb` for MapLibre paint and canvas fills. */
+export function hex([r, g, b]: Rgb): string {
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** `rgba(…)` string with an alpha, for MapLibre paint and canvas strokes. */
+export function rgba([r, g, b]: Rgb, alpha: number): string {
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** deck.gl colour: RGB plus a 0–255 alpha. */
+export function rgbaArray([r, g, b]: Rgb, alpha = 1): Rgba {
+  return [r, g, b, Math.round(alpha * 255)];
+}
+
+/**
+ * Status hues for map overlays. Mid-tones on purpose: each keeps ≥ 3:1 against both Positron's white land
+ * and the dark land above, so a feeder line or turbine mark reads the same in either theme. UI text and
+ * badges use the per-theme --status-* tokens instead.
+ */
+export const MAP_SAFE = {
+  ok: [14, 159, 90],
+  warn: [217, 119, 6],
+  critical: [229, 72, 77],
+  forecast: [2, 132, 199],
+  soc: [99, 102, 241],
+  review: [139, 92, 246],
+  unknown: [122, 136, 153],
+  brand: [18, 183, 106],
+} as const satisfies Record<string, Rgb>;
+
+/** @deprecated Kept for older imports: the map-safe status hues. Prefer `MAP_SAFE` or `usePalette()`. */
+export const PALETTE = {
+  brand50: LIGHT.brand50,
+  brand500: MAP_SAFE.brand,
+  primary: MAP_SAFE.ok,
+  brand700: LIGHT.brand700,
+  statusOk: MAP_SAFE.ok,
+  statusWarn: MAP_SAFE.warn,
+  statusCritical: MAP_SAFE.critical,
+  statusForecast: MAP_SAFE.forecast,
+  statusSoc: MAP_SAFE.soc,
+  statusReview: MAP_SAFE.review,
+  statusUnknown: MAP_SAFE.unknown,
+  statusActual: LIGHT.statusActual,
+} as const satisfies Record<string, Rgb>;
+
+// The theme the map layers are drawn for. app-shell / mini-map set it before they (re)mount the map.
+let activeTheme: ThemeName = DEFAULT_THEME;
+const listeners = new Set<(palette: Palette, theme: ThemeName) => void>();
+
+/** The theme the map layers are currently drawn for. */
+export function activePaletteTheme(): ThemeName {
+  return activeTheme;
+}
+
+/** Sets the theme for theme-dependent colour exports. Idempotent, so it's safe to call while rendering. */
+export function setPaletteTheme(theme: string | null | undefined) {
+  const next = themeName(theme);
+  if (next === activeTheme) return;
+  activeTheme = next;
+  for (const listener of listeners) listener(PALETTES[next], next);
+}
+
+/** Runs `listener` now and on every theme change. colors.ts modules use it to update `export let` values. */
+export function onPaletteTheme(listener: (palette: Palette, theme: ThemeName) => void) {
+  listeners.add(listener);
+  listener(PALETTES[activeTheme], activeTheme);
+  return () => listeners.delete(listener);
+}
+
+/**
+ * Syncs the active palette theme with next-themes during render and returns the theme name, for use as
+ * part of the map's `key`: a theme change remounts the map, so every layer re-reads its colours.
+ */
+export function useMapTheme(): ThemeName {
+  const theme = useThemeName();
+  setPaletteTheme(theme);
+  return theme;
+}

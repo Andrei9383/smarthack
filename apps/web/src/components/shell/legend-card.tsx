@@ -55,7 +55,7 @@ function Ramp({ low, high }: { low: string; high: string }) {
 
 function Title({ children }: { children: ReactNode }) {
   return (
-    <li className="mb-0.5 text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase">
+    <li className="mb-0.5 text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
       {children}
     </li>
   );
@@ -121,7 +121,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
           Evening <Term id="stress">stress</Term>
         </Title>
         <Ramp low="low" high="at capacity" />
-        <Row swatch={<span aria-hidden className="block size-[9px] rounded-[2px] border border-border bg-sidebar" />}>
+        <Row swatch={<span aria-hidden className="block size-[9px] rounded-[2px] border border-border-strong bg-surface-raised" />}>
           No data
         </Row>
       </>
@@ -131,7 +131,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
   return (
     <div
       className={cn(
-        "rounded-xl bg-card/95 px-3 py-2.5 text-xs text-text-secondary shadow-floating backdrop-blur-sm",
+        "rounded-xl bg-card px-3 py-2.5 text-xs text-text-secondary shadow-floating",
         className,
       )}
     >
