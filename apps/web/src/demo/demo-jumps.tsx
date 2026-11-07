@@ -34,6 +34,7 @@ const PARSERS = {
   feeder: parseAsString,
   park: parseAsString,
   site: parseAsString,
+  zone: parseAsString,
   policy: parseAsString,
   t: parseAsInteger,
   summary: parseAsBoolean,
@@ -75,7 +76,7 @@ export function DemoJumps() {
           {JUMPS.map(({ label, state }) => (
             <DropdownMenuItem
               key={label}
-              onClick={() => setState({ site: null, summary: null, ...state })}
+              onClick={() => setState({ site: null, summary: null, zone: null, ...state })}
               className={ITEM_CLASS}
             >
               <JumpLabel label={label} />
