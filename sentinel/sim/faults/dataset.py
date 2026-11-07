@@ -25,9 +25,20 @@ ROUND = {"pv_ac_w": 1, "inv_voltage_v": 0.1, "soc": 0.001, "batt_w": 1, "load_w"
 def _read_sites(f: Path, ids: list[str]) -> pa.Table:
     """Rows of `ids` from one telemetry file, ordered by (position in ids, ts): the order a stable sort on
     (site_id, ts) followed by .loc[ids] gives, without the pandas round trip (#134). The fleet files are already in
-    that order, so usually nothing is reordered."""
-    t = pq.read_table(f, filters=[("site_id", "in", ids)])
-    pos = pc.index_in(t.column("site_id"), value_set=pa.array(ids, pa.string())).to_numpy(zero_copy_only=False)
+    that order, so usually nothing is reordered. Only row groups whose site_id min/max can hold one of `ids` are
+    decoded: read_table(filters=...) decoded about the whole file for every batch, quadratic in fleet size."""
+    pf = pq.ParquetFile(f)
+    col = pf.schema_arrow.get_field_index("site_id")
+    lo, hi = min(ids), max(ids)
+    rgs = []
+    for i in range(pf.metadata.num_row_groups):
+        st = pf.metadata.row_group(i).column(col).statistics
+        if st is None or not st.has_min_max or (st.min <= hi and st.max >= lo):
+            rgs.append(i)
+    value_set = pa.array(ids, pa.string())
+    t = pf.read_row_groups(rgs)
+    t = t.filter(pc.is_in(t.column("site_id"), value_set=value_set))
+    pos = pc.index_in(t.column("site_id"), value_set=value_set).to_numpy(zero_copy_only=False)
     tsi = t.column("ts").cast(pa.int64()).to_numpy()
     dp, dt = np.diff(pos), np.diff(tsi)
     if np.all((dp > 0) | ((dp == 0) & (dt >= 0))):  # already in order (O(n) check before an O(n log n) sort)
