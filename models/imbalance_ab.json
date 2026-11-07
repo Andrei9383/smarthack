@@ -36,5 +36,6 @@
   "avoidable_lei": 863414.0,
   "lei_per_mwh_injected": 345.3,
   "note": "same frozen a, b on the test year; not used to fit"
- }
+ },
+ "lab_run": "train_cpu#725 (python -m sentinel.eval.imbalance --calibrate; identical to the local run)"
 }
