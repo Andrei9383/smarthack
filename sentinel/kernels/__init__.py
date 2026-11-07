@@ -183,6 +183,26 @@ __all__ = ["backend", "battery_rollout", "battery_rollout_py", "cusum_two_sided"
            "site_features_py", "window_gather", "window_gather_py"]
 
 
+# --------------------------------------------------------------------------- K7: exact medians (median.py, #136)
+from sentinel.kernels.median import (binned_median_mad_py, binned_median_mad_rust, rolling_median_py,  # noqa: E402
+                                     rolling_median_rust)
+
+register("rolling_median", rolling_median_py, rolling_median_rust)
+register("binned_median_mad", binned_median_mad_py, binned_median_mad_rust)
+
+
+def rolling_median(x: Any, window: int, min_periods: int) -> np.ndarray:
+    """Dispatched centred NaN/inf-skipping rolling median along axis 0; see ``median`` (reference = pandas)."""
+    return get("rolling_median")(x, window, min_periods)
+
+
+def binned_median_mad(b: Any, x: Any, ok: Any, n_bins: int, min_n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatched per-row, per-bin median + MAD of x[ok] grouped by b; see ``median.binned_median_mad_py``."""
+    return get("binned_median_mad")(b, x, ok, n_bins, min_n)
+
+
+__all__ += ["binned_median_mad", "binned_median_mad_py", "rolling_median", "rolling_median_py"]
+
 # --------------------------------------------------------------------------- K7: fault-injector battery resim (#134)
 from sentinel.kernels.battery_resim import battery_resim_py, battery_resim_rust  # noqa: E402
 
@@ -198,3 +218,18 @@ def battery_resim(surplus: Any, soc0: Any, batt0: Any, cf: Any, pf: Any, start: 
 
 
 __all__ += ["battery_resim", "battery_resim_py"]
+
+
+# --------------------------------------------------------------------------- K9: W2 park scenarios (#187)
+from sentinel.kernels.scenarios import park_scenarios_py, park_scenarios_rust  # noqa: E402
+
+register("park_scenarios", park_scenarios_py, park_scenarios_rust)
+
+
+def park_scenarios(q_kw: Any, rated_kw: Any, cols: Any, ratio_t: Any, u: Any, p_up: Any = None, derate: Any = None,
+                   bernoulli: bool = False, rng: Any = None) -> np.ndarray:
+    """Dispatched; see ``scenarios`` (reference = sentinel.model.windpower.scenarios.park_scenarios)."""
+    return get("park_scenarios")(q_kw, rated_kw, cols, ratio_t, u, p_up, derate, bernoulli, rng)
+
+
+__all__ += ["park_scenarios", "park_scenarios_py"]

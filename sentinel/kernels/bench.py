@@ -214,6 +214,29 @@ def resim_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
             rng.uniform(2, 6, m), np.full(m, 0.95), np.full(m, 0.95), np.full(m, 0.1), np.full(m, 0.95), t0, 0.25)
 
 
+SCEN_DAYS = 40
+
+
+def scen_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """K9 (#187): W2 forecast stage, per day x 3 parks x 6 policies: 100 scenarios x 96 steps x 39 turbines."""
+    S, H, N = _sz(100, scale), 96, 117
+    rated = np.full(N, 3000.0)
+    p50 = rng.uniform(0, 1, (H, N)) * rated
+    q = np.stack([0.7 * p50, p50, np.minimum(1.3 * p50 + 50, rated)], -1).astype(np.float32)
+    u = rng.uniform(0, 1, (S, H))
+    pu, der = rng.uniform(0, 1, (H, N)), rng.uniform(0.5, 1, (H, N))
+    return q, rated, [np.arange(p, N, 3) for p in range(3)], rng.uniform(0.9, 1, H), u, pu, der
+
+
+def scen_run(fn, a):
+    q, rated, cols, r, u, pu, der = a
+    for d in range(SCEN_DAYS):
+        for c in cols:
+            for kw in ({}, dict(p_up=pu, derate=der), dict(p_up=pu, derate=der, bernoulli=True), dict(p_up=pu),
+                       dict(p_up=pu), dict(p_up=pu)):
+                fn(q, rated, c, r, u, **kw, rng=np.random.default_rng(d))
+
+
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description[, parity atol])
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
@@ -246,6 +269,28 @@ CASES = [
      1e-9),  # bit-exact where numpy's f64 cos/arccos are libm's; a few ulp on AVX-512 SVML CPUs
     ("battery_resim", "battery_resim", resim_make, lambda fn, a: fn(*a), lambda a: a,
      "fault injector battery resim (#134): 48 sites x 35040 steps, fade/underuse, 0.1% NaN"),
+    ("park_scenarios", "park_scenarios", scen_make, scen_run,
+     lambda a: (a[0], a[1], a[2][1], a[3], a[4], a[5], a[6], True, None),  # rng None: same draws per call
+     f"W2 forecast (#187): {SCEN_DAYS} days x 3 parks x 6 policies, 100 scen x 96 steps x 39 turbines, f32 q"),
+]
+
+
+# ---- exact medians (#136): WindNBM label-free normal selection, 121 turbines x 70,176 steps; residuals with ~20 % NaN
+MED_W = ((96, 12), (1344, 96), (192, 24))  # (window, min_periods) select_normal uses
+
+
+def median_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    T, N = _sz(70176, scale, 2), _sz(121, scale)
+    x = np.round(rng.standard_normal((T, N)) * 3, 2)  # rounded: ties, as in real telemetry
+    x[rng.random((T, N)) < 0.2] = np.nan
+    return x, rng.integers(0, 60, (T, N)), rng.random((T, N)) < 0.3
+
+
+CASES += [
+    ("rolling_median", "rolling_median", median_make, lambda fn, a: [fn(a[0], w, mp) for w, mp in MED_W],
+     lambda a: (a[0][:6000], 1344, 96), f"121 turbines x 70176 steps, f64, 20% NaN, centred, (w, min_periods) {MED_W}"),
+    ("binned_median_mad", "binned_median", median_make, lambda fn, a: [fn(a[1], a[0], a[2], 60, 30) for _ in range(4)],
+     lambda a: (a[1], a[0], a[2], 60, 30), "4 x per-turbine median + MAD in 60 wind bins, 121 x 70176, 30% kept"),
 ]
 
 

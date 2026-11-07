@@ -14,6 +14,3 @@ export function basemapFor(theme: ThemeName) {
     county: hex(palette.mapCounty),
   } as const;
 }
-
-/** Light-theme basemap colours (kept for older imports). */
-export const BASEMAP = basemapFor("light");

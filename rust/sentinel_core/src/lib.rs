@@ -10,11 +10,13 @@ use pyo3::prelude::*;
 mod battery_resim;
 mod cusum;
 mod features;
+mod median;
 mod pvac;
 mod rollout;
 mod rolling;
 mod scatter;
 mod selfcons;
+mod scenarios;
 mod windows;
 
 /// cusum_two_sided(x f64[m, n], k, h, cap=None) -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
@@ -314,8 +316,11 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
     m.add_function(wrap_pyfunction!(selfcons::self_consumption, m)?)?;
+    m.add_function(wrap_pyfunction!(median::rolling_median, m)?)?;
+    m.add_function(wrap_pyfunction!(median::binned_median_mad, m)?)?;
     m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
     m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
+    m.add_function(wrap_pyfunction!(scenarios::park_scenarios, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }

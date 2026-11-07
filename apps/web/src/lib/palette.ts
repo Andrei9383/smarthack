@@ -114,11 +114,6 @@ export function useThemeName(): ThemeName {
   return themeName(resolvedTheme);
 }
 
-/** The current theme's RGB palette (client components only). */
-export function usePalette(): Palette {
-  return paletteFor(useThemeName());
-}
-
 /** `#rrggbb` for MapLibre paint and canvas fills. */
 export function hex([r, g, b]: Rgb): string {
   return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
@@ -148,22 +143,6 @@ export const MAP_SAFE = {
   review: [139, 92, 246],
   unknown: [122, 136, 153],
   brand: [18, 183, 106],
-} as const satisfies Record<string, Rgb>;
-
-/** @deprecated Kept for older imports: the map-safe status hues. Prefer `MAP_SAFE` or `usePalette()`. */
-export const PALETTE = {
-  brand50: LIGHT.brand50,
-  brand500: MAP_SAFE.brand,
-  primary: MAP_SAFE.ok,
-  brand700: LIGHT.brand700,
-  statusOk: MAP_SAFE.ok,
-  statusWarn: MAP_SAFE.warn,
-  statusCritical: MAP_SAFE.critical,
-  statusForecast: MAP_SAFE.forecast,
-  statusSoc: MAP_SAFE.soc,
-  statusReview: MAP_SAFE.review,
-  statusUnknown: MAP_SAFE.unknown,
-  statusActual: LIGHT.statusActual,
 } as const satisfies Record<string, Rgb>;
 
 // The theme the map layers are drawn for. app-shell / mini-map set it before they (re)mount the map.
