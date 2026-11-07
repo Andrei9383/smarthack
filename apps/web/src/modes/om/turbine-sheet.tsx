@@ -227,7 +227,8 @@ function TurbineView({ assetId }: { assetId: string }) {
   const [step] = useReplayStep();
   const nowTs = useReplayTs();
   const drawer = useQuery(
-    orpc.om.getTurbineDrawer.queryOptions({ input: { assetId } }),
+    // by day, so scrubbing inside a day does not refetch the telemetry
+    orpc.om.getTurbineDrawer.queryOptions({ input: { assetId, at: nowTs.slice(0, 10) } }),
   );
   const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const orders = useQuery(
@@ -240,6 +241,7 @@ function TurbineView({ assetId }: { assetId: string }) {
   const { data: assets } = useOmAssets();
   const asset = assets?.find((a) => a.id === assetId);
   const d = drawer.data;
+  const av = d?.availability;
 
   // Up to the replay clock only: the drawer must not show the future.
   const { points, residuals } = useMemo(() => {
@@ -327,9 +329,46 @@ function TurbineView({ assetId }: { assetId: string }) {
             label="Reason"
             value={<span className="text-[17px]">{asset?.reason.replaceAll("_", " ") ?? "—"}</span>}
           />
-          {/* M7 (component failure risk) is OPTIONAL and has not shipped: show the trend only (R12) */}
-          <Metric label="Risk score" value={<span className="text-[17px] text-muted-foreground">n/a</span>} sub="M7 not in this run" />
+          {/* M7 (component failure risk, via W2 availability) is optional: without it, show the trend only (R12) */}
+          {av?.m7PFail7d != null ? (
+            <Metric
+              label="Failure risk, 7 d"
+              value={<span className={`font-mono text-[17px] ${av.m7PFail7d >= 0.5 ? "text-status-critical" : "text-foreground"}`}>{Math.round(av.m7PFail7d * 100)}%</span>}
+              sub="M7"
+            />
+          ) : (
+            <Metric label="Risk score" value={<span className="text-[17px] text-muted-foreground">n/a</span>} sub="M7 not in this run" />
+          )}
         </MetricRow>
+
+        {av || order ? (
+          <dl className="divide-y divide-border border-b border-border text-[13px]">
+            {av ? (
+              <div className="flex items-center justify-between gap-3 py-2">
+                <dt className="text-text-secondary">Available {dayName(av.day)}{av.uncertain ? ", unsure" : ""}</dt>
+                <dd className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{av.rule?.replaceAll("_", " ") ?? av.m6Class ?? ""}</span>
+                  <Meter value={av.availabilityMean} width="w-16" tone={av.availabilityMean < 0.5 ? "critical" : "ok"} label={`${Math.round(av.availabilityMean * 100)}%`} />
+                </dd>
+              </div>
+            ) : null}
+            {order && (order.leiPerDay ?? order.lostLeiDay) != null ? (
+              <div className="flex items-baseline justify-between gap-3 py-2">
+                <dt className="text-text-secondary">Lost while it waits</dt>
+                <dd className="font-mono font-semibold text-foreground">
+                  {Math.round(order.leiPerDay ?? order.lostLeiDay ?? 0).toLocaleString("en-GB")}{" "}
+                  <span className="font-sans text-[11px] font-normal text-muted-foreground">lei/day</span>
+                </dd>
+              </div>
+            ) : null}
+            {order?.bestRepairDay ? (
+              <div className="flex items-baseline justify-between gap-3 py-2">
+                <dt className="text-text-secondary">Cheapest repair day</dt>
+                <dd className="font-mono font-semibold text-status-ok">{dayName(order.bestRepairDay)}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
 
         <section className="space-y-2 pt-4 pb-4">
           <h3 className={SECTION_LABEL}>
@@ -368,7 +407,7 @@ function TurbineView({ assetId }: { assetId: string }) {
                 order.fault?.replaceAll("_", " ") ?? "anomaly",
                 `${order.action === "remote_check" ? "remote check" : order.action}${order.daysToVisit != null ? ` · ≤ ${order.daysToVisit} d` : ""}`,
                 order.lostKwhDay ? `${(order.lostKwhDay / 1000).toFixed(1)} MWh/day lost` : null,
-                order.lostLeiDay ? `${Math.round(order.lostLeiDay).toLocaleString("en-GB")} lei/day` : null,
+                (order.leiPerDay ?? order.lostLeiDay) ? `${Math.round(order.leiPerDay ?? order.lostLeiDay ?? 0).toLocaleString("en-GB")} lei/day` : null,
                 order.mwAtRisk
                   ? `${order.mwAtRisk.toLocaleString("en-GB", { maximumSignificantDigits: 2 })} MW at risk`
                   : null,

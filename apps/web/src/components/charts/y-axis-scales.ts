@@ -40,39 +40,6 @@ export function getPrimaryYScale(
   return first ?? fallback;
 }
 
-export function buildYScalesForLines({
-  lines,
-  innerHeight,
-  resolveDomain,
-}: {
-  lines: LineConfig[];
-  /** Passed by callers; domain is resolved via `resolveDomain`. */
-  data?: Record<string, unknown>[];
-  innerHeight: number;
-  resolveDomain: (dataKeys: string[]) => [number, number];
-}): Record<string, YScale> {
-  const groups = groupLinesByYAxisId(lines);
-  const scales: Record<string, YScale> = {};
-
-  for (const [axisId, axisLines] of groups) {
-    const dataKeys = axisLines.map((line) => line.dataKey);
-    const domain = resolveDomain(dataKeys);
-    scales[axisId] = scaleLinear()
-      .domain(domain)
-      .nice()
-      .range([innerHeight, 0]);
-  }
-
-  if (!scales[DEFAULT_Y_AXIS_ID]) {
-    scales[DEFAULT_Y_AXIS_ID] = scaleLinear()
-      .domain([0, 100])
-      .nice()
-      .range([innerHeight, 0]);
-  }
-
-  return scales;
-}
-
 /** Build y-scales from pre-computed (already nice'd) domain endpoints. */
 export function buildYScalesFromDomains({
   lines,
@@ -101,9 +68,4 @@ export function buildYScalesFromDomains({
   }
 
   return scales;
-}
-
-/** Single-axis charts (bar, scatter, candlestick, live line). */
-export function wrapSingleYScale(yScale: YScale): Record<string, YScale> {
-  return { [DEFAULT_Y_AXIS_ID]: yScale };
 }

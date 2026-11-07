@@ -246,4 +246,3 @@ function CursorTooltipPanel({
 
 CursorTooltipBox.displayName = "CursorTooltipBox";
 
-export default CursorTooltipBox;

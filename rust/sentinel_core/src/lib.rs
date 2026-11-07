@@ -7,11 +7,14 @@ use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2,
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+mod battery_resim;
 mod cusum;
 mod features;
+mod pvac;
 mod rollout;
 mod rolling;
 mod scatter;
+mod scenarios;
 mod windows;
 
 /// cusum_two_sided(x f64[m, n], k, h, cap=None) -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
@@ -310,6 +313,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(site_features, m)?)?;
     m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
     m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
+    m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
+    m.add_function(wrap_pyfunction!(scenarios::park_scenarios, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }

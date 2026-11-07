@@ -5,11 +5,14 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
 
+import { useThemeName } from "@/lib/palette";
+
 import type { ShaderTone } from "./shader-layers";
 
 const ShaderLayers = dynamic(() => import("./shader-layers"), { ssr: false, loading: () => null });
 
-// Animated WebGPU banner background (shaders.com components, white/emerald). The CSS gradient
+// Animated WebGPU banner background (shaders.com components): pale emerald in light, deep navy and
+// emerald in dark (Cockpit). The CSS gradient
 // underneath is the poster frame: it shows while the shader loads, under prefers-reduced-motion,
 // on GPUs without WebGPU, and whenever the banner is scrolled out of view (the shader unmounts).
 // Use it for one hero surface per screen, never as a card background.
@@ -26,6 +29,7 @@ export function ShaderBanner({
   const [live, setLive] = useState(false);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const theme = useThemeName();
 
   useEffect(() => {
     const el = ref.current;
@@ -54,7 +58,7 @@ export function ShaderBanner({
           aria-hidden
           className={cn("absolute inset-0 -z-10 transition-opacity duration-500", ready ? "opacity-100" : "opacity-0")}
         >
-          <ShaderLayers tone={tone} onReady={() => setReady(true)} onUnavailable={() => setFailed(true)} />
+          <ShaderLayers key={theme} tone={tone} theme={theme} onReady={() => setReady(true)} onUnavailable={() => setFailed(true)} />
         </div>
       ) : null}
       {children}

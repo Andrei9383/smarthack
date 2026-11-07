@@ -2,19 +2,16 @@
 
 import { Popover as Base } from "@base-ui/react/popover";
 import { cn } from "@sentinel-app/ui/lib/utils";
-import { type ComponentProps, type ReactNode, useRef } from "react";
+import { type ReactNode, useRef } from "react";
 
 // A small white popover for progressive disclosure (ui-style.md §7): opens on click or Enter/Space,
 // closes on Esc and outside click, scales in from its trigger in 180 ms. Built on Base UI, which
 // packages/ui already ships (its Sheet and Tooltip use it), so there is no new dependency.
 
 export const Popover = Base.Root;
-export const PopoverClose = Base.Close;
 export const PopoverTitle = Base.Title;
 
-export function PopoverTrigger({ className, ...props }: ComponentProps<typeof Base.Trigger>) {
-  return <Base.Trigger className={className} {...props} />;
-}
+export const PopoverTrigger = Base.Trigger;
 
 export function PopoverContent({
   children,

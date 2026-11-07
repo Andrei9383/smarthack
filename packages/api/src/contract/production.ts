@@ -40,6 +40,43 @@ export const countyTotalItemSchema = z.object({
 });
 export type CountyTotalItem = z.infer<typeof countyTotalItemSchema>;
 
+// W3 (#166): what the park sold day-ahead vs what it made, with the forecast band. MWh per 15 min.
+export const windPositionItemSchema = z.object({
+  parkId: z.string(),
+  policy: z.string(),
+  ts: z.string(),
+  actualMwh: z.number().nullable(),
+  soldDaMwh: z.number(),
+  fcP10Mwh: z.number().nullable(),
+  fcP50Mwh: z.number().nullable(),
+  fcP90Mwh: z.number().nullable(),
+  avoidableLei: z.number().nullable(),
+  removedTurbines: z.number().nullable(),
+});
+export type WindPositionItem = z.infer<typeof windPositionItemSchema>;
+
+// W5 (#168): park battery per variant (none | rule | lp). MWh per 15 min.
+export const parkBatteryItemSchema = z.object({
+  parkId: z.string(),
+  variant: z.string(),
+  ts: z.string(),
+  chargeMwh: z.number().nullable(),
+  dischargeMwh: z.number().nullable(),
+  socMwh: z.number().nullable(),
+  devNoneMwh: z.number().nullable(),
+  devMwh: z.number().nullable(),
+  avoidableLei: z.number().nullable(),
+  avoidableNoneLei: z.number().nullable(),
+});
+export type ParkBatteryItem = z.infer<typeof parkBatteryItemSchema>;
+
+const windowInput = z.object({
+  parkId: z.string().optional(),
+  runId: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+});
+
 // The wind field is static, not a procedure: /windfield/meta.json + NN.png + NN-speed.png.
 export const productionContract = {
   getRun: oc.input(z.object({}).optional()).output(productionRunSchema.nullable()),
@@ -66,4 +103,9 @@ export const productionContract = {
         .optional(),
     )
     .output(z.array(countyTotalItemSchema)),
+  // from inclusive, to exclusive; sentinel policy unless `policy` is given.
+  getWindPositions: oc
+    .input(windowInput.extend({ policy: z.string().optional() }).optional())
+    .output(z.array(windPositionItemSchema)),
+  getParkBattery: oc.input(windowInput.optional()).output(z.array(parkBatteryItemSchema)),
 };

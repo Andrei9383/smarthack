@@ -97,7 +97,7 @@ export function SummaryCard() {
       <div
         aria-hidden
         onClick={() => setOpen(false)}
-        className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-[2px] animate-in fade-in-0 duration-150"
+        className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-[2px] dark:bg-black/50 animate-in fade-in-0 duration-150"
       />
       <div
         role="dialog"
