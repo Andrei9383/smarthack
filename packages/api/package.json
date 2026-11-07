@@ -1,0 +1,25 @@
+{
+  "name": "@sentinel-app/api",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "check-types": "tsc -b"
+  },
+  "dependencies": {
+    "@orpc/client": "^1.15.6",
+    "@orpc/openapi": "^1.15.6",
+    "@orpc/server": "^1.15.6",
+    "@orpc/zod": "^1.15.6",
+    "@sentinel-app/auth": "*",
+    "@sentinel-app/db": "*",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@sentinel-app/config": "*",
+    "typescript": "^6.0.3"
+  }
+}
