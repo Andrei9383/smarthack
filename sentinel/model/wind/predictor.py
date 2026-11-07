@@ -85,6 +85,7 @@ class WindNBMPredictor:
         if names != self.cal["feature_names"]:
             raise RuntimeError("feature list differs from the one the classifier was trained on")
         probs = self.booster.predict(F.reshape(-1, F.shape[-1])).reshape(T, n, K).astype(np.float32)
+        # same curtailment rule as training / eval (#99): common ceiling OR park consensus on p_curtailment
         cls = decide(probs, self.cal["class_thresholds"], self.cal["min_run"], self.cal["merge"],
                      curtail_mask=curtail_ok(F, names))
         return {"ts": ts, "rated": rated, "pq": pq, "pstd": pstd, "tq": tq, "ood": ood, "probs": probs, "cls": cls,
