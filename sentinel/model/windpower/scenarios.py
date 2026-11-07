@@ -223,5 +223,18 @@ def park_forecast(model: WindPowerModel, turbines: Sequence[Mapping], ts, meteo:
     return out
 
 
-__all__ = ["LEVELS", "ParkConformal", "ParkForecast", "common_levels", "park_forecast", "park_scenarios",
+def load_config(path) -> tuple:
+    """w2_park.json written by the W2 eval run (avail_eval) -> (AvailConfig with the fitted stop survival and icing
+    factor, ParkConformal for the sentinel policy, n_scen, rho)."""
+    import json
+    from pathlib import Path
+
+    from .availability import AvailConfig, StopSurvival
+
+    d = json.loads(Path(path).read_text())
+    cfg = AvailConfig(survival=StopSurvival.from_json(d["survival"]), icing_factor=float(d["icing_factor"]))
+    return cfg, ParkConformal.from_json(d["conformal"]), int(d.get("n_scen", 200)), float(d.get("rho", 0.97))
+
+
+__all__ = ["LEVELS", "load_config", "ParkConformal", "ParkForecast", "common_levels", "park_forecast", "park_scenarios",
            "quantile_at", "scen_quantiles", "wake_ratio"]

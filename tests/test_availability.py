@@ -183,3 +183,17 @@ def test_eval_origin_reads():
     assert b.cls == ["fault_stop", "underperformance", "icing"] and WIN == 8
     assert b.stopped_h[0] == 12.5 and b.stopped_h[1] == 0
     assert b.loss_frac[1] == pytest.approx(0.2)  # 800 kW measured vs 1000 kW expected
+
+
+def test_config_roundtrip(tmp_path):
+    import json
+
+    from sentinel.model.windpower.scenarios import load_config
+
+    s = StopSurvival.fit(np.r_[np.full(50, 2.0), np.full(50, 48.0)])
+    p = tmp_path / "w2_park.json"
+    p.write_text(json.dumps({"survival": s.to_json(), "icing_factor": 0.6, "conformal": ParkConformal(1.3, 1.1).to_json(),
+                             "n_scen": 50, "rho": 0.9}))
+    cfg, cal, n, rho = load_config(p)
+    assert cfg.icing_factor == 0.6 and cal.ab() == (1.3, 1.1) and n == 50 and rho == 0.9
+    assert cfg.survival.p_repaired(0.0, np.array([24.0]))[0] == pytest.approx(0.5, abs=0.02)

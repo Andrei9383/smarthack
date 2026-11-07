@@ -100,6 +100,12 @@ class StopSurvival:
     def to_json(self) -> dict:
         return {"surv": np.round(self.surv[:: 4], 5).tolist(), "step_h": 1.0, "n": self.n, "source": self.source}
 
+    @classmethod
+    def from_json(cls, d: dict) -> "StopSurvival":
+        s = np.asarray(d["surv"], np.float64)
+        h = np.arange(len(s)) * float(d.get("step_h", 1.0))
+        return cls(np.interp(np.arange(0, h[-1] + STEP_H, STEP_H), h, s), int(d.get("n", 0)), str(d.get("source", "")))
+
 
 def stop_runs_h(cls_steps: np.ndarray, stop_code: int, step_h: float = STEP_H, min_steps: int = 2) -> list[float]:
     """Durations (h) of the runs of `stop_code` in a [T, N] class array (e.g. M6 fault_stop runs on training days).
