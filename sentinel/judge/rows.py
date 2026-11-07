@@ -30,6 +30,7 @@ import hashlib
 import json
 import math
 import os
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -1115,7 +1116,7 @@ def cache_dir() -> Path:
 
 
 def _mem_available_gb() -> float:
-    """MemAvailable from /proc/meminfo (Linux); large when unknown. A week's process peaks around 2 GB."""
+    """MemAvailable from /proc/meminfo (Linux); large when unknown. See WEEK_GB."""
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
             if line.startswith("MemAvailable:"):
@@ -1125,9 +1126,20 @@ def _mem_available_gb() -> float:
     return 1e9
 
 
+WEEK_GB = 4.0  # memory budget per week process (measured ~1.5 GB peak on macOS; Linux + ONNX arenas run higher)
+MAX_WORKERS = 6  # rtx5070's lab worker was OOM-killed (27 GB cgroup peak) with 11 week processes next to another run
+
+
+def _peak_mb() -> float:
+    import resource
+    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return r / 2 ** 20 if sys.platform == "darwin" else r / 1024  # bytes on macOS, KiB on Linux
+
+
 def _week_job(args):
     spec, cfg, band, threads = args
-    return run_week(spec, cfg, band, threads)
+    df = run_week(spec, cfg, band, threads)
+    return df, _peak_mb()
 
 
 def generate(cfg: RowConfig, workers: int = 0, use_cache: bool = True, log=print) -> pd.DataFrame:
@@ -1148,7 +1160,8 @@ def generate(cfg: RowConfig, workers: int = 0, use_cache: bool = True, log=print
     if use_cache and path.exists():
         log(f"[judge.rows] cached: {path}")
         return pd.read_parquet(path)
-    workers = workers or min(len(weeks), os.cpu_count() or 1, max(1, int(_mem_available_gb() // 2.5)))
+    workers = workers or min(len(weeks), os.cpu_count() or 1, MAX_WORKERS,
+                             max(1, int(0.6 * _mem_available_gb() // WEEK_GB)))
     threads = max(1, (os.cpu_count() or 1) // max(workers, 1))
     log(f"[judge.rows] {cfg.year}: {len(weeks)} weeks, {workers} processes x {threads} onnx threads, pvlib band "
         f"{band[0]:.2f}-{band[1]:.2f}, key {key}")
@@ -1162,11 +1175,14 @@ def generate(cfg: RowConfig, workers: int = 0, use_cache: bool = True, log=print
         ctx = mp.get_context("spawn")  # onnxruntime + forked threads do not mix
         with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
             parts = list(ex.map(_week_job, jobs))
-    for w, p in zip(weeks, parts):
+    peaks = [pk for _, pk in parts]
+    parts = [p for p, _ in parts]
+    for w, p, pk in zip(weeks, parts, peaks):
         dr = f"drift {w.drift.witness}/{w.drift.form}/{w.drift.scope} from day {w.drift.start_day}" if w.drift else ""
         log(f"[judge.rows]   {w.start}: {len(p)} rows in {p['t_week_s'].iloc[0] if len(p) else 0:.1f}s "
-            f"{dr} {'cold day ' + str(w.cold_day) if w.cold_day is not None else ''}")
+            f"{dr} {'cold day ' + str(w.cold_day) if w.cold_day is not None else ''} peak {pk:.0f} MB")
     df = pd.concat(parts, ignore_index=True)
+    df.attrs["week_peak_mb"] = float(max(peaks)) if peaks else 0.0
     log(f"[judge.rows] {cfg.year}: {len(df)} rows in {time.perf_counter() - t:.1f}s")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

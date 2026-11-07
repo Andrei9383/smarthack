@@ -345,6 +345,7 @@ def main(argv: list[str] | None = None) -> int:
         te = R.generate(R.RowConfig(year=args.test_year, seed=args.seed + 1, **common), args.workers,
                         not args.no_cache)
     n_tr0, n_te0 = len(tr), len(te)
+    emit("rows_week_peak_mb", max(tr.attrs.get("week_peak_mb", 0.0), te.attrs.get("week_peak_mb", 0.0)))
     tr, te = tr[tr["graded"] > 0.5].reset_index(drop=True), te[te["graded"] > 0.5].reset_index(drop=True)
     emit("rows_train", len(tr)), emit("rows_test", len(te))
     emit("rows_ungraded_share", 1 - (len(tr) + len(te)) / max(n_tr0 + n_te0, 1))
