@@ -66,6 +66,22 @@ CREATE TABLE IF NOT EXISTS live_predictions (
   PRIMARY KEY (run_id, ts, level, entity_id, quantity, method)
 );
 CREATE INDEX IF NOT EXISTS live_predictions_feeder ON live_predictions (run_id, level, feeder_id, ts);
+-- #130's reader (packages/api/src/routers/live.ts) reads this shape: feeder net export, headline method, latest run.
+-- tick_at = wall clock of the last write touching the row (actual at tick ts, else the prediction at ts - 15 min);
+-- speed = simulated-time speed-up (900 / seconds per tick), NULL in real time (#130 reads NULL as 1).
+CREATE VIEW IF NOT EXISTS live_feeder_steps AS
+SELECT p.run_id, p.feeder_id, p.ts, p.actual AS actual_kw, p.q10 AS q10_kw, p.q50 AS q50_kw, p.q90 AS q90_kw,
+  (SELECT x.q50 FROM live_predictions x WHERE x.run_id = p.run_id AND x.ts = p.ts AND x.level = 'feeder'
+     AND x.entity_id = p.entity_id AND x.quantity = 'net' AND x.method = 'persistence') AS persistence_kw,
+  p.limit_kw, p.flag,
+  COALESCE((SELECT t.wall_at FROM live_ticks t WHERE t.run_id = p.run_id AND t.ts = p.ts),
+           (SELECT t.wall_at FROM live_ticks t WHERE t.run_id = p.run_id
+              AND t.ts = strftime('%Y-%m-%dT%H:%M:%SZ', p.ts, '-15 minutes'))) AS tick_at,
+  (SELECT CASE WHEN r.clock LIKE 'speed:%' AND CAST(substr(r.clock, 7) AS REAL) > 0
+               THEN 900.0 / CAST(substr(r.clock, 7) AS REAL) END FROM live_runs r WHERE r.run_id = p.run_id) AS speed
+FROM live_predictions p
+WHERE p.level = 'feeder' AND p.quantity = 'net' AND p.method = 'corrected'
+  AND p.run_id = (SELECT run_id FROM live_runs ORDER BY created_at DESC, rowid DESC LIMIT 1);
 """
 
 PRED_COLS = ("run_id", "ts", "t0", "level", "entity_id", "feeder_id", "quantity", "method", "q10", "q50", "q90",
@@ -74,7 +90,7 @@ READ_COLS = ("run_id", "ts", "site_id", "feeder_id", "pv_kw", "load_kw", "batt_k
 
 
 def db_path(path: Optional[str | Path] = None) -> Path:
-    return Path(path or os.environ.get("SENTINEL_LIVE_DB") or DEFAULT_DB)
+    return Path(path or os.environ.get("SENTINEL_LIVE_DB") or os.environ.get("LIVE_DB") or DEFAULT_DB)  # LIVE_DB: #130
 
 
 def connect(path: Optional[str | Path] = None) -> sqlite3.Connection:

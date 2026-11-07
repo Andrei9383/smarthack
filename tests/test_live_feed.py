@@ -155,6 +155,24 @@ def test_flags_and_helpers():
     assert cos_zenith(parse("2025-06-21T22:00:00Z"), lat, lon) < 0
 
 
+def test_live_feeder_steps_view_for_the_app(tmp_path):
+    """#130 reads live_feeder_steps (packages/api/src/routers/live.ts): one row per feeder step, newest = forecast."""
+    w = _world()
+    src = SimulatedSource(w, ["F7", "F5"])
+    con = store.connect(tmp_path / "v.sqlite")
+    feed = LiveFeed(src, con, "v", world="mock", clock="speed:10")
+    run_speed(feed, START, 0, max_ticks=3, log=lambda s: None)
+    rows = _rows(con, "SELECT ts, actual_kw, q10_kw, q50_kw, q90_kw, persistence_kw, limit_kw, tick_at, speed "
+                      "FROM live_feeder_steps WHERE feeder_id = 'F7' ORDER BY ts DESC")
+    assert [r["ts"] for r in rows] == [iso(START + i * STEP) for i in (3, 2, 1)]
+    assert rows[0]["actual_kw"] is None and rows[0]["q50_kw"] is not None  # ahead of now
+    assert all(r["tick_at"] and r["speed"] == 90 and r["limit_kw"] > 0 for r in rows)
+    assert all(r["persistence_kw"] is not None for r in rows)
+    pred = _rows(con, "SELECT q50, actual FROM live_predictions WHERE level = 'feeder' AND entity_id = 'F7' AND "
+                      "quantity = 'net' AND method = 'corrected' AND ts = ?", iso(START + STEP))[0]
+    assert rows[2]["q50_kw"] == pred["q50"] and rows[2]["actual_kw"] == pred["actual"]
+
+
 def test_wal_lets_a_reader_see_committed_ticks(tmp_path):
     feed, con = _feed(tmp_path, "w.sqlite")
     reader = sqlite3.connect(f"file:{tmp_path / 'w.sqlite'}?mode=ro", uri=True)

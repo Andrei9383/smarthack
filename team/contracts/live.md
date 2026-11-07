@@ -70,6 +70,11 @@ self-consumption rule, data.md); `net_kw = pv_kw - load_kw - batt_kw`, + = expor
 The app's "F7 is about to go over its limit" = the latest `ts` row with `level='feeder' AND quantity='net' AND
 method='corrected' AND flag IN ('congested','severe')`.
 
+**View for #130** (its router reads this shape, `packages/api/src/routers/live.ts`): `live_feeder_steps` =
+feeder net rows of the latest run, method `corrected`: `run_id, feeder_id, ts, actual_kw, q10_kw, q50_kw, q90_kw,
+persistence_kw, limit_kw, flag, tick_at` (wall clock of the last write touching the row), `speed` (900 / seconds per
+tick; NULL in real time). The writer also accepts `LIVE_DB` (#130's variable) when `SENTINEL_LIVE_DB` is unset.
+
 ## Honesty notes (show in the UI)
 - Simulated readings on the #506 demo week, re-played on a mapped clock; not live telemetry.
 - The nets are day-ahead (not autoregressive); the latest reading enters only through the residual correction.
