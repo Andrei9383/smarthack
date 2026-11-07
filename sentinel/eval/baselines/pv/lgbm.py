@@ -30,8 +30,20 @@ NIGHT_ZENITH = 90.0
 PARAMS = dict(objective="quantile", learning_rate=0.05, num_leaves=63, min_data_in_leaf=200,
               feature_fraction=0.9, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, verbose=-1)
 WEATHER_COLS = ("ghi", "dni", "dhi", "temp_c", "wind10_ms", "snow_cm")
+# Default channel order of an array window.weather = #14's physics.WEATHER_CHANNELS (window.meta["weather_channels"])
+ARRAY_CHANNELS = ("ghi", "dni", "dhi", "temp", "cloud", "wind", "snow")
 _ALIASES = {"ghi_wm2": "ghi", "dni_wm2": "dni", "dhi_wm2": "dhi", "temp_air": "temp_c", "wind_speed": "wind10_ms",
-            "snow_depth_cm": "snow_cm"}
+            "snow_depth_cm": "snow_cm", "temp": "temp_c", "wind": "wind10_ms", "snow": "snow_cm"}
+
+
+def weather_channels(window: Window) -> list[str] | None:
+    meta = window.meta or {}
+    return meta.get("weather_channels") or meta.get("weather_cols")
+
+
+def power_scale(window: Window) -> float:
+    """Divisor that turns window power series (reference / history / telemetry) into kW."""
+    return 1.0 if (window.meta or {}).get("power_unit", "W") == "kW" else 1000.0
 
 
 @dataclass
@@ -165,7 +177,7 @@ def _to_steps(x: np.ndarray, H: int) -> np.ndarray:
 
 
 def parse_weather(weather: Any, H: int, cols: list[str] | None = None) -> dict[str, np.ndarray]:
-    """DataFrame / dict with data.md or short names, or an array [T, C] in `cols` order (default WEATHER_COLS)."""
+    """DataFrame / dict with data.md or short names, or an array [T, C] in `cols` order (default ARRAY_CHANNELS)."""
     if weather is None:
         raise ValueError("window.weather is required")
     if isinstance(weather, pd.DataFrame):
@@ -174,7 +186,7 @@ def parse_weather(weather: Any, H: int, cols: list[str] | None = None) -> dict[s
         d = dict(weather)
     else:
         arr = np.asarray(weather, np.float64)
-        cols = list(cols or WEATHER_COLS)
+        cols = list(cols or ARRAY_CHANNELS)
         d = {c: arr[:, i] for i, c in enumerate(cols[: arr.shape[1]])}
     d = {_ALIASES.get(k, k): v for k, v in d.items()}
     out = {}
@@ -214,7 +226,7 @@ class LGBMPredictor:
             raise ValueError("LGBMPredictor forecasts at most one day (96 steps) per window")
         t0 = pd.Timestamp(parse_utc(window.t0))
         ts = pd.date_range(t0, periods=H, freq="15min")
-        wx = parse_weather(window.weather, H, (window.meta or {}).get("weather_cols"))
+        wx = parse_weather(window.weather, H, weather_channels(window))
         if self.kind == "pv":
             q, extra = self._pv(asset, window, t0, ts, wx, H)
         else:
@@ -235,7 +247,7 @@ class LGBMPredictor:
         ref_ts = pd.date_range(t0 - pd.Timedelta(days=REF_DAYS), periods=REF_DAYS * D, freq="15min")
         gr = solar_geometry(ref_ts, meta["lat"], meta["lon"])
         ref_cs = clearsky_power_kw(meta, gr).reshape(REF_DAYS, D)[:, :H]
-        ref = _past_days(window.reference, H, 1000.0)  # contract: reference is pv_ac_w in W
+        ref = _past_days(window.reference, H, power_scale(window))  # pv_ac_w, W by default
         f = pv_features(weather={k: wx[k][None] for k in WEATHER_COLS}, geom={k: v[None] for k, v in g.items()},
                         pvlib_kw=pv[None], pvlib_cs_kw=cs[None], ref_kw=ref[None], ref_cs_kw=ref_cs[None],
                         kwp=[meta["kwp"]], tilt=[meta["tilt"]], azimuth=[meta["azimuth"]], lat=[meta["lat"]])
@@ -248,7 +260,7 @@ class LGBMPredictor:
         return np.nan_to_num(q), {"ood_score": missing, "pvlib_kw": np.round(pv, 4).tolist()}
 
     def _load(self, asset, window, t0, ts, wx, H):
-        hist = _past_days(window.history, H, 1000.0)  # contract: history is load_w in W
+        hist = _past_days(window.history, H, power_scale(window))  # load_w, W by default
         hist_temp = (window.meta or {}).get("history_temp_c")
         ht = _past_days(hist_temp, H, 1.0) if hist_temp is not None else np.repeat(wx["temp_c"][None], 7, 0)
         cal = calendar(ts)

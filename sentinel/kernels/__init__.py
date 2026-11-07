@@ -186,8 +186,22 @@ def cusum_two_sided(x: Any, k: float, h: float) -> tuple[np.ndarray, np.ndarray,
     return get("cusum_two_sided")(x, k, h)
 
 
+# --------------------------------------------------------------------------- K1: battery rollout (rollout.py)
+from sentinel.kernels.rollout import battery_rollout_py, battery_rollout_rust  # noqa: E402
+
+register("battery_rollout", battery_rollout_py, battery_rollout_rust)
+
+
+def battery_rollout(req: Any, soc0: Any, cap: Any, pmax: Any, eta_c: Any, eta_d: Any, e_lo: Any, e_hi: Any,
+                    dt_h: float = 0.25) -> tuple[np.ndarray, np.ndarray]:
+    """Dispatched battery rollout; see ``sentinel.kernels.rollout`` (reference = sentinel.opt.commit.rollout)."""
+    return get("battery_rollout")(req, soc0, cap, pmax, eta_c, eta_d, e_lo, e_hi, dt_h)
+
+
 __all__ = [
     "backend",
+    "battery_rollout",
+    "battery_rollout_py",
     "cusum_two_sided",
     "cusum_two_sided_py",
     "get",

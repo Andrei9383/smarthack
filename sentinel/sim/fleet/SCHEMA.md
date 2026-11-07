@@ -3,7 +3,7 @@
 `python -m sentinel.sim.fleet` writes to `~/.cache/sentinel/data-v{DATA_VERSION}/fleet-<config digest>/`
 (override with `--out`, or the cache root with `SENTINEL_CACHE`). Deterministic for a given config + seed.
 Default: 600 sites, 15 feeders (5 built to congest), local years 2022-2025, ~30 s and ~630 MB.
-Schema version: `DATA_VERSION = 3` (v2 = #7 contract names, v3 = DST-safe day index; real ERA5 weather from #9 when present).
+Schema version: `DATA_VERSION = 3` (v2 = #7 contract names, v3 = DST-safe day index, v4 = 0.1 V voltage noise; real ERA5 weather from #9 when present).
 `--quick`: 120 sites, 6 feeders, 2024 only, ~3 s.
 
 Times are UTC (`timestamp[ns, UTC]`, interval start, 15 min). A "year" file holds one Europe/Bucharest calendar

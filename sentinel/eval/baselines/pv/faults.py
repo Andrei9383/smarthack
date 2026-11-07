@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 import numpy as np
+import pandas as pd
 
 from sentinel.contracts.envelope import PvFault, Prediction, Window
 
@@ -199,51 +200,102 @@ def run_fault_baselines(a: FleetArrays, train_days: np.ndarray, eval_days: np.nd
 
 
 # ------------------------------------------------------------------------------------------------ predictor
-class ThresholdCusumPredictor:
-    """M4 fallback as a contracts.Predictor.
+INV_OVERVOLTAGE = 37  # inverter code "grid voltage too high" (sim/faults/kinds.py)
 
-    window.residual_summary [14, C]: column 0 = daily measured / pvlib ratio (NaN = no data, most recent last).
-    asset may carry `ratio_ref` (the site's healthy ratio); otherwise the median of the 14 days is used.
-    q10/q50/q90 = pvlib expectation on window.weather (zeros if no weather). fault_probs is a heuristic split:
-    near-zero output -> sensor_fault, threshold alarm -> string_outage, CUSUM-only alarm -> soiling.
+
+class ThresholdCusumPredictor:
+    """M4 fallback as a contracts.Predictor (same Window conventions as #14's SiteHealth).
+
+    Today's ratio = window.meta["telemetry"]["pv_ac_w"] / pvlib(window.weather, recorded metadata) over daylight.
+    Past ratios come from window.residual_summary[:, 0] (oldest first) when given, otherwise from the ratios this
+    predictor computed for the same asset on earlier days (it remembers them, so calling it day by day per site
+    reproduces the bulk rule). q = ratio / ratio_ref (asset["ratio_ref"], else the median of the past ratios, else 1).
+    Rules: threshold (q < 0.8 on the last 3 informative days), CUSUM on 1 - q, inverter overvoltage code, no data.
+    fault_probs: the alarm probability goes to one heuristic class (no data / ~0 output -> sensor_fault, overvoltage
+    code -> overvoltage_trip, threshold -> string_outage, CUSUM only -> soiling); extra["p_fault_threshold"] = 0.5.
     """
 
     model = "threshold_cusum"
+    P_THRESHOLD = 0.5
 
-    def __init__(self, k: float = 0.05, h: float = 0.3, theta: float = THETA, model_version: str = "threshold_cusum-1"):
+    def __init__(self, k: float = 0.1, h: float = 0.1, theta: float = THETA, model_version: str = "threshold_cusum-1"):
         self.k, self.h, self.theta = k, h, theta
         self.model_version = model_version
+        self._memory: dict[str, dict[str, tuple[float, bool]]] = {}
+
+    def _today(self, asset, window: Window, H: int, expected: np.ndarray):
+        """(ratio or NaN if missing, informative, inverter overvoltage code seen)."""
+        from .lgbm import _to_steps, parse_weather, power_scale, weather_channels
+        from .physical import recorded_meta, solar_geometry
+
+        tel = (window.meta or {}).get("telemetry") or {}
+        if "pv_ac_w" not in tel or window.weather is None:
+            return np.nan, False, False
+        meas = _to_steps(np.asarray(tel["pv_ac_w"], np.float64), H) / power_scale(window)
+        status = np.nan_to_num(np.asarray(tel.get("inv_status", []), np.float64))
+        ov = bool((status == INV_OVERVOLTAGE).any())
+        meta = recorded_meta(asset)
+        g = solar_geometry(pd.date_range(pd.Timestamp(window.t0), periods=H, freq="15min"), meta["lat"], meta["lon"])
+        day = g["zenith"] < DAYLIGHT_ZENITH
+        ok = day & np.isfinite(meas)
+        snow = parse_weather(window.weather, H, weather_channels(window))["snow_cm"]
+        informative = expected[day].sum() * 0.25 > MIN_KWH_PER_KWP * meta["kwp"] and np.nanmean(snow) <= SNOW_CM
+        if ok.sum() < 0.5 * max(day.sum(), 1):
+            return np.nan, True, ov
+        return float(meas[ok].sum() / max(expected[ok].sum(), 1e-9)), bool(informative), ov
 
     def predict(self, asset: Mapping[str, Any], window: Window) -> Prediction:
         from .persistence import PvlibPredictor
 
         H = int(window.horizon)
+        aid = str(asset.get("site_id", asset.get("asset_id", "?")))
+        has_tel = bool((window.meta or {}).get("telemetry"))
         q50 = PvlibPredictor().expected_kw(asset, window) if window.weather is not None else np.zeros(H)
-        rs = np.asarray(window.residual_summary if window.residual_summary is not None else np.full((14, 1), np.nan),
-                        np.float64)
-        r = rs[:, 0] if rs.ndim == 2 else rs
-        ref = asset.get("ratio_ref")
-        ref = float(ref) if ref is not None else (float(np.nanmedian(r)) if np.isfinite(r).any() else 1.0)
-        q = r / max(ref, 1e-6)
-        valid = q[np.isfinite(q)]
-        th = len(valid) >= RUN_DAYS and bool(np.all(valid[-RUN_DAYS:] < self.theta))
-        sp, _, _ = cusum_two_sided(1.0 - q, self.k, self.h)
-        cu = bool(sp[-1] >= self.h) if len(sp) else False
-        p = 0.9 if th else min(0.85, 0.85 * float(sp[-1]) / self.h if len(sp) else 0.0)
-        if len(r) == 0 or not np.isfinite(r[-1]):
-            cls = PvFault.SENSOR_FAULT.value  # no data at all: logger dropout looks like this
-            p = max(p, 0.5)
-        elif len(valid) and valid[-1] < 0.1:
-            cls = PvFault.SENSOR_FAULT.value
-        elif th:
-            cls = PvFault.STRING_OUTAGE.value
+        r0, inf0, ov = self._today(asset, window, H, q50)
+        day0 = pd.Timestamp(window.t0).normalize()
+        if window.residual_summary is not None:
+            rs = np.asarray(window.residual_summary, np.float64)
+            past = list(rs[:, 0] if rs.ndim == 2 else rs)
+            past_inf = [True] * len(past)
         else:
-            cls = PvFault.SOILING.value
+            mem = self._memory.get(aid, {})
+            keys = [(day0 - pd.Timedelta(days=i)).strftime("%Y-%m-%d") for i in range(14, 0, -1)]
+            past = [mem[k][0] for k in keys if k in mem]
+            past_inf = [mem[k][1] for k in keys if k in mem]
+        if has_tel:
+            self._memory.setdefault(aid, {})[day0.strftime("%Y-%m-%d")] = (r0, inf0)
+        if has_tel or not past:
+            r = np.array(past + [r0], np.float64)
+            inf = np.array(past_inf + [inf0], bool)
+        else:  # only a residual summary: its last row is the assessed day
+            r, inf = np.array(past, np.float64), np.array(past_inf, bool)
+        hist = r[:-1][inf[:-1]]
+        hist = hist[np.isfinite(hist)]
+        ref = asset.get("ratio_ref")
+        ref = float(ref) if ref is not None else (float(np.median(hist)) if len(hist) >= 3 else 1.0)
+        q = r / max(ref, 1e-6)
+        qs = q[inf | np.isnan(q)]  # skipped (uninformative) days drop out, missing ones reset the CUSUM
+        last = qs[-RUN_DAYS:]
+        th = len(last) == RUN_DAYS and bool(np.isfinite(last).all()) and bool(last.max() < self.theta)
+        s_last = float(cusum_two_sided(1.0 - qs, self.k, self.h)[0][-1]) if len(qs) else 0.0
+        cu = s_last >= self.h
+        q0 = q[-1]
+        if ov:
+            p, cls = 0.8, PvFault.OVERVOLTAGE_TRIP.value
+        elif not np.isfinite(q0):
+            p, cls = (0.6 if has_tel or window.residual_summary is not None else 0.0), PvFault.SENSOR_FAULT.value
+        elif th or cu:
+            p = 0.9 if th else 0.5 + 0.25 * min(1.0, s_last / self.h)
+            cls = (PvFault.SENSOR_FAULT.value if q0 < 0.1 else
+                   PvFault.STRING_OUTAGE.value if th else PvFault.SOILING.value)
+        else:
+            day_score = float(np.clip((1 - q0) / (1 - self.theta), 0, 1))
+            p, cls = 0.45 * max(day_score, s_last / self.h), PvFault.SOILING.value
         probs = {f.value: 0.0 for f in PvFault}
         probs[PvFault.HEALTHY.value] = 1 - p
         probs[cls] += p
-        return Prediction(asset_id=str(asset.get("site_id", "?")), model=self.model, model_version=self.model_version,
-                          t0=window.t0, horizon=H, q10=q50, q50=q50, q90=q50, fault_probs=probs,
-                          ood_score=float(np.isnan(r).mean()) if len(r) else 1.0,
-                          extra={"threshold_alarm": th, "cusum_alarm": cu, "cusum_s": float(sp[-1]) if len(sp) else 0.0,
-                                 "ratio_ref": ref, "rule": "heuristic class split"})
+        return Prediction(asset_id=aid, model=self.model, model_version=self.model_version, t0=window.t0, horizon=H,
+                          q10=q50, q50=q50, q90=q50, fault_probs=probs, ood_score=float(np.isnan(r).mean()),
+                          extra={"p_fault_threshold": self.P_THRESHOLD, "ratio_today": None if np.isnan(r0) else r0,
+                                 "ratio_ref": ref, "threshold_alarm": bool(th), "cusum_alarm": bool(cu),
+                                 "cusum_s": s_last, "overvoltage_code": ov, "rule": "heuristic class split"})
