@@ -35,10 +35,11 @@ import json
 import math
 import os
 import sqlite3
-from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta, timezone
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Protocol, Sequence, Union
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -103,7 +104,6 @@ def day_key(day: Union[str, date, datetime]) -> str:
     """Local (Europe/Bucharest) calendar day as 'YYYY-MM-DD', the `judge_verdicts.day` key."""
     if isinstance(day, datetime):
         if day.tzinfo is not None:
-            from zoneinfo import ZoneInfo
             day = day.astimezone(ZoneInfo(LOCAL_TZ))
         return day.date().isoformat()
     if isinstance(day, date):
@@ -412,11 +412,12 @@ def validated_many(model: str, asset_ids: Sequence[Any], days: Union[Sequence[An
     src = np.asarray([model] * n, dtype=object)
     subs = substitutes or {}
 
-    has_q = raw.q is not None or any(s.q is not None for s in subs.values())
-    q = np.full((n, H, 3), np.nan) if has_q else None
-    cls = np.full(n, None, dtype=object) if raw.cls is not None or any(s.cls is not None for s in subs.values()) \
-        else None
-    score = np.full(n, np.nan) if raw.score is not None or any(s.score is not None for s in subs.values()) else None
+    def has(f: str) -> bool:
+        return getattr(raw, f) is not None or any(getattr(s, f) is not None for s in subs.values())
+
+    q = np.full((n, H, 3), np.nan) if has("q") else None
+    cls = np.full(n, None, dtype=object) if has("cls") else None
+    score = np.full(n, np.nan) if has("score") else None
 
     def fill(rows: np.ndarray, b: RawBatch) -> None:
         if q is not None and b.q is not None:
@@ -426,8 +427,8 @@ def validated_many(model: str, asset_ids: Sequence[Any], days: Union[Sequence[An
         if score is not None and b.score is not None:
             score[rows] = np.asarray(b.score, dtype=np.float64)[rows]
 
-    fill(np.flatnonzero(verdict != "dont_use"), raw)
     known = verdict != "dont_use"
+    fill(np.flatnonzero(known), raw)
     for name in {s for s in sub_name[~known] if s}:
         rows = np.flatnonzero((~known) & (sub_name == name))
         if name in subs:
@@ -462,7 +463,6 @@ def validated_many(model: str, asset_ids: Sequence[Any], days: Union[Sequence[An
 # ============================================================================================ raw readers
 def local_midnight_utc(day: Union[str, date]) -> str:
     """'2025-06-02' -> '2025-06-01T21:00:00Z' (the loop's prediction t0 for that local day)."""
-    from zoneinfo import ZoneInfo
     d = date.fromisoformat(day_key(day))
     t = datetime(d.year, d.month, d.day, tzinfo=ZoneInfo(LOCAL_TZ)).astimezone(timezone.utc)
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")

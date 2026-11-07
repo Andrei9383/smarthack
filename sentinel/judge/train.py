@@ -399,17 +399,13 @@ def main(argv: list[str] | None = None) -> int:
     # thresholds + artifacts
     sha = os.environ.get("LAB_COMMIT") or _git_sha()
     run = os.environ.get("LAB_RUN_ID") or "local"
-    fc = fams.get("forecast")
+    head = fams.get("forecast") or next(iter(fams.values()))
     cal = {"judge_version": f"judge-{run}-{sha[:7]}", "source_run": f"train#{run}" if run != "local" else "local",
-           "git_sha": sha, "tau_use": (fc or next(iter(fams.values()))).tau_use,
-           "tau_widen": (fc or next(iter(fams.values()))).tau_widen,
-           "widen_factor": (fc or next(iter(fams.values()))).widen_factor,
+           "git_sha": sha, "tau_use": head.tau_use, "tau_widen": head.tau_widen, "widen_factor": head.widen_factor,
            "precision_target": JM.PRECISION_USE, "widen_cal_target": JM.WIDEN_CAL, "device": device,
            "rows": {"train": len(tr), "test": len(te), "train_year": args.train_year, "test_year": args.test_year,
                     "weeks": args.weeks, "test_weeks": args.test_weeks, "sites": args.sites, "burn_in": args.burn_in},
-           "ledger": "sentinel.judge.ledger" if _has("sentinel.judge.ledger") else "stand-in (rows.MiniLedger)",
-           "grader": "sentinel.judge.grader" if _has("sentinel.judge.grader") else "stand-in (rows.grade_*)",
-           "metrics_2025": {k: v for k, v in res.items() if k.startswith("all_") or "_" in k}}
+           "ledger": "sentinel.judge.ledger", "grader": "sentinel.judge.grader", "metrics_2025": dict(res)}
     judge = JM.Judge(fams, cal)
     files = judge.save(out)
     # reasons smoke check on a few test rows (fails loudly if the reason path is broken)
@@ -434,11 +430,6 @@ def main(argv: list[str] | None = None) -> int:
     emit("t_total_s", time.perf_counter() - t_all)
     print(f"[judge] wrote {', '.join(p.name for p in files)} to {out}", flush=True)
     return 0
-
-
-def _has(mod: str) -> bool:
-    import importlib.util
-    return importlib.util.find_spec(mod) is not None
 
 
 def _git_sha() -> str:
