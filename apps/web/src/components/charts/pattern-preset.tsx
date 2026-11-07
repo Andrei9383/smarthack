@@ -1,7 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { PatternCircles, PatternLines } from "./visx-pattern";
+import { Circles as PatternCircles } from "./patterns/circles";
+import { Lines as PatternLines } from "./patterns/lines";
+import type { PatternOrientationType } from "./patterns/constants";
 
 export const PATTERN_PRESET_IDS = [
   "none",
@@ -31,11 +33,6 @@ export interface PatternPresetOptions {
 /** Presets rendered with `PatternCircles`. */
 export function isCirclePattern(preset: PatternPresetId): boolean {
   return preset === "circles" || preset === "dots";
-}
-
-/** @deprecated Use `isCirclePattern`. */
-export function isCirclesPattern(preset: PatternPresetId): boolean {
-  return isCirclePattern(preset);
 }
 
 export function patternPresetTileSize(
@@ -107,6 +104,17 @@ function renderPatternCircles(
   );
 }
 
+const LINE_ORIENTATIONS: Record<
+  Exclude<PatternPresetId, "none" | "dots" | "circles">,
+  PatternOrientationType[]
+> = {
+  diagonal: ["diagonal"],
+  horizontal: ["horizontal"],
+  vertical: ["vertical"],
+  cross: ["diagonal", "diagonalRightToLeft"],
+  accent: ["diagonal"],
+};
+
 /** Renders a pattern definition node for the given preset. */
 export function renderPatternPreset(
   preset: PatternPresetId,
@@ -134,53 +142,13 @@ export function renderPatternPreset(
 
   const strokeWidth = options.strokeWidth ?? tile.strokeWidth;
 
-  switch (preset) {
-    case "diagonal":
-      return (
-        <PatternLines
-          {...common}
-          orientation={["diagonal"]}
-          stroke={color}
-          strokeWidth={strokeWidth}
-        />
-      );
-    case "horizontal":
-      return (
-        <PatternLines
-          {...common}
-          orientation={["horizontal"]}
-          stroke={color}
-          strokeWidth={strokeWidth}
-        />
-      );
-    case "vertical":
-      return (
-        <PatternLines
-          {...common}
-          orientation={["vertical"]}
-          stroke={color}
-          strokeWidth={strokeWidth}
-        />
-      );
-    case "cross":
-      return (
-        <PatternLines
-          {...common}
-          orientation={["diagonal", "diagonalRightToLeft"]}
-          stroke={color}
-          strokeWidth={strokeWidth}
-        />
-      );
-    case "accent":
-      return (
-        <PatternLines
-          {...common}
-          orientation={["diagonal"]}
-          stroke="var(--chart-line-secondary)"
-          strokeWidth={strokeWidth}
-        />
-      );
-    default:
-      return null;
-  }
+  const orientation = LINE_ORIENTATIONS[preset];
+  return (
+    <PatternLines
+      {...common}
+      orientation={orientation}
+      stroke={preset === "accent" ? "var(--chart-line-secondary)" : color}
+      strokeWidth={strokeWidth}
+    />
+  );
 }
