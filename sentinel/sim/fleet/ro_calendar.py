@@ -31,6 +31,13 @@ def ro_holidays(year: int) -> set[dt.date]:
     return days
 
 
+def local_day_index(local: pd.DatetimeIndex) -> np.ndarray:
+    """0-based local calendar-day counter. Uses naive local dates: subtracting tz-aware midnights across a DST
+    change gives "n days 23 h", which floors to the wrong day."""
+    naive = local.tz_localize(None).normalize()
+    return ((naive - naive[0]) // pd.Timedelta(days=1)).to_numpy().astype(np.int64)
+
+
 def utc_index(year: int) -> pd.DatetimeIndex:
     """15-min UTC timestamps covering one local (Europe/Bucharest) calendar year."""
     start = pd.Timestamp(f"{year}-01-01", tz=TZ).tz_convert("UTC")
@@ -50,7 +57,7 @@ def local_features(ts_utc: pd.DatetimeIndex) -> dict[str, np.ndarray]:
         "qh": (loc.hour * 4 + loc.minute // 15).to_numpy(),          # local quarter-hour index 0..95
         "doy": loc.dayofyear.to_numpy(),
         "month": loc.month.to_numpy(),
-        "day_index": (loc.normalize() - loc[0].normalize()).days.to_numpy(),  # local day counter
+        "day_index": local_day_index(loc),  # local day counter (DST-safe)
         "off_day": (dow >= 5) | is_hol,                               # weekend or public holiday
         "holiday": is_hol,
     }
