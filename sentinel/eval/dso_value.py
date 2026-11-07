@@ -4,6 +4,8 @@
 
 Lab: `--build-caches` first builds (or reuses) the fleet / windows / grid-twin caches, as `make replay-demo` does:
     lab submit 161 --run replay --cmd ".venv/bin/python -m sentinel.eval.dso_value --world sim --build-caches"
+Hosting capacity: `--run-g1` runs G1 #159 in the same run (same run id), `--hosting-capacity FILE` reads its JSON;
+without either (or before G1 merges) the STUB below is used and labelled.
 
 Deferred capex (step 3), per feeder that Sentinel lets take more prosumers:
     value = cost x (1 - 1 / (1 + r)^years)
@@ -12,8 +14,8 @@ i.e. how many years of prosumer growth (compound, `growth` per year on the N hom
 hosting capacity absorbs before the feeder needs the same reinforcement. Assumptions, all stated in the output:
 - cost: REINFORCEMENT_COST_LEI, a PLACEHOLDER ([COST POST / CABLU], to be replaced by the GIS mentor's figure);
 - r = 7 %, growth = GROWTH_RATE (assumed);
-- HC_*: G1 #159's hosting capacity, read in `hosting_capacity()` only. Until G1 merges that function returns a STUB,
-  and every lei number built on it is labelled so.
+- HC_*: G1 #159's hosting capacity (variant with batteries, tolerance 30 min/week), read in `hosting_capacity()`
+  only. Without G1's document that function returns a STUB, and every lei number built on it is labelled so.
 DEO's public estimate (other operator, not PPC / Retele Electrice) gives an order-of-magnitude cross-check per
 prosumer. Every printed number carries a label (synthetic RO / proxy / other-operator) and the run id.
 """
@@ -65,9 +67,24 @@ def years_deferred(n_homes: int, hc_baseline: float, hc_sentinel: float, growth:
     return math.log((n + hc_sentinel) / (n + hc_baseline)) / math.log(1.0 + growth)
 
 
-def hosting_capacity(world=None) -> dict[str, dict[str, Any]]:
-    """THE one read of G1 #159 (hosting capacity per feeder). STUB until G1 merges: congested feeders get the
-    constant _HC_STUB. Replace the body with G1's output on `lab sync`; callers do not change."""
+def hosting_capacity(world=None, doc: Optional[Mapping[str, Any]] = None, variant: str = "batteries",
+                     tol: int = 30) -> dict[str, dict[str, Any]]:
+    """THE one read of G1 #159 (hosting capacity per feeder, baseline = self_consumption rule vs Sentinel).
+
+    `doc`: G1's `hosting_capacity/v1` document (hosting_capacity.json). Without it, a STUB: congested feeders get
+    the constant _HC_STUB, labelled as such."""
+    if doc is not None:
+        if doc.get("schema") != "hosting_capacity/v1":
+            raise ValueError(f"expected a hosting_capacity/v1 document, got {doc.get('schema')!r}")
+        out = {}
+        for f in doc["feeders"]:
+            cap = f["capacity"][variant][str(tol)]
+            out[f["feeder_id"]] = {"n_homes": f["n_homes"], "hc_baseline": cap["self_consumption"],
+                                   "hc_sentinel": cap["sentinel"],
+                                   "censored": f.get("censored", {}).get(variant, {}).get(str(tol), {}).get("sentinel"),
+                                   "source": f"G1 #159 ({doc.get('label')}, {variant}, tol {tol} min/week)",
+                                   "run_id": doc.get("run_id")}
+        return out
     feeders = {}
     if world is not None:
         for fid, f in world.feeders.items():
@@ -172,6 +189,8 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--out", type=Path, default=Path(os.environ.get("LAB_OUTPUT_DIR", ".")))
     ap.add_argument("--skip-replay", action="store_true", help="only the recovery rate and the lei (no replays)")
+    ap.add_argument("--hosting-capacity", type=Path, help="G1's hosting_capacity.json (hosting_capacity/v1)")
+    ap.add_argument("--run-g1", action="store_true", help="run G1 #159 in-process first and use its output")
     ap.add_argument("--build-caches", action="store_true",
                     help="build / reuse the #10 windows and the #13 grid-twin cache first (sim world)")
     a = ap.parse_args(argv)
@@ -230,7 +249,18 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
             print(f"# moved home: none ({case.get('note')}; {note})")
 
     # deferred capex (lei), on G1's hosting capacity (STUB until #159 merges)
-    hc = hosting_capacity(world)
+    doc = None
+    if a.run_g1:
+        try:
+            from sentinel.eval.hosting_capacity import main as g1_main
+        except ImportError:
+            print("# --run-g1: G1 #159 not on this branch yet; hosting capacity stays the STUB")
+        else:
+            g1_main(["--world", a.world, "--out", str(a.out / "g1")])
+            a.hosting_capacity = a.out / "g1" / "hosting_capacity.json"
+    if a.hosting_capacity:
+        doc = json.loads(Path(a.hosting_capacity).read_text())
+    hc = hosting_capacity(world, doc)
     cap = deferred_capex(hc)
     out["dso_value"] = cap
     _emit("deferred_capex_lei", cap["deferred_capex_lei"], cap["label"], rid)

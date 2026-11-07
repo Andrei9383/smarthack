@@ -167,3 +167,19 @@ def test_moved_home_case_on_mock_world():
     assert r["plan_diff"][0]["site_id"] == sid and r["plan_diff"][0]["moved"]
     assert r["plan_diff"][0]["midday_charge_kwh_m8"] is None  # off F7's plan once M8 moves it
     assert set(r["physical_gis"]) == {"minutes_over", "kwh_over", "peak_kw", "limit_kw"}
+
+
+def test_hosting_capacity_reads_g1_document():
+    doc = {"schema": "hosting_capacity/v1", "label": "synthetic RO", "run_id": "replay#999", "feeders": [
+        {"feeder_id": "F7", "n_homes": 24,
+         "capacity": {"batteries": {"0": {"self_consumption": 0, "threshold": 1, "sentinel": 6},
+                                    "30": {"self_consumption": 1, "threshold": 2, "sentinel": 9}}},
+         "censored": {"batteries": {"30": {"sentinel": False}}}}]}
+    hc = dv.hosting_capacity(doc=doc)
+    assert hc == {"F7": {"n_homes": 24, "hc_baseline": 1, "hc_sentinel": 9, "censored": False,
+                         "source": "G1 #159 (synthetic RO, batteries, tol 30 min/week)", "run_id": "replay#999"}}
+    assert dv.hosting_capacity(doc=doc, tol=0)["F7"]["hc_sentinel"] == 6
+    cap = dv.deferred_capex(hc)
+    assert "STUB" not in cap["label"] and cap["feeders"][0]["hc_run_id"] == "replay#999"
+    with pytest.raises(ValueError):
+        dv.hosting_capacity(doc={"schema": "other"})
