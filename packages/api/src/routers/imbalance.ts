@@ -1,6 +1,6 @@
 import { implement } from "@orpc/server";
 import { createDb, type Database } from "@sentinel-app/db";
-import { portfolioForecast, positions, siteStrategy } from "@sentinel-app/db/schema/imbalance";
+import { imbalanceKpis, portfolioForecast, positions, siteStrategy } from "@sentinel-app/db/schema/imbalance";
 import { assets } from "@sentinel-app/db/schema/sentinel";
 import { and, asc, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { existsSync } from "node:fs";
@@ -51,6 +51,44 @@ async function totals(db: Database, where?: SQL): Promise<PolicyTotals[]> {
       .groupBy(positions.policy),
   );
   return rows.map((r) => ({ ...r, leiPerMwhInjected: r.exportMwh > 0 ? r.avoidableLei / r.exportMwh : null }));
+}
+
+// Whole-replay totals as the replay wrote them (imbalance_kpis = the run's LAB_METRIC headline). The demo copy of
+// positions only covers the days around the demo week (#193), so summing it would not be the whole replay.
+const KPI_OF = {
+  avoidable_cost_lei: "avoidableLei",
+  intraday_lei: "intradayLei",
+  imbalance_lei: "imbalanceLei",
+  abs_dev_mwh: "absDevMwh",
+  export_mwh: "exportMwh",
+  double_cover_mwh_18_21: "doubleCover1821Mwh",
+  lei_per_mwh_injected: "leiPerMwhInjected",
+  steps: "days",
+} as const;
+
+async function replayTotals(db: Database): Promise<PolicyTotals[]> {
+  const rows = await emptyIfNoTables(() =>
+    db.select({ policy: imbalanceKpis.policy, name: imbalanceKpis.name, value: imbalanceKpis.value }).from(imbalanceKpis),
+  );
+  const by = new Map<string, PolicyTotals>();
+  for (const { policy, name, value } of rows) {
+    const key = KPI_OF[name as keyof typeof KPI_OF];
+    if (!key || value == null) continue;
+    const t = by.get(policy) ?? {
+      policy,
+      avoidableLei: 0,
+      intradayLei: 0,
+      imbalanceLei: 0,
+      absDevMwh: 0,
+      exportMwh: 0,
+      leiPerMwhInjected: null,
+      doubleCover1821Mwh: 0,
+      days: 0,
+    };
+    t[key] = key === "days" ? value / 96 : value; // steps of 15 min
+    by.set(policy, t);
+  }
+  return [...by.values()];
 }
 
 // The replayed day nearest to `from`, shifted by whole days so it keeps the caller's local-midnight offset.
@@ -105,9 +143,14 @@ export const imbalanceRouter = os.router({
     return { ...win, steps, totals: tot };
   }),
 
-  getPolicyComparison: os.getPolicyComparison.handler(({ context, input }) =>
-    totals(store(context.db), inWindow(input?.from, input?.to)),
-  ),
+  getPolicyComparison: os.getPolicyComparison.handler(async ({ context, input }) => {
+    const db = store(context.db);
+    if (!input?.from && !input?.to) {
+      const whole = await replayTotals(db);
+      if (whole.length) return whole;
+    }
+    return totals(db, inWindow(input?.from, input?.to));
+  }),
 
   getStrategyBreakdown: os.getStrategyBreakdown.handler(async ({ context: { db } }) => {
     const classified = await emptyIfNoTables(() =>
