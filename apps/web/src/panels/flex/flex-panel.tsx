@@ -97,7 +97,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
   };
 
   return (
-    <aside className="absolute top-3 bottom-3 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
+    <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-y-auto rounded-md border bg-background/95 p-3 backdrop-blur">
       <header className="flex items-start justify-between gap-2">
         <div>
           <h2 className="font-semibold">Flexibility</h2>

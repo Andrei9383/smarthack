@@ -533,7 +533,8 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                 nominal += hm["batt_kw"]
                 _st, hf, _r, _a = site_status(hm, series[sid]["fault_from"], g, day_idx, sod)
                 available += hm["batt_kw"] * hf
-            draw = rng.uniform(0.97, 1.10)
+            # a P10 commitment should be met ~90% of the time: ~1 hour-step in 10 falls short
+            draw = rng.uniform(0.985, 1.12)
             if int(sod * DT_H) in SERVICE_HOURS:
                 committed = round(available * (1 - HAIRCUT) * P10_FACTOR, 3)
                 realised = round(committed * draw, 3)
