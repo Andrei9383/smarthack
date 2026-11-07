@@ -1,170 +1,369 @@
-# Plan: Prosumer Sentinel
+# Plan: Prosumer Sentinel v2
 
-An AI agent that watches every PV + BESS installation and every wind turbine, catches faults before they become
-losses, and keeps the grid model honest. Core = PPC's O&M challenge; second action = PPC's GIS challenge (droppable module).
-Full proposal: the team doc "Prosumer Sentinel — Smarthack XI PPC" (Nov 7). This file is the binding summary.
+**A fleet flexibility agent that coordinates home batteries on each LV feeder, so midday solar export stays under
+the feeder's limit and is released into the evening peak, and that commits only the flexibility healthy,
+predictable installations can actually deliver.**
 
-## The idea
+One model (SentinelNet), one optimiser (a per-feeder LP), no hardware at the home. The O&M challenge decides which
+installations the fleet may count on (the work order is how excluded sites get back into the pool). The GIS
+challenge supplies feeder limits and how far to trust them. If PPC leads with O&M or GIS, the same build is
+re-weighted in the pitch, not rebuilt.
 
-One model, three decisions, four actions. The agent runs on a 15-min tick: perceive → estimate → decide → act → log.
+Source: team doc "Prosumer Sentinel v2 — Smarthack XI PPC" (Nov 7), which supersedes v1. This file is the binding,
+sorted version; where they differ, this file wins (see §8 Review notes).
 
-- **Model ("SentinelNet")**: one multi-task time-series model, trained from scratch (~0.5 M params, PatchTST-style
-  encoder + weather / solar-geometry covariates). Heads: (1) expected production P10/P50/P90 = the nowcast "what
-  should it have made in the weather it had" (pinball loss); a secondary noisy-weather forecast mode for the
-  battery planner only; (2) fault class, 8 classes (healthy, soiling, partial shading, string outage, inverter
-  derating/clipping, inverter trip/overvoltage, battery underuse/degradation, sensor fault; focal loss);
-  (3) embedding for similar past cases and OOD detection. Uncertainty: 4-seed ensemble + split-conformal.
-- **Decide**: O&M triage (expected loss = P(fault) × kWh/day × price × days to next visit; pick K visits/day with
-  OR-Tools, route-ordered; sensor faults get a remote check, never a truck). Battery schedule (cvxpy + HiGHS MILP
-  on P50, P10 when uncertain). "Not sure" rule (ensemble std, conformal width, Mahalanobis OOD) → human queue.
-- **Act**: work orders (JSON + PDF), alerts (webhook), battery schedule + plain-language tip, GeoJSON GIS flag
-  layer, and an audit log (model version, input hash, prediction, threshold) for every action.
-- **Explain**: Integrated Gradients, 3 most similar past cases (FAISS), expected-vs-actual chart with P10–P90 band,
-  optional local LLM sentence (never decides).
-- **Grid-twin** (`sentinel/gridtwin/`, promote or drop after PPC's presentation): voltage correlation between
-  inverters → spectral clustering → compare with GIS feeder/phase → flags with confidence; trust score per LV
-  section that decays since last verification.
-- **Wind assets (from Andrei's Windmon)**: wind turbines are a second asset type in the same agent. Same idea:
-  expected power from the wind it actually had (power-curve nowcast, P10/P50/P90) and expected component
-  temperatures (gearbox, generator bearings, converter, transformer) → residuals → wind fault head
-  (underperformance / pitch misalignment, curtailment or stop at high wind, icing, gearbox or bearing overheating,
-  sensor fault). Same triage, work orders, audit log and UI. Windmon's rule-based anomalies become the wind baseline.
+---
 
-## Success criteria (every slide number cites a lab run ID)
+## 1. Users and value
 
-| Claim | Baseline | Target |
+| User | Gets | Value |
 |---|---|---|
-| Nowcast nMAE on real PVDAQ (headline) | pvlib with recorded metadata, persistence, LightGBM | beat pvlib; stretch ≥ 20% lower nMAE |
-| Interval calibration | n/a | 10–90% coverage in 88–92% |
-| Fault detection: PR-AUC + hours-to-detect, synthetic and PVDAQ + injected | threshold rule (< 80% of pvlib for 3 days), CUSUM on pvlib residual | beat both |
-| Energy / money recovered per month across the fleet | doing nothing | kWh and lei |
-| Battery schedule savings per customer | default self-consumption rule | lei/customer, OPCOM prices |
-| Grid-twin (if kept) | n/a | % of corrupted feeder/phase records recovered |
-| Wind nowcast nMAE on held-out turbines / year (public SCADA) | manufacturer power curve, binned empirical power curve | beat both |
-| Wind fault detection: PR-AUC + hours-to-detect (real SCADA + injected faults) | Windmon rules (e.g. high wind + zero power), fixed temperature threshold | beat both; overheating flagged days before trip |
+| PPC distribution / network ops (primary payer) | Day-ahead plan per feeder; export peaks held under the limit | Deferred reinforcement, fewer curtailments and overvoltage trips, more connections approved |
+| PPC supply / aggregator desk | Hourly committed flexibility (MW) with a P10 guarantee and a delivery record | Lower imbalance cost; balancing revenue later (not assumed) |
+| PPC O&M | Daily top-K inspection list ranked by lost energy and lost flexibility | Fewer blind truck rolls; repairs return MW to the pool |
+| PPC GIS / planning | Feeder/phase mismatch flags + trust score per LV section (GeoJSON) | Review requests where the GIS is likely wrong |
+| Prosumers (opt-in, free) | Battery schedule that never breaks their comfort reserve; tips; early fault alerts | Lower bills where the tariff allows; share of flexibility value |
 
-## Demo script (3 minutes)
+---
 
-1. Replay October for the fleet from precomputed predictions (preview CPU runs only decide / act / log).
-2. A string fails on day 4: Sentinel flags it within hours; CUSUM in about a day; the threshold rule in 3 days.
-3. The work order lands in tomorrow's top-6 with "N lei at risk", with the expected-vs-actual band and similar cases.
-4. A cluster of inverter trips on one feeder is routed to the network team; the GIS layer turns that section orange
-   with its confidence.
-5. A wind turbine's gearbox temperature drifts above its expected value: Sentinel flags it days before Windmon's
-   fixed-threshold rule would, and the work order competes for the same crew capacity as the PV sites.
-6. A strange new site goes to a human with "not sure".
-(Numbers are placeholders until `eval.py` produces them.)
+## 2. Success criteria
 
-## Scope
+Targets are aims; results are reported as measured, misses included. Every slide number cites a lab run ID.
+Simulated and real-data results are always labelled separately.
 
-- Data: Open-Meteo ERA5 (20–40 RO locations, 2022–2025), pvlib, NREL PVDAQ (a handful of sites), OPCOM PZU
-  2023–2025, London Smart Meter (~200 households), pandapower IEEE European LV (grid-twin only). All raw inputs
-  committed as compressed Parquet (10–30 MB): no outside APIs during runs.
-- Synthetic fleet: 500–1,000 sites × 2–3 years at 15 min, with effects pvlib doesn't model (wrong recorded
-  tilt/azimuth on ~20% of sites, inverter curves, degradation, snow, horizon shading). Fault injector with exact
-  onset labels (~15% faulty site-days) that also runs on real PVDAQ series.
-- Generator: deterministic (fixed seed), < 5 min, cached at `~/.cache/sentinel/data-v{N}`.
-- Splits: train 2022–2023 on 70% of sites; val 2024; test 2025 + the 30% unseen sites; PVDAQ clean (nowcast);
-  PVDAQ + injected (fault head); a separate calibration slice for conformal.
-- Robustness drills: 10–40% gaps, a missing day, frozen sensor, W vs kW, unseen site type → handle or "not sure".
+| # | Claim | Baselines | Target | Run |
+|---|---|---|---|---|
+| 1 | **Feeder peak shaving (headline)**: export peak reduction, minutes above limit per feeder-day | self-consumption rule; tuned per-home export-threshold rule | zero violations where battery headroom suffices; residual slack reported otherwise | `replay` |
+| 2 | Evening import peak reduction per feeder | same | reported | `replay` |
+| 3 | Flexibility reliability: realised ≥ committed (P10) | n/a | ≥ 90% of feeder-steps; available/nominal and committed/nominal reported | `replay` |
+| 4 | Nowcast nMAE on real PVDAQ | pvlib (recorded metadata), persistence, LightGBM | ≥ 20% lower than pvlib; 10–90% coverage 78–82% | `train` / `eval` |
+| 5 | Load forecast on held-out London households | persistence, LightGBM | beat persistence | `train` / `eval` |
+| 6 | Fault detection: PR-AUC + hours-to-detect (synthetic, PVDAQ + injected) | threshold rule (< 80% of pvlib for 3 days); CUSUM on pvlib residual | beat both | `train` / `eval` |
+| 7 | Customer: comfort-reserve breaches; lei per home per month (OPCOM, net of degradation) | default rule | zero breaches; lei reported | `replay` |
+| 8 | Grid-twin: % of corrupted GIS feeder/phase records recovered | n/a | reported | `gridtwin` |
 
-## Amendments from the plan review (Nov 7, hour 0)
+`train` prints `LAB_METRIC val_nmae, val_pinball, val_load_pinball, val_prauc, hours_to_detect`.
+`replay` prints `LAB_METRIC peak_reduction, minutes_over_limit, p10_hit_rate, comfort_breaches, lei_per_home`.
 
-1. **Nowcast gets a reference window of the site's own past power** (e.g. 7–14 days before the target day, daily
-   or patch summaries), never the target window itself. Without it the model sees the same wrong metadata as
-   pvlib and cannot honestly beat it on wrong-tilt sites. Faults are also injected into the reference window
-   during training so the model learns to discount it.
-2. **Fault head needs multi-day context.** A 24 h window can't see soiling (slow) or degradation, and battery
-   classes need SoC / battery power / load channels. Input = 24 h detailed window + ~14-day daily residual
-   summary + battery channels.
-3. **Headline gate is "beats pvlib on PVDAQ"**; 20% is a stretch. PVDAQ is US data while training is RO synthetic,
-   so report the domain gap honestly.
-4. **Battery economics**: most Romanian residential prosumers are on a fixed tariff with compensation for exported
-   energy, not on PZU. Frame the PZU schedule as the dynamic-tariff / aggregator scenario and also report the
-   fixed-tariff case. Ask the O&M mentor.
-5. **Grid-twin cost**: `runpp_3ph` on the ~900-bus European LV feeder is slow; time 10 steps first, then pick
-   hourly steps over 1–2 weeks if needed. One feeder ⇒ phase identification only; feeder identification needs
-   ≥ 2 feeders.
-6. **ERA5 is hourly, telemetry is 15-min**: interpolate through the clear-sky index, documented in the data card.
-7. **OPCOM download risk**: the data card tries OPCOM exports first, then ENTSO-E (free token) as fallback.
-8. **PPC sample data**: PPC offers sample installation and GIS data. Contracts (Parquet schemas) are written so
-   their data can be dropped in through an adapter, without changing model or agent code.
-9. **lab.toml now**: `[runs.preview]` runs `npm start` but there is no package.json, so every preview fails (and a
-   failed preview blocks auto-merge) until the skeleton card points it at the FastAPI + Windmon frontend.
-   Until then, merge with `lab submit <id> --run check`.
+---
 
-## Windmon integration (decided Nov 7)
+## 3. Architecture
 
-Andrei's Windmon (github.com/Andrei9383/Windmon, PPC HackITall, April 2026) is a wind-farm monitoring platform:
-React + TS frontend, Spring Boot API, Postgres, Redis, Python ingestion with quality rules and SQL anomaly rules.
+### 3.1 The loop (15-min tick)
 
-- **Reuse**: the React frontend (dashboard, Leaflet map, asset detail charts, anomalies, reports pages) becomes our
-  demo UI, served by a small FastAPI app (`sentinel/api/`) as the lab preview. This replaces Streamlit.
-  Windmon's quality rules (`quality.py`) and anomaly rules (`anomaly.py`) are ported into Python as data checks and
-  the wind baseline. Windmon's tag schema (`<park>.<turbine>.<signal>`: act_pwt, wd_spd, conv_t, gearbox_t, gen1_t,
-  gen2_t, transformer_t, turbine_t) is our wind telemetry contract, so PPC's own data drops in if they share it.
-- **Drop**: Java API, Postgres, Redis, Prometheus/Grafana, docker-compose, DeepSeek (external LLM API). None of
-  them run in the lab preview, and the model must run in our code.
-- **Copy files only, never merge Windmon's git history**: its history still contains AWS and DeepSeek keys.
-  Andrei revokes them.
-- **Data**: Windmon ran on PPC's private S3 bucket. We use public wind SCADA instead (Kelmarsh / Penmanshiel
-  wind farms, Zenodo, CC-BY-4.0, 10-min, several years), unless PPC hands out that dataset again for this event.
-- **Prior work**: README and slides say plainly which parts come from Windmon; the model, wind data pipeline,
-  decision layer and agent are built in these 24 h.
+```
+ perceive ──► estimate ─────► qualify ──────► decide ───────────► act ────────────► log
+ telemetry    SentinelNet     site status     per-feeder LP       battery schedules  SQLite audit:
+ weather      PV   P10/50/90  eligible        + P10 commitment    feeder commitment  model version,
+ prices       load P10/50/90  derated         (limit G from       work orders        input hash,
+ metadata     fault class     excluded        grid-twin, comfort  alerts             prediction,
+ (Pandera     embedding/OOD   human review    reserve R)          GeoJSON flags      threshold, status,
+  checks)                        │                                  ▲                schedule; realised
+                                 └──── O&M top-K triage ────────────┘                vs committed
+                                       (repaired sites rejoin the pool)
+```
 
-## Not doing
+In the demo the agent replays a test week from precomputed predictions and a precomputed replay; the preview
+CPU never runs torch or the LP.
 
-- GPVS-Faults (high-frequency lab signals, not 15-min power).
-- Windmon's Java API, Postgres, Redis, Grafana and DeepSeek integration (see above).
-- DDP / multi-GPU training, Optuna, W&B, any external ML API. LLM is optional and only rewrites text.
-- Replacing inverters, EMS or the GIS: read-only ingestion, outputs are work orders, schedules and a GeoJSON layer.
-- Raw personal data: customer IDs pseudonymised, public or synthetic data only.
+### 3.2 One model output, two uses
 
-## Fallbacks (cut in this order)
-
-1. LLM sentence. 2. Routing (keep top-K ranking). 3. Grid-twin → one slide with offline results.
-If the GPU sweep stalls, LightGBM serves the agent. Never cut: SentinelNet, baseline comparison, decision layer,
-work-order action.
-
-## Phases and gates
-
-| Phase | Hours | Gate |
+| SentinelNet output | O&M uses it as | Fleet optimiser uses it as |
 |---|---|---|
-| Setup & contracts | 0–2 | plan.md; contract card merged; lab.toml + requirements split; cache probe passed on all 3 workers |
-| Data + baselines | 2–7 | raw data committed; simulator + injector cached as data-v1; baseline numbers in `lab top` |
-| Model v1 + agent on mock | 7–12 | SentinelNet vs LightGBM on val_nmae reported; agent makes a work order end-to-end from the mock |
-| Sweeps + integration (night) | 12–17 | 2–3 `--grid` rounds; 4-seed ensemble; promoted ONNX in `models/`; preview runs the real model |
-| Evaluation & robustness | 17–21 | PVDAQ results, CUSUM comparison, error analysis, drills, grid-twin decision |
-| Demo freeze | 21–24 | `lab freeze on` at h22; `make reproduce` on a clean checkout; slides from `lab report --out`; 2 rehearsals |
+| PV P10/P50/P90 | reference a fault is measured against | charge headroom (surplus to absorb) |
+| Load P10/P50/P90 | context for battery-underuse faults | discharge headroom, comfort reserve |
+| Fault probability + class | work order and its priority | exclusion or derating of the site |
+| Ensemble spread, interval width, OOD | human review instead of a truck roll | haircut on committed MW, or exclusion |
 
-## First-wave cards
+### 3.3 Components
 
-Start here (hour 0–2, challenge-agnostic): **#21** Windmon frontend + FastAPI preview (unblocks merges), **#6** repo
-skeleton (P3), **#7** contracts (P5, review), **#8** cache probe (P1).
-Then: P1 #9 PV/price/load data, #22 wind SCADA + Windmon quality rules, #10 windows/splits ·
-P2 #11 simulator, #12 PV fault injector, #23 wind fault injector, #13 grid-twin ·
-P3 #14 SentinelNet + train.py · P4 #15 PV baselines, #24 wind baselines (Windmon rules), #16 eval.py ·
-P5 #17 agent loop, #18 decisions · UI #19 Sentinel pages on the Windmon frontend.
+| Component | Path | In → Out | Card |
+|---|---|---|---|
+| Contracts + mock predictor | `sentinel/contracts/`, `team/contracts/` | types, schemas, `MockPredictor` | #7 |
+| Raw data | `sentinel/data/download.py`, `data/raw/` | public sources → committed Parquet | #9 |
+| Fleet simulator | `sentinel/sim/fleet/` | weather + load → sites on feeders, telemetry under the baseline policy | #11 |
+| PV fault injector | `sentinel/sim/faults/` | telemetry → telemetry + labels with onset | #12 |
+| Windows, splits, Pandera | `sentinel/data/{windows,splits,schemas}.py` | Parquet → memmapped float16 windows | #10 |
+| SentinelNet + training | `sentinel/model/`, `train.py` | windows → ONNX + calibration JSON | #14 |
+| Baselines (PV, load, fault) | `sentinel/eval/baselines/pv/` | windows → baseline predictions + metrics | #15 |
+| Evaluation | `eval.py`, `sentinel/eval/{metrics,report}.py` | predictions → LAB_METRIC + JSON report | #16 |
+| Uncertainty + P10 rollout | `sentinel/eval/uncertainty/`, `sentinel/opt/commit.py` | quantiles → calibrated quantiles, thresholds, committed MW | #27 |
+| Qualify + triage | `sentinel/agent/{qualify,triage}.py` | predictions → site status, top-K work orders | #26 |
+| Per-feeder LP + baseline policies | `sentinel/opt/` | forecasts + status + limits → schedules | #18 |
+| Agent loop + replay + audit | `sentinel/agent/{loop,audit,replay}.py`, `replay.py` | all of the above → actions, audit log, replay metrics | #17 |
+| Grid-twin | `sentinel/gridtwin/` | IEEE feeder → flags, trust τ, effective limit G | #13 |
+| API + UI (Windmon frontend) | `sentinel/api/`, `web/` | `demo/replay/` → dashboard | #21, #19 |
+| Robustness drills | `sentinel/data/drills.py` | test set → drill variants | #28 |
+| Promote | `models/`, `demo/` | chosen runs → committed weights + replay outputs | #29 |
 
-## Lab rules for the 24 h
+### 3.4 Key interfaces (frozen by #7; change only with `lab announce`)
 
-- Every card has `--paths`; agents never touch each other's files. Contract and "promote model" cards are
-  `merge=review`; code cards `merge=auto`; training runs are `never` (experiments).
+- `predict(window) -> {pv_q[3×96], load_q[3×96], fault_probs[8], embedding[d], ood_score, member_std}`.
+  PV window = 24 h weather + solar geometry (no target power) + reference window of the site's own past power
+  (7–14 days) + 14-day daily residual summary + battery channels. Forecast mode uses noisy weather, never ERA5 actuals.
+- `qualify(site, prediction, telemetry_age) -> {status: eligible|derated|excluded|human_review, pv_headroom_factor, reason}`.
+- `plan_feeder(feeder, eligible_sites, rest_of_feeder, forecasts, G, prices) -> {schedule[site][96], export_curve[96], slack[96]}`.
+- `commit(feeder, schedule, scenarios) -> {nominal[96], available[96], committed[96]}`; `realised` is logged next tick.
+- Actions (JSON): `battery_schedule`, `feeder_commitment`, `work_order`, `alert`, `gis_flag`, `human_review`,
+  each with an `audit_record` (model_version, input_hash, prediction, threshold, site_status, schedule).
+
+### 3.5 Decision maths (written out here; the formulas in the v2 doc were images)
+
+**Qualify** (per site, per tick): stale telemetry or sensor fault → excluded (delivery can't be verified);
+ensemble spread / conformal width / OOD above validation-tuned thresholds → human review (no work order, out of
+the pool); confident PV fault → derated (PV headroom cut by the estimated loss; battery stays in if its own
+telemetry is healthy); battery fault → excluded. Feeder available/committed MW are recomputed next tick.
+
+**O&M triage score** (top-K per day; sensor faults → remote check, never a truck):
+
+```
+score_i = P_fault,i × ( lost_kWh_day,i × π  +  lost_flex_MWh_day,i × v_flex ) × D_i
+lost_kWh_day,i = Σ_daylight (P50_i,t − actual_i,t) · Δt          D_i = days until the next possible visit
+```
+
+**Per-feeder LP** (feeder f, t = 1..96, Δt = 0.25 h, eligible sites i; all variables ≥ 0):
+
+```
+min  Σ_t Σ_i [ π_t·m_it·Δt − β·π_t·x_it·Δt + c_deg·(c_it + d_it)·Δt ]  +  M·Σ_t s_t·Δt  +  λ·z
+
+site balance (P50):   P̂50_it − L̂50_it − c_it + d_it = x_it − m_it
+battery:              e_i,t+1 = e_it + η_c·c_it·Δt − d_it·Δt/η_d ;   R_i ≤ e_it ≤ E_i ;   c_it, d_it ≤ P_i ;   e_i,96 ≥ e_i,0
+feeder export limit:  Σ_i (P̂90_it − L̂10_it − c_it + d_it) + X_t^rest ≤ G_f + s_t        (worst plausible export)
+evening peak:         z ≥ Σ_i (m_it − x_it) + M_t^rest      for t in 17:00–22:00
+```
+
+- `X_t^rest`, `M_t^rest`: forecast net export / import of the feeder's **non-eligible** sites, which keep running
+  their own self-consumption rule. They still sit on the feeder (review note R3).
+- `M ≫ λ ≫ π`. LP, not MILP: with η_c·η_d < 1 and c_deg > 0, charging and discharging at once only costs money.
+  Check solutions; add a binary only if it appears (negative prices).
+- `G_f = τ·G^max + (1 − τ)·G^conservative` from the grid-twin; low trust only ever tightens the limit.
+- `c_deg = C_pack / (2 · N_cycles · E_usable)` ≈ €0.02–0.03/kWh per direction (assumed €250–400/kWh LFP, 6,000
+  cycles); round-trip ~90%. Inputs, not results. `β` = export remuneration ratio, tariff-dependent (to verify).
+- 10–20 independent LPs of ~25–50k variables; HiGHS should solve each in seconds (confirm on our machines).
+- Fallback: one aggregate virtual battery per feeder, same LP, split to sites by headroom, then a per-site
+  feasibility clip.
+
+**P10 commitment**: conformal-calibrate each ensemble member's quantiles → ~200 scenarios per feeder-day (one
+shared PV quantile level per feeder, independent load levels per site, one ensemble member per scenario) → replay
+the schedule through the battery model with clipping → deliverable = export reduction vs the baseline rule →
+
+```
+committed_t = (1 − h) · Q10(deliverable_t)        h = telemetry-loss haircut
+```
+
+Four numbers, never conflated: **nominal** (Σ rated battery kW) ≥ **available** (what eligible batteries can move
+at t given SoC, reserve, surplus, load) ≥ **committed** (P10 of available, minus haircut); **realised** is measured
+afterwards (simulator ground truth in the hackathon). Hit rate and size of misses are published.
+
+### 3.6 Runs and artifacts
+
+| Run | Where | Command | Output |
+|---|---|---|---|
+| `check` | server sandbox | `pytest tests` (contract tests included) | pass/fail; gates auto-merge |
+| `preview` | server sandbox | FastAPI serving `web/dist` + `/api` from `demo/replay/` (fixtures until promoted) | the shared app; `lab public on` for the demo |
+| `train` | GPU workers | `python train.py` (`--grid` for sweeps and `seed=0,1,2,3`) | LAB_METRIC; ONNX + calibration JSON in `$LAB_OUTPUT_DIR`, uploaded as a release asset |
+| `baseline` | CPU | `python eval.py --baselines` | baseline LAB_METRIC |
+| `replay` | CPU | `python replay.py --policy baseline,sentinel` | replay LAB_METRIC; per-feeder curves, statuses, schedules, commitments, work orders, audit DB |
+| `eval` | GPU/CPU | `python eval.py` | test-set LAB_METRIC + JSON report |
+
+Run outputs stay on the worker, so the promote card (#29, review) commits the chosen weights to `models/` and the
+chosen replay outputs to `demo/replay/`. The preview and `make reproduce` read only committed files.
+
+### 3.7 Repo layout
+
+```
+sentinel/
+  contracts/  data/  sim/fleet/  sim/faults/  model/  eval/baselines/pv/  eval/uncertainty/
+  opt/  agent/  gridtwin/  api/
+web/                      Windmon React frontend (files only, credited)
+train.py  eval.py  replay.py  Makefile (make reproduce)
+data/raw/                 committed Parquet (10–30 MB)
+models/  demo/replay/     promoted artifacts (cite run IDs)
+tests/                    test_contracts.py + per-card tests
+team/                     brief, plan, contracts, decisions, insights
+```
+
+---
+
+## 4. Data
+
+| Source | We commit / use | Role |
+|---|---|---|
+| Open-Meteo ERA5 | hourly irradiance, temp, cloud, wind, snow; 20–40 RO locations, 2022–2025 | model input; drives the simulator |
+| pvlib | solar position, clear-sky, PV model | simulator core + physical baseline |
+| NREL PVDAQ | a handful of real multi-year PV systems | real-data nowcast test; real background for injected faults |
+| OPCOM PZU | hourly day-ahead prices 2023–2025 (fallback ENTSO-E) | LP prices; kWh → lei |
+| London Smart Meter | ~200 households, half-hourly | load profiles; load-head train/test |
+| pandapower IEEE European LV | 55-customer 3-phase feeder | grid-twin only |
+
+- **Synthetic fleet**: 500–1,000 residential prosumers × 2–3 years at 15 min on 10–20 feeders with clustered PV
+  penetration (some congest, some don't). kWp 3–10, random tilt/azimuth, battery 0–15 kWh / 3–5 kW, comfort
+  reserve, an export limit per feeder. Voltage = feeder base + PV-driven rise + noise. History is generated under
+  the self-consumption rule (the baseline policy).
+- **Fair pvlib baseline**: wrong recorded tilt/azimuth on ~20% of sites (±10–30°), inverter curves, 0.5–1%/yr
+  degradation, snow, horizon shading; pvlib sees only recorded metadata. A suspiciously large synthetic win is a bug
+  until explained; the headline nowcast claim is on PVDAQ.
+- **Faults**: soiling (reset by rain), partial shading, string outage (1/N step), clipping/derating, overvoltage
+  trips, battery underuse/fade, sensor faults; random onset and severity; ~15% of site-days; the same injector runs
+  on PVDAQ.
+- **Splits**: train 2022–2023 × 70% of sites; val 2024; test 2025 + the 30% unseen sites; PVDAQ clean; PVDAQ +
+  injected; a separate calibration slice. Thresholds frozen on validation. Planning never sees ERA5 actuals.
+- **Generator**: deterministic, < 5 min, cached at `~/.cache/sentinel/data-v{N}` (bump N on change).
+- **Known limitation**: London load is not Romanian load; stated on the slide, with a scaled/shifted sensitivity test.
+
+---
+
+## 5. Scope tiers
+
+| Tier | Items |
+|---|---|
+| **MUST** | simulator + injector · SentinelNet (PV, load, fault) or LightGBM fallback · baselines · site qualification · top-K O&M · per-feeder LP · P10 commitment · baseline-vs-Sentinel replay · audit log · dashboard (Windmon frontend) |
+| **SHOULD** | grid-twin trust + conservative limits · per-customer comfort reserve · degradation cost · similar past cases · human-review queue UI · robustness drills · hourly LP re-solve |
+| **OPTIONAL** | wind turbines from Windmon (#22–#24, O&M list only) · Integrated Gradients · LLM text · routing · GIS correction beyond flags · real vendor API integration |
+
+**Cut order if behind**: LLM text → routing → similar cases → wind → grid-twin to one slide → full LP to the
+aggregate per-feeder LP → PV forecast mode (use the pvlib forecast × the nowcast's per-site correction).
+If SentinelNet isn't ready by hour 12, LightGBM quantile models feed the same LP; nothing downstream changes.
+**Never cut**: simulator, PV + load forecasts, qualification, the LP, the P10 commitment, the baseline comparison,
+the work order.
+
+---
+
+## 6. Steps (phases, gates, cards)
+
+| Phase | Hours | Cards | Gate |
+|---|---|---|---|
+| 1. Setup & contracts | 0–2 | **#21** preview fix (Windmon UI + FastAPI) · **#6** skeleton + run types · **#7** contracts (review) · **#8** cache + CPU-slot probe | preview passes; contracts merged; cache result on all 3 workers |
+| 2. Data, baselines, LP on mock | 2–7 | #9 raw data · #11 simulator on feeders · #12 PV injector · #10 windows/splits · #15 baselines · #18 LP + baseline policies · #17 agent loop + replay on mock | data committed; data-v1 cached; baselines in `lab top`; LP solves one feeder from mock forecasts; baseline violations visible |
+| 3. Model v1 + full loop | 7–12 | #14 SentinelNet · #16 eval.py · #26 qualify + triage · #27 conformal + P10 rollout · #19 UI panels | SentinelNet beats LightGBM on val (or fallback declared); qualify + LP on all feeders; P10 rollout runs |
+| 4. Sweeps + integration (night) | 12–17 | #14 sweeps (`--grid`), 4-seed ensemble · #29 promote · #13 grid-twin | 2–3 grid rounds; ensemble; promoted ONNX; full replay with the real model logged |
+| 5. Evaluation & robustness | 17–21 | #16 PVDAQ + faults on real data · #28 drills · tuned-rule comparison · grid-twin keep/drop | error analysis in `team/insights.md` |
+| 6. Demo freeze | 21–24 | README, slides, rehearsal | `lab freeze on` at h22; `make reproduce` on a clean checkout; slides from `lab report --out`; rehearse ×2 |
+
+Optional, only when MUST is on track: #22 wind data, #23 wind faults, #24 wind baselines.
+
+---
+
+## 7. Demo script (3 minutes)
+
+Both runs replay the same test week (identical weather, PV, load, fleet, limits, prices); only the policy differs.
+[Brackets] are filled from logged runs; every panel says "simulated" or "real data (PVDAQ)". Every panel is also
+precomputed, so it can fall back to replay mode if a live step fails.
+
+1. 0:00–0:20 Fleet map: [N] homes on [n] feeders by PV penetration. "Same roofs, same sun, same hour."
+2. 0:20–0:50 Baseline, feeder F7: export crosses the dashed limit at midday; batteries full by late morning.
+   "Every battery did its job locally, and was full before the problem started."
+3. 0:50–1:30 Sentinel, same day: charging held back, concentrated 11:00–14:00; F7 under the limit; discharge
+   18:00–21:00 lowers the evening import. "Same batteries, same energy, different timing."
+4. 1:30–1:55 Flexibility panel: nominal vs available vs committed (P10) vs realised. "We never sell the nominal number."
+5. 1:55–2:30 String failure at site 1042 on F7: band diverges → derated → F7's committed MW drops → work order in
+   tomorrow's top-K with kWh, lei and MW at risk. "O&M is how the pool stays honest."
+6. 2:30–2:50 An unusual new site (OOD) → human review: not in the pool, no work order.
+7. 2:50–3:00 Summary: peak reduction, minutes over limit, P10 hit rate, comfort breaches, lei per home, each with its run ID.
+
+The demo week is picked from the 2025 test year (a sunny late-spring week with congestion). Headline metrics are
+over the whole test year, so the week illustrates; it doesn't prove.
+
+---
+
+## 8. Review notes (v2 reviewed Nov 7; these override the v2 doc)
+
+- **R1 UI**: Windmon React frontend + FastAPI (decided earlier), not Streamlit. The preview reads precomputed
+  `demo/replay/`, so it stays CPU-light.
+- **R2 Wind**: Windmon wind work is OPTIONAL (#22–#24); wind turbines only join the O&M list, never the LP.
+- **R3 Excluded sites still load the feeder**: the LP's feeder constraint includes the forecast net export of
+  non-eligible sites (running their own rule) as a constant. Otherwise excluding a site falsely frees capacity.
+- **R4 Plan vs reality**: the day-ahead plan fixes the commitment. MUST: day-ahead plan + a per-tick feasibility
+  clip in the replay. SHOULD: re-solve every hour with updated SoC and nowcast. Count solves before the night run
+  (15 feeders × 24 re-solves × 7 days ≈ 2.5k solves).
+- **R5 Replay outputs need a path to main**: runs write to the worker's disk, so #29 promotes them with the weights.
+- **R6 CPU runs**: `baseline` and `replay` need a CPU slot and no worker lists one yet. #8 tests `--needs cpu`; if
+  none, ask Andrei to start a worker with `--cpu-slots`, or run them as GPU runs.
+- **R7 Fleet realism**: residential kWp 3–10 (v1's 3–200 was industrial); history generated under the
+  self-consumption rule so SoC telemetry matches the baseline.
+- **R8 Coverage**: the 10–90% band target is 78–82% (v1's 88–92% was inconsistent). Adopted from v2.
+- **Kept from the v1 review**: nowcast reference window of the site's own past power; fault head gets 14-day
+  context; "beats pvlib" is the gate and 20% the stretch; grid-twin power flow may be slow (time 10 steps first; one
+  feeder = phase ID only); ERA5 hourly → 15-min via clear-sky index; OPCOM fallback ENTSO-E; contracts allow
+  dropping in PPC's own data.
+
+### To verify (never claimed as fact)
+
+- Market figures (150k+ prosumers / 1.7+ GW in 2024–25; 400k / 4 GW by 2030).
+- β (export remuneration) and the Romanian compensation scheme; whether residential bills can save at all.
+- Aggregator rules for small residential assets (aFRR/mFRR); unbundling and the legal basis for sharing data
+  between distribution and supply; GDPR consent; the battery control contract.
+- €80–120/home/year in the reference brief has no derivation. We report Σ committed kW(t) × value(t) × share kept,
+  minus degradation and losses, from simulation.
+
+---
+
+## 9. Pitch material (from v2, for slides)
+
+- **Why one agent, not two products**: without the health layer the optimiser silently counts broken sites and
+  over-commits; without the optimiser, fault detection is a dashboard. Every repair returns MW to the pool.
+- **Why a feeder plan, not a smarter home rule**: homes differ; only a feeder plan puts absorption where the
+  headroom is. We benchmark a tuned per-home threshold rule and say so if it comes close.
+- **Physical limit**: when surplus exceeds total battery headroom, we show the residual slack; we don't hide it
+  with curtailment.
+- **No hardware**: a pilot uses vendor cloud APIs or the customer's EMS where write access exists; others are
+  monitor-only with zero committed MW. Hackathon control is simulated, stated openly. A pilot needs 50–100
+  consenting homes on 2–3 congested feeders, vendor permissions, feeder limits from distribution, and a shadow
+  phase (plan, don't dispatch).
+- **Customer**: opt-in, customer-chosen comfort reserve as a hard constraint, override any time, every action logged.
+- **Commercial**: PPC pays; prosumers opt in free. Feeder congestion relief (distribution: avoided capex/opex) is
+  the first pilot value; imbalance cost (supply) is plausible; balancing revenue is not assumed; bill savings are
+  reported, not promised.
+- **Risk answers**: circular pvlib → hidden simulator effects + PVDAQ headline; future weather → noisy forecast
+  inputs; easy synthetic faults → also injected into PVDAQ; London load → sensitivity test; wrong GIS → low trust
+  tightens the limit, flags are review requests; missing telemetry → excluded after a timeout and removed from the
+  commitment; infra failure → LightGBM fallback, contract tests, mock from hour 2, data + weights in the repo,
+  phone hotspot.
+
+---
+
+## 10. Windmon integration
+
+Andrei's Windmon (github.com/Andrei9383/Windmon, PPC HackITall, April 2026): React + TS frontend, Spring Boot API,
+Postgres, Redis, Python ingestion with quality and anomaly rules.
+
+- **Reuse (MUST)**: the React frontend (Leaflet map, detail charts, anomalies and reports pages) as our UI, served
+  by `sentinel/api/` (FastAPI) as the lab preview (#21); pages adapted to feeders, flexibility, O&M queue, review
+  queue and trust layer (#19).
+- **Reuse (OPTIONAL)**: wind turbines as a second O&M asset type: the Windmon tag schema
+  (`<park>.<turbine>.<signal>`), its quality rules and anomaly rules as the wind baseline, and public Kelmarsh /
+  Penmanshiel SCADA (CC-BY-4.0) instead of PPC's private S3 data (#22–#24).
+- **Drop**: Java API, Postgres, Redis, Prometheus/Grafana, docker-compose, DeepSeek.
+- **Copy files only, never Windmon's git history**: it still contains AWS and DeepSeek keys (Andrei notified).
+- **Prior work** is credited in the README and slides; the model, data pipeline, LP and agent are built in these 24 h.
+
+---
+
+## 11. Not doing
+
+- GPVS-Faults; DDP; Optuna; W&B; any external ML API (an LLM is optional and only rewrites text).
+- Curtailing PV to hide violations; balancing-market claims; real battery control.
+- Replacing inverters, EMS or GIS; raw personal data (IDs pseudonymised; public or synthetic data only).
+
+## 12. Lab rules for the 24 h
+
+- Every card has `--paths`; agents never touch each other's files. Contracts and promote cards are `merge=review`;
+  code cards `auto`; training runs `never`.
 - Contract change = `lab announce` + a line in `team/decisions.md`.
-- After every training run: `lab note` + one line in `team/insights.md` (becomes the error-analysis slide).
-- Runs: ≤ 20–30 min each; memory-mapped float16 windows; mixed precision; `--compile` only on server-gpu;
-  cheapest grid configs go to the 4 GB laptop. Every run prints `LAB_METRIC val_nmae=… val_pinball=…
-  val_prauc=… hours_to_detect=…` and writes ONNX + calibration JSON to `$LAB_OUTPUT_DIR`.
+- After every training or replay run: `lab note` + one line in `team/insights.md` (the error-analysis slide).
+- Runs ≤ 20–30 min; memmapped float16 windows; mixed precision; `--compile` only on server-gpu; cheapest grid
+  configs to the 4 GB laptop.
+- Until #21 lands, a failed preview blocks auto-merge: submit with `lab submit <id> --run check`.
 - Keep a phone hotspot ready: every submit and worker fetch goes through GitHub.
 
-## Areas and owners
+## 13. Areas and owners
 
-| Area | Paths | Owner |
-|---|---|---|
-| P1 Data engineering (PV + wind data, Windmon quality rules) | `sentinel/data/**`, `data/**` | tbd |
-| P2 Physics & synthetic, grid-twin | `sentinel/sim/**`, `sentinel/gridtwin/**` | tbd |
-| P3 ML lead / training infra | `sentinel/model/**`, `train.py`, `lab.toml`, `requirements*.txt` | Stefan |
-| P4 Evaluation, uncertainty, explainability | `sentinel/eval/**`, `eval.py` | tbd |
-| P5 Agent, decisions, demo | `sentinel/contracts/**`, `sentinel/agent/**`, `tests/test_contracts.py` | tbd |
-| UI (Windmon frontend + FastAPI) | `web/**`, `sentinel/api/**` | Andrei? |
-| Plan / docs | `team/plan.md`, `team/decisions.md` | yolooo332 |
+| Area | Paths | Cards | Owner |
+|---|---|---|---|
+| P1 Data | `sentinel/data/**`, `data/**` | #8 #9 #10 #28 (+ #22 optional) | tbd |
+| P2 Physics & synthetic, grid-twin | `sentinel/sim/**`, `sentinel/gridtwin/**` | #11 #12 #13 (+ #23 optional) | tbd |
+| P3 ML lead / training infra | `sentinel/model/**`, `train.py`, `lab.toml`, `requirements*.txt`, `models/**` | #6 #14 #29 | Stefan |
+| P4 Evaluation & uncertainty | `sentinel/eval/**`, `eval.py`, `sentinel/opt/commit.py` | #15 #16 #27 (+ #24 optional) | tbd |
+| P5 Agent & optimiser | `sentinel/contracts/**`, `sentinel/agent/**`, `sentinel/opt/**`, `replay.py` | #7 #17 #18 #26 | tbd |
+| UI | `web/**`, `sentinel/api/**`, `demo/**` | #21 #19 | Andrei? |
+| Plan / docs | `team/plan.md`, `team/decisions.md` | #25 | yolooo332 |
