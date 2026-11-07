@@ -1,13 +1,14 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
+import { Sun } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { usePolicy } from "@/demo/use-replay";
 import { STRESS_RAMP } from "@/modes/demand/colors";
 import type { ModeId } from "@/modes/registry";
 
-import { Term } from "./term";
+import { Term } from "@/components/help";
 
 // One legend card per mode, top-left under the top bar as in the prototype. Colours are the
 // status tokens the mode layers use (team/contracts/ui-style.md §2).
@@ -95,7 +96,7 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
         <Row swatch={<Dot tone="bg-status-ok" />}>Working normally</Row>
         <Row swatch={<Dot tone="bg-status-warn" />}>
           <span>
-            Working, but <Term k="derated">derated</Term>
+            Working, but <Term id="derated">derated</Term>
           </span>
         </Row>
         <Row swatch={<Dot tone="bg-status-critical" />}>Stopped</Row>
@@ -108,15 +109,15 @@ export function LegendCard({ mode, className }: { mode: ModeId; className?: stri
       <>
         <Title>Next 24 hours</Title>
         <Row swatch={<Line tone="bg-brand-700/60" />}>Wind at 100 m, moving</Row>
-        <Row swatch={<Dot tone="border-primary" ring />}>Wind park, size = MWh</Row>
-        <Row swatch={<Dot tone="border-brand-500/60" ring />}>County rooftop solar, MWh</Row>
+        <Row swatch={<Dot tone="bg-primary" />}>Wind park, MWh next 24 h</Row>
+        <Row swatch={<Sun aria-hidden className="size-3 text-text-secondary" />}>County rooftop solar, MWh</Row>
       </>
     );
   } else {
     body = (
       <>
         <Title>
-          Evening <Term k="stress">stress</Term>
+          Evening <Term id="stress">stress</Term>
         </Title>
         <Ramp low="low" high="at capacity" />
         <Row swatch={<span aria-hidden className="block size-[9px] rounded-[2px] border border-border bg-sidebar" />}>

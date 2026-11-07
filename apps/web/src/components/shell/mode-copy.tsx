@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import type { ModeId } from "@/modes/registry";
 
-import { Term } from "./term";
+import { Term } from "@/components/help";
 
 export type Provenance = "synthetic" | "real" | "non";
 
@@ -34,8 +34,8 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     heading: "Feeders · peak shaving",
     what: (
       <>
-        Rooftop solar can overload street cables (<Term k="feeder">feeders</Term>) at midday. Sentinel charges
-        home batteries to keep each feeder under its <Term k="limit">limit</Term>.
+        Rooftop solar can overload street cables (<Term id="feeder">feeders</Term>) at midday. Sentinel charges
+        home batteries to keep each feeder under its <Term id="feeder-limit">limit</Term>.
       </>
     ),
     doing: "Plans every home battery a day ahead, then checks the plan held.",
@@ -51,7 +51,7 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     what: "Turbine and solar alarms become a short, ranked to-do list for repair crews.",
     doing: (
       <>
-        Ranks faults by lost energy and lei a day; unsure cases go to <Term k="review">human review</Term>.
+        Ranks faults by lost energy and lei a day; unsure cases go to <Term id="human-review">human review</Term>.
       </>
     ),
     look: "Red and purple dots on the map, then the top of the work-order list.",
@@ -65,7 +65,7 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     heading: "Production · forecast",
     what: (
       <>
-        How much wind and solar power is coming, with a likely range (<Term k="p10">P10–P90</Term>).
+        How much wind and solar power is coming, with a likely range (<Term id="forecast-band">P10–P90</Term>).
       </>
     ),
     doing: "Forecasts the next 24 hours for each park and each county's rooftop solar.",
@@ -81,7 +81,7 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     what: "Where electricity use will peak this evening, county by county.",
     doing: (
       <>
-        Forecasts demand per county and feeder and scores its <Term k="stress">stress</Term>.
+        Forecasts demand per county and feeder and scores its <Term id="stress">stress</Term>.
       </>
     ),
     look: "The darkest counties on the map and the peak hour beside each.",

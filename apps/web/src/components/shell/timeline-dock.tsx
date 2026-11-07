@@ -19,7 +19,7 @@ import { type Policy, usePolicy, useReplayStep } from "@/demo/use-replay";
 
 import { ACTION_LABEL, type ActionKind, groupMarkers, useAgentActions } from "./agent-actions";
 import { showAgentToast } from "./agent-toast";
-import { Term } from "./term";
+import { Term } from "@/components/help";
 
 // The story's "now": the hero day at noon, where the demo starts and "Back to now" returns.
 const NOW_STEP = DEFAULT_STEP;
@@ -56,7 +56,7 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
     { value: "sentinel", label: "Sentinel", dot: "bg-primary" },
   ];
   return (
-    <div role="radiogroup" aria-label="Policy shown" className="relative flex rounded-[9px] bg-muted p-[3px]">
+    <div role="radiogroup" aria-label="Policy shown" data-tour="policy" className="relative flex rounded-[9px] bg-muted p-[3px]">
       <span
         aria-hidden
         className={cn(
@@ -72,7 +72,7 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
           aria-checked={policy === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "relative z-[1] flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[7px] px-3 text-[13px] font-medium whitespace-nowrap transition-colors duration-200",
+            "relative z-[1] flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[7px] px-2.5 text-[13px] min-[1440px]:px-3 font-medium whitespace-nowrap transition-colors duration-200",
             policy === option.value ? "text-foreground" : "text-text-secondary hover:text-foreground",
           )}
         >
@@ -157,12 +157,13 @@ export function TimelineDock({ className }: { className?: string }) {
     ? "Replaying"
     : offset === 0
       ? "Story now"
-      : `${offset < 0 ? "−" : "+"}${relative} from now`;
+      : `${offset < 0 ? "−" : "+"}${relative}`;
 
   return (
     <div
+      data-tour="timeline"
       className={cn(
-        "flex items-center gap-4 rounded-xl border border-border bg-card/95 px-4 pt-3 pb-2.5 shadow-card",
+        "flex items-center gap-3 rounded-xl border border-border bg-card/95 px-3.5 pt-3 pb-2.5 shadow-card min-[1440px]:gap-4 min-[1440px]:px-4",
         className,
       )}
     >
@@ -175,8 +176,8 @@ export function TimelineDock({ className }: { className?: string }) {
         {playing ? <Pause aria-hidden className="size-4 fill-current" /> : <Play aria-hidden className="size-4 translate-x-px fill-current" />}
       </button>
 
-      <div className="w-[128px] shrink-0">
-        <b className="block font-mono text-[15px] leading-tight font-semibold tracking-tighter whitespace-nowrap text-foreground tabular-nums">
+      <div className="w-[118px] shrink-0 min-[1440px]:w-[136px]">
+        <b className="block font-mono text-[13px] leading-tight font-semibold tracking-tighter min-[1440px]:text-[15px] whitespace-nowrap text-foreground tabular-nums">
           {clockLabel(step)}
         </b>
         <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-muted-foreground">
@@ -188,7 +189,7 @@ export function TimelineDock({ className }: { className?: string }) {
               onClick={() => setStep(NOW_STEP)}
               className="font-medium text-brand-700 hover:underline focus-visible:underline focus-visible:outline-none"
             >
-              · back
+              · back<span className="hidden min-[1440px]:inline"> to now</span>
             </button>
           ) : null}
         </span>
@@ -200,7 +201,7 @@ export function TimelineDock({ className }: { className?: string }) {
           <span className="font-medium tracking-[0.04em] whitespace-nowrap text-muted-foreground uppercase">
             Agent actions{agentOn ? "" : " · none in Baseline"}
           </span>
-          <span className="hidden min-w-0 items-center gap-2 overflow-hidden text-text-secondary min-[1400px]:flex">
+          <span className="hidden min-w-0 items-center gap-1.5 overflow-hidden text-text-secondary min-[1400px]:flex">
             {(Object.keys(ACTION_LABEL) as ActionKind[]).map((kind) => (
               <span key={kind} className="flex items-center gap-1 whitespace-nowrap">
                 <Marker kind={kind} className="size-2" />
@@ -304,7 +305,8 @@ export function TimelineDock({ className }: { className?: string }) {
                 )}
                 style={{ left: pct(day * STEPS_PER_DAY) }}
               >
-                {dayLabel(day)}
+                <span className="min-[1440px]:hidden">{dayLabel(day).split(" ")[0]}</span>
+                <span className="hidden min-[1440px]:inline">{dayLabel(day)}</span>
               </button>
             </span>
           ))}
@@ -314,7 +316,7 @@ export function TimelineDock({ className }: { className?: string }) {
       <div className="flex shrink-0 flex-col items-end gap-1">
         <PolicySwitch policy={policy} onChange={setPolicy} />
         <span className="text-[11px] whitespace-nowrap text-muted-foreground">
-          <Term k="baseline">Baseline</Term> = without Sentinel · space plays
+          <Term id="baseline">Baseline</Term> = without Sentinel<span className="hidden min-[1440px]:inline"> · space plays</span>
         </span>
       </div>
     </div>

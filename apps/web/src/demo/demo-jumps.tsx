@@ -120,7 +120,7 @@ export function DemoPopover() {
   const steps = [...JUMPS.map(({ title, note }) => ({ title, note })), SUMMARY_STEP];
 
   return (
-    <div ref={root} className="relative flex">
+    <div ref={root} data-tour="demo" className="relative flex">
       <button
         type="button"
         aria-expanded={open}

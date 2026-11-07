@@ -38,7 +38,7 @@ export function KpiChips() {
       {chips.map(({ title, value, digits, unit }) => (
         <div
           key={title}
-          className="flex shrink-0 flex-col justify-center border-r border-border px-3.5 py-1.5 whitespace-nowrap last:border-r-0"
+          className="flex shrink-0 flex-col justify-center border-r border-border px-2.5 py-1.5 min-[1440px]:px-3.5 whitespace-nowrap last:border-r-0"
         >
           <span className="text-[10px] font-medium tracking-[0.04em] text-muted-foreground uppercase">{title}</span>
           <span className="text-base leading-snug font-semibold text-foreground tabular-nums">

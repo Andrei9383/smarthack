@@ -19,7 +19,7 @@ export function ProvenanceBadge({ sources, className }: { sources: [Provenance, 
     <div
       tabIndex={0}
       className={cn(
-        "group relative flex cursor-default items-center gap-2 rounded-xl border border-border bg-card/95 px-3.5 text-xs font-medium whitespace-nowrap text-foreground shadow-card outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "group relative flex cursor-default items-center gap-2 rounded-xl border border-border bg-card/95 px-3 text-xs font-medium whitespace-nowrap min-[1440px]:px-3.5 text-foreground shadow-card outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         className,
       )}
     >
@@ -28,7 +28,8 @@ export function ProvenanceBadge({ sources, className }: { sources: [Provenance, 
           <span key={kind} aria-hidden className={cn("size-2 rounded-full", DOT[kind])} />
         ))}
       </span>
-      {kinds.map((kind) => PROVENANCE_TEXT[kind].label).join(" · ")}
+      <span className="hidden min-[1440px]:inline">{kinds.map((kind) => PROVENANCE_TEXT[kind].label).join(" · ")}</span>
+      <span className="min-[1440px]:hidden">{PROVENANCE_TEXT[kinds[0] ?? "synthetic"].label}{kinds.length > 1 ? ` +${kinds.length - 1}` : ""}</span>
       <div
         role="tooltip"
         className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-50 w-[300px] -translate-y-1 rounded-xl border border-border bg-card p-3.5 whitespace-normal opacity-0 shadow-[0_1px_2px_rgb(13_13_13/0.05),0_16px_40px_rgb(13_13_13/0.10)] transition-[opacity,transform] duration-200 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:transition-none"

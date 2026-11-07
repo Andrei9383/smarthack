@@ -5,6 +5,7 @@ import { cn } from "@sentinel-app/ui/lib/utils";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { useCallback, useEffect, useState } from "react";
 
+import { defaultTourSteps, Tour, useTour } from "@/components/help";
 import { PROVENANCE_PILL_CLASS } from "@/components/provenance-pill";
 import { AgentToast } from "@/components/shell/agent-toast";
 import { Inspector } from "@/components/shell/inspector";
@@ -32,8 +33,8 @@ const MOVE_MODE_LEGEND =
 const HIDE_MODE_LEGEND = "[&_.maplibregl-map>div.pointer-events-none.bg-card]:hidden";
 
 // Inspector width and the gap the map-side surfaces (dock, map controls) keep from it.
-const INSPECTOR_W = "w-[368px] min-[1440px]:w-[392px]";
-const BESIDE_INSPECTOR = "right-[400px] min-[1440px]:right-[424px]";
+const INSPECTOR_W = "w-[352px] min-[1440px]:w-[392px]";
+const BESIDE_INSPECTOR = "right-[384px] min-[1440px]:right-[424px]";
 
 // Renders inside <Map> so it can style the basemap once it has loaded.
 function RomaniaFocus() {
@@ -87,10 +88,17 @@ export function AppShell() {
   const [flexOpen] = useFlexOpen();
   const hasFlex = mode === "feeders" || mode === "om";
   const flexShown = hasFlex && flexOpen;
+  const tour = useTour();
 
   return (
     <div className="flex h-svh w-full overflow-hidden bg-background text-foreground">
-      <Rail mode={mode} onMode={(id) => setMode(id)} expanded={railExpanded} onToggle={toggleRail} />
+      <Rail
+        mode={mode}
+        onMode={(id) => setMode(id)}
+        expanded={railExpanded}
+        onToggle={toggleRail}
+        onHelp={tour.start}
+      />
 
       <main
         className={cn(
@@ -98,6 +106,8 @@ export function AppShell() {
           flexShown ? HIDE_MODE_LEGEND : MOVE_MODE_LEGEND,
         )}
       >
+        {/* The tour's "map" target: the free map area between the floating surfaces. */}
+        <div data-tour="map" aria-hidden className="pointer-events-none absolute top-[76px] bottom-[116px] left-[208px] right-[384px] min-[1440px]:right-[424px]" />
         {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
         <Map
           key={offline ? "offline" : "online"}
@@ -150,7 +160,7 @@ export function AppShell() {
         <TimelineDock className={cn("absolute bottom-4 left-4 z-20", BESIDE_INSPECTOR)} />
 
         {offline ? (
-          <span className={cn(PROVENANCE_PILL_CLASS, "absolute bottom-[236px] z-10 bg-card shadow-card", BESIDE_INSPECTOR)}>
+          <span className={cn(PROVENANCE_PILL_CLASS, "absolute bottom-[116px] left-4 z-10 bg-card shadow-card")}>
             Offline basemap
           </span>
         ) : null}
@@ -158,6 +168,7 @@ export function AppShell() {
       </main>
       <SiteSheet />
       <TurbineSheet />
+      <Tour steps={defaultTourSteps} open={tour.open} onOpenChange={tour.onOpenChange} />
     </div>
   );
 }

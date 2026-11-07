@@ -7,7 +7,7 @@ import { type ReactNode, useMemo } from "react";
 
 import { groupMarkers, useAgentActions, useExplainAction } from "@/components/shell/agent-actions";
 import { CountUp } from "@/components/shell/count-up";
-import { Term } from "@/components/shell/term";
+import { Term } from "@/components/help";
 import { KIND_STYLE } from "@/components/shell/agent-toast";
 import { clampStep, dayLabel, dayOfStep, timeLabel, tsToStep } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
@@ -160,7 +160,7 @@ export function OverviewPanel() {
         text: (
           <>
             <b className="font-semibold">{plural(data.waiting.length, "case")}</b> waiting for{" "}
-            <Term k="review">a person</Term> to check
+            <Term id="human-review">a person</Term> to check
           </>
         ),
         go: () => go({ mode: "om", omTab: "review", site: null, turbine: null }),
@@ -306,7 +306,7 @@ export function OverviewPanel() {
               )}
             </div>
             <p className="mt-1.5 text-xs text-text-secondary">
-              over the <Term k="limit">limit</Term>, all feeders
+              over the <Term id="feeder-limit">limit</Term>, all feeders
               {minutes.baseline !== undefined ? (
                 <>
                   {" "}
@@ -320,13 +320,17 @@ export function OverviewPanel() {
         {!sentinel ? (
           <p className="mt-2 text-xs text-text-secondary">Switch the dock to Sentinel to compare.</p>
         ) : null}
-        <table className="mt-4 w-full text-[13px]">
+        <table className="mt-4 w-full table-fixed text-[13px]">
           <thead>
             <tr className="text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase">
               <th className="pb-1.5 text-left font-medium" />
-              <th className="pb-1.5 text-right font-medium">Baseline</th>
-              <th className="pb-1.5 text-right font-medium text-foreground">Sentinel</th>
-              <th className="w-14 pb-1.5" />
+              <th className="w-[72px] pb-1.5 text-right font-medium">
+                <Term id="baseline" more={false}>Baseline</Term>
+              </th>
+              <th className="w-[72px] pb-1.5 text-right font-medium text-foreground">
+                <Term id="sentinel" more={false}>Sentinel</Term>
+              </th>
+              <th className="w-[60px] pb-1.5" />
             </tr>
           </thead>
           <tbody className="divide-y divide-border border-t border-border">
@@ -346,7 +350,7 @@ export function OverviewPanel() {
             </tr>
             <tr>
               <td className="py-2 pr-2 whitespace-nowrap text-text-secondary">
-                Comfort breaches <span className="text-muted-foreground">· week</span>
+                <Term id="comfort-reserve">Comfort breaches</Term> <span className="text-muted-foreground">· week</span>
               </td>
               <td className="py-2 text-right text-text-secondary tabular-nums">
                 {data.comfort.baseline === undefined ? "—" : Math.round(data.comfort.baseline)}

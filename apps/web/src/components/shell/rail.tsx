@@ -2,7 +2,7 @@
 
 import { cn } from "@sentinel-app/ui/lib/utils";
 import { BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import { useSummaryOpen } from "@/demo/demo-jumps";
 import { useOverview } from "@/demo/kpi-strip";
@@ -10,9 +10,6 @@ import { ReplayStatus } from "@/demo/replay-bar";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 import { MODE_COPY } from "./mode-copy";
-
-/** Event the help slot fires; card #114's tour calls preventDefault() when it opens itself. */
-export const HELP_EVENT = "sentinel:help";
 
 function RailItem({
   active,
@@ -66,56 +63,19 @@ function RailItem({
   );
 }
 
-function HelpButton({ expanded }: { expanded: boolean }) {
-  const [hint, setHint] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-label="Help: how to read this screen"
-        title="How to read this screen"
-        onClick={() => {
-          // SLOT for #114: the tour listens for HELP_EVENT. Until it lands, show a short hint.
-          const unhandled = window.dispatchEvent(new CustomEvent(HELP_EVENT, { cancelable: true }));
-          if (unhandled) {
-            setHint(true);
-            clearTimeout(timer.current);
-            timer.current = setTimeout(() => setHint(false), 6000);
-          }
-        }}
-        className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-sidebar hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-      >
-        <CircleHelp aria-hidden className="size-[18px]" />
-      </button>
-      {hint ? (
-        <div
-          role="status"
-          className={cn(
-            "fixed bottom-3 z-50 w-64 rounded-xl border border-border bg-card p-3 text-xs leading-snug text-text-secondary shadow-card",
-            expanded ? "left-[240px]" : "left-16",
-          )}
-        >
-          <b className="mb-1 block text-[13px] font-semibold text-foreground">How to read this screen</b>
-          Left: pick a view. Middle: the map. Right: what it means. Bottom: play the test week and see each agent
-          action. Words with a dotted underline explain themselves on hover.
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function Rail({
   mode,
   onMode,
   expanded,
   onToggle,
+  onHelp,
 }: {
   mode: ModeId;
   onMode: (mode: ModeId) => void;
   expanded: boolean;
   onToggle: () => void;
+  /** Opens the guided tour (#114). */
+  onHelp: () => void;
 }) {
   const [summaryOpen, setSummaryOpen] = useSummaryOpen();
   const { label } = useOverview();
@@ -123,6 +83,7 @@ export function Rail({
   return (
     <nav
       aria-label="Views"
+      data-tour="rail"
       className={cn(
         "relative z-40 flex h-full shrink-0 flex-col gap-1 overflow-hidden border-r border-border bg-card px-2 py-2.5 transition-[width] duration-200 ease-out motion-reduce:transition-none",
         expanded ? "w-[232px]" : "w-14",
@@ -175,7 +136,15 @@ export function Rail({
             <ReplayStatus runLabel={label} />
           </div>
         ) : null}
-        <HelpButton expanded={expanded} />
+        <button
+          type="button"
+          onClick={onHelp}
+          aria-label="Show the tour"
+          title="Show the tour: how to read this screen"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-sidebar hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <CircleHelp aria-hidden className="size-[18px]" />
+        </button>
         <button
           type="button"
           onClick={onToggle}

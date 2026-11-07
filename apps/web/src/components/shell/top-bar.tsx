@@ -20,7 +20,7 @@ export function TopBar({ mode, className }: { mode: ModeId; className?: string }
         <h1 className="text-base leading-tight font-semibold whitespace-nowrap text-foreground">{MODES[mode].label}</h1>
         <p className="truncate text-xs text-text-secondary">{copy.descriptor}</p>
       </div>
-      <div className={cn(FLOAT, "flex min-w-0 shrink")}>
+      <div data-tour="kpis" className={cn(FLOAT, "flex min-w-0 shrink")}>
         <KpiChips />
       </div>
       <div className="ml-auto flex shrink-0 items-stretch gap-2.5">

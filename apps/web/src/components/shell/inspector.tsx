@@ -1,7 +1,10 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
+import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+
+import { HowItDecides } from "@/components/help";
 
 import { ProvenancePill } from "@/components/provenance-pill";
 import { useOverview } from "@/demo/kpi-strip";
@@ -42,6 +45,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
   return (
     <aside
       aria-label={`${MODES[mode].label} details`}
+      data-tour="inspector"
       className={cn(
         "flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_2px_rgb(13_13_13/0.05),0_16px_40px_rgb(13_13_13/0.10)]",
         className,
@@ -73,6 +77,19 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
             </dl>
           </section>
         ) : null}
+
+        {/* #114: the agent loop for this mode, one click away so the live content stays on top. */}
+        <details className="group/how border-b border-border">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-sidebar focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+            <ChevronRight
+              aria-hidden
+              className="size-4 text-muted-foreground transition-transform duration-150 group-open/how:rotate-90"
+            />
+            How Sentinel decides
+            <span className="ml-auto text-[11px] font-normal whitespace-nowrap text-muted-foreground">4 steps</span>
+          </summary>
+          <HowItDecides mode={mode} title="The agent's loop" className="px-5 pt-1 pb-4" />
+        </details>
 
         <div className={PANEL_IN_INSPECTOR}>{children}</div>
       </div>

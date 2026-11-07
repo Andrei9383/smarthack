@@ -14,7 +14,7 @@ export const ROMANIA_BOUNDS: [[number, number], [number, number]] = [
 /** Fits all of Romania into the map area the floating surfaces leave free. */
 export function fitRomania(map: MapLibreMap, duration = 400) {
   const width = map.getContainer().clientWidth;
-  const want = { top: 92, bottom: 132, left: width >= 1000 ? 196 : 24, right: width >= 1000 ? 452 : 24 };
+  const want = { top: 92, bottom: 132, left: width >= 1000 ? 196 : 24, right: width >= 1000 ? (width >= 1180 ? 452 : 412) : 24 };
   // fitBounds adds its padding on top of the map's own (modes keep a right padding for the
   // inspector), so pass only what is still missing.
   const has = map.getPadding();
