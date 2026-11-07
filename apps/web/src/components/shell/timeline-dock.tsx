@@ -13,7 +13,7 @@ import {
   useState,
 } from "react";
 
-import { LiveDot, setPlaying, useReplayPlaying, useReplayTicker } from "@/demo/replay-bar";
+import { setPlaying, useReplayPlaying, useReplayTicker } from "@/demo/replay-bar";
 import {
   clampStep,
   clockLabel,
@@ -27,8 +27,11 @@ import {
 } from "@/demo/replay";
 import { type Policy, usePolicy, useReplayStep } from "@/demo/use-replay";
 
+import { StatusMark } from "@/components/brand/status-mark";
+
 import {
   ACTION_LABEL,
+  ACTION_MARK,
   type ActionBucket,
   type ActionKind,
   type ActionMarker,
@@ -48,13 +51,6 @@ const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName));
 
-// Marker shape and colour per action type; the same pair is used in the lane key.
-const MARKER: Record<ActionKind, string> = {
-  dispatch: "rounded-full bg-primary",
-  workorder: "rounded-[3px] bg-status-warn",
-  review: "rotate-45 rounded-[2px] bg-status-review",
-  remote: "rounded-full border-2 border-status-forecast bg-card",
-};
 
 // Short words for the lane key; markers and toasts use the full ACTION_LABEL.
 const LANE_KEY: Record<ActionKind, string> = {
@@ -75,21 +71,22 @@ const CHIP: Record<ActionKind, string> = {
 // Half-day buckets once each would get this many pixels; below that, one bucket per day.
 const HALF_DAY_MIN_PX = 34;
 
+// Shape and colour per action type (ACTION_MARK); the same mark is used in the lane key.
 function Marker({ kind, className }: { kind: ActionKind; className?: string }) {
-  return <span aria-hidden className={cn("block size-2.5 shrink-0", MARKER[kind], className)} />;
+  return <StatusMark kind={ACTION_MARK[kind]} size="xs" className={className} />;
 }
 
 function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Policy) => void }) {
-  const options: { value: Policy; label: string; dot: string }[] = [
-    { value: "baseline", label: "Baseline", dot: "bg-foreground/55" },
-    { value: "sentinel", label: "Sentinel", dot: "bg-primary" },
+  const options: { value: Policy; label: string }[] = [
+    { value: "baseline", label: "Baseline" },
+    { value: "sentinel", label: "Sentinel" },
   ];
   return (
     <div role="radiogroup" aria-label="Policy shown" data-tour="policy" className="relative flex rounded-[9px] bg-muted p-[3px]">
       <span
         aria-hidden
         className={cn(
-          "absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-[7px] bg-card shadow-[0_1px_2px_rgb(13_13_13/0.1)] transition-[left] duration-250 ease-out motion-reduce:transition-none",
+          "absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-[7px] bg-card shadow-raised transition-[left] duration-250 ease-out motion-reduce:transition-none",
           policy === "baseline" ? "left-[3px]" : "left-1/2",
         )}
       />
@@ -105,7 +102,7 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
             policy === option.value ? "text-foreground" : "text-text-secondary hover:text-foreground",
           )}
         >
-          <span aria-hidden className={cn("size-2 rounded-full", option.dot)} />
+          <StatusMark kind={option.value === "sentinel" ? "ok" : "unknown"} size="xs" />
           {option.label}
         </button>
       ))}
@@ -217,7 +214,7 @@ function ActionLane({
                 <div
                   role="group"
                   aria-label={`Agent actions, ${bucketLabel(bucket)}`}
-                  className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_2px_rgb(13_13_13/0.05),0_16px_40px_rgb(13_13_13/0.10)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-150"
+                  className="overflow-hidden rounded-xl bg-card shadow-overlay motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-150"
                 >
                   <div className="flex items-baseline justify-between gap-3 border-b border-border px-3 py-2">
                     <span className="font-mono text-[11px] font-semibold whitespace-nowrap text-foreground tabular-nums">
@@ -254,7 +251,7 @@ function ActionLane({
                             <span className="pt-px font-mono text-[11px] text-muted-foreground tabular-nums">
                               {timeLabel(group.step)}
                             </span>
-                            <Marker kind={group.kind} className="mt-[3px] size-2" />
+                            <Marker kind={group.kind} className="mt-[3px]" />
                             <span className="min-w-0">
                               <span className="line-clamp-2 text-foreground">{first.title}</span>
                               {more > 0 ? (
@@ -278,8 +275,11 @@ function ActionLane({
   );
 }
 
-/** The bottom dock: play, SCADA clock, the week scrubber with the agent-actions lane, policy. */
-export function TimelineDock({ className }: { className?: string }) {
+/**
+ * The bottom dock: play, SCADA clock, the week scrubber with the agent-actions lane, policy.
+ * `compact` (Overview page) keeps play, clock, scrubber and policy and drops the lane and footnote.
+ */
+export function TimelineDock({ className, compact = false }: { className?: string; compact?: boolean }) {
   useReplayTicker();
   const [rawStep, setStep] = useReplayStep();
   const [policy, setPolicy] = usePolicy();
@@ -357,7 +357,8 @@ export function TimelineDock({ className }: { className?: string }) {
     <div
       data-tour="timeline"
       className={cn(
-        "flex items-center gap-2.5 rounded-xl border border-border bg-card/95 px-3 pt-2.5 pb-2 shadow-card min-[1440px]:gap-4 min-[1440px]:px-4",
+        "flex items-center gap-2.5 rounded-xl bg-card/95 px-3 shadow-floating backdrop-blur-sm min-[1440px]:gap-4 min-[1440px]:px-4",
+        compact ? "py-2" : "pt-2.5 pb-2",
         className,
       )}
     >
@@ -365,7 +366,10 @@ export function TimelineDock({ className }: { className?: string }) {
         type="button"
         aria-label={playing ? "Pause the replay" : "Play the replay"}
         onClick={() => setPlaying((value) => !value)}
-        className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-brand-700 active:scale-95"
+        className={cn(
+          "grid shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-150 hover:bg-brand-700 active:scale-95",
+          compact ? "size-9" : "size-10",
+        )}
       >
         {playing ? <Pause aria-hidden className="size-4 fill-current" /> : <Play aria-hidden className="size-4 translate-x-px fill-current" />}
       </button>
@@ -375,7 +379,7 @@ export function TimelineDock({ className }: { className?: string }) {
           {clockLabel(step)}
         </b>
         <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-muted-foreground">
-          <LiveDot playing={playing} />
+          <StatusMark kind={playing ? "live" : "unknown"} size="xs" pulse={playing} />
           {status}
           {!playing && offset !== 0 ? (
             <button
@@ -391,6 +395,8 @@ export function TimelineDock({ className }: { className?: string }) {
 
       <div className="@container relative min-w-0 flex-1 select-none">
         {/* Agent actions lane. The key drops to normal case, then hides, so it never clips. */}
+        {compact ? null : (
+        <>
         <div className="mb-0.5 flex h-3 items-center justify-between gap-2 text-[10px] leading-none">
           <span className="font-medium whitespace-nowrap text-muted-foreground @min-[294px]:tracking-[0.04em] @min-[294px]:uppercase">
             Agent actions{agentOn ? "" : " · none in Baseline"}
@@ -403,7 +409,7 @@ export function TimelineDock({ className }: { className?: string }) {
           >
             {(Object.keys(ACTION_LABEL) as ActionKind[]).map((kind) => (
               <span key={kind} className="flex items-center gap-1 whitespace-nowrap">
-                <Marker kind={kind} className="size-[7px]" />
+                <Marker kind={kind} />
                 {LANE_KEY[kind]}
               </span>
             ))}
@@ -432,6 +438,8 @@ export function TimelineDock({ className }: { className?: string }) {
           </span>
           <span className="absolute top-0.5 bottom-0 -ml-px w-0.5 rounded-t-full bg-foreground/55" style={{ left: pct(NOW_STEP) }} />
         </div>
+        </>
+        )}
 
         {/* Track */}
         <div
@@ -514,9 +522,11 @@ export function TimelineDock({ className }: { className?: string }) {
 
       <div className="flex shrink-0 flex-col items-end gap-1">
         <PolicySwitch policy={policy} onChange={setPolicy} />
-        <span className="text-[11px] whitespace-nowrap text-muted-foreground">
-          <Term id="baseline">Baseline</Term> = without Sentinel<span className="hidden min-[1440px]:inline"> · space plays</span>
-        </span>
+        {compact ? null : (
+          <span className="text-[11px] whitespace-nowrap text-muted-foreground">
+            <Term id="baseline">Baseline</Term> = without Sentinel<span className="hidden min-[1440px]:inline"> · space plays</span>
+          </span>
+        )}
       </div>
     </div>
   );
