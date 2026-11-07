@@ -1,0 +1,41 @@
+{
+ "a": 1.4407,
+ "b": 0.7204,
+ "ratio_a_over_b": 2.0,
+ "q_star": 0.6667,
+ "target_lei_per_mwh_injected": 287.5,
+ "band_lei_per_mwh_injected": [
+  200.0,
+  375.0
+ ],
+ "calibration": {
+  "year": 2024,
+  "policy": "profile (minimal stand-in, see sentinel.eval.imbalance.profile_position; I3 #173 not merged)",
+  "fleet": "fleet-95a35657eb80",
+  "n_homes": 600,
+  "kwp": 3553.7,
+  "injected_mwh": 2607.0,
+  "net_import_mwh": -745.24,
+  "abs_dev_mwh": 1555.73,
+  "short_mwh": 748.3,
+  "long_mwh": 807.43,
+  "avoidable_lei": 749513.0,
+  "lei_per_mwh_injected": 287.5
+ },
+ "labels": {
+  "prices": "real RO (OPCOM PZU, hourly x4 before 2025-10-01)",
+  "portfolio": "synthetic RO",
+  "imbalance_price": "proxy: PZU +- a|b x |PZU|",
+  "target": "real RO (AFEER, public)"
+ },
+ "formula": "imbalance = a*|pzu|*short + b*|pzu|*long; intraday = traded_id*(pi-pzu)",
+ "check": {
+  "year": 2025,
+  "injected_mwh": 2500.48,
+  "abs_dev_mwh": 1616.42,
+  "avoidable_lei": 863414.0,
+  "lei_per_mwh_injected": 345.3,
+  "note": "same frozen a, b on the test year; not used to fit"
+ },
+ "lab_run": "train_cpu#725 (python -m sentinel.eval.imbalance --calibrate; identical to the local run)"
+}
