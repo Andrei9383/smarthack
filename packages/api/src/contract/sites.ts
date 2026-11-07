@@ -12,12 +12,12 @@ export const siteDetailSchema = z.object({
   batteryKwh: z.number().nullable().optional(),
   status: z.string(),
   reason: z.string().optional(),
+  gisTrust: z.enum(["ok", "low"]).nullable().optional(),
 });
 export type SiteDetail = z.infer<typeof siteDetailSchema>;
 
 export const siteTelemetryPointSchema = z.object({
-  ts: z.number(),
-  step: z.number(),
+  ts: z.string(),
   pvAcKw: z.number().nullable().optional(),
   loadKw: z.number().nullable().optional(),
   battKw: z.number().nullable().optional(),
@@ -25,9 +25,17 @@ export const siteTelemetryPointSchema = z.object({
 });
 export type SiteTelemetryPoint = z.infer<typeof siteTelemetryPointSchema>;
 
+export const assetStepPointSchema = z.object({
+  ts: z.string(),
+  actualKw: z.number().nullable().optional(),
+  q10Kw: z.number().nullable().optional(),
+  q50Kw: z.number().nullable().optional(),
+  q90Kw: z.number().nullable().optional(),
+});
+export type AssetStepPoint = z.infer<typeof assetStepPointSchema>;
+
 export const sitePredictionPointSchema = z.object({
-  ts: z.number(),
-  step: z.number(),
+  ts: z.string(),
   q10Kw: z.number(),
   q50Kw: z.number(),
   q90Kw: z.number(),
@@ -42,6 +50,9 @@ export const sitesContract = {
   getTelemetry: oc
     .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
     .output(z.array(siteTelemetryPointSchema)),
+  getSteps: oc
+    .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
+    .output(z.array(assetStepPointSchema)),
   getPredictions: oc
     .input(z.object({ assetId: z.string(), runId: z.string().optional() }))
     .output(z.array(sitePredictionPointSchema)),

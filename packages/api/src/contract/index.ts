@@ -86,6 +86,7 @@ export const stubSitesRouter = {
     status: "eligible",
   })),
   getTelemetry: publicProcedure.handler(() => []),
+  getSteps: publicProcedure.handler(() => []),
   getPredictions: publicProcedure.handler(() => []),
 };
 

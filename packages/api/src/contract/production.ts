@@ -11,12 +11,13 @@ export type WindfieldMeta = z.infer<typeof windfieldMetaSchema>;
 
 export const parkForecastItemSchema = z.object({
   parkId: z.string(),
-  t: z.number(),
-  step: z.number(),
+  ts: z.string(),
   p10Mw: z.number().nullable().optional(),
   p50Mw: z.number().nullable().optional(),
   p90Mw: z.number().nullable().optional(),
   expectedMwh: z.number().nullable().optional(),
+  availabilityPct: z.number().nullable().optional(),
+  curtailedMwh: z.number().nullable().optional(),
 });
 export type ParkForecastItem = z.infer<typeof parkForecastItemSchema>;
 
@@ -33,7 +34,7 @@ export const productionContract = {
     .input(
       z
         .object({
-          t: z.number().optional(),
+          ts: z.string().optional(),
           runId: z.string().optional(),
         })
         .optional(),

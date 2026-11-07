@@ -3,13 +3,15 @@ import { z } from "zod";
 
 export const zoneDemandItemSchema = z.object({
   zoneId: z.string(),
-  zoneType: z.string(),
+  level: z.string(),
   zoneName: z.string(),
+  ts: z.string(),
   p50Mw: z.number(),
-  p10Mw: z.number().nullable().optional(),
-  p90Mw: z.number().nullable().optional(),
+  q10Mw: z.number().nullable().optional(),
+  q90Mw: z.number().nullable().optional(),
   peakStress: z.number(),
   isPeakHour: z.number(),
+  label: z.string(),
 });
 export type ZoneDemandItem = z.infer<typeof zoneDemandItemSchema>;
 
@@ -27,9 +29,9 @@ export const demandContract = {
     .input(
       z
         .object({
-          zoneType: z.string().optional(),
+          level: z.string().optional(),
           runId: z.string().optional(),
-          t: z.number().optional(),
+          ts: z.string().optional(),
         })
         .optional(),
     )

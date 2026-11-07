@@ -7,30 +7,32 @@ export const feederSummarySchema = z.object({
   county: z.string(),
   locality: z.string(),
   limitKw: z.number(),
-  installedPvKw: z.number(),
-  installedBattKwh: z.number(),
-  gisTrust: z.string().default("high"),
+  gMaxKw: z.number().nullable().optional(),
+  gConservativeKw: z.number().nullable().optional(),
+  tau: z.number().nullable().optional(),
+  gisTrust: z.enum(["ok", "low"]).nullable().optional(),
+  geometryJson: z.string().nullable().optional(),
 });
 export type FeederSummary = z.infer<typeof feederSummarySchema>;
 
 export const feederCurvePointSchema = z.object({
-  t: z.number(),
-  step: z.number(),
+  ts: z.string(),
   exportKw: z.number(),
   importKw: z.number().default(0),
   limitKw: z.number(),
   slackKw: z.number(),
   policy: z.string(),
+  isViolation: z.number().default(0),
 });
 export type FeederCurvePoint = z.infer<typeof feederCurvePointSchema>;
 
 export const commitmentPointSchema = z.object({
-  t: z.number(),
-  step: z.number(),
+  ts: z.string(),
   nominalKw: z.number(),
   availableKw: z.number(),
   committedKw: z.number(),
   realisedKw: z.number().nullable().optional(),
+  hitP10: z.number().nullable().optional(),
 });
 export type CommitmentPoint = z.infer<typeof commitmentPointSchema>;
 

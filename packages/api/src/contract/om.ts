@@ -10,28 +10,31 @@ export const assetListItemSchema = z.object({
   reason: z.string(),
   county: z.string(),
   locality: z.string().nullable().optional(),
+  gisTrust: z.enum(["ok", "low"]).nullable().optional(),
 });
 export type AssetListItem = z.infer<typeof assetListItemSchema>;
 
 export const alertItemSchema = z.object({
-  id: z.string(),
+  actionId: z.string(),
   assetId: z.string().nullable().optional(),
   parkId: z.string().nullable().optional(),
   feederId: z.string().nullable().optional(),
   severity: z.string(),
-  kind: z.string(),
+  code: z.string(),
   message: z.string(),
-  ts: z.number(),
+  ts: z.string(),
+  curtailedMwh: z.number().nullable().optional(),
 });
 export type AlertItem = z.infer<typeof alertItemSchema>;
 
 export const workOrderItemSchema = z.object({
-  id: z.string(),
+  actionId: z.string(),
   assetId: z.string(),
   assetKind: z.string(),
   action: z.string(),
   status: z.string(),
   score: z.number(),
+  day: z.string(),
   rankK: z.number().nullable().optional(),
   leiAtRisk: z.number().nullable().optional(),
 });
@@ -49,7 +52,7 @@ export const turbineDrawerSchema = z.object({
   ),
   tempTrends: z.array(
     z.object({
-      ts: z.number(),
+      ts: z.string(),
       convTemp: z.number().optional(),
       gearboxTemp: z.number().optional(),
       genTemp: z.number().optional(),
@@ -59,10 +62,11 @@ export const turbineDrawerSchema = z.object({
 export type TurbineDrawerData = z.infer<typeof turbineDrawerSchema>;
 
 export const parkReportItemSchema = z.object({
-  id: z.string(),
+  actionId: z.string(),
   parkId: z.string().nullable().optional(),
-  day: z.number(),
-  productionMwh: z.number().nullable().optional(),
+  date: z.string(),
+  energyMwh: z.number().nullable().optional(),
+  expectedMwh: z.number().nullable().optional(),
   availabilityPct: z.number().nullable().optional(),
   curtailedMwh: z.number().nullable().optional(),
 });

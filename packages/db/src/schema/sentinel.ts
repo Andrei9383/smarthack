@@ -14,54 +14,72 @@ export const runs = sqliteTable("runs", {
   kind: text("kind").notNull(), // fixtures | replay | eval | train
   policy: text("policy"), // baseline | sentinel | NULL
   label: text("label").notNull(), // 'synthetic RO' | 'real RO' | 'non-RO'
-  gitCommit: text("git_commit"),
+  weekStart: text("week_start"), // 'YYYY-MM-DD'
+  gitSha: text("git_sha"),
   modelVersionsJson: text("model_versions_json"),
-  startedAt: integer("started_at").notNull(),
-  finishedAt: integer("finished_at"),
+  createdAt: text("created_at").notNull(),
+  finishedAt: text("finished_at"),
   notes: text("notes"),
 });
+
+// Demo KPI strip and closing summary
+export const kpis = sqliteTable(
+  "kpis",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    policy: text("policy").notNull(), // baseline | sentinel
+    name: text("name").notNull(),
+    value: real("value").notNull(),
+    unit: text("unit"),
+    label: text("label").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.policy, table.name] }),
+    index("kpis_run_policy_idx").on(table.runId, table.policy),
+  ],
+);
 
 // ---------------------------------------------------------------- topology
 
 export const feeders = sqliteTable("feeders", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  substation: text("substation").notNull(),
   county: text("county").notNull(),
   locality: text("locality").notNull(),
   limitKw: real("limit_kw").notNull(),
-  limitConservativeKw: real("limit_conservative_kw").notNull(),
-  tau: real("tau").default(0.05).notNull(),
-  gisTrust: text("gis_trust").default("high").notNull(),
-  nSites: integer("n_sites").default(0).notNull(),
-  installedPvKw: real("installed_pv_kw").default(0).notNull(),
-  installedBattKwh: real("installed_batt_kwh").default(0).notNull(),
+  gMaxKw: real("g_max_kw"),
+  gConservativeKw: real("g_conservative_kw"),
+  tau: real("tau"),
+  gisTrust: text("gis_trust"), // ok | low
+  geometryJson: text("geometry_json"), // GeoJSON line string
 });
 
 export const parks = sqliteTable("parks", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   county: text("county").notNull(),
-  locality: text("locality"),
   lat: real("lat").notNull(),
   lon: real("lon").notNull(),
-  nTurbines: integer("n_turbines").notNull(),
   ratedMw: real("rated_mw").notNull(),
-  commissionedYear: integer("commissioned_year"),
+  turbineCount: integer("turbine_count").notNull(),
 });
 
 export const assets = sqliteTable(
   "assets",
   {
     id: text("id").primaryKey(),
-    assetKind: text("asset_kind").notNull(), // 'prosumer' | 'turbine'
+    assetKind: text("asset_kind").notNull(), // prosumer | turbine
     name: text("name").notNull(),
-    lat: real("lat").notNull(),
-    lon: real("lon").notNull(),
     county: text("county").notNull(),
     locality: text("locality"),
+    lat: real("lat").notNull(),
+    lon: real("lon").notNull(),
     feederId: text("feeder_id").references(() => feeders.id),
     parkId: text("park_id").references(() => parks.id),
+    gisPhase: text("gis_phase"),
+    gisTrust: text("gis_trust"), // ok | low
     ratedKw: real("rated_kw").notNull(),
     hasBattery: integer("has_battery").default(0).notNull(),
     batteryKwh: real("battery_kwh"),
@@ -70,11 +88,9 @@ export const assets = sqliteTable(
     pvKwp: real("pv_kwp"),
     tiltDeg: real("tilt_deg"),
     azimuthDeg: real("azimuth_deg"),
-    gisPhase: text("gis_phase"),
-    gisTrust: text("gis_trust").default("high"),
     turbineModel: text("turbine_model"),
-    rotorDiameterM: real("rotor_diameter_m"),
     hubHeightM: real("hub_height_m"),
+    rotorDiameterM: real("rotor_diameter_m"),
     metadataJson: text("metadata_json"),
   },
   (table) => [
@@ -95,8 +111,7 @@ export const measurements = sqliteTable(
     assetId: text("asset_id")
       .notNull()
       .references(() => assets.id),
-    ts: integer("ts").notNull(),
-    step: integer("step").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
     pvAcKw: real("pv_ac_kw"),
     loadKw: real("load_kw"),
     battKw: real("batt_kw"),
@@ -132,8 +147,7 @@ export const predictions = sqliteTable(
       .references(() => assets.id),
     model: text("model").notNull(),
     modelVersion: text("model_version").notNull(),
-    ts: integer("ts").notNull(),
-    step: integer("step").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
     q10Kw: real("q10_kw").notNull(),
     q50Kw: real("q50_kw").notNull(),
     q90Kw: real("q90_kw").notNull(),
@@ -141,11 +155,33 @@ export const predictions = sqliteTable(
     anomalyClass: text("anomaly_class"),
     oodScore: real("ood_score"),
     memberStd: real("member_std"),
-    createdAt: integer("created_at").notNull(),
+    createdAt: text("created_at").notNull(),
   },
   (table) => [
     index("predictions_asset_ts_idx").on(table.assetId, table.ts),
     index("predictions_run_model_idx").on(table.runId, table.model),
+  ],
+);
+
+// Site view: expected vs actual per tick
+export const assetSteps = sqliteTable(
+  "asset_steps",
+  {
+    runId: text("run_id")
+      .notNull()
+      .references(() => runs.id),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => assets.id),
+    ts: text("ts").notNull(), // ISO-8601 UTC
+    actualKw: real("actual_kw"),
+    q10Kw: real("q10_kw"),
+    q50Kw: real("q50_kw"),
+    q90Kw: real("q90_kw"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.assetId, table.ts] }),
+    index("asset_steps_asset_ts_idx").on(table.assetId, table.ts),
   ],
 );
 
@@ -160,7 +196,7 @@ export const statuses = sqliteTable(
     assetId: text("asset_id")
       .notNull()
       .references(() => assets.id),
-    ts: integer("ts").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
     status: text("status").notNull(), // eligible | derated | excluded | human_review
     headroomFactor: real("headroom_factor").default(1.0).notNull(),
     reason: text("reason").notNull(),
@@ -181,8 +217,7 @@ export const feederCurves = sqliteTable(
       .notNull()
       .references(() => feeders.id),
     policy: text("policy").notNull(), // baseline | sentinel
-    ts: integer("ts").notNull(),
-    step: integer("step").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
     exportKw: real("export_kw").notNull(),
     importKw: real("import_kw").default(0.0).notNull(),
     limitKw: real("limit_kw").notNull(),
@@ -204,8 +239,7 @@ export const commitments = sqliteTable(
     feederId: text("feeder_id")
       .notNull()
       .references(() => feeders.id),
-    ts: integer("ts").notNull(),
-    step: integer("step").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
     nominalKw: real("nominal_kw").notNull(),
     availableKw: real("available_kw").notNull(),
     committedKw: real("committed_kw").notNull(),
@@ -228,8 +262,7 @@ export const schedules = sqliteTable(
       .notNull()
       .references(() => assets.id),
     policy: text("policy").default("sentinel").notNull(),
-    ts: integer("ts").notNull(),
-    step: integer("step").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
     battKw: real("batt_kw").notNull(),
     soc: real("soc").notNull(),
     comfortReservePct: real("comfort_reserve_pct"),
@@ -246,7 +279,7 @@ export const schedules = sqliteTable(
 export const workOrders = sqliteTable(
   "work_orders",
   {
-    id: text("id").primaryKey(),
+    actionId: text("action_id").primaryKey(),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id),
@@ -255,8 +288,8 @@ export const workOrders = sqliteTable(
       .references(() => assets.id),
     assetKind: text("asset_kind").notNull(),
     action: text("action").notNull(),
-    createdAt: integer("created_at").notNull(),
-    day: integer("day").notNull(),
+    createdAt: text("created_at").notNull(),
+    day: text("day").notNull(), // YYYY-MM-DD
     faultClass: text("fault_class"),
     anomalyClass: text("anomaly_class"),
     confidence: real("confidence").notNull(),
@@ -268,7 +301,7 @@ export const workOrders = sqliteTable(
     daysToVisit: integer("days_to_visit"),
     score: real("score").notNull(),
     rankK: integer("rank_k"),
-    status: text("status").default("open").notNull(), // open | acknowledged | done | dismissed
+    status: text("status").default("open").notNull(),
     evidenceJson: text("evidence_json"),
   },
   (table) => [
@@ -279,15 +312,15 @@ export const workOrders = sqliteTable(
 export const alerts = sqliteTable(
   "alerts",
   {
-    id: text("id").primaryKey(),
+    actionId: text("action_id").primaryKey(),
     runId: text("run_id")
       .notNull()
       .references(() => runs.id),
     assetId: text("asset_id").references(() => assets.id),
     parkId: text("park_id").references(() => parks.id),
     feederId: text("feeder_id").references(() => feeders.id),
-    ts: integer("ts").notNull(),
-    kind: text("kind").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
+    code: text("code").notNull(),
     severity: text("severity").notNull(), // info | warn | critical
     createsWorkOrder: integer("creates_work_order").default(0).notNull(),
     curtailedMwh: real("curtailed_mwh"),
@@ -296,6 +329,38 @@ export const alerts = sqliteTable(
   },
   (table) => [index("alerts_run_ts_idx").on(table.runId, table.ts)],
 );
+
+export const reviewQueue = sqliteTable("review_queue", {
+  actionId: text("action_id").primaryKey(),
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id),
+  assetId: text("asset_id")
+    .notNull()
+    .references(() => assets.id),
+  ts: text("ts").notNull(), // ISO-8601 UTC
+  reason: text("reason").notNull(),
+  oodScore: real("ood_score"),
+  intervalWidth: real("interval_width"),
+  memberStd: real("member_std"),
+  resolved: integer("resolved").default(0).notNull(),
+});
+
+export const gisFlags = sqliteTable("gis_flags", {
+  actionId: text("action_id").primaryKey(),
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id),
+  sectionId: text("section_id").notNull(),
+  recordedFeeder: text("recorded_feeder"),
+  recordedPhase: text("recorded_phase"),
+  suggestedFeeder: text("suggested_feeder"),
+  suggestedPhase: text("suggested_phase"),
+  tau: real("tau"),
+  geometryJson: text("geometry_json"),
+});
+
+// ---------------------------------------------------------------- forecast layers
 
 export const parkForecasts = sqliteTable(
   "park_forecasts",
@@ -306,8 +371,7 @@ export const parkForecasts = sqliteTable(
     parkId: text("park_id")
       .notNull()
       .references(() => parks.id),
-    ts: integer("ts").notNull(),
-    step: integer("step").notNull(),
+    ts: text("ts").notNull(), // ISO-8601 UTC
     p10Mw: real("p10_mw"),
     p50Mw: real("p50_mw"),
     p90Mw: real("p90_mw"),
@@ -328,38 +392,40 @@ export const zoneDemand = sqliteTable(
     runId: text("run_id")
       .notNull()
       .references(() => runs.id),
-    zoneType: text("zone_type").notNull(), // county | locality | feeder
     zoneId: text("zone_id").notNull(),
+    level: text("level").notNull(), // county | locality | feeder
     zoneName: text("zone_name").notNull(),
     parentZoneId: text("parent_zone_id"),
-    ts: integer("ts").notNull(),
-    step: integer("step").notNull(),
-    p10Mw: real("p10_mw"),
-    p50Mw: real("p50_mw").notNull(),
-    p90Mw: real("p90_mw"),
+    ts: text("ts").notNull(), // ISO-8601 UTC
+    q10Mw: real("q10_mw"),
+    q50Mw: real("q50_mw").notNull(),
+    q90Mw: real("q90_mw"),
     peakStress: real("peak_stress").notNull(),
     isPeakHour: integer("is_peak_hour").default(0).notNull(),
     label: text("label").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.runId, table.zoneType, table.zoneId, table.ts] }),
-    index("zone_demand_ts_idx").on(table.runId, table.zoneType, table.ts),
+    primaryKey({ columns: [table.runId, table.level, table.zoneId, table.ts] }),
+    index("zone_demand_ts_idx").on(table.runId, table.level, table.ts),
   ],
 );
 
 export const reports = sqliteTable("reports", {
-  id: text("id").primaryKey(),
+  actionId: text("action_id").primaryKey(),
   runId: text("run_id")
     .notNull()
     .references(() => runs.id),
   parkId: text("park_id").references(() => parks.id),
-  day: integer("day").notNull(),
-  productionMwh: real("production_mwh"),
+  date: text("date").notNull(), // YYYY-MM-DD
+  energyMwh: real("energy_mwh"),
+  expectedMwh: real("expected_mwh"),
   availabilityPct: real("availability_pct"),
   curtailedMwh: real("curtailed_mwh"),
   dataQualityPct: real("data_quality_pct"),
-  bodyJson: text("body_json"),
+  issuesJson: text("issues_json"),
 });
+
+// ---------------------------------------------------------------- audit
 
 export const auditLog = sqliteTable(
   "audit_log",
@@ -368,10 +434,11 @@ export const auditLog = sqliteTable(
     runId: text("run_id")
       .notNull()
       .references(() => runs.id),
-    ts: integer("ts").notNull(),
-    actor: text("actor").notNull(), // agent | human
+    actionId: text("action_id"),
     actionType: text("action_type").notNull(),
-    refId: text("ref_id"),
+    ts: text("ts").notNull(), // ISO-8601 UTC
+    policy: text("policy"),
+    actor: text("actor").notNull(),
     assetId: text("asset_id").references(() => assets.id),
     feederId: text("feeder_id").references(() => feeders.id),
     parkId: text("park_id").references(() => parks.id),
@@ -381,55 +448,13 @@ export const auditLog = sqliteTable(
     predictionJson: text("prediction_json"),
     threshold: real("threshold"),
     status: text("status"),
+    scheduleJson: text("schedule_json"),
     committedKw: real("committed_kw"),
     realisedKw: real("realised_kw"),
     note: text("note"),
   },
-  (table) => [index("audit_log_run_ts_idx").on(table.runId, table.ts)],
-);
-
-export const gisFlags = sqliteTable("gis_flags", {
-  id: text("id").primaryKey(),
-  runId: text("run_id")
-    .notNull()
-    .references(() => runs.id),
-  sectionId: text("section_id").notNull(),
-  feederId: text("feeder_id")
-    .notNull()
-    .references(() => feeders.id),
-  recordedPhase: text("recorded_phase"),
-  suggestedPhase: text("suggested_phase"),
-  tau: real("tau"),
-  confidence: real("confidence"),
-  geometryJson: text("geometry_json"),
-});
-
-export const reviewQueue = sqliteTable("review_queue", {
-  id: text("id").primaryKey(),
-  runId: text("run_id")
-    .notNull()
-    .references(() => runs.id),
-  assetId: text("asset_id")
-    .notNull()
-    .references(() => assets.id),
-  ts: integer("ts").notNull(),
-  reason: text("reason").notNull(),
-  status: text("status").default("pending").notNull(), // pending | reviewed | dismissed
-  decision: text("decision"),
-});
-
-export const kpis = sqliteTable(
-  "kpis",
-  {
-    id: integer("id").primaryKey({ autoIncrement: true }),
-    runId: text("run_id")
-      .notNull()
-      .references(() => runs.id),
-    policy: text("policy").notNull(),
-    name: text("name").notNull(),
-    value: real("value").notNull(),
-    unit: text("unit"),
-    label: text("label"),
-  },
-  (table) => [index("kpis_run_policy_idx").on(table.runId, table.policy)],
+  (table) => [
+    index("audit_log_run_ts_idx").on(table.runId, table.ts),
+    index("audit_log_action_idx").on(table.actionId),
+  ],
 );
