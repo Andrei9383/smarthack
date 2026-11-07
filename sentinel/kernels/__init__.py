@@ -12,7 +12,7 @@ Usage::
     from sentinel import kernels
     kernels.backend()                       # "rust" | "python"
     cusum = kernels.get("cusum_two_sided")  # dispatched callable
-    s_pos, s_neg, alarm = cusum(x, k=0.5, h=5.0)
+    s_pos, s_neg, alarm = cusum(x, k=0.5, h=5.0)            # cap=None: sums not capped
 """
 
 from __future__ import annotations
@@ -116,74 +116,16 @@ def get(name: str, backend_: str | None = None) -> Callable[..., Any]:
     return k.rust
 
 
-# --------------------------------------------------------------------------- K3: two-sided CUSUM
-# Python reference. Card #49 moves this to sentinel/kernels/cusum.py.
+# --------------------------------------------------------------------------- K3: two-sided CUSUM (cusum.py)
+from sentinel.kernels.cusum import cusum_two_sided_py, cusum_two_sided_rust  # noqa: E402
+
+register("cusum_two_sided", cusum_two_sided_py, cusum_two_sided_rust)
 
 
-def _cusum_prep(x: Any, k: float, h: float) -> tuple[np.ndarray, bool, float, float]:
-    x = np.asarray(x, dtype=np.float64)
-    if x.ndim not in (1, 2):
-        raise ValueError(f"x must be 1-D (n,) or 2-D (series, n), got shape {x.shape}")
-    k, h = float(k), float(h)
-    if not (np.isfinite(k) and np.isfinite(h)):
-        raise ValueError("k and h must be finite")
-    one_d = x.ndim == 1
-    x2 = np.ascontiguousarray(x.reshape(1, -1) if one_d else x)
-    return x2, one_d, k, h
-
-
-def cusum_two_sided_py(x: Any, k: float, h: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Two-sided CUSUM over the last axis of ``x`` (shape (n,) or (series, n)).
-
-    For each step, with sums starting at 0::
-
-        x[t] not finite (NaN/inf = gap): s_pos = s_neg = 0, alarm = False
-        otherwise: s_pos = max(s_pos + x[t] - k, 0)
-                   s_neg = max(s_neg - x[t] - k, 0)
-                   alarm = s_pos > h or s_neg > h
-
-    ``x`` should already be standardised (target mean removed, scaled); ``k`` is the allowance (slack) and
-    ``h`` the decision threshold, in the same units. Sums are not reset after an alarm.
-    Returns ``(s_pos, s_neg, alarm)`` with the shape of ``x`` (float64, float64, bool).
-    """
-    x2, one_d, k, h = _cusum_prep(x, k, h)
-    m, n = x2.shape
-    xt = np.ascontiguousarray(x2.T)  # (n, m): one contiguous row per time step, vectorised over series
-    sp = np.empty((n, m))
-    sn = np.empty((n, m))
-    cp = np.zeros(m)
-    cn = np.zeros(m)
-    finite = np.isfinite(xt)
-    with np.errstate(invalid="ignore"):
-        for t in range(n):
-            v = xt[t]
-            ok = finite[t]
-            cp = np.where(ok, np.maximum(cp + v - k, 0.0), 0.0)
-            cn = np.where(ok, np.maximum(cn - v - k, 0.0), 0.0)
-            sp[t] = cp
-            sn[t] = cn
-    sp = np.ascontiguousarray(sp.T)
-    sn = np.ascontiguousarray(sn.T)
-    alarm = (sp > h) | (sn > h)
-    if one_d:
-        return sp[0], sn[0], alarm[0]
-    return sp, sn, alarm
-
-
-def _cusum_two_sided_rust(x: Any, k: float, h: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    x2, one_d, k, h = _cusum_prep(x, k, h)
-    sp, sn, alarm = _load_core().cusum_two_sided(x2, k, h)
-    if one_d:
-        return sp[0], sn[0], alarm[0]
-    return sp, sn, alarm
-
-
-register("cusum_two_sided", cusum_two_sided_py, _cusum_two_sided_rust)
-
-
-def cusum_two_sided(x: Any, k: float, h: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Dispatched two-sided CUSUM; see ``cusum_two_sided_py`` (the reference) for the definition."""
-    return get("cusum_two_sided")(x, k, h)
+def cusum_two_sided(x: Any, k: float, h: float,
+                    cap: float | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Dispatched two-sided CUSUM; see ``sentinel.kernels.cusum.cusum_two_sided_py`` (the reference)."""
+    return get("cusum_two_sided")(x, k, h, cap)
 
 
 # --------------------------------------------------------------------------- K1: battery rollout (rollout.py)

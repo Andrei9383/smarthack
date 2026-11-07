@@ -56,15 +56,20 @@ def _cusum_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
     return (x, 0.5, 8.0)
 
 
+def _cusum_cap_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    x, k, h = _cusum_make(scale, rng)
+    return (x, k, h, h)  # cap = h, as the PV fault baseline uses it
+
+
 def _cusum_run(fn: Callable[..., Any], args: tuple[Any, ...]) -> None:
-    x, k, h = args
+    x, *rest = args
     for i in range(0, x.shape[0], _CUSUM_CHUNK):
-        fn(x[i : i + _CUSUM_CHUNK], k, h)
+        fn(x[i : i + _CUSUM_CHUNK], *rest)
 
 
 def _cusum_sample(args: tuple[Any, ...]) -> tuple[Any, ...]:
-    x, k, h = args
-    return (x[:_CUSUM_CHUNK], k, h)
+    x, *rest = args
+    return (x[:_CUSUM_CHUNK], *rest)
 
 
 # ---- rollout: one P10 commitment = 200 scenarios x 50 sites x 96 steps; a replay week does many of these.
@@ -97,6 +102,8 @@ def _rollout_sample(args: tuple[Any, ...]) -> tuple[Any, ...]:
 
 CASES = [
     Case("cusum_two_sided", "cusum", _cusum_make, _cusum_run, _cusum_sample, "2000 series x 35040 steps, f64, 0.2% NaN gaps"),
+    Case("cusum_two_sided", "cusum_cap", _cusum_cap_make, _cusum_run, _cusum_sample,
+         "same input, sums capped at h (PV fault baseline)"),
     Case("battery_rollout", "rollout", _rollout_make, _rollout_run, _rollout_sample,
          f"{_ROLLOUT_CALLS} feeder-days x 200 scenarios x 50 sites x 96 steps"),
 ]
