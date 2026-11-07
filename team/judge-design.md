@@ -1,8 +1,8 @@
 # Sentinel Judge: the trust filter
 
 Status: draft for team review, 2026-11-07. Owner: yolooo332 (user decision: this is the project's main feature).
-Scope of this document: the **filter**, meaning which information is valid. **What to do with that information (the
-actions) is open (§10) and will be specified by the user.**
+Scope of this document: the **filter**, meaning which information is valid. How the three action features (Grid,
+Wind, Imbalance) read that information is fixed in §10 (card #157).
 
 ## 1. Intent
 
@@ -91,7 +91,7 @@ Substitutes are graded exactly like witnesses, so the Judge can tell when the ba
  │  verdict rules  → use / widen / don't use (+ substitute)     │
  └───────────────────────────┬──────────────────────────────────┘
                              ▼
-               validated information → ACTIONS (§10, open)
+               validated information → ACTIONS (§10)
                              │
                              ▼
  outcomes: telemetry (d+1), crew & audit checks (d+1..3), events (≤ d+14)
@@ -367,13 +367,107 @@ Evaluated on 2025 (test year), on its own, before any action uses it:
 | Cold start | a new model version behaves as "trust the model" | — |
 | Substitutes | when it names a substitute, is the substitute's grade better? | — |
 
-Downstream KPIs (trucks, P10 hit rate, lei) come once the actions are defined (§10).
+Downstream KPIs (trucks, P10 hit rate, lei) are defined per feature in §10.6.
 
-## 10. Actions: open
+## 10. Actions: how each feature uses validated information
 
-To be specified by the user. The interface is fixed: actions read the verdicts in §7.7 and must treat "no reliable
-source" as unknown. One coupling to keep in mind: crew visits caused by actions also produce outcomes. The audit
-checks in §5.6 keep grading valid whatever the actions turn out to be.
+The user specified three action features (umbrella card #155; specs in `team/features/{grid,wind,imbalance}.md`).
+This section fixes how each one reads the Judge. It does not change the filter (§1–§9).
+
+### 10.1 One door: `sentinel/judge/adapter.py`
+
+Every feature reads a witness output through the adapter, never directly (card #157):
+
+```python
+from sentinel.judge.adapter import validated, validated_many, RawBatch, SqliteVerdicts
+
+v = validated(asset_id, "pvnet", "2025-06-02", raw=pred, substitutes={"lgbm": lgbm_pred})    # one prediction
+b = validated_many("pvnet", ids, days, raw=RawBatch(q=q), substitutes={"lgbm": RawBatch(q=q_lgbm)},
+                   judge=SqliteVerdicts(db, run_id))                                       # N rows, numpy
+```
+
+What comes back (`Validated`, or `ValidatedBatch` with the same fields as arrays):
+- the §7.7 fields: `verdict`, `p_valid`, `trust`, `n_eff`, `band_scale`, `substitute`, `reasons`, `rule`,
+  `judge_version`;
+- the numbers to act on: `q10/q50/q90` per 15-min step with the band scale already applied around P50
+  (§6.4; the "widen" factor of rule 5 is inside `band_scale`), or `cls`/`score` for detectors;
+- `source_model`: whose numbers they are. When the verdict is **don't use** and the caller supplied the named
+  substitute, the substitute's output is swapped in (with the substitute's own band scale);
+- `known`: False means **no reliable source** (don't use, and no substitute data). The numbers are NaN/None and the
+  action must use its no-information rule below. The original output stays in `raw` for display only.
+
+Three modes, same call:
+- **No Judge** (default, `NoJudge`): every prediction passes as `use`, `rule = "no_judge"`, band scale 1. This is
+  the user's "no record → trust the model" rule (§6.2) and keeps features runnable before J4 lands.
+- **Judge in the loop:** `MemoryVerdicts` (verdicts held by the loop) or `SqliteVerdicts(db, run_id)` (the
+  `judge_verdicts` table, §8). An (asset, model, day) without a verdict passes as `use` / `no_judge`.
+- **Ledger-only** (§11): J4 still writes verdicts (P(valid) = trust); nothing changes for the features.
+
+Keys: `model` is the `ModelId` value (`pvnet`, `loadnet`, `sitehealth`, `windnbm`, `windfailure`, `windpower`,
+`gridtwin`, `demandnet`); `day` is the local (Europe/Bucharest) date, as in `judge_verdicts.day`.
+
+### 10.2 Shared rules for every action
+
+1. **Act on `q*`, `cls`, `score` of the envelope**, never on `raw`.
+2. **`widen` changes nothing but the band.** The action runs as with `use`, on the wider band, so it becomes more
+   prudent exactly where the band is used (P10 promises, P90 export limits, purchase quantiles away from P50).
+3. **`dont_use` with substitute:** the action runs on the substitute's numbers. Callers pass the substitute of §3
+   whenever they can compute it cheaply (pvlib/LightGBM for M1, persistence for M2 and M3, threshold+CUSUM for M4,
+   WindMon rules for M6, residual trend for M7, GIS as recorded for M8, binned curve for M5).
+4. **Unknown (`known = False`):** each action has a written no-information rule (tables below). It is always the
+   feature's own baseline behaviour or the physically safe bound, never a silent zero.
+5. **Safety calls pass** (§7.5 rule 2): icing and overheating reach the actions as `use` with low trust, and are
+   shown with that tag.
+6. **Every result reports its sources:** `ValidatedBatch.counts()` (use / widen / dont_use / substituted / unknown)
+   goes into the run notes and as `LAB_METRIC judge_<model>_<verdict>` lines, and the UI shows the reasons.
+7. **Ablation is free:** each feature runs once with `judge=NoJudge()` ("Sentinel without Judge") and once with
+   the run's verdicts ("Sentinel"). The difference is the Judge's downstream value (§9's open KPI line).
+8. **Crew visits caused by actions** (W4 work orders, Grid site checks) are graded but flagged and weighted 0.5;
+   the audit checks of §5.6 keep the ledger unbiased.
+
+### 10.3 Grid (Rețele Electrice): feeder limit and bands
+
+| Action | Witness → field | use / widen | dont_use + substitute | Unknown |
+|---|---|---|---|---|
+| G1/G4 LP feeder limit `G = τ·G_max + (1−τ)·G_cons` | M8 `gridtwin` → `score` = τ, `cls` = corrected feeder/phase | τ and the corrected membership as given | GIS as recorded, with τ = 0 (limit = `G_cons` on that feeder) | same as substitute: GIS as recorded, τ = 0 |
+| G1/G2/G4 feeder export band (LP constraint on P90 export, P10 promise) | M1 `pvnet`, M2 `loadnet` per home → `q10/q50/q90` | validated bands into Σ(PV − load) per feeder | LightGBM/pvlib (PV), persistence (load) bands | PV upper bound = kWp × pvlib clear-sky, load at its own 30-day P10; the home's battery leaves the flexible pool |
+| Broken homes out (M4) | M4 `sitehealth` → `cls`, `score` = P(fault) | fault ≥ the calibrated p_fault threshold → home's PV from measured history, battery not counted as flex | threshold + CUSUM call | home stays in the export sum on its validated PV, but gets no flexibility promise |
+| P10 flexibility promise | the validated feeder band | promise = P10 of the validated band | as left | unknown homes promise 0 |
+
+Grid reports, per feeder: hosting capacity (G1) with and without Judge, the share of homes per verdict, and the
+feeders where M8 was not trusted (limit fell back to `G_cons`).
+
+### 10.4 Wind (PPC Renewables): availability, sell quantile, work orders, battery
+
+| Action | Witness → field | use / widen | dont_use + substitute | Unknown |
+|---|---|---|---|---|
+| W2 tomorrow's availability per turbine | M6 `windnbm` → `cls`, `score`; M7 `windfailure` → `score` = P(failure ≤ 24 h) | spec table: normal 1, fault_stop 0 until repair, underperformance 1 − measured loss, icing reduced on risk steps, curtailment 1, sensor/data gap 1 + "unsure"; M7: 1 − P(fail 24 h) | WindMon rules class (M6), residual trend (M7) through the same table | availability P50 = 1, P10 = 0: the park scenarios keep the turbine at full output in the middle and lose it in the low tail; M7 unknown → M6 alone |
+| W1/W3 how much to sell (`q* = a/(a+b)` of park scenarios) | M5 `windpower` per turbine → `q10/q50/q90` (band scaled) × W2 availability | scenarios with one shared wind quantile per park, conformal on the park total, sell `q*` | binned power curve bands | manufacturer curve × forecast wind, availability as W2 |
+| W4 work orders by `triage_score = p_fault × lei_day × days_until_visit` | M6 → `score` = p_fault, `cls`; M5 → `q50` for `lei_day` of a stopped turbine | ranked top-K per day, K = crews | WindMon rules call and score | no crew: a **remote check** work order, ranked after crew orders; sensor faults and data gaps always remote; curtailment never a work order |
+| W5 park battery (hourly MPC) | the validated park band (W1) | LP plans on the band; a wider band keeps more energy for shortfall hours | as left, on the substitute band | hours with no reliable source fall back to the rule baseline (cover the gap, drift to 50 % SoC) |
+| W6 cheapest repair day | M7 → `score` | only on `use` with `n_eff > 0`; otherwise W6 is not offered for that turbine | residual trend, shown as "baseline" | not offered |
+
+Wind reports `promised_but_not_delivered_mwh` split by the verdict of the turbines it was sold on, and each work
+order carries the Judge reasons next to its `lei_per_day`.
+
+### 10.5 Imbalance (PPC supplier): portfolio band and purchase quantile
+
+| Action | Witness → field | use / widen | dont_use + substitute | Unknown |
+|---|---|---|---|---|
+| I3/I5 per-home net position (scenarios) | M1 `pvnet`, M2 `loadnet` → `q10/q50/q90`; battery model (I4, once judged) | validated quantiles, one shared solar quantile per region, independent load quantiles | LightGBM/pvlib (PV), persistence (load) | the home enters the portfolio on the `persistence` baseline (meter, same day last week) with its historical error spread |
+| Broken homes (M4) | M4 → `cls`, `score` | trusted fault → PV from measured history, not PVNet | threshold + CUSUM | PVNet as validated (no evidence of a fault) |
+| Portfolio band P10/P50/P90 | Σ scenarios, then conformal on the total | band from validated home quantiles | as left | as left |
+| Day-ahead purchase `q* = a/(a+b)`; 15:00 correction on PI | the portfolio scenarios | buy `q*`; at 15:00 re-validate with the same day's verdicts and trade the difference | as left | as left |
+
+Imbalance reports the share of portfolio energy (MWh) that came from substitutes or baselines, per day, next to
+the avoidable cost.
+
+### 10.6 What the Judge's value looks like downstream
+
+For each feature, the same replay with `judge=NoJudge()` and with verdicts gives the Judge's effect on the
+feature's own KPI: Grid minutes over limit and hosting capacity, Wind avoidable cost and
+`promised_but_not_delivered_mwh`, Imbalance avoidable cost and P10–P90 coverage of the portfolio. Each number is
+labelled synthetic RO / real RO / non-RO / proxy with its run id (#155).
 
 ## 11. Hard situations
 
@@ -448,7 +542,7 @@ Suggested cards, in dependency order:
 - It is a trust layer above the models that decides which information is valid.
 - It forms a loop with the witnesses.
 - No record → trust the model.
-- The actions are specified separately, later.
+- The actions are specified separately (the three features of #155; their Judge contract is §10, card #157).
 
 **My calls** (please check):
 - the scores in §5.3 (0.80 calibration target, interval score vs the substitute, the split detector scores)

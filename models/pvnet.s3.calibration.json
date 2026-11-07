@@ -9690,5 +9690,306 @@
   },
   "parity_ok": true,
   "opset": 17
+ },
+ "priors": {
+  "version": 1,
+  "split": "val-2024",
+  "source_run": "699",
+  "source": "validation",
+  "scored_as": "pvnet ensemble of 4 member(s), model_version pvnet-383-s0x4",
+  "scores": {
+   "calibration": {
+    "*": {
+     "prior": 0.7059,
+     "n": 3598
+    },
+    "site": {
+     "prior": 0.7059,
+     "n": 3598
+    },
+    "site|seen": {
+     "prior": 0.77854,
+     "n": 1799
+    },
+    "site|seen|batt": {
+     "prior": 0.78529,
+     "n": 779
+    },
+    "site|seen|batt|cold": {
+     "prior": 0.76775,
+     "n": 368
+    },
+    "site|seen|batt|cold|clean": {
+     "prior": 0.76775,
+     "n": 368
+    },
+    "site|seen|batt|cold|clean|ood_hi": {
+     "prior": 0.7661,
+     "n": 9
+    },
+    "site|seen|batt|cold|clean|ood_lo": {
+     "prior": 0.76779,
+     "n": 359
+    },
+    "site|seen|batt|warm": {
+     "prior": 0.80099,
+     "n": 411
+    },
+    "site|seen|batt|warm|clean": {
+     "prior": 0.80099,
+     "n": 411
+    },
+    "site|seen|batt|warm|clean|ood_lo": {
+     "prior": 0.80099,
+     "n": 411
+    },
+    "site|seen|nobatt": {
+     "prior": 0.7734,
+     "n": 1020
+    },
+    "site|seen|nobatt|cold": {
+     "prior": 0.7537,
+     "n": 507
+    },
+    "site|seen|nobatt|cold|clean": {
+     "prior": 0.7537,
+     "n": 507
+    },
+    "site|seen|nobatt|cold|clean|ood_hi": {
+     "prior": 0.76723,
+     "n": 9
+    },
+    "site|seen|nobatt|cold|clean|ood_lo": {
+     "prior": 0.75345,
+     "n": 498
+    },
+    "site|seen|nobatt|warm": {
+     "prior": 0.79286,
+     "n": 513
+    },
+    "site|seen|nobatt|warm|clean": {
+     "prior": 0.79286,
+     "n": 513
+    },
+    "site|seen|nobatt|warm|clean|ood_lo": {
+     "prior": 0.79286,
+     "n": 513
+    },
+    "site|unseen": {
+     "prior": 0.63326,
+     "n": 1799
+    },
+    "site|unseen|batt": {
+     "prior": 0.65709,
+     "n": 810
+    },
+    "site|unseen|batt|cold": {
+     "prior": 0.65441,
+     "n": 403
+    },
+    "site|unseen|batt|cold|clean": {
+     "prior": 0.65441,
+     "n": 403
+    },
+    "site|unseen|batt|cold|clean|ood_hi": {
+     "prior": 0.79475,
+     "n": 16
+    },
+    "site|unseen|batt|cold|clean|ood_lo": {
+     "prior": 0.64861,
+     "n": 387
+    },
+    "site|unseen|batt|warm": {
+     "prior": 0.65974,
+     "n": 407
+    },
+    "site|unseen|batt|warm|clean": {
+     "prior": 0.65974,
+     "n": 407
+    },
+    "site|unseen|batt|warm|clean|ood_lo": {
+     "prior": 0.65974,
+     "n": 407
+    },
+    "site|unseen|nobatt": {
+     "prior": 0.61374,
+     "n": 989
+    },
+    "site|unseen|nobatt|cold": {
+     "prior": 0.62284,
+     "n": 468
+    },
+    "site|unseen|nobatt|cold|clean": {
+     "prior": 0.62284,
+     "n": 468
+    },
+    "site|unseen|nobatt|cold|clean|ood_hi": {
+     "prior": 0.8405,
+     "n": 6
+    },
+    "site|unseen|nobatt|cold|clean|ood_lo": {
+     "prior": 0.62001,
+     "n": 462
+    },
+    "site|unseen|nobatt|warm": {
+     "prior": 0.60557,
+     "n": 521
+    },
+    "site|unseen|nobatt|warm|clean": {
+     "prior": 0.60557,
+     "n": 521
+    },
+    "site|unseen|nobatt|warm|clean|ood_lo": {
+     "prior": 0.60557,
+     "n": 521
+    }
+   },
+   "sharpness": {
+    "*": {
+     "prior": 0.44942,
+     "n": 3598
+    },
+    "site": {
+     "prior": 0.44942,
+     "n": 3598
+    },
+    "site|seen": {
+     "prior": 0.54258,
+     "n": 1799
+    },
+    "site|seen|batt": {
+     "prior": 0.59128,
+     "n": 779
+    },
+    "site|seen|batt|cold": {
+     "prior": 0.55691,
+     "n": 368
+    },
+    "site|seen|batt|cold|clean": {
+     "prior": 0.55691,
+     "n": 368
+    },
+    "site|seen|batt|cold|clean|ood_hi": {
+     "prior": 0.72287,
+     "n": 9
+    },
+    "site|seen|batt|cold|clean|ood_lo": {
+     "prior": 0.55275,
+     "n": 359
+    },
+    "site|seen|batt|warm": {
+     "prior": 0.62204,
+     "n": 411
+    },
+    "site|seen|batt|warm|clean": {
+     "prior": 0.62204,
+     "n": 411
+    },
+    "site|seen|batt|warm|clean|ood_lo": {
+     "prior": 0.62204,
+     "n": 411
+    },
+    "site|seen|nobatt": {
+     "prior": 0.5054,
+     "n": 1020
+    },
+    "site|seen|nobatt|cold": {
+     "prior": 0.42287,
+     "n": 507
+    },
+    "site|seen|nobatt|cold|clean": {
+     "prior": 0.42287,
+     "n": 507
+    },
+    "site|seen|nobatt|cold|clean|ood_hi": {
+     "prior": 0.68486,
+     "n": 9
+    },
+    "site|seen|nobatt|cold|clean|ood_lo": {
+     "prior": 0.41813,
+     "n": 498
+    },
+    "site|seen|nobatt|warm": {
+     "prior": 0.58696,
+     "n": 513
+    },
+    "site|seen|nobatt|warm|clean": {
+     "prior": 0.58696,
+     "n": 513
+    },
+    "site|seen|nobatt|warm|clean|ood_lo": {
+     "prior": 0.58696,
+     "n": 513
+    },
+    "site|unseen": {
+     "prior": 0.35625,
+     "n": 1799
+    },
+    "site|unseen|batt": {
+     "prior": 0.37973,
+     "n": 810
+    },
+    "site|unseen|batt|cold": {
+     "prior": 0.34484,
+     "n": 403
+    },
+    "site|unseen|batt|cold|clean": {
+     "prior": 0.34484,
+     "n": 403
+    },
+    "site|unseen|batt|cold|clean|ood_hi": {
+     "prior": 0.63295,
+     "n": 16
+    },
+    "site|unseen|batt|cold|clean|ood_lo": {
+     "prior": 0.33293,
+     "n": 387
+    },
+    "site|unseen|batt|warm": {
+     "prior": 0.41427,
+     "n": 407
+    },
+    "site|unseen|batt|warm|clean": {
+     "prior": 0.41427,
+     "n": 407
+    },
+    "site|unseen|batt|warm|clean|ood_lo": {
+     "prior": 0.41427,
+     "n": 407
+    },
+    "site|unseen|nobatt": {
+     "prior": 0.33702,
+     "n": 989
+    },
+    "site|unseen|nobatt|cold": {
+     "prior": 0.30715,
+     "n": 468
+    },
+    "site|unseen|nobatt|cold|clean": {
+     "prior": 0.30715,
+     "n": 468
+    },
+    "site|unseen|nobatt|cold|clean|ood_hi": {
+     "prior": 0.41858,
+     "n": 6
+    },
+    "site|unseen|nobatt|cold|clean|ood_lo": {
+     "prior": 0.3057,
+     "n": 462
+    },
+    "site|unseen|nobatt|warm": {
+     "prior": 0.36386,
+     "n": 521
+    },
+    "site|unseen|nobatt|warm|clean": {
+     "prior": 0.36386,
+     "n": 521
+    },
+    "site|unseen|nobatt|warm|clean|ood_lo": {
+     "prior": 0.36386,
+     "n": 521
+    }
+   }
+  }
  }
 }
