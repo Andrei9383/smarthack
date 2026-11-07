@@ -60,7 +60,7 @@ def parse_args(argv=None):
     ap.add_argument("--tag", default="")
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
                     help="exact data-wait vs compute split (cuda sync per step)")
-    ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto, at most 3)")
+    ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
     ap.add_argument("--compile", default="off", choices=["auto", "off", "default", "reduce-overhead",
                                                          "max-autotune-no-cudagraphs"],
                     help="torch.compile mode for the M4 train forward (t_compile_s logged). Off: reduce-overhead gave NaN "
@@ -302,8 +302,9 @@ def run(argv=None):
         x = F.normalise(inp, stats)  # in the worker, with pinned tensors: the main thread only issues async copies
         return [pin(torch.from_numpy(np.ascontiguousarray(a))) for a in (x["seq"], x["summ"], x["stat"], lab)]
 
-    # site windows are GIL-heavier to build than M1/M2's: 8 threads starved the main thread (12.8 ms/step, train#842)
-    n_workers = args.loader_workers or min(3, loader_workers())
+    # M4's loop is data-bound (site windows): 8 threads 12.8 ms/step, 21 % wait (train#842); 3 threads 18.8 ms/step,
+    # 72 % wait (train#862)
+    n_workers = args.loader_workers or loader_workers()
     pool = ThreadPoolExecutor(max_workers=n_workers)
     ctx.emit("loader_workers", n_workers)
     tp = Throughput(ctx.emit, dev, sync=args.profile)
