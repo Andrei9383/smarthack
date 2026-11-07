@@ -137,7 +137,7 @@ function diameter(mwh: number) {
 
 export function ProductionLayers() {
   useMapRightPadding(PANEL_PADDING_PX);
-  const [hour] = useHour();
+  const hour = useHour();
   const [selected, setSelected] = useSelectedPark();
   const { data: meta } = useQuery({
     queryKey: ["windfield-meta"],

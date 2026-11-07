@@ -3,9 +3,11 @@
 import { MapGeoJSON, MapMarker, MarkerContent } from "@sentinel-app/ui/components/map";
 import { useMemo } from "react";
 
+import { usePolicy } from "@/demo/use-replay";
+
 import { useMapRightPadding } from "../use-map-right-padding";
 import { FEEDERS, feederCurves, minutesOverLimit, type Policy } from "./data";
-import { usePolicy, useSelectedFeeder } from "./use-feeder-state";
+import { useSelectedFeeder } from "./use-feeder-state";
 
 const OK_COLOR = "#2dd4bf";
 const WARN_COLOR = "#f59e0b";

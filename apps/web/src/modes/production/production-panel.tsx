@@ -45,7 +45,7 @@ function wallClock(ts: string) {
 }
 
 export function ProductionPanel() {
-  const [hour, setHour] = useHour();
+  const hour = useHour();
   const [selected] = useSelectedPark();
   const { data: meta } = useQuery({
     queryKey: ["windfield-meta"],
@@ -95,23 +95,12 @@ export function ProductionPanel() {
         </p>
       </header>
 
-      <section className="space-y-1">
-        <label htmlFor="wind-hour" className="flex justify-between text-sm font-medium">
-          <span>Wind at 100 m</span>
-          <span className="text-xs font-normal text-muted-foreground">
-            {hourTs ? `${localLabel(hourTs)} Bucharest` : "—"} · {meta ? windLabel : "loading"}
-          </span>
-        </label>
-        <input
-          id="wind-hour"
-          type="range"
-          min={0}
-          max={(meta?.hours.length ?? 24) - 1}
-          value={hour}
-          onChange={(event) => setHour(Number(event.target.value))}
-          className="w-full accent-teal-400"
-        />
-      </section>
+      <p className="flex justify-between text-sm font-medium">
+        <span>Wind at 100 m</span>
+        <span className="text-xs font-normal text-muted-foreground">
+          {hourTs ? `${localLabel(hourTs)} Bucharest` : "—"} · {meta ? windLabel : "loading"}
+        </span>
+      </p>
 
       <section className="space-y-1">
         <h3 className="text-sm font-medium">Park output, P10–P90 (MW)</h3>
