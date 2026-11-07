@@ -10,26 +10,33 @@ unknown sensors (PPC may add some); `strict=True` rejects them.
 
 | sensor | unit | meaning |
 |---|---|---|
-| `act_pwt` | kW | active power |
-| `wd_spd` | km/h | nacelle wind speed (convert with `kmh_to_ms`) |
-| `wd_dir`, `nac_dir` | deg | wind direction, nacelle yaw |
-| `rot_spd` | rpm | rotor speed |
-| `pitch` | deg | blade pitch |
-| `conv_tmp`, `gbx_tmp`, `gen_brg_tmp`, `trf_tmp`, `amb_tmp` | °C | converter, gearbox, generator bearing, transformer, ambient |
-| `status` | code | turbine state / error code |
+| `act_pwt` | kW (per-turbine unit: `power_unit` / `power_scale` in `turbines`) | active power |
+| `wd_spd` | km/h | nacelle anemometer wind speed (convert with `kmh_to_ms`) |
+| `conv_t`, `gearbox_t`, `gen1_t`, `gen2_t`, `transformer_t` | °C | converter, gearbox, generator bearings 1 and 2, transformer |
+| `turbine_t` | °C | ambient temperature at the turbine |
 
-Names other than `act_pwt` / `wd_spd` follow WindMon and are to be confirmed against PPC's sample (Andrei).
+These are exactly the sensors in PPC's DataDictionary (WindMon repo; Andrei's review on #7). PPC data has **no**
+wind direction, yaw, rotor speed, pitch or status tags; direction-dependent effects use ERA5 direction from the
+meteo table. Turbine and park ids are hex-like strings in real data (`WP98FA99B8.TID374A8025`); `TAG_RE` accepts
+them and `make_tag` passes string ids through unchanged (int zero-padding is only for synthetic parks).
 
 ## Error codes
-An **integer** value on a continuous sensor is an error code, not a reading (`is_error_code(sensor, value)`).
-Stored in long format with `is_code = true` and the code in `value`; consumers must drop or mask it before using the
-series. Null = data gap.
+PPC's raw `current_value` is float64, so codes arrive as **integral floats** (`5021.0`). `is_error_code(sensor,
+value)`: on temps and `wd_spd` any integral value is a code; on `act_pwt` only integral **non-zero** values are codes
+(0.0 kW is a stopped turbine). Stored in long format with `is_code = true` and the code in `value`; consumers must
+drop or mask codes before using the series. Null = data gap.
+
+## Raw PPC files (reader input, unchanged)
+- Telemetry: `datetime_current_value` (epoch ms UTC), `current_value` (float64), `tag_name`.
+- Meteo, **per turbine**: `data_timestamp`, `fk_wtg_id`, `wind_speed_mean_5min` (m/s, arrives as a string).
+- Turbines: `pk_wtg_id`, `fk_wtg_model_id`, `fk_park_id`, `fk_turbine_id`, `lat_y`, `long_x`.
 
 ## Tables
 - `wind_telemetry` (long): `ts, tag, value, is_code`. 15 min (simulator); PPC data at its native rate.
 - Wide per-turbine view (built by #10, not a contract): one row per `ts, turbine_id`, one column per sensor.
-- Meteo wind: a 5-min series per park (`ts, park_id, wind_ms, wdir_deg`) — from ERA5 100 m wind via shear.
-- `turbines`: `turbine_id, park_id, model, rated_kw, hub_height_m, rotor_d_m, lat, lon, county`.
+- Meteo wind: a 5-min series per **turbine** (`ts, turbine_id, wind_ms, wdir_deg?`); the simulator derives it from ERA5
+  100 m wind via shear (`wdir_deg` from ERA5, absent in PPC data).
+- `turbines`: `turbine_id, park_id, model, rated_kw, hub_height_m, rotor_d_m, lat, lon, county, power_unit, power_scale`.
 - Labels: `fault_labels` (data.md) with `asset_kind = turbine` and a `WindAnomaly` class.
 
 Parks (synthetic RO, #22): two in Dobrogea (Constanța), one in Vaslui; ~120 turbines; generic 2.5 MW / 6.1 MW

@@ -1,0 +1,36 @@
+{
+  "name": "sentinel-app",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev -F web --",
+    "db:push": "turbo run db:push -F @sentinel-app/db --",
+    "db:studio": "turbo run db:studio -F @sentinel-app/db --",
+    "db:generate": "turbo run db:generate -F @sentinel-app/db --",
+    "db:migrate": "turbo run db:migrate -F @sentinel-app/db --",
+    "auth:generate": "cd apps/web && npm run auth:generate",
+    "test": "turbo run check-types",
+    "start": "npm run start --workspace web"
+  },
+  "dependencies": {
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@sentinel-app/config": "*",
+    "@types/node": "^26.4.1",
+    "turbo": "^2.11.7",
+    "typescript": "^6.0.3"
+  },
+  "packageManager": "npm@11.6.2",
+  "allowScripts": {
+    "esbuild": true,
+    "sharp": true
+  }
+}
