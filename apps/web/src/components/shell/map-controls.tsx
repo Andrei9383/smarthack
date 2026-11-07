@@ -32,7 +32,7 @@ function ControlButton({ label, onClick, children }: { label: string; onClick: (
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="grid size-[34px] place-items-center border-b border-border text-text-secondary transition-colors duration-150 last:border-b-0 hover:bg-sidebar hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+      className="grid size-[34px] place-items-center border-b border-border text-text-secondary transition-colors duration-150 last:border-b-0 hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
     >
       {children}
     </button>
@@ -45,7 +45,7 @@ export function ShellMapControls({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "flex flex-col overflow-hidden rounded-xl bg-card/95 shadow-floating backdrop-blur-sm",
+        "flex flex-col overflow-hidden rounded-xl bg-card shadow-floating",
         className,
       )}
     >

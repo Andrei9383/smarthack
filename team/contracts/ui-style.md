@@ -1,118 +1,156 @@
-# UI style: PPC white + emerald
+# UI style: Cockpit (dark + light)
 
-Status: adopted. This replaces the dark WindMon look described in plan.md §3.8. Card #83 is the spec; foundation card #84 lands the tokens; #75 covers per-mode polish.
+Status: adopted with card #181. **This replaces the light-only "PPC white + emerald" spec** (cards #83/#84/#75/#123).
+The source prompt, why we chose it and the rejected alternatives are in [`team/design/ui-prompt.md`](../design/ui-prompt.md).
 
-The app is a B2B product we pitch to PPC, so it should look like PPC built it: a clean white page, near-black text and soft grey panels.
-The only change from PPC's own brand is that **emerald green replaces PPC's blue/cyan**. The aim is premium and calm, and the numbers
-should be readable at 1440×900 and on a projector.
-
-PPC reference, taken from the ppcenergy.ro CSS:
-- Text `#0D0D0D` on white, panels `#F2F3F5`.
-- Font PingLCG (proprietary, so we use Inter instead).
-- Accents `#506FEE` and `#0091BD`, which we replace with green.
-- Bright green `#00DC55`, kept for small live dots only.
+The app is an operations console for grid and wind operators, pitched to PPC. Alerts and numbers come first;
+density is compact but readable; numbers sit in tabular columns; status is always text plus colour. Both themes
+must be legible on a projector at 1440×900. The action colour stays **emerald** (team decision 17:04).
 
 ## 1. Theme
-- **Light only.** In `providers.tsx`, set `defaultTheme="light"` and `enableSystem={false}`. Don't style for `.dark`.
-- **Basemap:** light, Positron-like.
-  - Land `#F7F8FA`, sea `#E6EEF2`, country and county borders `#C9CED4`, labels `#8A929C`.
-  - Map overlays must stay readable on this light basemap. Use strokes with 85–100% opacity, not glows meant for a dark background.
+- Two themes with the same roles: **`.dark` = Cockpit (default)** and **`:root` = light**.
+- `components/providers.tsx`: `defaultTheme="dark"`, `enableSystem={false}`. To open in light for a bright
+  room or projector, change that one `defaultTheme` value.
+- The top bar has a labelled **Light / Dark** toggle (`components/shell/theme-toggle.tsx`, next-themes).
+- **Basemap:** CARTO **dark-matter** in dark, **Positron** in light (packages/ui `Map` picks the style from the
+  theme; app-shell and the Overview mini map pass it). `demo/use-basemap.ts` paints Romania, its neighbours,
+  borders and the sea per theme from `palette.ts` (`mapLand`, `mapNeighbour`, `mapSea`, …).
+- Theme changes remount the map (`key` includes the theme), so every layer re-reads its colours.
 
 ## 2. Tokens
-Everything lives in `packages/ui/src/styles/globals.css`. Components use the Tailwind classes these tokens generate
-(`bg-primary`, `text-status-critical`, …) or `var(--…)`. **Don't put hex literals in components.** For deck.gl or canvas code
-that needs RGB arrays, put them in one shared module (e.g. `apps/web/src/lib/palette.ts`) that mirrors these tokens.
+Everything lives in `packages/ui/src/styles/globals.css`. Components use the Tailwind classes these tokens
+generate (`bg-surface-raised`, `border-border-strong`, `text-status-critical`, …) or `var(--…)`.
+**No hex literals in components.** Hex/RGB values live only in `globals.css`, `apps/web/src/lib/palette.ts`
+and the per-mode `colors.ts` modules.
 
-### Surfaces and text
-| Token | Value | Use |
-|---|---|---|
-| `--background` | `#FFFFFF` | page |
-| `--card`, `--popover` | `#FFFFFF` | cards, drawers, sheets, tooltips |
-| `--sidebar` | `#F7F8FA` | KPI strip, sidebar, demo bar |
-| `--muted`, `--secondary` | `#F2F3F5` | table header, inactive tab, input fill |
-| `--border`, `--input` | `#E6E8EB` | 1px hairlines |
-| `--foreground` | `#0D0D0D` | primary text |
-| `--text-secondary` | `#4B5563` | secondary text |
-| `--muted-foreground` | `#8A929C` | captions, units, axis labels |
-| `--shadow-card` | `0 1px 2px rgba(13,13,13,.04), 0 8px 24px rgba(13,13,13,.06)` | cards, drawers |
-
-### Brand green (emerald)
-| Token | Value | Use |
-|---|---|---|
-| `--brand-50` | `#ECFBF2` | selected row, active nav background, soft badge |
-| `--brand-100` | `#D1F5E0` | hover on selected |
-| `--brand-500` | `#12B76A` | fills, chart areas |
-| `--primary` = `--brand-600` | `#0E9F5A` | primary button, active tab, focus ring (`--ring`), Sentinel series |
-| `--brand-700` | `#0B7F48` | links and green text on white (meets AA) |
-| `--brand-900` | `#064E2D` | text on a `--brand-50` background |
-| `--live` | `#00DC55` | small "live" or "replaying" dots only, never text |
-
-`--primary-foreground` is `#FFFFFF`.
-
-### Status
-Status colours are separate from the brand colours. They replace the local constants each file defines today.
-| Token | Value | Meaning | Old local constant |
+### Surfaces and text (dark / light)
+| Token | Dark | Light | Use |
 |---|---|---|---|
-| `--status-ok` | `#0E9F5A` | ok, within limit, Sentinel | `#2dd4bf` |
-| `--status-warn` | `#D97706` | warning, baseline policy | `#f59e0b` |
-| `--status-critical` | `#E5484D` | over limit, fault, critical | `#ef4444` |
-| `--status-forecast` | `#0284C7` | forecast or expected (draw dashed) | `#38bdf8` |
-| `--status-soc` | `#6366F1` | battery state of charge | `#818cf8` |
-| `--status-review` | `#8B5CF6` | "not sure", handed to a human | `#a78bfa` |
-| `--status-unknown` | `#94A3B8` | unknown, excluded, no data | `#64748b` / `#475569` |
-| `--status-actual` | `#0D0D0D` | actual or measured series | `#f8fafc` |
+| `--background` | `#101720` | `#F4F6F8` | page, main content layer |
+| `--card`, `--popover` | `#182330` | `#FFFFFF` | panels, cards, sheets, tooltips |
+| `--surface-raised` (new) | `#203041` | `#EEF1F4` | hover, inactive tab, kbd, table header; also `--muted`, `--secondary`, `--accent` |
+| `--sidebar` | `#0D1117` | `#EBEEF2` | app frame and rail |
+| `--border`, `--input` | `#2B3A49` | `#D5DCE3` | 1px separators between levels |
+| `--border-strong` (new) | `#3D5166` | `#B4C0CC` | hover, selected and role borders, tooltip edge |
+| `--foreground` | `#EDF3F7` | `#0D141C` | primary text |
+| `--text-secondary` | `#C3D0DB` | `#3D4B59` | secondary text |
+| `--muted-foreground` | `#A6B7C5` | `#5F6E7C` | captions, units, axis labels (AA at 12px on card and raised) |
+| `--scrim` (new) | black 60% | `#0D141C` 50% | behind the tour spotlight |
 
-Badges use the status colour as text plus the same colour at 10% as background, e.g. `text-status-critical bg-status-critical/10`.
+### Brand (emerald action colour)
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `--primary` (= `--brand-600`, `--status-ok`) | `#3DD68C` | `#0B7F48` | primary button, active state, Sentinel series |
+| `--primary-foreground` | `#101720` | `#FFFFFF` | text on primary (9.6:1 / 5.1:1) |
+| `--brand-500` | `#2FBF7A` | `#12B76A` | area and map fills |
+| `--brand-50` | `#15352A` | `#ECFBF2` | selected row, active nav |
+| `--brand-100` | `#1C4535` | `#D1F5E0` | hover on selected |
+| `--brand-700` | `#6EE0A8` | `#096B3C` | green links and text; primary button hover |
+| `--brand-900` | `#A7F3C9` | `#064E2D` | text on `--brand-50` |
+| `--ring` | `#A6EAF2` | `#0E7490` | focus ring |
+| `--live` | `#00DC55` | `#00DC55` | live/replaying dots only, never text |
+
+### Status (dark / light; names unchanged)
+| Token | Dark | Light | Meaning |
+|---|---|---|---|
+| `--status-ok` | = `--primary` | = `--primary` | ok, within limit, Sentinel |
+| `--status-warn` | `#F3C56A` | `#B45309` | warning, near limit |
+| `--status-critical` | `#EE8A91` | `#C9353B` | over limit, fault, critical |
+| `--status-forecast` | `#69D4E4` | `#0369A1` | forecast / expected (dashed) |
+| `--status-soc` | `#A5B4FC` | `#4F46E5` | battery state of charge |
+| `--status-review` | `#C4B5FD` | `#7C3AED` | "not sure", handed to a person |
+| `--status-unknown` | `#8796A6` | `#64748B` | unknown, excluded, no data |
+| `--status-actual` | = `--foreground` | = `--foreground` | actual / measured series |
+
+All status text colours pass AA (4.5:1) on `--card` in their theme. Tags and badges: **the word first**, the
+status colour as text on the same colour at ~12%: `text-status-critical bg-status-critical/12`. Never colour alone.
+
+### Depth
+Borders separate levels; shadows are for surfaces that float over the map.
+- `shadow-card`, `shadow-raised`: a 1px `--border` ring only (in-flow panels, chips, hover rows). No blur.
+- `shadow-floating`: top bar, inspector, dock, legend, map controls (border ring + soft drop, re-tuned for dark).
+- `shadow-overlay`: popovers, dialogs, sheets, toasts, chart tooltips (`--border-strong` ring + deeper drop).
+- `shadow-inset-hi`, `shadow-brand`: a faint top highlight only; no glow.
+
+### Motion
+- `--motion-fast: 150ms`, the default transition duration; utility `duration-fast`.
+- `CountUp` shows the final value straight away (no fake count-up; same props).
+- Respect reduced motion (`motion-safe:` / `motion-reduce:`); skeletons and spinners don't loop under it.
+
+### Deck.gl, MapLibre and canvas: `apps/web/src/lib/palette.ts`
+- `paletteFor(theme)` / `usePalette()` → the RGB palette for a theme; `useThemeName()`; `hex()`, `rgba()`,
+  `rgbaArray()` helpers.
+- `MAP_SAFE`: status hues for map overlays (`ok #0E9F5A`, `warn #D97706`, `critical #E5484D`,
+  `unknown #7A8899`, …). They keep ≥ 3:1 against both Positron's white land and the dark land, so map layers
+  may capture them at import. UI text uses the per-theme `--status-*` tokens instead.
+- `onPaletteTheme(fn)` / `useMapTheme()`: per-mode `colors.ts` keep theme-dependent exports (casings,
+  low-trust gaps, no-data fills, county borders, cluster discs, particle ramps, raster opacity) as
+  `export let` values updated on a theme change; app-shell calls `useMapTheme()` before remounting the map.
+- SVG chart colours are CSS variable strings (`"var(--status-forecast)"`, `"var(--chart-baseline)"`), so they
+  follow the theme without JS.
 
 ## 3. Charts
-- **Sentinel vs baseline:** Sentinel is always `--primary` green and the baseline always `#0D0D0D` at 55% opacity. Never swap them.
-- **Series ramp:** `--chart-1..5` is a green ramp: `#0B7F48`, `#0E9F5A`, `#12B76A`, `#6CD9A0`, `#B7EFCF`.
-- **Supporting elements:**
-  - Grid `#EEF0F2`; axis labels `--muted-foreground` at 11px.
-  - Crosshair `#0D0D0D` at 40%.
-  - Tooltip: white card with `--shadow-card`.
-- **Map colour ramps:** stress or heat ramps go light → strong: `#ECFBF2` → `#FDE68A` → `#F59E0B` → `#E5484D`. Demand red zones use `--status-critical`.
-- **Particles:** the production wind particles use `#0B7F48` at 60% on the light basemap.
+- **Sentinel vs baseline:** Sentinel is always `--primary`; the baseline always `--chart-baseline`
+  (foreground at 55%). Never swap them.
+- **Fan chart:** P10–P90 band = `--chart-band` (forecast at 22% dark / 14% light; existing bands draw the
+  forecast colour at 14–16% fill, which is equivalent). P50 dashed 1.5px forecast; actual solid 1.5px
+  `--status-actual`.
+- **Supporting:** grid `--chart-grid` (`#1F2C3A` / `#E3E8ED`); crosshair `--chart-crosshair` (foreground 40%);
+  axis labels `--muted-foreground` at 11px; tooltip = popover surface, 4px radius, `--border-strong` edge,
+  `shadow-overlay`, 12px text.
+- **Series ramp:** `--chart-1..5` is an emerald ramp per theme (dark `#3DD68C → #145F3F`, light `#0B7F48 → #B7EFCF`).
+- **Map ramps:** the demand stress ramp is one map-safe ramp for both themes, mint → gold → amber → red
+  (`modes/demand/colors.ts`), drawn at 90% (light) / 78% (dark). Wind particles are emerald at 60%, light → strong
+  on Positron and dark → bright on dark-matter.
 
 ## 4. Typography
-- Font: **Inter**, loaded with `next/font/google` in `apps/web/src/app/layout.tsx` and bound to `--font-sans`. Numbers use `tabular-nums`.
+- **IBM Plex Sans** (400/500/600, `@fontsource-variable/ibm-plex-sans`) for UI text → `--font-sans`.
+- **IBM Plex Mono** (`@fontsource/ibm-plex-mono` 400/500/600) for numbers, IDs and timestamps → `--font-mono`
+  (`font-mono`). Both cover Romanian diacritics.
+- `tabular-nums` is on `body`, so every number sits in a column.
 
-| Role | Size and weight |
+| Role | Size / weight |
 |---|---|
 | Body | 14px / 400, line height 1.5 |
-| Dense panels and tables | 13px |
-| Panel titles | 16px / 600 |
-| Section labels | 11px / 500, uppercase, tracking .04em, `--muted-foreground` |
-| KPI values | 28–32px / 600, unit at 13px muted beside the value |
+| Dense tables, queues | 13px |
+| Metadata, captions | 12px |
+| Section label | 11px / 600, uppercase, tracking .06em, `--muted-foreground` (utility `section-label`) |
+| Panel title | 15px / 600 |
+| Page H2 | 20px / 600 |
+| Overview H1 | 28px / 600 |
+| KPI value | 32px / 600 in Plex Mono, unit 13px muted (top-bar chips 16px; inspector metrics 22px) |
 
 ## 5. Shape, space, layout
-- **Radius:** cards and drawers 12px (`--radius: 0.75rem`), controls 8px, badges fully rounded (pill).
-- **Spacing:** 8px grid. Cards use 16–20px padding. KPI tiles get room: 24px gap, one number each, with a label above and the delta below.
-- **Layout:**
-  - KPI strip on top, map in the centre, detail drawer on the right.
-  - Panels float over the map as white cards with `--shadow-card`, not as full-height dark slabs.
-- **Hierarchy:**
-  - One primary (green) action per panel; everything else is secondary or ghost.
-  - Actions read as verbs ("Dispatch crew", "Shave peak").
-- **Explainability:** "why" content (feature contributions, similar cases, confidence) sits one click away in every drawer, under a consistent "Why this decision" section.
+- **Radius:** `--radius: 0.375rem` (6px) for panels and cards; 4px (`rounded-sm`/`rounded-md`) for controls and
+  status tags. The larger steps are compressed (`rounded-xl` = 6px, `rounded-2xl` = 8px) so existing panels land
+  on the Cockpit radius. Pills (`rounded-full`) only for provenance labels (and dot marks).
+- **Spacing:** 4px base on an 8px rhythm. Panel padding 12–16px. Gaps 8 / 12 / 16.
+- **Density:** table rows 32px (dense) or 36px; controls 32px high; 44px hit targets on touch or narrow screens.
+- **Layout:** frame (`--sidebar`) holds the rail (220px, labelled, collapses below 768px) and the main content
+  layer (`--background`, 1px border, 6px radius). Map modes: top bar (controls on one row), map, inspector on the
+  right, dock at the bottom. Overview is a page.
+- **Rows:** separators between rows, not a box around every cell. Selected row: `--brand-50` background plus a
+  2px `--primary` left edge. Hover: `--surface-raised`. Numbers right-aligned in mono; status column =
+  `StatusMark` + a text label.
+- **Hierarchy:** one primary (green) action per panel; actions read as verbs ("Dispatch crew", "Shave peak").
+- **Explainability:** "why" content sits one click away in every drawer ("How Sentinel decides", details sheets).
 
 ## 6. Rules
-- No change to behaviour, data, oRPC calls or URL state. Data provenance labels (synthetic RO / real RO / non-RO) stay visible.
+- No change to behaviour, data, oRPC calls, URL state or labels. Provenance labels (synthetic RO / real RO /
+  non-RO) stay visible.
 - No hex literals in components (see §2).
-- Check at 1440×900 and on a projector. Text must have AA contrast; never put grey-on-grey below `#8A929C` on white.
-- Put before/after screenshots of every mode on the card.
+- AA contrast in both themes: 4.5:1 for body text, 3:1 for large text and map strokes.
+- Loading, empty and error states each get an explanatory line and a next step.
+- Check at 1440×900 and on a projector, in both themes. Put screenshots of every mode (dark and light) on the card.
 
-## 7. Depth, status marks and the shader banner (v3, card #123)
-The user asked for a UI that does not read as generic or AI-generated. Three shared pieces carry that:
-- **Elevation** (tokens in `globals.css`): `shadow-raised` for chips and hover rows, `shadow-floating` for the
-  inspector, dock, top bar and legend, `shadow-overlay` for popovers, dialogs and toasts, `shadow-inset-hi` for a top
-  highlight on raised surfaces and buttons, `shadow-brand` for the one primary CTA. Each is a 1px contact ring plus a
-  key and an ambient shadow, so a surface needs no border. Don't stack cards inside cards to fake depth.
-- **Status marks** (`components/brand/status-mark.tsx`): replace plain 6px dots. Shape carries the meaning as well as
-  colour: ok = round LED, warn = triangle, critical = diamond (`pulse` adds a halo, only for "act now"), review = hexagon
-  with a hollow core, forecast = dashed ring, soc = battery cell with a `level`, unknown = hollow ring, live = breathing
-  LED. Sizes xs 8 / sm 10 / md 12 / lg 16 px. Pass `label` when no visible text sits beside it.
-- **Shader banner** (`components/brand/shader-banner.tsx`, `shaders@4.0.5`, telemetry off): an animated WebGPU
-  background (pale emerald swirl, cursor-reactive colour flow, fluted glass, fine grain). Tones `emerald` (default),
-  `calm`, `alert`. **At most one per screen**, on a hero surface such as the Overview briefing. Never behind dense text
-  or charts. Its CSS gradient poster shows under reduced motion, without WebGPU and while off-screen.
+## 7. Depth, status marks and the shader banner
+- **Elevation** tokens as in §2 "Depth". Don't stack cards inside cards to fake depth.
+- **Status marks** (`components/brand/status-mark.tsx`): shape carries the meaning as well as colour: ok = round
+  LED, warn = triangle, critical = diamond (`pulse` adds a halo, only for "act now"), review = hexagon with a hollow
+  core, forecast = dashed ring, soc = battery cell with a `level`, unknown = hollow ring, live = breathing LED.
+  Sizes xs 8 / sm 10 / md 12 / lg 16 px. Flatter in Cockpit: the contact ring and hollow cores take `--card`, so
+  marks sit flat in either theme. Pass `label` when no visible text sits beside it.
+- **Shader banner** (`components/brand/shader-banner.tsx`, `shaders@4.0.5`, telemetry off): **Overview only**
+  (user decision, #123), never behind data. Light tones are pale emerald (above ~85% lightness); the dark tone is
+  deep navy and emerald (below ~25%), so text keeps AA. Its CSS gradient poster (token-based, so it follows the
+  theme) shows under reduced motion, without WebGPU and while off-screen.

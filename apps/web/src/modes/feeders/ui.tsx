@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 // Small presentational pieces shared by the Feeders and Demand panels (team/contracts/ui-style.md).
 
 export const SECTION_LABEL =
-  "text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-text-secondary uppercase";
+  "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
 
 /** Plot margins: room on the left for y labels, below for time ticks. */
 export const AXIS_MARGIN = { left: 36, right: 10, top: 22, bottom: 24 };
@@ -160,7 +160,7 @@ function provenanceDot(label: string) {
 /** The neutral provenance pill shared by every mode (synthetic RO / real RO / non-RO). */
 export function ProvenancePill({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-text-secondary">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-text-secondary">
       <span className={`size-1.5 rounded-full ${provenanceDot(label)}`} />
       {label}
     </span>
@@ -169,7 +169,7 @@ export function ProvenancePill({ label }: { label: string }) {
 
 export function EmptyNote({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-lg bg-sidebar px-4 py-6 text-center text-xs text-muted-foreground">
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong bg-background px-4 py-6 text-center text-xs text-text-secondary">
       <Icon className="size-4" aria-hidden />
       <p>{children}</p>
     </div>

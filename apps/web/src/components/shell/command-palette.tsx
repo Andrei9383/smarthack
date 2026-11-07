@@ -300,7 +300,7 @@ function Results({ onClose, onTour }: { onClose: () => void; onTour: () => void 
           placeholder="Jump to a feeder, turbine, county or view…"
           className="h-14 min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
         />
-        <kbd className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground shadow-inset-hi">
+        <kbd className="rounded-sm border border-border bg-surface-raised px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
           esc
         </kbd>
       </div>
@@ -337,7 +337,7 @@ function Results({ onClose, onTour }: { onClose: () => void; onTour: () => void 
                     onClick={item.run}
                     className={cn(
                       "flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-[background-color,box-shadow] duration-100",
-                      isActive ? "bg-sidebar shadow-raised" : "text-foreground",
+                      isActive ? "bg-surface-raised shadow-raised" : "text-foreground",
                     )}
                   >
                     <span
@@ -362,7 +362,7 @@ function Results({ onClose, onTour }: { onClose: () => void; onTour: () => void 
           ))
         )}
       </div>
-      <div className="flex items-center gap-4 border-t border-border bg-sidebar px-4 py-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-4 border-t border-border bg-surface-raised px-4 py-2 text-[11px] text-muted-foreground">
         <span>
           <kbd className="font-mono">↑↓</kbd> move
         </span>
@@ -403,8 +403,8 @@ export function CommandPalette({
   return (
     <Dialog.Root open={open} onOpenChange={(next) => onOpenChange(next)}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-[60] bg-foreground/15 backdrop-blur-[2px] transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none" />
-        <Dialog.Popup className="fixed top-[12vh] left-1/2 z-[61] flex w-[min(620px,calc(100vw-32px))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl bg-card shadow-overlay outline-none transition-[opacity,scale] duration-180 ease-out data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 motion-reduce:transition-none">
+        <Dialog.Backdrop className="fixed inset-0 z-[60] bg-foreground/15 backdrop-blur-[2px] dark:bg-black/50 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none" />
+        <Dialog.Popup className="fixed top-[12vh] left-1/2 z-[61] flex w-[min(620px,calc(100vw-32px))] -translate-x-1/2 flex-col overflow-hidden rounded-lg bg-card shadow-overlay outline-none transition-[opacity,scale] duration-180 ease-out data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 motion-reduce:transition-none">
           <Dialog.Title className="sr-only">Jump to</Dialog.Title>
           <Dialog.Description className="sr-only">
             Search views, feeders, turbines, counties, wind parks and the demo script. Enter opens the highlighted result.

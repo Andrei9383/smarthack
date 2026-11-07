@@ -42,12 +42,12 @@ function RailItem({
       aria-current={active ? "page" : undefined}
       title={expanded ? undefined : `${label}: ${descriptor}`}
       className={cn(
-        "relative flex min-h-11 w-full items-center gap-3 rounded-[10px] px-2.5 py-1.5 text-left transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
-        active ? "bg-brand-50 text-brand-900" : "text-text-secondary hover:bg-card hover:text-foreground",
+        "relative flex min-h-11 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left transition-colors duration-fast focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
+        active ? "bg-brand-50 text-brand-900" : "text-text-secondary hover:bg-surface-raised hover:text-foreground",
       )}
     >
       {active ? (
-        <span aria-hidden className="absolute top-3 bottom-3 -left-2 w-[3px] rounded-r-[3px] bg-primary" />
+        <span aria-hidden className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-sm bg-primary" />
       ) : null}
       <span className={cn("relative flex size-5 shrink-0 items-center justify-center", active && "text-primary")}>
         {icon}
@@ -74,7 +74,7 @@ function RailItem({
         </span>
       </span>
       {expanded && shortcut ? (
-        <kbd className="shrink-0 rounded-[5px] border border-border px-1 font-mono text-[10px] font-medium text-muted-foreground">
+        <kbd className="shrink-0 rounded-sm border border-border px-1 font-mono text-[10px] font-medium text-muted-foreground">
           {shortcut}
         </kbd>
       ) : null}
@@ -143,11 +143,11 @@ export function Rail({
       data-tour="rail"
       className={cn(
         "relative z-40 flex h-full shrink-0 flex-col gap-1 overflow-hidden bg-transparent px-2 py-2.5 transition-[width] duration-200 ease-out motion-reduce:transition-none",
-        expanded ? "w-[232px]" : "w-14",
+        expanded ? "w-[220px]" : "w-14",
       )}
     >
       <div className="mb-2.5 flex h-10 items-center gap-3 pl-1">
-        <span className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary text-primary-foreground shadow-brand">
+        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand">
           <Zap aria-hidden className="size-[18px]" />
         </span>
         <span className={cn("min-w-0 leading-tight transition-opacity duration-150", expanded ? "opacity-100" : "opacity-0")}>
@@ -199,7 +199,7 @@ export function Rail({
           onClick={onHelp}
           aria-label="Show the tour"
           title="Show the tour: how to read this screen"
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-card hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="grid size-8 shrink-0 place-items-center rounded-md text-text-secondary transition-colors duration-fast hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           <CircleHelp aria-hidden className="size-[18px]" />
         </button>
@@ -208,7 +208,7 @@ export function Rail({
           onClick={onToggle}
           aria-label={expanded ? "Collapse the menu" : "Expand the menu"}
           title={expanded ? "Collapse the menu" : "Expand the menu"}
-          className="grid size-8 shrink-0 place-items-center rounded-lg text-text-secondary transition-colors duration-150 hover:bg-card hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="grid size-8 shrink-0 place-items-center rounded-md text-text-secondary transition-colors duration-fast hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           {expanded ? <PanelLeftClose aria-hidden className="size-[18px]" /> : <PanelLeftOpen aria-hidden className="size-[18px]" />}
         </button>
