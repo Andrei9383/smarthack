@@ -22,20 +22,40 @@ setup   = "set -e; if [ -f package.json ]; then npm ci --no-audit --no-fund; fi"
 cmd     = "npm start"               # must listen on $HOST:$PORT (both set by the lab)
 keep    = true
 
+# ML runs (Stefan, #6). Light deps everywhere; torch only where a run trains. MODEL / POLICY can be overridden per
+# submit with --cmd. Timing, metrics and the Rust kernels are described in team/infra.md.
 [runs.train]
-setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
-cmd     = ".venv/bin/python train.py"   # metrics: JSON to $LAB_METRICS, or print "LAB_METRIC name=value"
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt -r requirements-train.txt"
+cmd     = ".venv/bin/python train.py --model ${MODEL:-pvnet}"   # pvnet | loadnet | sitehealth | windnbm
 needs   = "gpu"
 gpu_mem = "4G"                      # only GPUs with this much memory take it (lab status lists them)
 timeout = "2h"
 
+[runs.train_cpu]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
+cmd     = ".venv/bin/python train.py --model ${MODEL:-demandnet}"   # demandnet | windpower | windfailure | gridtwin
+needs   = "cpu"
+timeout = "1h"
+
+[runs.baseline]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
+cmd     = ".venv/bin/python eval.py --baselines"
+needs   = "cpu"
+timeout = "1h"
+
+[runs.replay]
+setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
+cmd     = ".venv/bin/python replay.py --policy baseline,sentinel --out $LAB_OUTPUT_DIR/sentinel.sqlite"
+needs   = "cpu"
+timeout = "1h"
+
 [runs.eval]
 setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt"
-cmd     = ".venv/bin/python eval.py"
+cmd     = ".venv/bin/python eval.py"         # scores ONNX models with onnxruntime, so no torch
 needs   = "gpu"
 gpu_mem = "4G"
 timeout = "30m"
 
 [leaderboard]
-metric = "val_acc"
-better = "higher"
+metric = "val_nmae"
+better = "lower"

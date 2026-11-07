@@ -80,6 +80,10 @@ torch, the LP or Python.
 All models are trained from scratch in our repo (≤ 30 min on a 4–8 GB GPU or CPU) and write the same envelope
 (§3.4). A slipped model runs on its fallback, so it degrades a panel, never the demo.
 
+**Compute:** lab workers desktop (6 GB), laptop (4 GB), server-gpu (8 GB), plus a **12 GB RTX 5070** we can also
+train on (not yet a lab worker; register it with `gpu_mem` 12G). Send the largest grid configs and the WindNBM sweeps
+there; models must still fit 4–8 GB so any worker can retrain them.
+
 | # | Model | Question | Architecture | Tier | Card | Fallback |
 |---|---|---|---|---|---|---|
 | M1 | PVNet | What should this PV system produce? | PatchTST-style encoder, ~0.3 M params, weather + solar geometry + site's own reference window | MUST | #14 | LightGBM quantile (#15) |
@@ -502,7 +506,8 @@ per-turbine baselines, no power-curve analysis, no trend detection, no suppressi
 - Contract change = `lab announce` + a line in `team/decisions.md`.
 - After every training or replay run: `lab note` + one line in `team/insights.md`, with the label (synthetic RO /
   real RO / non-RO).
-- Runs ≤ 20–30 min; memmapped float16 windows; mixed precision; cheapest grid configs to the 4 GB laptop.
+- Runs ≤ 20–30 min; memmapped float16 windows; mixed precision; cheapest grid configs to the 4 GB laptop, largest
+  to the 12 GB RTX 5070.
 - `requirements.txt` stays light (no torch); `requirements-train.txt` adds torch, so the sandbox never pulls CUDA.
 - Until #21 lands, a failed preview blocks auto-merge: submit with `lab submit <id> --run check`.
 - Keep a phone hotspot ready.
