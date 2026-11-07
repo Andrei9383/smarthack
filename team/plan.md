@@ -107,6 +107,12 @@ work-order action.
 | Evaluation & robustness | 17–21 | PVDAQ results, CUSUM comparison, error analysis, drills, grid-twin decision |
 | Demo freeze | 21–24 | `lab freeze on` at h22; `make reproduce` on a clean checkout; slides from `lab report --out`; 2 rehearsals |
 
+## First-wave cards
+
+Start here (hour 0–2, challenge-agnostic): **#6** repo skeleton (P3), **#7** contracts (P5, review), **#8** cache probe (P1).
+Then: P1 #9 raw data, #10 windows/splits · P2 #11 simulator, #12 fault injector, #13 grid-twin ·
+P3 #14 SentinelNet + train.py · P4 #15 baselines, #16 eval.py · P5 #17 agent loop, #18 decisions, #19 Streamlit.
+
 ## Lab rules for the 24 h
 
 - Every card has `--paths`; agents never touch each other's files. Contract and "promote model" cards are
