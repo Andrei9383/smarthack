@@ -223,6 +223,12 @@ def test_park_capped_to_zero_is_curtailment_not_a_work_order():
     iced[40:100, 10:20, ci], iced[40:100, 10:20, ii], iced[40:100, 10:20, 0] = 0.3, 0.9, 0.0
     out_i = decide(iced, dict(th, curtailment=0.15, icing=0.85), curtail_mask=ctx)
     assert (out_i[40:100, 10:20] == ii).all() and (out_i[40:100, 20:60] == ci).all()
+    # a turbine overheating during the cap keeps its actionable class (the consensus never out-votes it)
+    oi = CLASS_INDEX["overheating"]
+    hot = probs.copy()
+    hot[40:100, 30, oi] = 0.95
+    out_h = decide(hot, th, curtail_mask=ctx)
+    assert (out_h[40:100, 30] == oi).all() and (out_h[40:100, 31:60] == ci).all()
     # a park-wide cap at a common ceiling is still allowed by the ceiling test alone
     assert (decide(weak, th, curtail_mask=_park_ctx(T, n, cap_frac=0.5))[40:100, 35:] == ci).all()
 

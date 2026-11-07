@@ -301,9 +301,9 @@ CURTAIL_MIN_PARK_FRAC = 0.15
 CURTAIL_CONSENSUS_FRAC = 0.5
 # ... and at least this many turbines agree, so a lone turbine (also in a 1- or 2-turbine park) never qualifies.
 CURTAIL_CONSENSUS_MIN_TURBINES = 2
-# A vote needs p_curtailment >= max(θ_curtailment, this). The consensus overrides the veto without any physical
+# A vote needs p_curtailment >= max(θ_curtailment, this). The consensus lifts the veto without any physical
 # ceiling, so it only counts confident turbines: once the veto stops binding, the tuner lowers θ_curtailment to
-# 0.15-0.25, and at that level park-wide icing out-voted itself as curtailment (#99 train#555/557: icing recall -2 pts).
+# 0.15-0.25 (#99 train#554-557), and votes that weak would let a diffuse weather-driven signal form a consensus.
 CURTAIL_CONSENSUS_MIN_P = 0.5
 
 # What `curtail_ok` returns: one park's curtailment context per step and turbine. Structured so that the masks of
@@ -319,7 +319,8 @@ def curtail_ok(F: np.ndarray, names: list[str]) -> np.ndarray:
     Curtailment is park-wide by definition (plan §3.5). `decide` allows it where `ceiling` holds (>= 15 % of the
     park sits at one ceiling below its expected power, park_cap_frac over the last hour) OR where the park agrees
     (>= CURTAIL_CONSENSUS_FRAC of the `reporting` turbines, i.e. those with a valid power reading, have
-    p_curtailment >= max(θ_curtailment, CURTAIL_CONSENSUS_MIN_P); only those voting turbines are released).
+    p_curtailment >= max(θ_curtailment, CURTAIL_CONSENSUS_MIN_P); only voting turbines with no other anomaly class
+    at its threshold are released).
     Each call gets its own `park` id."""
     out = np.empty(F.shape[:2], dtype=CURTAIL_CTX)
     out["ceiling"] = F[..., names.index("park_cap_frac_m4")] >= CURTAIL_MIN_PARK_FRAC
@@ -328,9 +329,12 @@ def curtail_ok(F: np.ndarray, names: list[str]) -> np.ndarray:
     return out
 
 
-def curtail_allowed(p_curt: np.ndarray, theta: float, ctx: np.ndarray) -> np.ndarray:
+def curtail_allowed(p_curt: np.ndarray, theta: float, ctx: np.ndarray,
+                    other_hit: Optional[np.ndarray] = None) -> np.ndarray:
     """[T, N] bool: where curtailment may be called. `ctx` from `curtail_ok` (possibly several parks concatenated
-    on axis 1); a plain bool [T, N] is read as the ceiling test of one park whose turbines all report."""
+    on axis 1); a plain bool [T, N] is read as the ceiling test of one park whose turbines all report.
+    `other_hit` [T, N]: another anomaly class is at or above its own threshold there. The consensus never releases
+    such a turbine (no physical ceiling backs it), so it cannot hide an actionable class the veto would have kept."""
     if ctx.dtype.names is None:
         ceiling = np.asarray(ctx, dtype=bool)
         reporting = np.ones_like(ceiling)
@@ -346,7 +350,10 @@ def curtail_allowed(p_curt: np.ndarray, theta: float, ctx: np.ndarray) -> np.nda
         n_rep = reporting[:, cols].sum(1)
         ok = (n_vote >= CURTAIL_CONSENSUS_MIN_TURBINES) & (n_vote >= CURTAIL_CONSENSUS_FRAC * np.maximum(n_rep, 1))
         agree[:, cols] = ok[:, None]
-    return ceiling | (agree & vote)
+    release = agree & vote
+    if other_hit is not None:
+        release &= ~other_hit
+    return ceiling | release
 
 
 def decide(probs: np.ndarray, thresholds: dict, min_run: Optional[dict] = None, merge: Optional[dict] = None,
@@ -361,7 +368,8 @@ def decide(probs: np.ndarray, thresholds: dict, min_run: Optional[dict] = None, 
     r = probs[..., 1:] / th[None, None, 1:]
     if curtail_mask is not None:
         ci = CLASS_INDEX["curtailment"]
-        ok = curtail_allowed(probs[..., ci], float(th[ci]), curtail_mask)
+        other_hit = np.delete(r, ci - 1, axis=-1).max(-1) >= 1.0
+        ok = curtail_allowed(probs[..., ci], float(th[ci]), curtail_mask, other_hit)
         r = r.copy()
         r[..., ci - 1] = np.where(ok, r[..., ci - 1], 0.0)
     c = r.argmax(-1) + 1
