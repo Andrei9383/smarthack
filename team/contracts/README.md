@@ -12,6 +12,7 @@ Changing a file here is a team event: `lab announce` it and add a line to `team/
 | [actions.md](actions.md) | Agent actions + audit record (JSON) | `sentinel/contracts/actions.py` | yolooo332 |
 | [replay.md](replay.md) | Which SQLite table each action and replay output lands in | Drizzle schema (#38) | yolooo332 + Tudor |
 | app.md | Drizzle schema, oRPC signatures, ModeConfig | `packages/db`, `packages/api/src/contract` | Tudor (#38) |
+| [notify.md](notify.md) | Congestion level per feeder-day + household emails via Resend (`notify.*` oRPC) | `packages/api/src/notify`, `packages/api/src/contract/notify.ts` | yolooo332 (#120) |
 
 Python contracts are stdlib only (`from sentinel.contracts import ...` works without numpy/torch).
 Tests: `pytest tests/test_contracts.py`.

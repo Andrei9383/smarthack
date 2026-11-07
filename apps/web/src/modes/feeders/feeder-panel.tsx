@@ -24,6 +24,7 @@ import {
   SectionHeader,
   yAxisFor,
 } from "./ui";
+import { NoticeSection } from "./notice-section";
 import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
@@ -290,6 +291,8 @@ export function FeederPanel() {
             </tbody>
           </table>
         </section>
+
+        <NoticeSection feederId={feederId} from={window.from} to={window.to} />
 
         <section className="space-y-3 py-6">
           <SectionHeader title="Export vs limit (kW)">
