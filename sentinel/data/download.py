@@ -515,6 +515,7 @@ def job_pvdaq() -> None:
                           "n_samples")
                   .sort("ts"))
         power_frames.append(q15)
+        wx = add_land_snow(wx, [dict(point_id=f"pvdaq:{sid}", lat=lat, lon=lon)], dt.date(year, 1, 1), dt.date(year, 12, 31))
         weather_frames.append(wx.filter(pl.col("ts").dt.year() == year))
         systems.append(dict(system_id=f"pvdaq:{sid}", name=meta["System"]["public_name"], lat=lat, lon=lon,
                             elevation_m=float(site["elevation"]), kwp=float(meta["System"]["power"]),
