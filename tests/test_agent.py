@@ -8,23 +8,24 @@ from pathlib import Path
 import pytest
 
 from sentinel.agent import loop as L
-from sentinel.agent.audit import FALLBACK_SQL, AuditDB, Ts, find_schema_files, format_time
+from sentinel.agent.audit import (ALLOWED_DROPS, FALLBACK_SQL, AuditDB, SchemaMismatch, Ts, allowed_drop,
+                                  find_schema_files, format_time)
 from sentinel.agent.replay import METRICS, replay
 from sentinel.agent.world import MockWorld
 from sentinel.contracts import PAYLOAD_KEYS, Action, input_hash
 
-TABLES = ["runs", "kpis", "feeders", "parks", "assets", "measurements", "predictions", "statuses", "feeder_curves",
+TABLES = ["asset_steps", "runs", "kpis", "feeders", "parks", "assets", "measurements", "predictions", "statuses", "feeder_curves",
           "commitments", "schedules", "work_orders", "alerts", "review_queue", "gis_flags", "park_forecasts",
           "zone_demand", "reports", "audit_log"]
 
 
 @pytest.fixture(scope="module")
 def small(tmp_path_factory):
-    """2-day small mock world, built-in components (deterministic whatever has merged), fallback schema."""
+    """2-day small mock world, built-in components (deterministic whatever has merged), fallback schema, strict."""
     d = tmp_path_factory.mktemp("replay")
     t = time.perf_counter()
     rep = replay(["baseline", "sentinel"], d / "s.sqlite", world=MockWorld(days=2, scale=0.5),
-                 schema_dir=d / "no-drizzle", force_fallback=True, print_metrics=False)
+                 schema_dir=d / "no-drizzle", force_fallback=True, print_metrics=False, strict=True)
     rep.elapsed = time.perf_counter() - t
     conn = sqlite3.connect(rep.out)
     yield rep, conn
@@ -77,8 +78,35 @@ def test_time_columns_follow_declared_type(tmp_path):
     db.close()
 
 
+def test_strict_mode_raises_on_unmapped_fields(tmp_path):
+    db = AuditDB(tmp_path / "s.sqlite", schema_dir=tmp_path / "none", strict=True)
+    db.add("kpis", {"run_id": "r", "policy": "sentinel", "name": "x", "value": 1.0, "label": "synthetic RO",
+                    "bogus_kw": 1.0})
+    with pytest.raises(SchemaMismatch, match="kpis.bogus_kw"):
+        db.flush()
+    db = AuditDB(tmp_path / "s2.sqlite", schema_dir=tmp_path / "none", strict=True)
+    db.add("kpis", {"run_id": "r", "policy": "sentinel", "name": "x", "value": 1.0})  # label is NOT NULL
+    with pytest.raises(SchemaMismatch, match="kpis.label"):
+        db.flush()
+    db = AuditDB(tmp_path / "s3.sqlite", schema_dir=tmp_path / "none", strict=True)
+    db.add("zone_demand", {"run_id": "r", "zone_id": "CT", "level": "county", "zone_name": "Constanta",
+                           "ts": Ts(1750075200), "q50_mw": 1.0, "peak_stress": 0.5, "label": "synthetic RO",
+                           "step": 60, "stress": 0.4})  # allow-listed drops pass
+    db.close()
+    assert all(reason for t in ALLOWED_DROPS.values() for reason in t.values())
+
+
+def test_one_day_replay_against_38_schema_drops_nothing_unexpected(tmp_path):
+    """Default schema (packages/db/drizzle if merged, else the d362a39 copy), real components, strict mode."""
+    rep = replay(["baseline", "sentinel"], tmp_path / "x.sqlite", world=MockWorld(days=1, scale=0.4),
+                 print_metrics=False, strict=True)
+    s = rep.db
+    assert s["unexpected_drops"] == {} and s["missing_tables"] == [] and s["filled_not_null"] == {}
+    assert all(allowed_drop(t, f) for t, fs in s["dropped_fields"].items() for f in fs)
+
+
 def test_value_map_and_not_null_fill(tmp_path):
-    db = AuditDB(tmp_path / "v.sqlite", schema_dir=tmp_path / "none", warn=lambda m: None)
+    db = AuditDB(tmp_path / "v.sqlite", schema_dir=tmp_path / "none", warn=lambda m: None, strict=False)
     db.add("assets", {"id": "S1", "asset_kind": "site", "lat": 44.0, "lon": 28.0, "county": "Constanta"})
     db.flush()
     kind, name, rated = q(db.conn, "SELECT asset_kind, name, rated_kw FROM assets")[0]

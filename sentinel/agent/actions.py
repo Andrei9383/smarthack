@@ -108,13 +108,12 @@ def rows_for(action: Action, ts: int) -> dict[str, list[dict[str, Any]]]:
     if action.type == ActionType.HUMAN_REVIEW.value:
         pred = action.audit.prediction or {}
         return {"review_queue": [{
-            **base, "asset_id": p["asset_id"], "ts": t, "reason": p["reason"], "status": "pending",
+            **base, "asset_id": p["asset_id"], "ts": t, "reason": p["reason"], "resolved": 0,
             "ood_score": pred.get("ood_score"), "member_std": pred.get("member_std"),
             "interval_width": pred.get("rel_width")}]}
     if action.type == ActionType.GIS_FLAG.value:
         return {"gis_flags": [{
-            **base, "section_id": p["section_id"], "feeder_id": p["recorded_feeder"],
-            "recorded_feeder": p["recorded_feeder"], "suggested_feeder": p["suggested_feeder"],
+            **base, "section_id": p["section_id"], "recorded_feeder": p["recorded_feeder"], "suggested_feeder": p["suggested_feeder"],
             "recorded_phase": p["recorded_phase"], "suggested_phase": p["suggested_phase"], "tau": p["tau"],
             "confidence": p.get("confidence"), "geometry_json": p.get("geometry")}]}
     if action.type == ActionType.PARK_REPORT.value:

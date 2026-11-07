@@ -594,6 +594,7 @@ class LoopConfig:
     resolve_hourly: bool = False
     write_inputs: bool = True  # predictions, measurements, zone demand, gis flags: once per DB (shared inputs)
     step_predictions: bool = True  # per-step pv/load rows in predictions (False = lite DB; asset_steps keeps PV q's)
+    write_schedules: bool = True  # per-step schedules rows (replay default: sentinel only; the UI shows policy 'sentinel')
     beta: float = 0.5  # export remuneration ratio (same default as #18)
     c_deg_lei_kwh: float = 0.12  # ~EUR 0.025/kWh per direction (plan §3.5), both policies
     threshold_alpha: float = 0.5
@@ -855,10 +856,10 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     pv_obs[s][k] = sday[s].pv_kw[k]
             # -- qualify every tick (sentinel): telemetry age + measured loss; triage
             if sentinel:
+                ages_min = {**{s: sday[s].telemetry_age_s[k] / 60 for s in sites},
+                            **{t: _gap_age(tday[t].act_pwt_kw, k) for t in world.turbines}}
                 ass = _safe_qualify(comps, [site_rows[s] for s in sites] + [world.turbines[t].row for t in world.turbines],
-                                    {**hl_p, **_wind_preds(world, wd_p, tday, k, tb_obs, under_run)},
-                                    {**{s: sday[s].telemetry_age_s[k] / 60 for s in sites},
-                                     **{t: _gap_age(tday[t].act_pwt_kw, k) for t in world.turbines}},
+                                    {**hl_p, **_wind_preds(world, wd_p, tday, k, tb_obs, under_run)}, ages_min,
                                     {**pv_obs, **tb_obs},
                                     {t: {"data_gap": True} for t in world.turbines if tday[t].act_pwt_kw[k] is None})
                 for x in ass:
@@ -868,7 +869,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                         last_status[x.asset_id] = key
                         sink.add("statuses", {"run_id": run_id, "asset_id": x.asset_id, "ts": tsx,
                                               "status": st.status, "headroom_factor": st.headroom_factor,
-                                              "reason": st.reason})
+                                              "reason": st.reason,
+                                              "telemetry_age_s": round(60 * ages_min.get(x.asset_id, 0.0), 1)})
                     if x.asset_kind == "site":
                         fid = sites[x.asset_id].feeder_id
                         if x.asset_id in live_pool[fid] and not st.in_pool:
@@ -913,10 +915,11 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     energy[s] = e2
                     executed[s][k] = p
                     grid = pv - ld - p
-                    sink.add("schedules", {"run_id": run_id, "asset_id": s, "policy": policy, "ts": tsx,
-                                           "batt_kw": round(p, 4), "soc": round(e2 / b.capacity_kwh, 4),
-                                           "comfort_reserve_pct": round(100 * b.comfort_reserve_kwh / b.capacity_kwh, 2),
-                                           "comfort_breached": int(breached), "clipped": int(clipped)})
+                    if cfg.write_schedules:
+                        sink.add("schedules", {"run_id": run_id, "asset_id": s, "policy": policy, "ts": tsx,
+                                               "batt_kw": round(p, 4), "soc": round(e2 / b.capacity_kwh, 4),
+                                               "comfort_reserve_kwh": round(b.comfort_reserve_kwh, 4),
+                                               "comfort_breached": int(breached), "clipped": int(clipped)})
                 fexp[fid] += grid
                 res.cost_lei += prices_kwh[k] * (max(-grid, 0.0) - cfg.beta * max(grid, 0.0)) * DT \
                     + cfg.c_deg_lei_kwh * abs(executed[s][k] if b else 0.0) * DT
@@ -928,7 +931,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                               "soc": None if (stale or b is None) else round(energy[s] / b.capacity_kwh, 4),
                                               "inv_voltage_v": None if stale else sd.inv_voltage_v[k],
                                               "inv_status": str(sd.inv_status[k]), "data_quality": "gap" if stale else "ok"})
-                if asset_steps and write_inputs:
+                if asset_steps and write_inputs and (cfg.step_predictions or not _night_interior(sd.pv_kw, pv_p[s], k)):
                     sink.add("asset_steps", {"run_id": run_id, "asset_id": s, "ts": tsx, "actual_kw": pv,
                                              "q10_kw": pv_p[s].q10[k], "q50_kw": pv_p[s].q50[k],
                                              "q90_kw": pv_p[s].q90[k]})
@@ -942,6 +945,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     sink.add("measurements", {"run_id": run_id, "asset_id": t, "ts": tsx,
                                               "act_pwt_kw": td.act_pwt_kw[k], "wd_spd_kmh": td.wd_spd_kmh[k],
                                               "ambient_temp_c": td.turbine_t_c[k], "gearbox_temp_c": td.gearbox_t_c[k],
+                                              "error_code": None if td.error_code[k] is None else int(td.error_code[k]),
                                               "data_quality": "gap" if td.act_pwt_kw[k] is None else
                                               ("suspect" if td.error_code[k] else "ok")})
             for fid, feeder in world.feeders.items():
@@ -974,7 +978,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     sink.add("commitments", {"run_id": run_id, "feeder_id": fid, "ts": Ts(world.tick_ts(d, k)),
                                              "nominal_kw": c.nominal[k], "available_kw": c.available[k],
                                              "committed_kw": cm, "realised_kw": round(r, 4),
-                                             "haircut_h": c.haircut, "hit_p10": None if hit is None else int(hit)})
+                                             "haircut_h": c.haircut, "hit": None if hit is None else int(hit)})
                 c.realised = [round(v, 4) for v in realised[fid]]
                 rec = A.audit(comps.sources["committer"], {"feeder": fid, "t0": t0, "pool": sorted(pool[fid]),
                                                            "inputs": [day_inputs[s] for s in sorted(pool[fid])]},
@@ -1021,6 +1025,14 @@ def _slice(p: Prediction, k: int) -> Prediction:
 def _parse(t: str) -> int:
     from .audit import parse_iso
     return parse_iso(t)
+
+
+def _night_interior(actual: Sequence[float], pred: Prediction, k: int) -> bool:
+    """Lite DB: an asset_steps row is skipped when it and both neighbours are all-zero (night). The rows that
+    bound the night stay, so a chart interpolating between rows still draws 0 overnight."""
+    def zero(j: int) -> bool:
+        return 0 <= j < len(actual) and not actual[j] and not pred.q90[j] and not pred.q50[j] and not pred.q10[j]
+    return zero(k - 1) and zero(k) and zero(k + 1)
 
 
 def _gap_age(series: Sequence[Optional[float]], k: int) -> float:

@@ -57,8 +57,8 @@ def write_topology(db: AuditDB, world: World) -> None:
             "installed_batt_kwh": round(sum(s.battery.capacity_kwh for s in sites if s.battery), 2)})
     for pid, p in world.parks.items():
         rated = sum(world.turbines[t].rated_kw for t in p.turbine_ids)
-        db.add("parks", {"id": pid, "name": p.name, "county": p.county, "locality": None, "lat": p.lat,
-                         "lon": p.lon, "n_turbines": len(p.turbine_ids), "rated_mw": rated / 1000})
+        db.add("parks", {"id": pid, "name": p.name, "county": p.county, "lat": p.lat,
+                         "lon": p.lon, "turbine_count": len(p.turbine_ids), "rated_mw": rated / 1000})
     for sid, s in world.sites.items():
         r, b = s.row, s.battery
         db.add("assets", {
@@ -67,7 +67,7 @@ def write_topology(db: AuditDB, world: World) -> None:
             "feeder_id": r.get("gis_feeder_id") or r.get("feeder_id"), "park_id": None,
             "rated_kw": float(r.get("kwp_recorded") or 0.0), "has_battery": int(b is not None),
             "battery_kwh": b.capacity_kwh if b else None, "battery_kw": b.p_max_kw if b else None,
-            "comfort_reserve_pct": round(100 * b.comfort_reserve_kwh / b.capacity_kwh, 2) if b else None,
+            "comfort_reserve_kwh": round(b.comfort_reserve_kwh, 4) if b else None,
             "recorded_kwp": r.get("kwp_recorded"), "true_kwp": r.get("kwp_true"),
             "recorded_tilt_deg": r.get("tilt_recorded"), "true_tilt_deg": r.get("tilt_true"),
             "recorded_azimuth_deg": r.get("azimuth_recorded"), "true_azimuth_deg": r.get("azimuth_true"),
@@ -120,7 +120,12 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
            world: str | World = "mock", days: int = 7, seed: int = 0, scale: float = 1.0,
            schema_dir: Optional[Path] = None, resolve_hourly: bool = False,
            force_fallback: bool | Sequence[str] = False, run_id: Optional[str] = None,
-           comps: Optional[Components] = None, print_metrics: bool = True, lite: bool = False) -> ReplayReport:
+           comps: Optional[Components] = None, print_metrics: bool = True, full: bool = False,
+           strict: bool = True) -> ReplayReport:
+    """Default output is the demo DB (R18 < 50 MB): no per-step pv/load prediction rows (asset_steps keeps the PV
+    quantiles) and schedules only for Sentinel (baseline battery rows are not shown by the UI). `full=True`
+    stores both. `strict=True` raises `audit.SchemaMismatch` on any field the schema cannot hold that is not in
+    `audit.ALLOWED_DROPS`."""
     t_start = time.perf_counter()
     w = world if isinstance(world, World) else make_world(world, days=days, seed=seed,
                                                           **({"scale": scale} if world == "mock" else {}))
@@ -132,7 +137,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             pols.append(BASELINE_ALIASES[p])
     comps = comps or default_components(w, force_fallback=force_fallback)
     base_id = run_id or os.environ.get("LAB_RUN_ID") or f"{w.name}-s{w.seed}"
-    db = AuditDB(out, schema_dir=schema_dir)
+    db = AuditDB(out, schema_dir=schema_dir, strict=strict, vacuum=not full)
     log(f"world: {json.dumps(w.describe())}; schema: {db.schema_source}; out: {db.path}")
     write_topology(db, w)
     results: dict[str, PolicyResult] = {}
@@ -144,15 +149,16 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
         started = int(datetime.now(timezone.utc).timestamp())
         t0 = time.perf_counter()
         cfg = LoopConfig(policy=pol, run_id=rid, resolve_hourly=resolve_hourly, seed=seed,
-                         write_inputs=(pol == first_inputs), step_predictions=not lite)
+                         write_inputs=(pol == first_inputs), step_predictions=full,
+                         write_schedules=full or pol == "sentinel")
         res = run_policy(w, comps, cfg, sink=db)
         results[pol] = res
         log(f"policy {pol}: {time.perf_counter() - t0:.1f}s, actions {res.n_actions}, plans {res.plan_status}")
         db.add("runs", {
-            "id": rid, "kind": "replay", "policy": pol, "label": w.label, "git_commit": _git_sha(),
+            "id": rid, "kind": "replay", "policy": pol, "label": w.label, "git_sha": _git_sha(),
             "model_versions_json": {k: f"{getattr(p, 'model', k)}:{getattr(p, 'model_version', '?')}"
                                     for k, p in comps.predictors.items()},
-            "started_at": Ts(started), "finished_at": Ts(int(datetime.now(timezone.utc).timestamp())),
+            "created_at": Ts(started), "finished_at": Ts(int(datetime.now(timezone.utc).timestamp())),
             "week_start": w.week_start,
             "notes": {"components": comps.sources, "fallbacks": comps.fallbacks, "component_errors": comps.errors,
                       "world": w.describe(), "resolve_hourly": resolve_hourly, "schema": db.schema_source,
@@ -186,9 +192,11 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             if k in metrics:
                 print(f"LAB_METRIC {k}={metrics[k]:.4g}")
         print(f"# replay: {secs:.1f}s, {sum(summary['rows'].values())} rows -> {out}", file=sys.stderr)
-        if summary["dropped_fields"] or summary["missing_tables"]:
-            print(f"# schema gaps: {json.dumps({k: v for k, v in summary.items() if k in ('dropped_fields', 'missing_tables')})}",
-                  file=sys.stderr)
+        if summary["dropped_fields"]:
+            print(f"# not stored (audit.ALLOWED_DROPS): {json.dumps(summary['dropped_fields'])}", file=sys.stderr)
+        if summary["unexpected_drops"] or summary["missing_tables"] or summary["filled_not_null"]:
+            print("# SCHEMA GAPS (non-strict run): " + json.dumps(
+                {k: summary[k] for k in ("unexpected_drops", "missing_tables", "filled_not_null")}), file=sys.stderr)
     return report
 
 
@@ -205,9 +213,14 @@ def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
     ap.add_argument("--resolve-hourly", action="store_true", help="SHOULD: re-plan every hour (R4)")
     ap.add_argument("--fallback", default="", help="force built-ins: all | planner,qualify,triage,committer,demand")
     ap.add_argument("--run-id", default=None)
-    ap.add_argument("--lite", action="store_true", help="smaller DB: no per-step pv/load prediction rows")
+    ap.add_argument("--full", action="store_true",
+                    help="also store per-step pv/load predictions and baseline schedules (DB > 50 MB)")
+    ap.add_argument("--lite", action="store_true", help=argparse.SUPPRESS)  # old flag; lite is now the default
+    ap.add_argument("--strict", dest="strict", action="store_true", default=True,
+                    help="raise if a produced field has no column and is not in audit.ALLOWED_DROPS (default)")
+    ap.add_argument("--no-strict", dest="strict", action="store_false", help="warn and drop instead")
     a = ap.parse_args(argv)
     ff: bool | list[str] = True if a.fallback == "all" else [x for x in a.fallback.split(",") if x]
     return replay([p for p in a.policy.split(",") if p], a.out, world=a.world, days=a.days, seed=a.seed,
                   scale=a.scale, resolve_hourly=a.resolve_hourly, force_fallback=ff, run_id=a.run_id,
-                  lite=a.lite)
+                  full=a.full and not a.lite, strict=a.strict)

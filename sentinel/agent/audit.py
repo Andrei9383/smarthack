@@ -13,6 +13,11 @@ Inserts are column-intersection-safe, so a schema change on #38 never breaks the
   `day` (local midnight, INTEGER unix time or TEXT YYYY-MM-DD).
 - NOT NULL columns without default that the row lacks get a neutral value (0 / '') and a warning.
 - Value maps (`VALUE_MAP`): contract enums -> #38's enums (asset_kind site -> prosumer, severity warning -> warn).
+
+Strict mode (`AuditDB(strict=True)`, the default of `replay.py` and the tests): a produced field with no column
+(after aliases), a NOT NULL column we leave to the filler, or a missing table RAISES `SchemaMismatch`, except
+for the fields in `ALLOWED_DROPS` -- the explicit list of things we knowingly don't store. Non-strict mode only
+warns once per (table, field), so a replay against an older or newer schema still completes.
 """
 
 from __future__ import annotations
@@ -125,6 +130,40 @@ VALUE_MAP: dict[str, dict[str, str]] = {
     "asset_kind": {"site": "prosumer"},
     "severity": {"warning": "warn", "safety": "critical"},
 }
+# Fields the agent produces that #38 (d362a39) knowingly has no column for. Strict mode raises on any other drop.
+# Every entry is review feedback for #38: add the column, or confirm the drop. Keys: table ("*" = any table).
+ALLOWED_DROPS: dict[str, dict[str, str]] = {
+    "*": {
+        # app.md: "No step column: bucket by ts converted to Europe/Bucharest". #44's rows still carry it.
+        "step": "no step column by design; UI derives it from ts (Europe/Bucharest)",
+    },
+    "feeders": {
+        # roll-ups of assets; handy for the Feeders panel without a GROUP BY, but derivable
+        "n_sites": "derivable: COUNT(assets) WHERE feeder_id",
+        "installed_pv_kw": "derivable: SUM(assets.recorded_kwp) WHERE feeder_id",
+        "installed_batt_kwh": "derivable: SUM(assets.battery_kwh) WHERE feeder_id",
+    },
+    "gis_flags": {
+        # grid-twin suggestion confidence (separate from the feeder's trust score tau); kept in audit_log
+        "confidence": "suggestion confidence; also in the gis_flag action's audit_log.prediction_json",
+    },
+    "zone_demand": {
+        # #44 zone_demand_rows: per-step q90/capacity that drives the 24 h stress slider; #38 keeps peak_stress only
+        "stress": "per-step stress (q90 / capacity); #38 stores only the zone-level peak_stress",
+        # one model version per zone_demand action; audit_log.model_version has it
+        "model_version": "in audit_log.model_version of the zone_demand action",
+    },
+}
+
+
+class SchemaMismatch(RuntimeError):
+    """Strict mode: the agent produced data the schema cannot hold (and it is not in ALLOWED_DROPS)."""
+
+
+def allowed_drop(table: str, field: str) -> bool:
+    return field in ALLOWED_DROPS.get(table, {}) or field in ALLOWED_DROPS["*"]
+
+
 TIME_COLS = {"ts", "t", "created_at", "started_at", "finished_at", "t0", "onset", "updated_at"}
 DATE_COLS = {"day", "date"}
 TIME_SOURCES = ("ts", "created_at", "t")
@@ -167,7 +206,8 @@ class AuditDB:
     """One SQLite file for a replay: schema applied once, rows buffered and inserted in batches."""
 
     def __init__(self, path: str | os.PathLike, schema_dir: Optional[Path] = None, fresh: bool = True,
-                 batch: int = 20000, warn: Optional[Callable[[str], None]] = None):
+                 batch: int = 20000, warn: Optional[Callable[[str], None]] = None, strict: bool = False,
+                 vacuum: bool = False):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if fresh and self.path.exists():
@@ -196,6 +236,9 @@ class AuditDB:
         self.missing_tables: set[str] = set()
         self.counts: dict[str, int] = {}
         self.batch = batch
+        self.strict = strict
+        self.vacuum = vacuum
+        self.filled: dict[str, set[str]] = {}
 
     # -- schema introspection ------------------------------------------------------------------------
     def resolve(self, table: str) -> Optional[str]:
@@ -254,6 +297,8 @@ class AuditDB:
             return self._plans[cache_key]
         real = self.resolve(table)
         if real is None:
+            if self.strict:
+                raise SchemaMismatch(f"table {table!r} not in schema ({self.schema_source})")
             if table not in self.missing_tables:
                 self.missing_tables.add(table)
                 self.warn(f"table {table!r} not in schema ({self.schema_source}); rows dropped")
@@ -277,9 +322,13 @@ class AuditDB:
             elif not any(a in used for a in _ALIAS_OF.get(k, ())):
                 if k == src and ("step" in cols or DATE_COLS & set(cols)):
                     continue  # used only to derive step / day
+                if self.strict and not allowed_drop(real, k):
+                    raise SchemaMismatch(f"{real}.{k}: produced but no column in {self.schema_source} "
+                                         f"(map it to #38's name, or add it to audit.ALLOWED_DROPS with a reason)")
                 if k not in self.dropped.setdefault(real, set()):
                     self.dropped[real].add(k)
-                    self.warn(f"{real}.{k} not in schema; field dropped")
+                    if not allowed_drop(real, k):
+                        self.warn(f"{real}.{k} not in schema; field dropped")
         # derived / required columns the row does not give
         for c in cols.values():
             if c.name in used:
@@ -290,6 +339,9 @@ class AuditDB:
                 mapping.append(("__date", c.name, lambda v, a=c.affinity: a))
             elif c.notnull and not c.has_default and not (c.pk and c.affinity == "INTEGER"):
                 fill = 0 if c.affinity in ("INTEGER", "REAL", "NUMERIC") else ""
+                if self.strict:
+                    raise SchemaMismatch(f"{real}.{c.name} is NOT NULL and the row ({', '.join(keys)}) has no value")
+                self.filled.setdefault(real, set()).add(c.name)
                 self.warn(f"{real}.{c.name} is NOT NULL and not provided; filled with {fill!r}")
                 mapping.append(("__fill", c.name, lambda v, f=fill: f))
             else:
@@ -339,6 +391,8 @@ class AuditDB:
 
     def close(self) -> None:
         self.flush()
+        if self.vacuum:
+            self.conn.execute("VACUUM")  # rebuilds indexes compactly (~6% smaller)
         self.conn.close()
 
     def table_count(self, table: str) -> int:
@@ -377,4 +431,7 @@ class AuditDB:
         self.flush()
         return {"schema": self.schema_source, "rows": dict(sorted(self.counts.items())),
                 "dropped_fields": {t: sorted(c) for t, c in self.dropped.items() if c},
+                "unexpected_drops": {t: sorted(x for x in c if not allowed_drop(t, x))
+                                     for t, c in self.dropped.items() if any(not allowed_drop(t, x) for x in c)},
+                "filled_not_null": {t: sorted(c) for t, c in self.filled.items() if c},
                 "missing_tables": sorted(self.missing_tables)}
