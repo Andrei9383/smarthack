@@ -83,3 +83,24 @@ def test_report_priors_cover_wind_and_ledger_only_models(tmp_path):
     jp = json.loads((tmp_path / "judge_priors.json").read_text())
     assert jp["split"] == "val-2024" and "windmon_rules" in jp["models"]
     assert json.loads((tmp_path / "windnbm.priors.json").read_text())["priors"]["source"] == "report"
+
+
+def test_apply_from_log_adds_only_the_priors_key(tmp_path):
+    import shutil
+    repo = Path(__file__).resolve().parents[1]
+    models = tmp_path / "models"
+    shutil.copytree(repo / "models", models, ignore=shutil.ignore_patterns("*.onnx", "*.txt", "pvnet_fc"))
+    out = tmp_path / "out"
+    out.mkdir()
+    block = P.priors_block({"calibration": {ROOT: {"prior": 0.8, "n": 3}}}, "validation", "eval#1")
+    (out / "promoted_priors.json").write_text(json.dumps({m: block for m in P.PROMOTED}))
+    (out / "windnbm.priors.json").write_text(json.dumps({"model": "windnbm", "priors": block}))
+    (out / "judge_priors.json").write_text(json.dumps({"version": 1, "models": {}}))
+    log = tmp_path / "run.log"
+    log.write_text("noise\n" + "\n".join(f"[t] {P.LOG_TAG} {n} {(out / n).read_text()}" for n in P.OUT_FILES))
+    before = json.loads((models / "pvnet.s2.calibration.json").read_text())
+    assert P.main(["--apply", str(log), "--models", str(models)]) == 0
+    after = json.loads((models / "pvnet.s2.calibration.json").read_text())
+    assert set(after) - set(before) == {"priors"} and {k: after[k] for k in before} == before
+    assert after["priors"]["scores"]["calibration"][ROOT]["prior"] == 0.8
+    assert (models / "judge_priors.json").exists() and (models / "windnbm.priors.json").exists()

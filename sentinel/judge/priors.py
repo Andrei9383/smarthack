@@ -1,7 +1,8 @@
 """Judge priors (team/judge-design.md §6.2): what each model version and substitute achieved on its 2024
 validation year, per context bucket, with the §5.3 scores. "No record -> trust the model" reads these numbers.
 
-    python -m sentinel.judge.priors --out DIR [--quick] [--sites 80 --days 16]     # lab: --run eval
+    python -m sentinel.judge.priors --out DIR [--quick] [--sites 120 --days 30]   # lab: --run eval
+    python -m sentinel.judge.priors --apply RUN_OUTPUT_DIR_OR_SAVED_LOG             # install into models/
 
 Scored here on the synthetic RO fleet (#11 + #12 faults), validation year 2024, half seen / half unseen sites:
 - forecasts, one score per asset-day:
@@ -60,6 +61,10 @@ TARGET = 0.80
 SPLIT = f"val-{VAL_YEAR}"
 REPO = Path(__file__).resolve().parents[2]
 
+PROMOTED = {"pvnet": [f"pvnet.s{i}" for i in range(4)], "loadnet": [f"loadnet.s{i}" for i in range(4)],
+            "sitehealth": ["sitehealth"]}
+OUT_FILES = ("promoted_priors.json", "windnbm.priors.json", "judge_priors.json")
+LOG_TAG = "JUDGE_PRIORS_FILE"
 PV_REF = {"pvnet": "lgbm_pv", "lgbm_pv": "pvlib", "pvlib": "_persist_d1"}
 LOAD_REF = {"loadnet": "lgbm_load", "lgbm_load": "persistence_load", "persistence_load": "_persist_w1"}
 
@@ -353,7 +358,8 @@ def score_validation(args, run: str) -> tuple[dict, dict]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Judge priors on the 2024 validation year (§6.2)")
-    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--out", type=Path, help="output directory (required unless --apply)")
+    ap.add_argument("--apply", type=Path, help="install a run's priors (output dir or saved log) into --models")
     ap.add_argument("--models", type=Path, default=REPO / "models")
     ap.add_argument("--quick", action="store_true", help="small 2024-only fleet (smoke test)")
     ap.add_argument("--sites", type=int, default=120, help="sites, half seen / half unseen")
@@ -361,6 +367,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-fleet", action="store_true", help="only the report-based priors (no data scoring)")
     args = ap.parse_args(argv)
+    if args.apply:
+        for p in apply(args.apply, args.models):
+            print(f"updated {p}")
+        return 0
+    if args.out is None:
+        ap.error("--out is required")
     sys.path.insert(0, str(REPO))  # eval.py lives at the repo root
     t0 = time.time()
     out_env = os.environ.get("LAB_OUTPUT_DIR")
@@ -370,21 +382,22 @@ def main(argv: list[str] | None = None) -> int:
     scored, versions = ({}, {}) if args.no_fleet else score_validation(args, run)
     emit("t_priors_score_s", time.time() - t0)
 
-    # promoted models: calibration JSON copies with a `priors` key
-    for model, files in (("pvnet", [f"pvnet.s{i}" for i in range(4)]), ("loadnet", [f"loadnet.s{i}" for i in range(4)]),
-                         ("sitehealth", ["sitehealth"])):
+    # promoted models: calibration JSON copies with a `priors` key (+ the blocks alone in promoted_priors.json)
+    promoted = {}
+    for model, files in PROMOTED.items():
         if model not in scored:
             print(f"no validation scores for {model}; its calibration JSONs are not written")
             continue
+        promoted[model] = priors_block(scored[model], "validation", run,
+                                       scored_as=f"{model} ensemble of {len(files)} member(s), "
+                                                 f"model_version {versions.get(model, '')}")
         for f in files:
             src = args.models / f"{f}.calibration.json"
-            if not src.exists():
-                continue
-            cal = json.loads(src.read_text())
-            cal["priors"] = priors_block(scored[model], "validation", run,
-                                         scored_as=f"{model} ensemble of {len(files)} member(s), "
-                                                   f"model_version {versions.get(model, '')}")
-            (args.out / src.name).write_text(json.dumps(cal, indent=1) + "\n")
+            if src.exists():
+                cal = json.loads(src.read_text())
+                cal["priors"] = promoted[model]
+                (args.out / src.name).write_text(json.dumps(cal, indent=1) + "\n")
+    (args.out / "promoted_priors.json").write_text(json.dumps(promoted, indent=1) + "\n")
 
     nbm, mon, nbm_ver = wind_priors(args.models / "reports" / "r135-windnbm.report.json")
     (args.out / "windnbm.priors.json").write_text(json.dumps(
@@ -410,8 +423,38 @@ def main(argv: list[str] | None = None) -> int:
             if ROOT in keys:
                 emit(f"prior_{m}_{s}", keys[ROOT]["prior"])
     emit("t_priors_s", time.time() - t0)
+    for name in OUT_FILES:  # also in the log, so the outputs can be applied without access to the worker
+        print(f"{LOG_TAG} {name} {json.dumps(json.loads((args.out / name).read_text()), separators=(',', ':'))}")
     print(f"wrote priors to {args.out}")
     return 0
+
+
+def apply(src: Path, models: Path) -> list[Path]:
+    """Install a run's priors into models/: `src` is the run's output dir or a saved `lab logs` text.
+    Adds (or replaces) only the `priors` key of each promoted calibration JSON; copies the two priors files."""
+    if src.is_dir():
+        blobs = {n: json.loads((src / n).read_text()) for n in OUT_FILES if (src / n).exists()}
+    else:
+        blobs = {}
+        for line in src.read_text().splitlines():
+            if LOG_TAG in line:
+                _, name, body = line[line.index(LOG_TAG):].split(" ", 2)
+                blobs[name] = json.loads(body)
+    missing = [n for n in OUT_FILES if n not in blobs]
+    if missing:
+        raise SystemExit(f"apply: {missing} not found in {src}")
+    written = []
+    for model, block in blobs["promoted_priors.json"].items():
+        for f in PROMOTED[model]:
+            p = models / f"{f}.calibration.json"
+            cal = json.loads(p.read_text())
+            cal["priors"] = block
+            p.write_text(json.dumps(cal, indent=1) + "\n")
+            written.append(p)
+    for n in ("judge_priors.json", "windnbm.priors.json"):
+        (models / n).write_text(json.dumps(blobs[n], indent=1) + "\n")
+        written.append(models / n)
+    return written
 
 
 if __name__ == "__main__":
