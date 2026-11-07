@@ -133,7 +133,8 @@ Needs `make`, Python 3.12 and [uv](https://docs.astral.sh/uv/) (falls back to `p
 network access is the first `uv pip install`; all raw data and the trained `models/*.onnx` are committed. Outputs
 and the data cache go to `.lab-out/reproduce/` (gitignored); committed files in `demo/` and `models/` are never
 overwritten. It ends with a table of every number it printed, the step and card that produced it, and its label.
-On a clean checkout it took **553 s** (~9 min) on an Apple-silicon laptop CPU and exited 0; `make test` gives 311 passed.
+On a clean checkout it took **553 s** (~9 min) on an Apple-silicon laptop CPU and exited 0; `make test` gives 313
+passed.
 
 Two targets regenerate the README's numbers:
 
@@ -142,7 +143,8 @@ Two targets regenerate the README's numbers:
   on each run, so it moves in the third decimal (e.g. PV seen sites 0.040 vs 0.041).
 - `make replay-demo` = **replay#506** (#29, `demo/sentinel.sqlite`): builds the data cache, then
   `replay.py --world sim --policy baseline,sentinel` with the committed `models/`. Its KPIs match replay#506 exactly
-  (6645 → 1905 minutes, P10 92.0 %, 23.73 lei). The bytes differ (`runs.created_at` is wall-clock time).
+  (6645 → 1905 minutes, P10 92.0 %, 23.73 lei), also after #99's M6 rule merged. The bytes differ
+  (`runs.created_at` is wall-clock time).
 
 `make replay` is different: a 15 s mock-world replay with `MockPredictor`. It checks the pipeline; its KPIs are not
 results.
@@ -157,7 +159,7 @@ results.
 | `make demand` | M3 DemandNet on real RO load, test 2025 (#44) | `demand/` | ~10 s |
 | `make uncertainty` | conformal calibration + P10 commitment on mock forecasts (#27) | `uncertainty.json` | ~3 s |
 | `make replay` | baseline vs Sentinel on the mock world: pipeline check (#17) | `sentinel.sqlite` | ~15 s |
-| `make replay-demo` | replay#506: #10 windows, #22 wind parks, #13 grid-twin, then the sim-world replay with `models/` (#29) | `demo/sentinel.sqlite` | ~2.5 min after `make eval`; ~9 min alone (cache build) |
+| `make replay-demo` | replay#506: #10 windows, #22 wind parks, #13 grid-twin, then the sim-world replay with `models/` (#29) | `demo/sentinel.sqlite` | ~30 s with a warm cache, ~2.5 min after `make eval`, ~9 min from nothing |
 | `make app` | `npm ci`, `npm run build`, `npm start` (`APP_DB=.lab-out/reproduce/demo/sentinel.sqlite` to view the rebuilt replay) | http://localhost:3000 | ~40 s build |
 | `make train` | prints the lab commands; `TRAIN_LOCAL=1 MODEL=…` trains locally | `train/` | — |
 | `make clean` | removes `.lab-out/reproduce/` | | |
