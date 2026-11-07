@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { orpc } from "@/utils/orpc";
 
 import { useMapRightPadding } from "../use-map-right-padding";
-import { countyOf, type Zone } from "./data";
+import { countyOf, zonesByCountyCode } from "./data";
 import { useDemandData, useSelectedZone } from "./use-demand-data";
 
 type Geometry = GeoJSON.Polygon | GeoJSON.MultiPolygon;
@@ -50,7 +50,7 @@ function lineOf(geometryJson?: string | null): [number, number][] {
 // straight back to the country view, because the next mode's own easeTo would cancel an animation.
 function useCountyFocus(
   counties: Counties | undefined,
-  countyId: string | undefined,
+  countyCode: string | undefined,
   feederLines: [number, number][][],
 ) {
   const { map, isLoaded } = useMap();
@@ -69,7 +69,7 @@ function useCountyFocus(
 
   useEffect(() => {
     if (!map || !isLoaded || !counties) return;
-    const county = counties.features.find((feature) => feature.properties.code === countyId);
+    const county = counties.features.find((feature) => feature.properties.code === countyCode);
     if (!county) {
       // Only after a zoom: on load this would cancel the panel padding animation.
       if (focused.current && home.current) map.easeTo({ ...home.current, duration: 500 });
@@ -87,7 +87,7 @@ function useCountyFocus(
       ],
       { padding: ZOOM_PADDING_PX, duration: 500 }, // on top of the map's own panel padding
     );
-  }, [map, isLoaded, counties, countyId, feederLines]);
+  }, [map, isLoaded, counties, countyCode, feederLines]);
 }
 
 export function DemandLayers() {
@@ -112,27 +112,32 @@ export function DemandLayers() {
         .map((feeder) => lineOf(feeder.geometryJson)),
     [feederList, selectedCounty?.id],
   );
-  useCountyFocus(shapes, selectedCounty?.id, countyFeederLines);
+  const byCode = useMemo(
+    () => zonesByCountyCode(counties, shapes?.features.map((feature) => feature.properties) ?? []),
+    [counties, shapes],
+  );
+  const selectedCode = [...byCode].find(([, zone]) => zone.id === selectedCounty?.id)?.[0];
+  useCountyFocus(shapes, selectedCode, countyFeederLines);
 
   // Counties with no rows stay empty: no data must never read as low stress.
   const fillOpacity = useMemo(() => {
-    const pairs = counties.flatMap((county) => {
+    const pairs = [...byCode].flatMap(([code, county]) => {
       const stress = county.stressByTs.get(ts);
-      return stress === undefined ? [] : [county.id, opacityFor(stress)];
+      return stress === undefined ? [] : [code, opacityFor(stress)];
     });
     return pairs.length > 0 ? ["match", ["get", "code"], ...pairs, 0] : 0;
-  }, [counties, ts]);
+  }, [byCode, ts]);
 
   const lineColor = useMemo(
     () =>
-      selectedCounty
-        ? ["match", ["get", "code"], selectedCounty.id, SELECTED_OUTLINE_COLOR, OUTLINE_COLOR]
+      selectedCode
+        ? ["match", ["get", "code"], selectedCode, SELECTED_OUTLINE_COLOR, OUTLINE_COLOR]
         : OUTLINE_COLOR,
-    [selectedCounty],
+    [selectedCode],
   );
   const lineWidth = useMemo(
-    () => (selectedCounty ? ["match", ["get", "code"], selectedCounty.id, 2, 0.5] : 0.5),
-    [selectedCounty],
+    () => (selectedCode ? ["match", ["get", "code"], selectedCode, 2, 0.5] : 0.5),
+    [selectedCode],
   );
 
   const feeders = useMemo(() => {
@@ -164,7 +169,7 @@ export function DemandLayers() {
   );
 
   if (!shapes) return null;
-  const hoveredZone: Zone | undefined = hovered ? zones.get(hovered.code) : undefined;
+  const hoveredZone = hovered ? byCode.get(hovered.code) : undefined;
   const hoveredStress = hoveredZone?.stressByTs.get(ts);
 
   return (
@@ -181,8 +186,8 @@ export function DemandLayers() {
           // The map also reports clicks on markers; those belong to the feeder under the cursor.
           const target = event.originalEvent.originalEvent.target as HTMLElement;
           if (target.closest(".maplibregl-marker")) return;
-          const code = (event.feature.properties as CountyProperties).code;
-          if (zones.has(code)) setSelected(code);
+          const county = byCode.get((event.feature.properties as CountyProperties).code);
+          if (county) setSelected(county.id);
         }}
       />
       <MapGeoJSON
