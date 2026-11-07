@@ -24,7 +24,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source, window_labels
-from .harness import RunContext, Throughput, export_onnx
+from .harness import RunContext, Throughput, compile_net, export_onnx
 from .synth import FAULTS
 
 N_CLS = len(FAULTS)
@@ -60,6 +60,11 @@ def parse_args(argv=None):
     ap.add_argument("--tag", default="")
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
                     help="exact data-wait vs compute split (cuda sync per step)")
+    ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
+    ap.add_argument("--compile", default="off", choices=["off", "default", "reduce-overhead", "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the train forward (compile time logged as t_compile_s)")
+    ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
+                    help="fused AdamW kernel on CUDA")
     return ap.parse_args(argv)
 
 
@@ -224,7 +229,9 @@ def run(argv=None):
         stats = F.fit_stats(probe)
         dims = {k: probe[0][k].shape[-1] for k in ("seq", "summ", "stat")}
         # class priors: natural (uniform windows) vs our sampling mix -> logit adjustment at inference
-        nat = np.concatenate([make_inputs(src, tr_s[i], tr_d[i] * H + rng.integers(0, H, len(i)) - H + 1, m1, m2)[2]
+        # same end clip as sample_train: the first train day's history reached before t=0 (a Rust gather error since #132)
+        nat = np.concatenate([make_inputs(src, tr_s[i], np.clip(tr_d[i] * H + rng.integers(0, H, len(i)), lo, hi) - H + 1,
+                                          m1, m2)[2]
                               for i in [rng.integers(0, len(tr_s), 4096) for _ in range(3)]])
         mix = np.concatenate([make_inputs(src, *sample_train(4096), m1, m2)[2] for _ in range(3)])
         p_nat = (np.bincount(nat, minlength=N_CLS) + 1) / (len(nat) + N_CLS)
@@ -234,7 +241,9 @@ def run(argv=None):
 
     net = SiteHealthNet(dims["seq"], dims["summ"], dims["stat"], width=args.width, drop=args.dropout).to(dev)
     ctx.emit("n_params", n_params(net))
-    opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    cuda = str(dev).startswith("cuda")
+    opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay,
+                            **({"fused": True} if cuda and args.fused_adam else {}))
     total = args.epochs * args.steps_per_epoch
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=total, pct_start=0.08)
     scaler = torch.amp.GradScaler("cuda", enabled=(amp == torch.float16))
@@ -261,31 +270,57 @@ def run(argv=None):
     vs, vst = daily("val", limit=args.eval_limit or 8000)
     deadline = args.max_minutes * 0.8
     best, best_state, bad, history = -math.inf, None, 0, []
-    pool = ThreadPoolExecutor(max_workers=3)
+    with ctx.stage("valcache"):  # fixed per-epoch val windows: inputs built once and kept on the device (#140)
+        vcache = []
+        for k in range(0, len(vs), 2048):
+            _, inp, lab = make_inputs(src, vs[k:k + 2048], vst[k:k + 2048], m1, m2)
+            vcache.append((to_t(inp), lab))
+        vlab = np.concatenate([c[1] for c in vcache])
 
-    def make_batch():
-        s, st = sample_train(args.batch)
+    def val_probs():
+        net.eval()
+        P = []
+        with torch.no_grad():
+            for t, _ in vcache:
+                with ctx.autocast():
+                    lg, _ = net(*t)
+                P.append(lg.float())
+        lg = torch.cat(P).cpu().numpy() + logit_bias
+        e = np.exp(lg - lg.max(1, keepdims=True))
+        return e / e.sum(1, keepdims=True), vlab
+
+    fwd = compile_net(net, args.compile)
+    from .forecast import loader_workers
+    from .harness import pin
+
+    def make_batch(s, st):
         _, inp, lab = make_inputs(src, s, st, m1, m2)
         if args.stat_noise > 0:  # in raw units scaled by the train std, so it matches the normalised-space noise
             sd = np.asarray(stats["stat"]["std"], np.float32)
             inp["stat"] = inp["stat"] + np.random.default_rng().normal(0, args.stat_noise, inp["stat"].shape) * sd
-        return inp, lab
+        x = F.normalise(inp, stats)  # in the worker, with pinned tensors: the main thread only issues async copies
+        return [pin(torch.from_numpy(np.ascontiguousarray(a))) for a in (x["seq"], x["summ"], x["stat"], lab)]
 
+    n_workers = args.loader_workers or loader_workers()
+    pool = ThreadPoolExecutor(max_workers=n_workers)
+    ctx.emit("loader_workers", n_workers)
     tp = Throughput(ctx.emit, dev, sync=args.profile)
     with ctx.stage("train"):
-        futs = [pool.submit(make_batch) for _ in range(6)]
+        futs = [pool.submit(make_batch, *sample_train(args.batch)) for _ in range(2 * n_workers)]
         step = 0
         for ep in range(args.epochs):
             net.train()
             t_ep, losses = time.time(), []
             for _ in range(args.steps_per_epoch):
                 with tp.wait():
-                    inp, lab = futs.pop(0).result()
-                futs.append(pool.submit(make_batch))
-                with tp.compute(len(lab)):
+                    host = futs.pop(0).result()
+                futs.append(pool.submit(make_batch, *sample_train(args.batch)))
+                t_c = time.perf_counter()
+                with tp.compute(len(host[-1])):
+                    seq, summ, stat, labt = (h.to(dev, non_blocking=True) for h in host)
                     with ctx.autocast():
-                        lg, _ = net(*to_t(inp))
-                    loss = focal_loss(lg.float(), torch.from_numpy(lab).to(dev), args.gamma, alpha)
+                        lg, _ = fwd(seq, summ, stat)
+                    loss = focal_loss(lg.float(), labt, args.gamma, alpha)
                     opt.zero_grad(set_to_none=True)
                     scaler.scale(loss).backward()
                     scaler.unscale_(opt)
@@ -296,8 +331,12 @@ def run(argv=None):
                         sched.step()
                     step += 1
                     losses.append(loss.detach())  # no per-step GPU sync
+                if args.compile != "off" and step == 1:
+                    if cuda:
+                        torch.cuda.synchronize()
+                    ctx.emit("t_compile_s", time.perf_counter() - t_c)
             with tp.val():
-                P, _, L, _ = infer(vs, vst)
+                P, L = val_probs()
                 mac, _ = M.prauc_macro(P, L)
                 binp = M.ap(L > 0, 1 - P[:, 0])
             history.append({"epoch": ep, "loss": float(torch.stack(losses).mean()), "val_prauc": mac, "val_prauc_binary": binp,

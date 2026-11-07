@@ -127,6 +127,10 @@ def parse_args(argv):
     ap.add_argument("--model", default="windnbm", help="ignored (train.py dispatch)")
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
                     help="exact data-wait vs compute split (cuda sync per step)")
+    ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
+                    help="fused AdamW kernel on CUDA")
+    ap.add_argument("--compile", default="off", choices=["off", "default", "reduce-overhead", "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the train forward (compile time logged as t_compile_s)")
     return ap.parse_args(argv)
 
 
@@ -216,7 +220,8 @@ def main(argv: list[str] | None = None) -> None:
     # --- NBM training -------------------------------------------------------------------------------------------
     model = WindNBM(len(sp.train_turbines), hidden=args.hidden, emb=args.emb, heads=args.heads).to(dev)
     run.emit("n_params", n_params(model))
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4,
+                            **({"fused": True} if dev.type == "cuda" and args.fused_adam else {}))
     total_steps = args.epochs * args.steps_per_epoch
     warm_steps = max(1, total_steps // 20)
 
@@ -230,9 +235,13 @@ def main(argv: list[str] | None = None) -> None:
     if dev.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
 
+    from ..harness import compile_net
+
+    fwd_train = compile_net(model.forward_all, args.compile)
+
     def loss_fn(xb, yb, mb, tb, train: bool):
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_amp):
-            pq, tq = model.forward_all(xb, tb)
+            pq, tq = (fwd_train if train else model.forward_all)(xb, tb)
         pq, tq = pq.float()[:, warm:], tq.float()[:, warm:]
         yb, mb = yb.float()[:, warm:], mb[:, warm:]
         if train:
@@ -252,10 +261,11 @@ def main(argv: list[str] | None = None) -> None:
     with run.stage("train"):
         for ep in range(args.epochs):
             model.train()
-            tl = 0.0
+            tl = torch.zeros((), device=dev)  # summed on the device: no per-step host sync (#140)
             for _ in range(args.steps_per_epoch):
                 with tp.wait():
                     xb, yb, mb, tb = batch(tr_starts, args.batch, gen)
+                t_c = time.perf_counter()
                 with tp.compute(xb.shape[0]):
                     loss, _, _ = loss_fn(xb, yb, mb, tb, True)
                     opt.zero_grad(set_to_none=True)
@@ -263,11 +273,16 @@ def main(argv: list[str] | None = None) -> None:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     opt.step()
                     sched.step()
-                    tl += float(loss.detach())
+                    tl += loss.detach()
                 steps_done += 1
+                if args.compile != "off" and steps_done == 1:
+                    if dev.type == "cuda":
+                        torch.cuda.synchronize()
+                    run.emit("t_compile_s", time.perf_counter() - t_c)
                 if run.left() < reserve * 60:
                     stopped_early = True
                     break
+            tl = float(tl)
             model.eval()
             with tp.val(), torch.no_grad():
                 vl = np.mean([[float(v) for v in loss_fn(*b, False)] for b in val_batches], axis=0)

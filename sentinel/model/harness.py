@@ -277,6 +277,24 @@ class Throughput:
         return out
 
 
+def compile_net(net, mode: str = "off"):
+    """torch.compile(net) (a module or a bound forward) for the train forward only; eval / export / state_dict keep
+    using `net` (shared weights).
+    Falls back to eager (and says so) if the compiler is unavailable on this worker."""
+    if mode in (None, "", "off"):
+        return net
+    import torch
+
+    try:
+        import torch._dynamo
+
+        torch._dynamo.config.suppress_errors = True  # compile errors (e.g. no triton) fall back to eager per frame
+        return torch.compile(net, mode=None if mode == "default" else mode, dynamic=False)
+    except Exception as e:  # pragma: no cover - depends on the worker's toolchain
+        print(f"[compile] unavailable ({type(e).__name__}: {e}); training eagerly", flush=True)
+        return net
+
+
 def pin(t):
     """Pinned host copy (when CUDA is up) so .to(dev, non_blocking=True) really overlaps."""
     try:

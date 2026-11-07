@@ -20,7 +20,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source
-from .harness import RunContext, Throughput, export_onnx
+from .harness import RunContext, Throughput, compile_net, export_onnx, pin
 
 SPECS = {
     "pvnet": dict(kind="pv", d=96, layers=3, heads=4, ff=192, unit="kW", scale="kwp_recorded",
@@ -66,6 +66,11 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--tag", default="", help="suffix for artifact names (ensembles: seed tag)")
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
                     help="exact data-wait vs compute split (cuda sync per step)")
+    ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
+    ap.add_argument("--compile", default="off", choices=["off", "default", "reduce-overhead", "max-autotune-no-cudagraphs"],
+                    help="torch.compile mode for the train forward (compile time logged as t_compile_s)")
+    ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
+                    help="fused AdamW kernel on CUDA (one launch per step instead of one per tensor group)")
     return ap.parse_args(argv)
 
 
@@ -131,6 +136,52 @@ class Wrapped:
                                 (summ - self.summ_mu) / self.summ_sd, (stat - self.stat_mu) / self.stat_sd, mask)
 
         return W()
+
+
+def loader_workers() -> int:
+    """Batch-building threads: the Rust gather / feature kernels release the GIL, so threads scale with cores."""
+    import os
+
+    n = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 4)
+    return int(max(2, min(8, n // 2)))
+
+
+def val_inputs(src, kind, sites, starts, mode, stats, device, batch=1024) -> dict:
+    """Normalised inputs, targets and masks of a fixed window set, built once and kept on `device` (#140).
+    Same arrays collect() rebuilt every epoch, so val_score() == the per-epoch collect() numbers."""
+    import torch
+
+    parts = {k: [] for k in ("seq", "ref", "summ", "stat", "mask", "y", "w", "scale")}
+    for k in range(0, len(sites), batch):
+        raw, inp, x, y, w, mask = batch_arrays(src, kind, sites[k:k + batch], starts[k:k + batch], mode, stats)
+        for n in ("seq", "ref", "summ", "stat"):
+            parts[n].append(x[n])
+        parts["mask"].append(mask)
+        parts["y"].append(raw["y"].astype(np.float32))
+        parts["w"].append(w)
+        parts["scale"].append(inp["scale"].astype(np.float32))
+    out = {k: np.concatenate(v) for k, v in parts.items()}
+    dev = {k: torch.from_numpy(np.ascontiguousarray(out[k])).to(device) for k in ("seq", "ref", "summ", "stat", "mask")}
+    return {"dev": dev, "y": out["y"], "w": out["w"], "scale": out["scale"]}
+
+
+def val_score(net, vc: dict, amp=None, batch=2048) -> tuple[float, float]:
+    """(val_pinball, val_nmae) on a val_inputs() cache, same definitions as the collect()-based epoch check."""
+    import torch
+
+    net.eval()
+    d, qs = vc["dev"], []
+    with torch.no_grad():
+        for k in range(0, len(vc["y"]), batch):
+            ctx = torch.autocast("cuda", dtype=amp) if amp is not None else _null()
+            with ctx:
+                q, _ = net(*(d[n][k:k + batch] for n in ("seq", "ref", "summ", "stat", "mask")))
+            qs.append(q.float())
+    qn = torch.cat(qs).cpu().numpy()  # normalised units
+    sc = vc["scale"]
+    q = qn * sc[:, None, None]
+    m = vc["w"] > 0
+    return M.pinball(q / sc[:, None, None], vc["y"] / sc[:, None], m), M.nmae(q[..., 1], vc["y"], m)
 
 
 def predict(net, src, kind, sites, starts, mode, stats, device, batch=1024, amp=None, with_emb=False):
@@ -355,7 +406,9 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
     net = build_model(model, args, dims, stats).to(dev)
     n_par = n_params(net)
     ctx.emit("n_params", n_par)
-    opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    cuda = str(dev).startswith("cuda")
+    opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=args.weight_decay,
+                            **({"fused": True} if cuda and args.fused_adam else {}))
     total = args.epochs * args.steps_per_epoch
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=total, pct_start=0.08,
                                                 anneal_strategy="cos")
@@ -364,33 +417,36 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
     val_fixed = (vs[:6000], vst[:6000])
     deadline = args.max_minutes * 0.72
     best, best_state, bad, history = math.inf, None, 0, []
+    with ctx.stage("valcache"):  # the early-stopping subset is fixed: build its inputs once, keep them on the device
+        vcache = val_inputs(src, kind, *val_fixed, args.mode, stats, dev)
+    fwd = compile_net(net, args.compile)
 
-    def make_batch():
-        s, st = sample_train(args.batch)
-        out = batch_arrays(src, kind, s, st, args.mode, stats)
+    def make_batch(s, st):
+        raw, inp, x, y, w, mask = batch_arrays(src, kind, s, st, args.mode, stats)
         if args.stat_noise > 0:
-            x = out[2]
             x["stat"] = x["stat"] + np.random.default_rng().normal(0, args.stat_noise, x["stat"].shape).astype(np.float32)
-        return out
+        # pinned host tensors built in the worker, so the main thread only issues async H2D copies
+        return [pin(torch.from_numpy(a)) for a in (x["seq"], x["ref"], x["summ"], x["stat"], mask, y, w)]
 
-    pool = ThreadPoolExecutor(max_workers=3)
+    n_workers = args.loader_workers or loader_workers()
+    pool = ThreadPoolExecutor(max_workers=n_workers)
+    ctx.emit("loader_workers", n_workers)
     tp = Throughput(ctx.emit, dev, sync=args.profile)
     with ctx.stage("train"):
-        futs = [pool.submit(make_batch) for _ in range(6)]
+        futs = [pool.submit(make_batch, *sample_train(args.batch)) for _ in range(2 * n_workers)]
         step = 0
         for ep in range(args.epochs):
             net.train()
             t_ep, losses = time.time(), []
             for _ in range(args.steps_per_epoch):
                 with tp.wait():
-                    raw, inp, x, y, w, mask = futs.pop(0).result()
-                futs.append(pool.submit(make_batch))
-                with tp.compute(len(y)):
-                    t = [torch.from_numpy(x[n]).to(dev, non_blocking=True) for n in ("seq", "ref", "summ", "stat")]
-                    yt, wt = torch.from_numpy(y).to(dev), torch.from_numpy(w).to(dev)
-                    mt = torch.from_numpy(mask).to(dev)
+                    host = futs.pop(0).result()
+                futs.append(pool.submit(make_batch, *sample_train(args.batch)))
+                t_c = time.perf_counter()
+                with tp.compute(len(host[0])):
+                    seq, ref, summ, stat, mt, yt, wt = (h.to(dev, non_blocking=True) for h in host)
                     with ctx.autocast():
-                        q, _ = net(*t, mt)
+                        q, _ = fwd(seq, ref, summ, stat, mt)
                     loss = pinball(q.float(), yt, wt)
                     opt.zero_grad(set_to_none=True)
                     scaler.scale(loss).backward()
@@ -402,12 +458,13 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                         sched.step()
                     step += 1
                     losses.append(loss.detach())  # no per-step GPU sync
+                if args.compile != "off" and step == 1:
+                    if cuda:
+                        torch.cuda.synchronize()
+                    ctx.emit("t_compile_s", time.perf_counter() - t_c)
             # validation (fixed subset) for early stopping
             with tp.val():
-                c = collect(src, kind, net, *val_fixed, args.mode, stats, dev, amp)
-                yv = c["y"] / c["scale"][:, None]
-                vp = M.pinball(c["q"] / c["scale"][:, None, None], yv, c["w"] > 0)
-                vn = M.nmae(c["q"][..., 1], c["y"], c["w"] > 0)
+                vp, vn = val_score(net, vcache, amp)
             history.append({"epoch": ep, "train_loss": float(torch.stack(losses).mean()), "val_pinball": vp, "val_nmae": vn,
                             "sec": round(time.time() - t_ep, 1)})
             print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_pinball {vp:.4f} val_nmae {vn:.4f} "
