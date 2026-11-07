@@ -14,7 +14,7 @@ check  = "check"
 
 [runs.check]
 setup   = "set -e; if [ -f package.json ]; then npm ci --no-audit --no-fund; fi; if [ -f requirements.txt ] || [ -d tests ]; then uv venv -q --python 3.12; fi; if [ -f requirements.txt ]; then uv pip install -q -r requirements.txt; fi; if [ -d tests ]; then uv pip install -q pytest; fi"
-cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .venv/bin/python -m pytest -q tests; fi"
+cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .venv/bin/python -m pytest -q -m 'not slow' -o faulthandler_timeout=300 --durations=15 tests; fi"   # slow tests: rustcheck (#179)
 timeout = "15m"
 
 [runs.preview]
@@ -64,7 +64,7 @@ timeout = "30m"
 # to timing Python only. Kernel cards submit with: lab submit <card> --run check --run rustcheck
 [runs.rustcheck]
 setup   = "set -e; uv venv -q --python 3.12; uv pip install -q -r requirements.txt maturin pytest; sh rust/build.sh build"
-cmd     = "sh rust/build.sh status --require && .venv/bin/python -m pytest -q -rs tests/test_kernels*.py && .venv/bin/python -m sentinel.kernels.bench"
+cmd     = "sh rust/build.sh status --require && .venv/bin/python -m pytest -q -rs tests/test_kernels*.py && .venv/bin/python -m pytest -q -m slow --durations=15 tests && .venv/bin/python -m sentinel.kernels.bench"
 needs   = "cpu"
 timeout = "30m"
 
