@@ -39,11 +39,6 @@ def coverage(q, y, mask=None) -> float:
     return float(inside.mean()) if inside.size else float("nan")
 
 
-def mean_width(q, scale, mask=None) -> float:
-    w = (q[..., 2] - q[..., 0]) / np.asarray(scale)[:, None]
-    return float(w[mask].mean() if mask is not None else w.mean())
-
-
 def ap(y_true, score) -> float:
     from sklearn.metrics import average_precision_score
 

@@ -17,8 +17,8 @@ Pieces, each optional (guarded imports, §11 "Judge model cannot load -> ledger-
   and `update(outcomes)`. Missing -> `PriorLedger`: trust = the model's validation prior (the `priors` block of its
   calibration JSON, models/judge_priors.json, windnbm.priors.json), n_eff = 0, so every verdict is rule 1 or 3
   (§11 "ledger empty": the agent behaves as today, at validated strength).
-- Grader (J1, #146): `sentinel.judge.grader.grade_loop_day(ctx) -> DataFrame` of §8 outcome rows at the end of each
-  day. Missing -> no outcomes, trust stays at the prior.
+- Grader (J1, #146): `sentinel.judge.grader.grade` (via `_J1Grader`) -> §8 outcome rows at the end of each day.
+  Missing -> no outcomes, trust stays at the prior.
 
 Causality (§5.1, §5.5): at t0 the slot reads only the predictions, telemetry age at t0, and the observed telemetry
 of past days (kept from earlier `at_end_of_day` calls). Never fault labels or simulator truth.
@@ -36,13 +36,15 @@ import sys
 import time
 import traceback
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
+from .buckets import bucket_key as _bucket_key
+from .buckets import season_of
 from .verdict import LEDGER_ONLY, SAFETY_CLASSES, Thresholds, apply_rules, verdict_rows
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -90,21 +92,9 @@ def log(msg: str) -> None:
 
 
 # ------------------------------------------------------------------------------------------- buckets (§6.1)
-try:  # J2's canonical key (#147); the same format below until it merges
-    from .buckets import bucket_key as _bucket_key  # type: ignore
-except Exception:  # pragma: no cover - depends on merge order
-    def _bucket_key(kind="site", seen=True, battery=False, season="warm", quality="clean", ood_high=False) -> str:
-        return "|".join((str(kind), "seen" if seen else "unseen", "batt" if battery else "nobatt", str(season),
-                         str(quality), "ood_hi" if ood_high else "ood_lo"))
-
-
 def bucket_ancestors(key: str) -> list[str]:
     parts = key.split("|") if key and key != "*" else []
     return ["|".join(parts[:lv]) for lv in range(len(parts), 0, -1)] + ["*"]
-
-
-def season_of(month: int) -> str:
-    return "warm" if 4 <= int(month) <= 9 else "cold"
 
 
 # ------------------------------------------------------------------------------------------- built-in ledger
@@ -238,24 +228,11 @@ def _load_ledger(models_dir: Path, start: Optional[str] = None, run_id: str = ""
     except Exception as e:
         log(f"WARNING sentinel.judge.ledger failed to import ({type(e).__name__}: {e}); prior-only ledger")
         return fallback
-    if hasattr(mod, "Ledger") and hasattr(mod, "Priors"):  # J2 (#147)
-        try:
-            return _LedgerAdapter(_J2Ledger(mod, models_dir, start, run_id), fallback)
-        except Exception as e:
-            log(f"WARNING J2 ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
-            return fallback
-    cls = getattr(mod, "Ledger", None) or getattr(mod, "TrustLedger", None)
-    if cls is None:
-        return fallback
-    try:
-        obj = cls()
+    try:  # J2 (#147)
+        return _LedgerAdapter(_J2Ledger(mod, models_dir, start, run_id), fallback)
     except Exception as e:
-        log(f"WARNING ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
+        log(f"WARNING J2 ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
         return fallback
-    if not hasattr(obj, "lookup"):
-        log("WARNING sentinel.judge.ledger has no lookup(); prior-only ledger")
-        return fallback
-    return _LedgerAdapter(obj, fallback)
 
 
 def _load_model(models_dir: Path) -> tuple[Any, str]:
@@ -265,11 +242,8 @@ def _load_model(models_dir: Path) -> tuple[Any, str]:
         return None, "no sentinel.judge.model"
     except Exception as e:
         return None, f"sentinel.judge.model failed to import ({type(e).__name__}: {e})"
-    fn = getattr(mod, "load_judge", None)
-    if fn is None:
-        return None, "sentinel.judge.model has no load_judge"
     try:
-        j = fn(models_dir)
+        j = mod.load_judge(models_dir)
     except Exception as e:
         return None, f"load_judge raised {type(e).__name__}: {e}"
     return (j, "loaded") if j is not None else (None, "no Judge weights")
@@ -319,11 +293,7 @@ def _load_grader() -> Optional[Callable[[dict[str, Any]], Any]]:
         mod = importlib.import_module("sentinel.judge.grader")
     except Exception:
         return None
-    if hasattr(mod, "grade_loop_day"):
-        return mod.grade_loop_day
-    if hasattr(mod, "grade") and hasattr(mod, "obs_from_world"):
-        return _J1Grader(mod)
-    return None
+    return _J1Grader(mod)
 
 
 # ------------------------------------------------------------------------------------------- input gate (§5.4)

@@ -87,13 +87,7 @@ def cusum_detector(q: np.ndarray, informative: np.ndarray, k: float, h: float):
         sp, _, _ = cusum_two_sided(1.0 - q[s, idx], k, h)
         full = np.full(d, np.nan)
         full[idx] = sp
-        # forward fill skipped days
-        last = 0.0
-        for t in range(d):
-            if np.isnan(full[t]):
-                full[t] = last
-            last = full[t]
-        s_out[s] = full
+        s_out[s] = pd.Series(full).ffill().fillna(0.0).to_numpy()  # skipped days carry the state
     return s_out >= h, s_out
 
 

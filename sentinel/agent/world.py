@@ -16,6 +16,7 @@ Units follow team/contracts: kW, kWh, lei/MWh prices, UTC unix seconds internall
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 from dataclasses import dataclass, field
@@ -24,6 +25,8 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from sentinel.contracts import DAY_STEPS, STEP_MINUTES, BatterySpec, FeederSpec, MockPredictor, Prediction, PvFault, Window
+
+from .audit import local_dt, parse_iso
 
 STEP_S = STEP_MINUTES * 60
 LABEL_SYNTHETIC = "synthetic RO"
@@ -204,8 +207,6 @@ class World:
     @property
     def week_start(self) -> str:
         """Local (Europe/Bucharest) date of the first day: the app buckets ts in local time."""
-        from .audit import local_dt
-
         return local_dt(self.day_ts(0)).date().isoformat()
 
     # data
@@ -265,9 +266,8 @@ class World:
         if idx is None:
             idx = {}
             for r in self.fault_truth():
-                on = int(datetime.fromisoformat(str(r["onset"]).replace("Z", "+00:00")).timestamp())
-                en = r.get("end")
-                en = int(datetime.fromisoformat(str(en).replace("Z", "+00:00")).timestamp()) if en else None
+                on = parse_iso(str(r["onset"]))
+                en = parse_iso(str(r["end"])) if r.get("end") else None
                 idx.setdefault(str(r["asset_id"]), []).append((on, en, str(r["fault"])))
             self._truth_idx = idx
         return idx
@@ -546,8 +546,6 @@ class MockWorld(World):
         """Synthetic OPCOM-PZU-like hourly prices (lei/MWh): cheap solar noon, expensive evening (local time)."""
         out = []
         lvl = 1.0 + 0.15 * _s(self.seed, d, "plvl")
-        from .audit import local_dt
-
         for h in range(24):
             local = local_dt(self.day_ts(d) + h * 3600).hour
             base = 380 + 260 * math.exp(-((local - 8) ** 2) / 4) + 620 * math.exp(-((local - 20.5) ** 2) / 4.5)
@@ -642,18 +640,12 @@ class MockWorld(World):
                 c = 40  # curtailment set-point active
             if active and fault["fault"] == "fault_stop":
                 p, c = 0.0, 211
-            if active and fault["fault"] == "data_gap":
-                pw.append(None)
-                ws.append(None)
-                gbx.append(None)
-                amb.append(round(t_amb, 1))
-                code.append(0)
-                continue
-            pw.append(round(p, 1))
-            ws.append(round(v * 3.6, 2))
+            gap = active and fault["fault"] == "data_gap"
+            pw.append(None if gap else round(p, 1))
+            ws.append(None if gap else round(v * 3.6, 2))
             amb.append(round(t_amb, 1))
-            gbx.append(round(t_amb + 8 + 38 * p / rated + 1.5 * _s(turbine_id, d, k, "g"), 1))
-            code.append(c)
+            gbx.append(None if gap else round(t_amb + 8 + 38 * p / rated + 1.5 * _s(turbine_id, d, k, "g"), 1))
+            code.append(0 if gap else c)
         out = TurbineDay(pw, ws, amb, gbx, code)
         self._turbine_cache[key] = out
         return out
@@ -711,7 +703,7 @@ class _WorldAwareHealthMock:
                 horizon: Optional[int] = None) -> Prediction:
         p = self.inner.predict(asset, window, t0=t0, horizon=horizon)
         sid = p.asset_id
-        t = int(datetime.fromisoformat(p.t0.replace("Z", "+00:00")).timestamp())
+        t = parse_iso(p.t0)
         if window is not None and window.meta:
             t += int(window.meta.get("tick", 0)) * STEP_S
         f = self.world.faults.get(sid)
@@ -734,7 +726,6 @@ class _WorldAwareHealthMock:
 DEMO_WEEK_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
 HERO_FEEDER_ID = "F7"  # the app's demo feeder (demo-jumps.tsx)
 STORY_SITE_ID = "1042"  # the app's string-failure site
-DEMO_PARK_ID = "WP01"  # the app's default park
 HERO_DAY, FAULT_DAY = 2, 3  # apps/web/src/demo/replay.ts
 STORY_ONSET_TICK = 20  # 05:00 local on FAULT_DAY (before sunrise production; M4 re-checks from 10:00)
 # Demo subset of the 15-feeder fleet (keeps the DB < 50 MB, R18): the hero is chosen from data (below), plus
@@ -759,17 +750,6 @@ def find_windows(root: Optional[Path] = None) -> Optional[Path]:
     from sentinel.model.data import find_lab_windows
 
     return find_lab_windows()
-
-
-def find_sim_cache(root: Optional[Path] = None) -> Optional[Path]:
-    """Kept for callers of the old loader: the windows dir if there is one."""
-    return find_windows(root)
-
-
-def _local_date(ts: int) -> str:
-    from .audit import local_dt
-
-    return local_dt(ts).date().isoformat()
 
 
 class SimWorld(World):
@@ -802,16 +782,12 @@ class SimWorld(World):
                 "SimWorld: no #10 window cache ($SENTINEL_WINDOWS or ~/.cache/sentinel/data-v{N}/windows). Build it "
                 "with `python -m sentinel.data.windows` (fleet #11 + faults #12 + windows #10); use --world mock "
                 "until then.")
-        import json as _json
-
-        import numpy as np
-
         from .predictors import FleetSlice
 
         super().__init__(start or DEMO_WEEK_START, days, seed)
         self.windows = Path(win)
-        idx = _json.loads((self.windows / "index.json").read_text())
-        all_sites = _json.loads((self.windows / "sites.json").read_text())
+        idx = json.loads((self.windows / "index.json").read_text())
+        all_sites = json.loads((self.windows / "sites.json").read_text())
         fleet_dir = self.windows.parent / idx.get("source_key", {}).get("fleet", "")
         frows = {}
         if (fleet_dir / "feeders.parquet").exists():
@@ -907,8 +883,6 @@ class SimWorld(World):
     def _pick_hero(self, by_feeder, frows, t_from, t_to) -> str:
         """Congested feeder with the largest midday baseline overload on HERO_DAY (the fleet's own self-consumption
         battery flows): max(export) / limit on that local day."""
-        import numpy as np
-
         from .predictors import FleetSlice
 
         cands = [f for f, r in frows.items() if r.get("congested")] or list(by_feeder)
@@ -928,11 +902,7 @@ class SimWorld(World):
     def _pick_story_site(self, idx: list[int]) -> str:
         """A site on the hero feeder with a battery, no #12 fault in the 15 days before nor during the week, and the
         largest array (so the outage is visible on the feeder)."""
-        import json as _json
-
-        import numpy as np
-
-        sites = _json.loads((self.windows / "sites.json").read_text())
+        sites = json.loads((self.windows / "sites.json").read_text())
         from .predictors import FleetSlice
 
         sl = FleetSlice(self.windows, idx, (self.day_ts(0) // 86400 - 15) * 86400,
@@ -958,15 +928,13 @@ class SimWorld(World):
         self.twin_source = "none (contract G, tau = 1)"
         self._twin_flags: list[dict[str, Any]] = []
         try:
-            import json as _json
-
             import pandas as pd
 
             from sentinel.gridtwin.run import default_out
 
             d = Path(os.environ.get("SENTINEL_GRIDTWIN") or default_out())
             if (d / "feeders.json").exists() and (d / "sites.parquet").exists():
-                feeders = pd.DataFrame(_json.loads((d / "feeders.json").read_text()))
+                feeders = pd.DataFrame(json.loads((d / "feeders.json").read_text()))
                 sites = pd.read_parquet(d / "sites.parquet")
                 self.twin_source = f"cache {d}"
             elif (fleet_dir / "feeders.parquet").exists():
@@ -1069,7 +1037,7 @@ class SimWorld(World):
         for t in wd.turbines:
             pid = self.park_label[t["park_id"]]
             tid = pid + t["turbine_id"][len(t["park_id"]):]
-            row = {k: v for k, v in t.items()}
+            row = dict(t)
             row.update(turbine_id=tid, park_id=pid, src_turbine_id=t["turbine_id"], src_park_id=t["park_id"])
             t["replay_id"] = tid
             self.turbines[tid] = Turbine(row)
@@ -1140,8 +1108,6 @@ class SimWorld(World):
         return out
 
     def turbine_day(self, turbine_id: str, d: int) -> TurbineDay:
-        import math as _m
-
         key = (turbine_id, d)
         if key in self._turbine_cache:
             return self._turbine_cache[key]
@@ -1150,7 +1116,7 @@ class SimWorld(World):
 
         def col(s):
             a = wd.sensors.get(s)
-            return [None] * DAY_STEPS if a is None else [None if not _m.isfinite(float(x)) else round(float(x), 2)
+            return [None] * DAY_STEPS if a is None else [None if not math.isfinite(float(x)) else round(float(x), 2)
                                                           for x in a[sl, j]]
 
         amb = col("turbine_t")
@@ -1170,7 +1136,7 @@ class SimWorld(World):
 
         mocks = super().default_predictors()
         bank = P.ModelBank(self.src)
-        step_of = lambda t0: self.src.step(int(datetime.fromisoformat(t0.replace("Z", "+00:00")).timestamp()))  # noqa
+        step_of = lambda t0: self.src.step(parse_iso(t0))  # noqa: E731
         out: dict[str, Any] = {}
         pv = P.PvForecastAdapter(bank, "pv_fc", "pvnet", self.index, step_of, mocks["pv"])
         out["pv"] = pv if pv.available else mocks["pv"]
@@ -1223,20 +1189,17 @@ class SimWorld(World):
     def fault_truth(self) -> list[dict[str, Any]]:
         lo, hi = self.day_ts(0), self.day_ts(self.days)
         out = []
-        t0 = int(self.src.t_start.timestamp())
-        import json as _json
-
-        eps = _json.loads((self.windows / "episodes.json").read_text()) if (self.windows / "episodes.json").exists() \
+        eps = json.loads((self.windows / "episodes.json").read_text()) if (self.windows / "episodes.json").exists() \
             else []
         src_ids = {s["site_id"]: self.site_label[s["site_id"]] for s in self.src.sites}
         fleet_t0 = None
         try:
             import pandas as pd
 
-            fleet_t0 = int(pd.Timestamp(_json.loads((self.windows / "index.json").read_text())["t_start"]).timestamp())
+            fleet_t0 = int(pd.Timestamp(json.loads((self.windows / "index.json").read_text())["t_start"]).timestamp())
         except Exception:
             pass
-        sites_all = _json.loads((self.windows / "sites.json").read_text())
+        sites_all = json.loads((self.windows / "sites.json").read_text())
         for e in eps:
             sid = sites_all[e["site"]]["site_id"] if isinstance(e.get("site"), int) else e.get("site")
             if sid not in src_ids or fleet_t0 is None:
@@ -1260,10 +1223,6 @@ class SimWorld(World):
                 out.append({"asset_id": tid, "asset_kind": "turbine", "fault": e["fault"], "onset": iso(on),
                             "end": iso(en), "severity": e.get("severity")})
         return out
-
-    @property
-    def week_start(self) -> str:
-        return _local_date(self.day_ts(0))
 
     def replay_notes(self) -> dict[str, Any]:
         """Extra runs.notes for this world: model components, weights label, story placement."""

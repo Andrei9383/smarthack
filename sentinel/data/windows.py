@@ -44,14 +44,6 @@ SITE_F16 = ("pv_ac", "pv_healthy", "load", "batt", "soc", "inv_v", "pvlib_rec", 
 SITE_I8 = ("inv_status", "fault", "valid")
 
 
-def physics():
-    try:
-        from sentinel.model import physics as ph
-    except ImportError as e:  # pragma: no cover
-        raise ImportError("sentinel.model.physics (#14) is needed for the pvlib channels and geometry") from e
-    return ph
-
-
 def default_out() -> Path:
     return default_cache_root() / f"data-v{DATA_VERSION}" / "windows"
 
@@ -101,7 +93,7 @@ def forecast_weather(act: np.ndarray, geom: np.ndarray, doy: np.ndarray, rng, ph
 def build_windows(fleet_dir: Path | None = None, fault_dir: Path | None = None, out: Path | None = None,
                   fleet_cfg: FleetConfig = FleetConfig(), fault_cfg: FaultConfig = FaultConfig(), seed: int = 5,
                   force: bool = False, batch: int = 64, log=print) -> Path:
-    ph = physics()
+    from sentinel.model import physics as ph
     t_all = time.perf_counter()
     fleet_dir = Path(fleet_dir) if fleet_dir else generate(fleet_cfg, plots=False, log=log)
     fault_dir = Path(fault_dir) if fault_dir else inject_dataset(fleet_dir, fault_cfg, log=log)
@@ -263,8 +255,7 @@ def main(argv=None) -> None:
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args(argv)
     if a.quick:
-        cfg = FleetConfig(**QUICK)
-        build_windows(fleet_cfg=cfg, out=a.out or default_out().with_name("windows-quick"), force=a.force)
+        build_windows(fleet_cfg=FleetConfig(**QUICK), out=a.out or default_out().with_name("windows-quick"), force=a.force)
     else:
         build_windows(out=a.out, force=a.force)
 

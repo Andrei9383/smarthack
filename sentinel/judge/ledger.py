@@ -70,7 +70,6 @@ INTERVAL = (0.10, 0.90)
 _BAND_EDGES = np.geomspace(BAND_MIN, BAND_MAX, 65)  # 64 log bins inside the bounds (2.8 % resolution)
 TRUST_COLUMNS = ["run_id", "day", "model", "model_version", "bucket", "score_name", "prior", "n_eff", "trust",
                  "lo80", "hi80", "band_scale", "health_alert"]
-_SERIES = ["model", "model_version", "score_name", "key"]
 _STR = ("model", "model_version", "score_name", "bucket")
 
 
@@ -136,12 +135,14 @@ class Priors:
 
 # ---------------------------------------------------------------- input normalisation (integer codes)
 
-_KINDS = ("site", "turbine", "zone", "feeder")
-
-
 LOCAL_TZ = "Europe/Bucharest"  # replay days are local days
 _EPOCH = dt.date(1970, 1, 1)
 _MISSING = -(10 ** 9)
+
+
+def _ts_day(t: dt.datetime) -> int:
+    """A timestamp's Europe/Bucharest local date as days since 1970-01-01 (naive = UTC)."""
+    return ((t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)).astimezone(ZoneInfo(LOCAL_TZ)).date() - _EPOCH).days
 
 
 def _local_day(v: str) -> int:
@@ -149,19 +150,14 @@ def _local_day(v: str) -> int:
     v = v.strip()
     if len(v) <= 10:
         return (dt.date.fromisoformat(v) - _EPOCH).days
-    t = dt.datetime.fromisoformat(v.replace("Z", "+00:00"))
-    if t.tzinfo is None:
-        t = t.replace(tzinfo=dt.timezone.utc)
-    return (t.astimezone(ZoneInfo(LOCAL_TZ)).date() - _EPOCH).days
+    return _ts_day(dt.datetime.fromisoformat(v.replace("Z", "+00:00")))
 
 
 def _daynum_np(s: pl.Series) -> np.ndarray:
     """Day numbers (days since 1970-01-01) of a date / timestamp column. Timestamps are taken in local time
     (Europe/Bucharest): J1 writes observed_at as the UTC instant of the next local midnight, e.g.
     2024-06-02T21:00:00Z = 2024-06-03 00:00 EEST, which must count as 06-03, not as the graded day 06-02."""
-    if s.dtype == pl.Date:
-        return s.cast(pl.Int32).to_numpy()
-    if s.dtype.is_integer():
+    if s.dtype == pl.Date or s.dtype.is_integer():
         return s.cast(pl.Int32).to_numpy()
     if isinstance(s.dtype, pl.Datetime):
         if s.dtype.time_zone is None:
@@ -399,10 +395,8 @@ class Ledger:
             uniq = sorted(set(keys))
             pos = {k: i for i, k in enumerate(uniq)}
             self._par.append((np.array([pos[k] for k in keys], np.int64), uniq))
-        band_scores = {i for i, (_, _, s) in enumerate(c.base_labels) if s == BAND_SCORE}
-        detail = [i for i, (_, _, s) in enumerate(c.base_labels) if s in DETAIL_SCORES]
-        is_band = np.isin(c.base, list(band_scores)) if band_scores else np.zeros(n, bool)
-        is_detail = np.isin(c.base, detail) if detail else np.zeros(n, bool)
+        is_band = np.isin(c.base, [i for i, (_, _, s) in enumerate(c.base_labels) if s == BAND_SCORE])
+        is_detail = np.isin(c.base, [i for i, (_, _, s) in enumerate(c.base_labels) if s in DETAIL_SCORES])
         self.levels = self._trust_levels(c.take(~is_band & ~is_detail))
         self.bands = self._band_levels(c.take(is_band)) if is_band.any() else []
 
@@ -420,10 +414,10 @@ class Ledger:
                 aggs.append(pl.col("ws").sum().alias("sws"))
             agg0 = pl.DataFrame(cols).group_by(["base", "b", "day", "obs"]).agg(aggs)
         b0, base0 = agg0["b"].to_numpy(), agg0["base"].to_numpy()
+        sums = ["sw", "n"] + (["sws"] if value else [])
         for par, uniq in self._par:
             sid, keys = self._series(base0, par[b0], len(uniq),
                                      lambda bi, pi: (*c.base_labels[bi], uniq[pi]))
-            sums = ["sw", "n"] + (["sws"] if value else [])
             a = (agg0.select(["day", "obs", *sums]).with_columns(pl.Series("sid", sid))
                  .group_by(["sid", "day", "obs"]).agg([pl.col(x).sum() for x in sums]))
             yield _unit_events(a, value), keys
@@ -654,8 +648,7 @@ def _daynum(d) -> int:
     if isinstance(d, (int, np.integer)):
         return int(d)
     if isinstance(d, dt.datetime):
-        d = (d if d.tzinfo else d.replace(tzinfo=dt.timezone.utc)).astimezone(ZoneInfo(LOCAL_TZ)).date()
-        return (d - _EPOCH).days
+        return _ts_day(d)
     if isinstance(d, dt.date):
         return (d - _EPOCH).days
     return _local_day(str(d))

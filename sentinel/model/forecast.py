@@ -10,10 +10,10 @@ Writes to $LAB_OUTPUT_DIR: <model>.onnx, <model>.calibration.json, <model>.repor
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 
 import numpy as np
 
@@ -175,8 +175,7 @@ def val_score(net, vc: dict, amp=None, batch=2048) -> tuple[float, float]:
     d, qs = vc["dev"], []
     with torch.no_grad():
         for k in range(0, len(vc["y"]), batch):
-            ctx = torch.autocast("cuda", dtype=amp) if amp is not None else _null()
-            with ctx:
+            with _amp(amp):
                 q, _ = net(*(d[n][k:k + batch] for n in ("seq", "ref", "summ", "stat", "mask")))
             qs.append(q.float())
     qn = torch.cat(qs).cpu().numpy()  # normalised units
@@ -197,8 +196,7 @@ def predict(net, src, kind, sites, starts, mode, stats, device, batch=1024, amp=
             raw, inp, x, y, w, mask = batch_arrays(src, kind, sites[k:k + batch], starts[k:k + batch], mode, stats)
             t = [torch.from_numpy(x[n]).to(device) for n in ("seq", "ref", "summ", "stat")]
             m = torch.from_numpy(mask).to(device)
-            ctx = torch.autocast("cuda", dtype=amp) if amp is not None else _null()
-            with ctx:
+            with _amp(amp):
                 q, e = net(*t, m)
             qs.append(q.float().cpu().numpy() * inp["scale"][:, None, None])
             if with_emb:
@@ -207,12 +205,10 @@ def predict(net, src, kind, sites, starts, mode, stats, device, batch=1024, amp=
     return (q, np.concatenate(embs)) if with_emb else q
 
 
-class _null:
-    def __enter__(self):
-        return self
+def _amp(amp):
+    import torch
 
-    def __exit__(self, *a):
-        return False
+    return torch.autocast("cuda", dtype=amp) if amp is not None else nullcontext()
 
 
 def fit_ood(emb: np.ndarray) -> dict:
@@ -310,8 +306,7 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
             x = F.normalise(inp, stats)
             t = [torch.from_numpy(x[n]).to(device) for n in ("seq", "ref", "summ", "stat")]
             m = torch.from_numpy((~inp["night"]).astype(np.float32)).to(device)
-            ctx = torch.autocast("cuda", dtype=amp) if amp is not None else _null()
-            with ctx:
+            with _amp(amp):
                 q, e = net(*t, m)
             res["q"].append(q.float().cpu().numpy() * inp["scale"][:, None, None])
             res["emb"].append(e.float().cpu().numpy())
@@ -528,18 +523,17 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
 
         for split, c in evals.items():
             w = c["w"] > 0
-            pre = split
-            ctx.emit(f"{pre}_nmae", M.nmae(c["q"][..., 1], c["y"], w))
-            ctx.emit(f"{pre}_pinball", M.pinball(c["q"], c["y"], w))
+            ctx.emit(f"{split}_nmae", M.nmae(c["q"][..., 1], c["y"], w))
+            ctx.emit(f"{split}_pinball", M.pinball(c["q"], c["y"], w))
             if kind == "pv":
                 ws = c["w_strict"] > 0
-                ctx.emit(f"{pre}_nmae_strict", M.nmae(c["q"][..., 1], c["y"], ws))
-                ctx.emit(f"{pre}_coverage_cal_strict", M.coverage(c["qc"], c["y"], ws))
-            ctx.emit(f"{pre}_coverage_raw", M.coverage(c["q"], c["y"], w))
-            ctx.emit(f"{pre}_coverage_cal", M.coverage(c["qc"], c["y"], w))
-            ctx.emit(f"{pre}_pinball_cal", M.pinball(c["qc"], c["y"], w))
+                ctx.emit(f"{split}_nmae_strict", M.nmae(c["q"][..., 1], c["y"], ws))
+                ctx.emit(f"{split}_coverage_cal_strict", M.coverage(c["qc"], c["y"], ws))
+            ctx.emit(f"{split}_coverage_raw", M.coverage(c["q"], c["y"], w))
+            ctx.emit(f"{split}_coverage_cal", M.coverage(c["qc"], c["y"], w))
+            ctx.emit(f"{split}_pinball_cal", M.pinball(c["qc"], c["y"], w))
             for b, v in c["baselines"].items():
-                ctx.emit(f"{pre}_baseline_{b}_nmae", M.nmae(v, c["y"], w))
+                ctx.emit(f"{split}_baseline_{b}_nmae", M.nmae(v, c["y"], w))
         t = evals["test"]
         ctx.emit("coverage_10_90", M.coverage(t["qc"], t["y"], t["w"] > 0))
         for b, v in t["baselines"].items():
@@ -566,7 +560,6 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             groups["day_type"] = np.where(t["offday"] > 0.5, "weekend_or_holiday", "workday")
         report["test_groups"] = group_metrics(t, groups)
         if kind == "pv":  # M1 on fault days vs the true healthy power (what M4 measures against)
-            fd = {}
             from .synth import FAULTS
 
             tt = dict(t)
@@ -581,7 +574,6 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                 ctx.emit(f"baseline_pvlib_nmae_meta_{wname}", M.nmae(t["baselines"]["pvlib"][sel], t["y"][sel], ww))
                 if "lgbm" in t["baselines"]:
                     ctx.emit(f"baseline_lgbm_nmae_meta_{wname}", M.nmae(t["baselines"]["lgbm"][sel], t["y"][sel], ww))
-        if kind == "pv":
             ns = groups["snow"] == "no_snow"
             ctx.emit("test_nmae_nosnow", M.nmae(t["q"][ns][..., 1], t["y"][ns], t["w"][ns] > 0))
             ctx.emit("baseline_pvlib_nmae_nosnow", M.nmae(t["baselines"]["pvlib"][ns], t["y"][ns], t["w"][ns] > 0))
@@ -608,8 +600,8 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
                          "test_unseen_p50": float(np.median(ood_t[~seen])) if (~seen).any() else None,
                          "test_frac_over_3": float((ood_t > 3).mean())}
         widths = ((t["qc"][..., 2] - t["qc"][..., 0]) / t["scale"][:, None])[t["w"] > 0]
-        cal_w = ((apply_offsets(cal["q"], offsets, cal["scale"], True, cal["night"])[..., 2] -
-                  apply_offsets(cal["q"], offsets, cal["scale"], True, cal["night"])[..., 0]) / cal["scale"][:, None])
+        cal_qc = apply_offsets(cal["q"], offsets, cal["scale"], True, cal["night"])
+        cal_w = (cal_qc[..., 2] - cal_qc[..., 0]) / cal["scale"][:, None]
         report["test_mean_width_norm"] = float(widths.mean()) if widths.size else None
 
     for gname, g in report["test_groups"].items():

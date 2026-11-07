@@ -71,9 +71,7 @@ class WindAnomaly(str, Enum):
 
 
 def _floats(xs: Optional[Sequence[float]]) -> Optional[list[float]]:
-    if xs is None:
-        return None
-    return [float(x) for x in xs]
+    return None if xs is None else [float(x) for x in xs]
 
 
 def parse_utc(ts: str) -> datetime:

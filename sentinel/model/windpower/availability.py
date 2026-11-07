@@ -300,10 +300,10 @@ def availability(reads: Reads, ts, weather: Optional[Mapping[str, Any]] = None,
         elif c in UNCERTAIN:
             uncertain[j] = True
     iced_now = np.array([str(c) == "icing" and float(s) >= cfg.conf_min for c, s in zip(reads.cls, reads.score)])
-    risk = icing_risk(weather, T, N, cfg, iced_now) if weather is not None else np.zeros((T, N), bool)
+    risk = icing_risk(weather, T, N, cfg, iced_now)
     derate = np.where(risk, derate * cfg.icing_factor, derate)
     for j in np.flatnonzero(risk.any(0)):
-        if rule[j] == "normal" or rule[j] == "icing":
+        if rule[j] == "normal":
             rule[j] = "icing"
     p24 = 1.0 - (1.0 - np.clip(np.nan_to_num(reads.p_fail_7d), 0, 1)) ** (1.0 / cfg.m7_horizon_days)
     hi = reads.m7_alarm & np.isfinite(reads.p_fail_7d)
