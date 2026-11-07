@@ -1114,6 +1114,17 @@ def cache_dir() -> Path:
     return (Path(base) if base else Path.home() / ".cache" / "sentinel") / "judge_rows"
 
 
+def _mem_available_gb() -> float:
+    """MemAvailable from /proc/meminfo (Linux); large when unknown. A week's process peaks around 2 GB."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1024 ** 2
+    except OSError:
+        pass
+    return 1e9
+
+
 def _week_job(args):
     spec, cfg, band, threads = args
     return run_week(spec, cfg, band, threads)
@@ -1137,7 +1148,7 @@ def generate(cfg: RowConfig, workers: int = 0, use_cache: bool = True, log=print
     if use_cache and path.exists():
         log(f"[judge.rows] cached: {path}")
         return pd.read_parquet(path)
-    workers = workers or min(len(weeks), os.cpu_count() or 1)
+    workers = workers or min(len(weeks), os.cpu_count() or 1, max(1, int(_mem_available_gb() // 2.5)))
     threads = max(1, (os.cpu_count() or 1) // max(workers, 1))
     log(f"[judge.rows] {cfg.year}: {len(weeks)} weeks, {workers} processes x {threads} onnx threads, pvlib band "
         f"{band[0]:.2f}-{band[1]:.2f}, key {key}")
