@@ -1,6 +1,6 @@
 """Weather per locality at 15 min.
 
-Source "raw": the committed Open-Meteo / ERA5 Parquet from #9 (see RAW_PATH and RAW_COLUMNS below).
+Source "raw": the committed Open-Meteo / ERA5 Parquet from #9 (see RAW_CANDIDATES; $SENTINEL_WEATHER overrides).
 Source "synthetic": a deterministic stand-in with Romanian climatology (spatially correlated cloud days, seasonal
 and diurnal temperature, snow), so the simulator runs before #9 lands. The manifest records which one was used.
 """
@@ -18,9 +18,28 @@ from . import solar
 from .localities import Locality
 
 REPO = Path(__file__).resolve().parents[3]
-RAW_PATH = Path(os.environ.get("SENTINEL_WEATHER", REPO / "data" / "raw" / "weather_localities.parquet"))
-# #9's weather table (team/contracts/data.md, schemas.WEATHER), hourly UTC; point_id = Locality.id.
-RAW_COLUMNS = ["ts", "point_id", "ghi_wm2", "temp_c", "wind10_ms", "snow_cm", "source"]
+# #9's files, first match wins: the data.md weather table (point_id "loc:<Locality.id>"), or the locality-only file.
+RAW_CANDIDATES = [REPO / "data" / "raw" / "weather.parquet", REPO / "data" / "raw" / "weather_localities.parquet"]
+# Old column names -> data.md names (schemas.WEATHER)
+_RENAME = {"time": "ts", "locality_id": "point_id", "ghi": "ghi_wm2", "temp_air": "temp_c",
+           "wind_speed_10m": "wind10_ms", "snow_depth_cm": "snow_cm"}
+_NEED = ("ghi_wm2", "temp_c", "wind10_ms", "snow_cm")
+
+
+def weather_key(source: str = "auto") -> str:
+    """Part of the cache key: which weather the simulator would use (raw file name + size, or synthetic)."""
+    path = raw_path()
+    if source == "synthetic" or (source == "auto" and path is None):
+        return "synthetic"
+    return f"{path.stem}-{path.stat().st_size}" if path is not None else "raw-missing"
+
+
+def raw_path() -> Path | None:
+    env = os.environ.get("SENTINEL_WEATHER")
+    if env:
+        return Path(env)
+    return next((p for p in RAW_CANDIDATES if p.exists()), None)
+
 
 VARS = ("ghi", "dni", "dhi", "temp_air", "wind_speed", "snow_depth_cm", "zenith", "azimuth")
 
@@ -39,8 +58,11 @@ class Weather:
 
 
 def load_weather(locs: list[Locality], ts: pd.DatetimeIndex, seed: int, source: str = "auto") -> Weather:
-    if source == "raw" or (source == "auto" and RAW_PATH.exists()):
-        return _from_raw(locs, ts)
+    path = raw_path()
+    if source == "raw" or (source == "auto" and path is not None):
+        if path is None:
+            raise FileNotFoundError(f"no raw weather file: {RAW_CANDIDATES}")
+        return _from_raw(locs, ts, path)
     return _synthetic(locs, ts, seed)
 
 
@@ -62,17 +84,39 @@ def _finish(locs, ts, zen, az, ghi, temp, wind, snow, source) -> Weather:
     return Weather(ts, [l.id for l in locs], {k: np.asarray(v, np.float32) for k, v in data.items()}, source)
 
 
-def _from_raw(locs: list[Locality], ts: pd.DatetimeIndex) -> Weather:
-    df = pd.read_parquet(RAW_PATH, columns=RAW_COLUMNS)
-    df = df[df.source != "forecast"]  # history = actuals, never the noisy planning forecast
+def read_raw(path: Path, locality_ids: list[str]) -> pd.DataFrame:
+    """#9's weather in data.md names, actuals only, point_id = Locality.id, for the given localities."""
+    import pyarrow.parquet as pq
+
+    names = pq.read_schema(path).names
+    cols = [c for c in names if c in _RENAME or c in _RENAME.values() or c == "source"]
+    df = pd.read_parquet(path, columns=cols).rename(columns=_RENAME)
+    if "source" in df:
+        df = df[df.source.astype(str) != "forecast"]  # history = actuals, never the noisy planning forecast
+    df["point_id"] = df.point_id.astype(str).str.removeprefix("loc:")
+    df = df[df.point_id.isin(locality_ids)]
     df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    missing = [c for c in _NEED if c not in df]
+    if missing:
+        raise ValueError(f"{path.name}: missing columns {missing}")
+    return df
+
+
+def _from_raw(locs: list[Locality], ts: pd.DatetimeIndex, path: Path) -> Weather:
+    df = read_raw(path, [l.id for l in locs])
     zen, az = _geometry(locs, ts)
-    cols = ("ghi_wm2", "temp_c", "wind10_ms", "snow_cm")
-    out = {k: np.empty((len(locs), len(ts)), np.float32) for k in cols}
+    out = {k: np.empty((len(locs), len(ts)), np.float32) for k in _NEED}
     for i, loc in enumerate(locs):
-        g = df[df.point_id == loc.id].set_index("ts")[list(cols)].sort_index()
+        g = df[df.point_id == loc.id].set_index("ts")[list(_NEED)].sort_index()
+        g = g[~g.index.duplicated()]
         if g.empty:
-            raise ValueError(f"{RAW_PATH.name} has no rows for locality {loc.id}")
+            raise ValueError(f"{path.name} has no rows for locality {loc.id}")
+        step = g.index.to_series().diff().median()
+        if step >= pd.Timedelta("1h"):
+            # Open-Meteo hourly radiation is the mean of the PRECEDING hour: centre it before interpolating.
+            ghi = g.ghi_wm2.copy()
+            ghi.index = ghi.index - step / 2
+            g = g.drop(columns="ghi_wm2").join(ghi, how="outer")
         g = g.reindex(g.index.union(ts)).interpolate("time", limit_direction="both").reindex(ts)
         for k in out:
             out[k][i] = g[k].to_numpy()

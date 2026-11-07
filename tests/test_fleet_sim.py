@@ -107,3 +107,35 @@ def test_ro_calendar():
     assert {dt.date(2024, 5, 3), dt.date(2024, 5, 6), dt.date(2024, 6, 24), dt.date(2024, 1, 6),
             dt.date(2024, 12, 1)} <= h
     assert dt.date(2023, 1, 6) not in ro_holidays(2023)
+
+
+@pytest.mark.parametrize("fmt", ["contract", "old"])
+def test_raw_weather(tmp_path, monkeypatch, fmt):
+    from sentinel.sim.fleet import weather as wmod
+    from sentinel.sim.fleet.localities import BY_ID
+    from sentinel.sim.fleet.ro_calendar import utc_index
+
+    locs = [BY_ID["voluntari"], BY_ID["floresti"]]
+    hours = pd.date_range("2023-12-31 20:00", "2025-01-01 02:00", freq="h", tz="UTC")
+    rows = []
+    for loc in locs:
+        doy = hours.dayofyear.to_numpy()
+        h = hours.hour.to_numpy()
+        ghi = np.clip(800 * np.sin(np.pi * (h - 4) / 12), 0, None) * (0.6 + 0.3 * np.cos(2 * np.pi * (doy - 172) / 365))
+        rows.append(pd.DataFrame({"ts": hours, "point_id": f"loc:{loc.id}", "ghi_wm2": ghi, "temp_c": 10.0,
+                                  "wind10_ms": 3.0, "snow_cm": 0.0, "source": "era5"}))
+        rows.append(rows[-1].assign(source="forecast", temp_c=99.0))  # must be ignored
+    df = pd.concat(rows)
+    if fmt == "old":
+        df = df.rename(columns={"ts": "time", "point_id": "locality_id", "ghi_wm2": "ghi", "temp_c": "temp_air",
+                                "wind10_ms": "wind_speed_10m", "snow_cm": "snow_depth_cm"})
+        df["locality_id"] = df.locality_id.str.removeprefix("loc:")
+    path = tmp_path / "w.parquet"
+    df.to_parquet(path)
+    monkeypatch.setenv("SENTINEL_WEATHER", str(path))
+    assert wmod.weather_key() == f"w-{path.stat().st_size}"
+    ts = utc_index(2024)
+    w = wmod.load_weather(locs, ts, seed=0)
+    assert w.source == "raw" and w.data["ghi"].shape == (2, len(ts))
+    assert np.allclose(w.data["temp_air"], 10.0)
+    assert w.data["ghi"].max() > 300 and (w.data["ghi"] >= 0).all()
