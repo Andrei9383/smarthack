@@ -3,15 +3,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX } from "d3-shape";
 import { BatteryCharging, ChevronDown, Sun } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
+import { StatusMark } from "@/components/brand/status-mark";
+import { Term } from "@/components/help";
 import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 import { stepToTs, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
+import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
 import { orpc } from "@/utils/orpc";
 
 import { BASELINE_SERIES, LIMIT_SERIES, SENTINEL_SERIES, SOC_SERIES } from "./colors";
@@ -24,7 +27,7 @@ import {
   SectionHeader,
   yAxisFor,
 } from "./ui";
-import { NoticeSection } from "./notice-section";
+import { NoticeRow } from "./notice-section";
 import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
@@ -69,22 +72,60 @@ function PolicyHeader({ name, active }: { name: string; active: boolean }) {
   return (
     <th
       scope="col"
-      className={`pb-2 text-right text-[11px] font-medium tracking-[0.04em] uppercase ${
+      className={`pb-1.5 text-right text-[11px] font-medium tracking-[0.04em] uppercase ${
         active ? "text-foreground" : "text-muted-foreground"
       }`}
     >
       <span className="inline-flex items-center gap-1.5">
-        {active && <span className="size-1.5 rounded-full bg-primary" aria-label="shown on map" />}
+        {active && <StatusMark kind="live" size="xs" label="shown on map" />}
         {name}
       </span>
     </th>
   );
 }
 
+/** Short feeder name: "F7 Oșorhei" from id "F7" and name "F7 Oșorhei" or "Oșorhei". */
+function shortName(id: string, name: string) {
+  return name.startsWith(`${id} `) ? name : `${id} ${name}`;
+}
+
+/** One plain sentence: what is happening on this feeder at the replay clock. */
+function nowSentence({
+  name,
+  limit,
+  at,
+  baselineNow,
+  sentinelNow,
+  baselineOver,
+  sentinelOver,
+}: {
+  name: string;
+  limit: number;
+  at: string;
+  baselineNow?: number;
+  sentinelNow?: number;
+  baselineOver: number;
+  sentinelOver: number;
+}) {
+  const today =
+    baselineOver > 0
+      ? `Today Sentinel cut time over the limit from ${baselineOver} to ${sentinelOver} min.`
+      : "It never went over its limit today.";
+  if (baselineNow == null || sentinelNow == null) return `No reading for ${name} at ${at}. ${today}`;
+  const b = Math.round(baselineNow);
+  const s = Math.round(sentinelNow);
+  if (s > limit) return `${name} is over its ${limit} kW limit at ${at}: ${s} kW even with Sentinel.`;
+  if (b > limit)
+    return `Sentinel holds ${name} at ${s} kW, under its ${limit} kW limit. Without it, solar would push it to ${b} kW.`;
+  if (b < 1) return `${name} is not exporting at ${at}: no solar surplus. ${today}`;
+  return `${name} is under its ${limit} kW limit at ${at} (${s} kW). ${today}`;
+}
+
 export function FeederPanel() {
   const [policy] = usePolicy();
   const [step] = useReplayStep();
   const [selected, setSelected] = useSelectedFeeder();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const window = useDayWindow();
   const { data: feeders, isLoading } = useFeederList();
   const { data: overLimit } = useOverLimit();
@@ -157,28 +198,39 @@ export function FeederPanel() {
     overLimit?.find((row) => row.feederId === feederId && row.policy === name);
   const baselineOver = statFor("baseline")?.minutesOver ?? 0;
   const sentinelOver = statFor("sentinel")?.minutesOver ?? 0;
-  const now = exportData.find((row) => row.ts === stepToTs(step));
+  const nowTs = stepToTs(step);
+  const now = exportData.find((row) => row.ts === nowTs);
+  const nowDate = bucharestWallClock(nowTs);
 
   const limitKw = Math.round(feeder?.limitKw ?? 0);
   const cut = baselineOver > 0 ? Math.round((1 - sentinelOver / baselineOver) * 100) : 0;
   const overNow = (value?: number) => (now && (value ?? 0) > now.limit ? OVER_TONE : undefined);
   const rows = [
     {
-      label: "Minutes over limit today",
+      label: (
+        <>
+          Minutes over <Term id="feeder-limit">limit</Term>
+        </>
+      ),
+      key: "minutes",
       baseline: { value: String(baselineOver), unit: "min" },
       sentinel: {
         value: String(sentinelOver),
         unit: "min",
         className: sentinelOver < baselineOver ? SENTINEL_TONE : undefined,
       },
+      delta: cut > 0 ? `−${cut}%` : null,
     },
     {
-      label: "Peak export",
+      label: "Peak export today",
+      key: "peak",
       baseline: { value: String(Math.round(statFor("baseline")?.peakExportKw ?? 0)), unit: "kW" },
       sentinel: { value: String(Math.round(statFor("sentinel")?.peakExportKw ?? 0)), unit: "kW" },
+      delta: null,
     },
     {
       label: `Export at ${timeLabel(step)}`,
+      key: "now",
       baseline: {
         value: now ? String(Math.round(now.baseline_export)) : "—",
         unit: now ? "kW" : undefined,
@@ -189,12 +241,13 @@ export function FeederPanel() {
         unit: now ? "kW" : undefined,
         className: overNow(now?.sentinel_export),
       },
+      delta: null,
     },
   ];
 
   if (!feeder) {
     return (
-      <aside className="absolute top-3 right-3 z-10 w-72 rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground shadow-card">
+      <aside className="absolute top-3 right-3 z-10 w-72 rounded-xl bg-card p-4 text-sm text-muted-foreground shadow-floating">
         {isLoading
           ? "Loading feeders…"
           : "No replay data. Run python3 demo/fixtures/make_fixtures.py."}
@@ -202,16 +255,27 @@ export function FeederPanel() {
     );
   }
 
+  const name = shortName(feeder.id, feeder.name);
+  const sentence = nowSentence({
+    name,
+    limit: limitKw,
+    at: timeLabel(step),
+    baselineNow: now?.baseline_export,
+    sentinelNow: now?.sentinel_export,
+    baselineOver,
+    sentinelOver,
+  });
+
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto overscroll-contain rounded-lg border border-border bg-card text-card-foreground shadow-card">
-      <header className="sticky top-0 z-10 space-y-2 border-b border-border bg-card/95 px-5 pt-4 pb-3 backdrop-blur-sm">
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto overscroll-contain rounded-xl bg-card text-card-foreground shadow-floating">
+      <header className="space-y-1.5 px-5 pt-4">
         <h2 className="text-base font-semibold">
           <span className="relative inline-flex items-center">
             <select
               aria-label="Feeder"
               value={feederId}
               onChange={(event) => setSelected(event.target.value)}
-              className="h-9 cursor-pointer appearance-none rounded-sm border border-border bg-card py-1 pr-9 pl-3 text-base font-semibold text-foreground shadow-xs transition-colors outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-9 cursor-pointer appearance-none rounded-lg bg-card py-1 pr-9 pl-3 text-base font-semibold text-foreground shadow-raised transition-[background-color,box-shadow] duration-150 outline-none hover:bg-sidebar focus-visible:ring-2 focus-visible:ring-ring"
             >
               {feeders?.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -228,13 +292,12 @@ export function FeederPanel() {
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-text-secondary">
           <span>{feeder.county}</span>
           <span aria-hidden>·</span>
-          <span>
-            limit <span className="tabular-nums">{limitKw}</span> kW
-          </span>
+          <span className="tabular-nums">{limitKw} kW limit</span>
           <span aria-hidden>·</span>
           {feeder.gisTrust === "low" ? (
-            <span className="inline-flex rounded-full bg-status-warn/10 px-2 py-0.5 text-[11px] font-medium text-status-warn">
-              GIS trust low
+            <span className="inline-flex items-center gap-1 text-status-warn">
+              <StatusMark kind="warn" size="xs" />
+              <Term id="gis-trust">GIS trust low</Term>
             </span>
           ) : (
             <span>GIS trust {feeder.gisTrust ?? "unknown"}</span>
@@ -247,55 +310,45 @@ export function FeederPanel() {
         </div>
       </header>
 
-      <div className="flex flex-col divide-y divide-border px-5">
-        <section className="space-y-4 py-5">
-          <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[15px] leading-snug font-semibold text-foreground">
-            <span>{cut > 0 ? "Sentinel cuts minutes over limit" : "Minutes over limit"}</span>
-            <span className="whitespace-nowrap tabular-nums">
-              <span className="text-text-secondary">{baselineOver}</span>
-              <span className="mx-1 text-muted-foreground" aria-label="to">
-                →
-              </span>
-              <span className={cut > 0 ? SENTINEL_TONE : undefined}>{sentinelOver}</span>
-            </span>
-            {cut > 0 && (
-              <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 tabular-nums">
-                −{cut}%
-              </span>
-            )}
-          </p>
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr>
-                <th scope="col" className="pb-2 text-left">
-                  <span className="sr-only">Metric</span>
+      <div className="flex flex-col px-5">
+        <p className="pt-3.5 pb-3 text-[14px] leading-snug text-foreground">{sentence}</p>
+
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr>
+              <th scope="col" className="pb-1.5 text-left">
+                <span className="sr-only">Metric</span>
+              </th>
+              <PolicyHeader name="Baseline" active={policy === "baseline"} />
+              <PolicyHeader name="Sentinel" active={policy === "sentinel"} />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border border-t border-border">
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <th scope="row" className="py-1.5 pr-2 text-left font-normal whitespace-nowrap text-text-secondary">
+                  {row.label}
                 </th>
-                <PolicyHeader name="Baseline" active={policy === "baseline"} />
-                <PolicyHeader name="Sentinel" active={policy === "sentinel"} />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((row) => (
-                <tr key={row.label}>
-                  <th scope="row" className="py-2 pr-3 text-left font-normal whitespace-nowrap text-text-secondary">
-                    {row.label}
-                  </th>
-                  <td className="w-24 py-2 text-right text-text-secondary">
-                    <Value {...row.baseline} />
-                  </td>
-                  <td className="w-24 py-2 text-right font-semibold text-foreground">
+                <td className="w-[4.5rem] py-1.5 text-right text-text-secondary">
+                  <Value {...row.baseline} />
+                </td>
+                <td className="w-[5.5rem] py-1.5 text-right font-semibold text-foreground">
+                  <span className="inline-flex items-baseline gap-1.5">
+                    {row.delta ? (
+                      <span className="rounded-full bg-brand-50 px-1.5 text-[10px] leading-4 font-semibold text-brand-700 tabular-nums">
+                        {row.delta}
+                      </span>
+                    ) : null}
                     <Value {...row.sentinel} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-        <NoticeSection feederId={feederId} from={window.from} to={window.to} />
-
-        <section className="space-y-3 py-6">
-          <SectionHeader title="Export vs limit (kW)">
+        <section className="space-y-2 pt-4 pb-1">
+          <SectionHeader title="Export today, kW">
             <ChartLegend
               items={[
                 { label: "Baseline", color: BASELINE_SERIES },
@@ -307,7 +360,7 @@ export function FeederPanel() {
           <div className="relative">
             <LineChart
               data={exportData}
-              aspectRatio="2 / 1"
+              aspectRatio="3 / 1"
               margin={AXIS_MARGIN}
               animationDuration={0}
               yScaleDomainMax={exportAxis.domainMax}
@@ -323,20 +376,41 @@ export function FeederPanel() {
               top={exportAxis.top}
               ticks={exportAxis.ticks}
               unit="kW"
+              now={nowDate}
               marks={[{ value: feeder.limitKw, label: `${limitKw} kW limit`, className: "text-status-critical" }]}
             />
           </div>
         </section>
 
-        <section className="space-y-3 py-6">
-          <SectionHeader title="Evening import (kW)">
+        <div className="mt-2 border-t border-border pb-2">
+          <NoticeRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
+          <RowButton
+            onClick={() => setDetailsOpen(true)}
+            className="border-t border-border"
+          >
+            <span className="font-medium">Details</span>
+            <span className="text-text-secondary"> · import, batteries, homes</span>
+          </RowButton>
+        </div>
+      </div>
+
+      <DetailsSheet
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        title={`${name}: the rest of the day`}
+        description={`${feeder.county} · ${limitKw} kW limit · Baseline = what happens without Sentinel`}
+      >
+        <SheetSection
+          title="Evening import (kW)"
+          aside={
             <ChartLegend
               items={[
                 { label: "Baseline", color: BASELINE_SERIES },
                 { label: "Sentinel", color: SENTINEL_SERIES },
               ]}
             />
-          </SectionHeader>
+          }
+        >
           <div className="relative">
             <LineChart
               data={exportData}
@@ -350,21 +424,27 @@ export function FeederPanel() {
               <Line dataKey="sentinel_import" stroke={SENTINEL_SERIES} curve={curveMonotoneX} fadeEdges={false} />
               <ChartTooltip />
             </LineChart>
-            <ChartAxes dates={dates} top={importAxis.top} ticks={importAxis.ticks} unit="kW" />
+            <ChartAxes dates={dates} top={importAxis.top} ticks={importAxis.ticks} unit="kW" now={nowDate} />
           </div>
-        </section>
+        </SheetSection>
 
-        <section className="space-y-3 py-6">
-          <SectionHeader title="Battery SoC fan, Sentinel (%)">
-            {socData.length > 0 && (
+        <SheetSection
+          title={
+            <>
+              Battery <Term id="soc">charge</Term>, Sentinel (%)
+            </>
+          }
+          aside={
+            socData.length > 0 ? (
               <ChartLegend
                 items={[
                   { label: "P50", color: SOC_SERIES },
                   { label: "P10–P90", color: SOC_SERIES, dashed: true },
                 ]}
               />
-            )}
-          </SectionHeader>
+            ) : null
+          }
+        >
           {socData.length > 0 ? (
             <div className="relative">
               <LineChart
@@ -379,15 +459,14 @@ export function FeederPanel() {
                 <Line dataKey="soc_q50" stroke={SOC_SERIES} curve={curveMonotoneX} fadeEdges={false} />
                 <ChartTooltip />
               </LineChart>
-              <ChartAxes dates={socDates} top={socAxis.top} ticks={socAxis.ticks} unit="%" />
+              <ChartAxes dates={socDates} top={socAxis.top} ticks={socAxis.ticks} unit="%" now={nowDate} />
             </div>
           ) : (
             <EmptyNote icon={BatteryCharging}>No schedule rows for this feeder.</EmptyNote>
           )}
-        </section>
+        </SheetSection>
 
-        <section className="space-y-3 py-6">
-          <SectionHeader title="Sites that carried the absorption" />
+        <SheetSection title="Homes that absorbed the surplus" aside={<span className="text-xs text-muted-foreground tabular-nums">{(sites ?? []).length} homes</span>}>
           {(sites ?? []).length === 0 ? (
             <EmptyNote icon={Sun}>No absorption needed on this feeder today.</EmptyNote>
           ) : (
@@ -402,8 +481,8 @@ export function FeederPanel() {
               ))}
             </ul>
           )}
-        </section>
-      </div>
+        </SheetSection>
+      </DetailsSheet>
     </aside>
   );
 }

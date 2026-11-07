@@ -3,6 +3,8 @@
 import { Info, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
+import type { StatusKind } from "@/components/brand/status-mark";
+
 // Small presentational pieces shared by the O&M panel, the turbine drawer and the park report.
 
 /** 11px uppercase section label (ui-style §4), in text-secondary so it survives a projector. */
@@ -27,6 +29,15 @@ export const TONE_BG: Record<Tone, string> = {
   unknown: "bg-status-unknown",
   critical: "bg-status-critical",
   info: "bg-status-forecast",
+};
+/** Tone → shape-coded StatusMark kind (ui-style §7). */
+export const TONE_KIND: Record<Tone, StatusKind> = {
+  ok: "ok",
+  warn: "warn",
+  review: "review",
+  unknown: "unknown",
+  critical: "critical",
+  info: "forecast",
 };
 /** Badge: the status colour as text plus the same colour at 10% behind it. */
 export const TONE_PILL: Record<Tone, string> = {
@@ -95,8 +106,8 @@ export function EmptyState({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-4 py-5 text-center">
-      <Icon className="size-5 text-primary" aria-hidden />
+    <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-5 text-center">
+      <Icon className="size-5 text-muted-foreground" aria-hidden />
       <p className="text-xs text-muted-foreground">{children}</p>
     </div>
   );

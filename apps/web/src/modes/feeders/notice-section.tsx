@@ -16,9 +16,11 @@ import { BatteryCharging, Car, Mail, MailCheck, Send, ShieldCheck } from "lucide
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
 import { orpc } from "@/utils/orpc";
 
-import { EmptyNote, SectionHeader } from "./ui";
+import { EmptyNote } from "./ui";
 
 const HM = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Bucharest",
@@ -29,12 +31,12 @@ const HM = new Intl.DateTimeFormat("en-GB", {
 const hm = (ts: string) => HM.format(new Date(ts));
 const DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD, as the server logs it
 
-// Badge = status colour as text + 10% background (team/contracts/ui-style.md).
-const LEVEL_BADGE: Record<CongestionLevelValue, { label: string; className: string }> = {
-  severe: { label: "Severe", className: "bg-status-critical/10 text-status-critical" },
-  congested: { label: "Congested", className: "bg-status-warn/10 text-status-warn" },
-  watch: { label: "Watch", className: "bg-status-forecast/10 text-status-forecast" },
-  none: { label: "No congestion", className: "bg-status-ok/10 text-status-ok" },
+// Status = shape-coded mark + word (ui-style §7), no pill.
+const LEVEL: Record<CongestionLevelValue, { label: string; kind: StatusKind; text: string }> = {
+  severe: { label: "Severe", kind: "critical", text: "text-status-critical" },
+  congested: { label: "Congested", kind: "warn", text: "text-status-warn" },
+  watch: { label: "Watch", kind: "forecast", text: "text-status-forecast" },
+  none: { label: "No congestion", kind: "ok", text: "text-status-ok" },
 };
 
 const LOAD_SOURCE: Record<string, string> = {
@@ -65,6 +67,60 @@ function HomeRow({ home, onPreview }: { home: HouseholdItem; onPreview: () => vo
         <Mail className="size-3.5 text-muted-foreground" aria-hidden />
       </button>
     </li>
+  );
+}
+
+/**
+ * One hairline row in the feeder inspector: the day-ahead congestion level and its window. The
+ * reason, the homes and the email button open in a sheet (card #125: details one click away).
+ */
+export function NoticeRow({
+  feederId,
+  feederName,
+  from,
+  to,
+}: {
+  feederId: string;
+  feederName: string;
+  from: string;
+  to: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data: notice, isLoading } = useQuery(
+    orpc.notify.getForecast.queryOptions({ input: { feederId, from, to }, enabled: Boolean(feederId) }),
+  );
+  const level = notice ? LEVEL[notice.level] : null;
+  const window =
+    notice?.windowFrom && notice.windowTo ? `${hm(notice.windowFrom)}–${hm(notice.windowTo)}` : null;
+  return (
+    <>
+      <RowButton
+        onClick={() => setOpen(true)}
+        aside={
+          isLoading ? (
+            <span>…</span>
+          ) : level ? (
+            <span className={`inline-flex items-center gap-1.5 font-medium ${level.text}`}>
+              <StatusMark kind={level.kind} size="sm" />
+              {level.label}
+              {window ? <span className="font-normal text-text-secondary">{window}</span> : null}
+            </span>
+          ) : (
+            <span>no forecast</span>
+          )
+        }
+      >
+        <span className="font-medium">Household notices</span>
+      </RowButton>
+      <DetailsSheet
+        open={open}
+        onOpenChange={setOpen}
+        title={`Household notices, ${feederName}`}
+        description="The agent's congestion forecast for tomorrow and the emails it sends to homes."
+      >
+        <NoticeSection feederId={feederId} from={from} to={to} />
+      </DetailsSheet>
+    </>
   );
 }
 
@@ -99,15 +155,10 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
 
   if (isLoading) return null;
   if (!notice) {
-    return (
-      <section className="space-y-3 py-6">
-        <SectionHeader title="Household notices" />
-        <EmptyNote icon={Mail}>No forecast for this feeder and day.</EmptyNote>
-      </section>
-    );
+    return <EmptyNote icon={Mail}>No forecast for this feeder and day.</EmptyNote>;
   }
 
-  const badge = LEVEL_BADGE[notice.level];
+  const level = LEVEL[notice.level];
   const window =
     notice.windowFrom && notice.windowTo ? `${hm(notice.windowFrom)}–${hm(notice.windowTo)}` : null;
   const sendable = notice.level === "congested" || notice.level === "severe";
@@ -120,14 +171,17 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
     notice.actualStepsOver > 0 ? Math.round((notice.actualStepsInWindow / notice.actualStepsOver) * 100) : null;
 
   return (
-    <section className="space-y-4 py-6">
-      <SectionHeader title="Household notices">
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badge.className}`}>
-          {badge.label}
-          {window && <span className="tabular-nums"> · {window}</span>}
-        </span>
-      </SectionHeader>
-
+    <>
+      <SheetSection
+        title="Congestion level"
+        aside={
+          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${level.text}`}>
+            <StatusMark kind={level.kind} size="sm" />
+            {level.label}
+            {window && <span className="font-normal text-text-secondary tabular-nums">{window}</span>}
+          </span>
+        }
+      >
       <div className="space-y-1.5 text-[13px] leading-snug">
         <p className="text-foreground">
           {notice.level === "none"
@@ -143,9 +197,10 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
             : `Without Sentinel the feeder stayed under its limit (peak ${Math.round(notice.actualPeakKw)} kW).`}
         </p>
       </div>
+      </SheetSection>
 
       {notice.level !== "none" && homes.length > 0 && (
-        <>
+        <SheetSection title="Homes to notify" aside={<span className="text-xs text-muted-foreground tabular-nums">{homes.length} homes · click one to preview</span>}>
           <ul className="divide-y divide-border border-y border-border text-[13px]">
             {shown.map((home) => (
               <HomeRow key={home.assetId} home={home} onPreview={() => setPreviewId(home.assetId)} />
@@ -187,13 +242,13 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
               </p>
             )}
           </div>
-        </>
+        </SheetSection>
       )}
 
       <Sheet open={Boolean(previewId)} onOpenChange={(open) => (open ? null : setPreviewId(null))}>
         <SheetContent
           side="right"
-          className="w-full gap-0 border-border bg-card text-[13px] text-foreground shadow-card data-[side=right]:sm:max-w-xl"
+          className="w-full gap-0 border-0 bg-card text-[13px] text-foreground shadow-overlay data-[side=right]:border-l-0 data-[side=right]:sm:max-w-xl"
         >
           <SheetHeader className="border-b border-border">
             <SheetTitle>Notice for home {previewId}</SheetTitle>
@@ -222,6 +277,6 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
           )}
         </SheetContent>
       </Sheet>
-    </section>
+    </>
   );
 }

@@ -9,13 +9,14 @@ import {
 } from "@sentinel-app/ui/components/sheet";
 import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX } from "d3-shape";
-import { AlertTriangle, Lightbulb } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useRef } from "react";
 
 import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
+import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { Fold, Metric, MetricRow } from "@/panels/disclosure";
 import { STEP_MINUTES, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { orpc } from "@/utils/orpc";
@@ -36,12 +37,18 @@ import { useSelectedSite } from "./use-site";
 
 // Re-exported for modes/om, which imports it from here; values live in ../colors.
 export { STATUS_COLORS };
-/** Status pill: the status colour as text plus the same colour at 10% (ui-style §2). */
-const STATUS_PILLS: Record<string, string> = {
-  eligible: "text-status-ok bg-status-ok/10",
-  derated: "text-status-warn bg-status-warn/10",
-  excluded: "text-text-secondary bg-status-unknown/15",
-  human_review: "text-status-review bg-status-review/10",
+/** Status = shape-coded mark + word in the status colour (ui-style §7), no pill. */
+const STATUS_KIND: Record<string, StatusKind> = {
+  eligible: "ok",
+  derated: "warn",
+  excluded: "unknown",
+  human_review: "review",
+};
+const STATUS_TEXT: Record<string, string> = {
+  eligible: "text-status-ok",
+  derated: "text-status-warn",
+  excluded: "text-text-secondary",
+  human_review: "text-status-review",
 };
 const STATUS_WORDS: Record<string, string> = {
   eligible: "Eligible",
@@ -113,27 +120,7 @@ function ChartHeader({
   );
 }
 
-function Callout({
-  icon,
-  tone,
-  children,
-}: {
-  icon: ReactNode;
-  tone: "brand" | "warn";
-  children: ReactNode;
-}) {
-  const tones = {
-    brand: "border-brand-100 bg-brand-50 text-brand-900 [&>svg]:text-brand-700",
-    warn: "border-status-warn/20 bg-status-warn/10 text-foreground [&>svg]:text-status-warn",
-  };
-  return (
-    <div className={`flex gap-3 rounded-xl border p-4 ${tones[tone]}`}>
-      {icon}
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
-}
-
+/** One fact as a hairline row: label left, value right (no tinted box inside the sheet). */
 function Fact({
   label,
   value,
@@ -148,22 +135,16 @@ function Fact({
   tone?: string;
 }) {
   return (
-    <div className="min-w-0">
-      <div className="truncate text-[11px] leading-4 font-medium text-text-secondary">
-        {label}
-      </div>
-      <div
-        className={`mt-1 text-[17px] leading-6 font-semibold tabular-nums ${tone ?? "text-foreground"}`}
-      >
+    <div className="flex items-baseline justify-between gap-4 py-2">
+      <dt className="text-text-secondary">{label}</dt>
+      <dd className={`text-right font-semibold tabular-nums ${tone ?? "text-foreground"}`}>
         {value}
         {unit && value !== "—" ? (
-          <span
-            className={`${unit === "%" ? "ml-0.5" : "ml-1"} text-[12px] font-normal whitespace-nowrap text-muted-foreground`}
-          >
+          <span className={`${unit === "%" ? "ml-0.5" : "ml-1"} text-[11px] font-normal whitespace-nowrap text-muted-foreground`}>
             {unit}
           </span>
         ) : null}
-      </div>
+      </dd>
     </div>
   );
 }
@@ -180,6 +161,8 @@ function parseJson(
 }
 
 export function SiteSheet() {
+  // Focus lands at the top of the sheet, not on the first collapsible row.
+  const focusRef = useRef<HTMLSpanElement>(null);
   const [site, setSite] = useSelectedSite();
   return (
     <Sheet
@@ -187,9 +170,11 @@ export function SiteSheet() {
       onOpenChange={(open) => (open ? null : setSite(null))}
     >
       <SheetContent
+        initialFocus={focusRef}
         side="right"
-        className="w-full gap-0 overflow-y-auto border-border bg-card text-[13px] text-foreground shadow-card data-[side=right]:sm:max-w-md"
+        className="w-full gap-0 overflow-y-auto border-0 bg-card text-[13px] text-foreground shadow-overlay data-[side=right]:border-l-0 data-[side=right]:sm:max-w-md"
       >
+        <span ref={focusRef} tabIndex={-1} className="sr-only">Details</span>
         {site ? <SiteView assetId={site} /> : null}
       </SheetContent>
     </Sheet>
@@ -301,10 +286,11 @@ function SiteView({ assetId }: { assetId: string }) {
   }
 
   const day = band[0]?.date ?? battery.chart[0]?.date;
+  const statusKey = current?.status ?? "";
 
   return (
     <>
-      <SheetHeader className="gap-1.5 border-b px-5 pt-5 pb-4">
+      <SheetHeader className="gap-1.5 px-5 pt-5 pb-4 shadow-[0_1px_0_var(--border)]">
         <SheetTitle className="pr-8 text-lg leading-7 font-semibold tracking-tight">
           Site {assetId}
           {d?.locality ? (
@@ -324,19 +310,16 @@ function SiteView({ assetId }: { assetId: string }) {
         <div className="mt-1 flex flex-wrap items-center gap-2">
           {current ? (
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] leading-4 font-semibold ${STATUS_PILLS[current.status] ?? "bg-status-unknown/15 text-text-secondary"}`}
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold ${STATUS_TEXT[statusKey] ?? "text-text-secondary"}`}
               title={`Status at ${timeLabel(step)}`}
             >
-              <span
-                className="size-1.5 rounded-full"
-                style={{ background: STATUS_COLORS[current.status] ?? UNKNOWN }}
-              />
-              {STATUS_WORDS[current.status] ?? current.status}
+              <StatusMark kind={STATUS_KIND[statusKey] ?? "unknown"} size="sm" />
+              {STATUS_WORDS[statusKey] ?? current.status}
             </span>
           ) : null}
           {current ? (
-            <span className="text-[11px] text-muted-foreground tabular-nums">
-              Status at {timeLabel(step)}
+            <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+              at {timeLabel(step)}
             </span>
           ) : null}
           {run.data ? (
@@ -345,32 +328,38 @@ function SiteView({ assetId }: { assetId: string }) {
         </div>
       </SheetHeader>
 
-      <div className="flex flex-col gap-6 p-5">
-        <div className="grid grid-cols-2 gap-4 rounded-xl bg-muted/70 px-4 py-3.5">
-          <Fact
-            label="Headroom factor"
-            value={
-              current ? `${Math.round(current.headroomFactor * 100)}` : "—"
-            }
-            unit="%"
-          />
-          <Fact
-            label="Reason"
-            value={current?.reason?.replaceAll("_", " ") ?? "—"}
-          />
-        </div>
-
-        <Callout
-          tone="brand"
-          icon={<Lightbulb className="mt-0.5 size-4 shrink-0" />}
-        >
+      <div className="flex flex-col px-5 pt-4 pb-6">
+        {/* The one sentence: what this home's owner is told right now. */}
+        <section className="border-l-2 border-brand-500 pl-3">
           <h3 className="text-[11px] font-semibold tracking-[0.04em] text-brand-700 uppercase">
             What the customer sees
           </h3>
-          <p className="mt-1 text-[13px] leading-relaxed">{tip}</p>
-        </Callout>
+          <p className="mt-0.5 text-[14px] leading-snug text-foreground">{tip}</p>
+        </section>
 
-        <section className="space-y-2.5">
+        <MetricRow className="mt-4 border-y border-border py-2">
+          <Metric
+            label="Headroom"
+            value={current ? `${Math.round(current.headroomFactor * 100)}` : "—"}
+            unit={current ? "%" : undefined}
+            sub={current?.reason ? current.reason.replaceAll("_", " ") : undefined}
+          />
+          <Metric
+            label="Lost per day"
+            value={order?.lostKwhDay != null ? order.lostKwhDay.toFixed(1) : "—"}
+            unit={order?.lostKwhDay != null ? "kWh" : undefined}
+            tone={order ? "text-status-warn" : undefined}
+            sub={order?.lostLeiDay != null ? `${order.lostLeiDay.toFixed(0)} lei` : "no fault"}
+          />
+          <Metric
+            label="Action"
+            value={order ? order.action.replaceAll("_", " ") : "none"}
+            tone={order ? undefined : "text-text-secondary"}
+            sub={order?.daysToVisit != null ? `within ${order.daysToVisit} d` : undefined}
+          />
+        </MetricRow>
+
+        <section className="space-y-2.5 pt-4 pb-4">
           <ChartHeader
             title={
               <>PV: actual vs forecast, {band[0] ? dayName(range[0]) : ""} (kW)</>
@@ -425,57 +414,22 @@ function SiteView({ assetId }: { assetId: string }) {
             </p>
           )}
           {below ? (
-            <Callout
-              tone="warn"
-              icon={<AlertTriangle className="mt-0.5 size-4 shrink-0" />}
-            >
-              <p className="text-[13px] leading-5 tabular-nums">
+            <p className="flex items-start gap-2 text-[13px] leading-5 text-foreground tabular-nums">
+              <StatusMark kind="warn" size="sm" className="mt-1" />
+              <span>
                 Actual drops below its own P10 at {hhmm(wallClock(below))} while
                 the forecast band holds.
-              </p>
-            </Callout>
+              </span>
+            </p>
           ) : null}
         </section>
 
-        <section className="space-y-2.5">
-          <SectionLabel>Status over the week</SectionLabel>
-          <div className="relative h-3 overflow-hidden rounded-full bg-muted">
-            {segments.map((s) => (
-              <div
-                key={s.from}
-                title={`${STATUS_WORDS[s.status] ?? s.status} (${s.reason.replaceAll("_", " ")}) from ${dayName(s.from)} ${hhmm(wallClock(s.from))}`}
-                className="absolute inset-y-0"
-                style={{
-                  left: `${pos(s.from)}%`,
-                  width: `${Math.max(0.4, pos(s.to) - pos(s.from) + 100 / 672)}%`,
-                  background: STATUS_COLORS[s.status] ?? UNKNOWN,
-                }}
-              />
-            ))}
-            {weekFrom ? (
-              <div
-                className="absolute inset-y-0 w-0.5 bg-foreground ring-1 ring-card"
-                style={{ left: `${pos(nowTs)}%` }}
-              />
-            ) : null}
-          </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
-            {Object.entries(STATUS_WORDS).map(([key, word]) => (
-              <span key={key} className="flex items-center gap-1.5">
-                <span
-                  className="inline-block size-2 rounded-full"
-                  style={{ background: STATUS_COLORS[key] }}
-                />
-                {word}
-              </span>
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-3">
-          <SectionLabel>Fault and money at risk</SectionLabel>
+        <Fold
+          title="Fault and money at risk"
+          aside={order ? (order.fault?.replaceAll("_", " ") ?? "fault") : "no work order"}
+        >
           {order ? (
-            <div className="grid grid-cols-3 gap-x-4 gap-y-3.5 rounded-xl bg-muted/70 px-4 py-3.5">
+            <dl className="divide-y divide-border">
               <Fact
                 label="Fault"
                 value={order.fault?.replaceAll("_", " ") ?? "—"}
@@ -513,12 +467,13 @@ function SiteView({ assetId }: { assetId: string }) {
                 label="Action"
                 value={`${order.action.replaceAll("_", " ")}${order.daysToVisit != null ? `, ≤ ${order.daysToVisit} d` : ""}`}
               />
-              {typeof evidence?.evidence === "string" ? (
-                <p className="col-span-3 border-t pt-3 text-xs leading-5 text-text-secondary">
-                  Evidence: {evidence.evidence}
-                </p>
-              ) : null}
-            </div>
+              <Fact
+                label="Headroom factor"
+                value={current ? `${Math.round(current.headroomFactor * 100)}` : "—"}
+                unit="%"
+              />
+              <Fact label="Reason" value={current?.reason?.replaceAll("_", " ") ?? "—"} />
+            </dl>
           ) : (
             <p className="text-[13px] leading-5 text-text-secondary">
               {current?.status === "human_review"
@@ -526,8 +481,13 @@ function SiteView({ assetId }: { assetId: string }) {
                 : "No open work order at this time."}
             </p>
           )}
+          {typeof evidence?.evidence === "string" ? (
+            <p className="border-l-2 border-border pl-3 text-xs leading-5 text-text-secondary">
+              Evidence: {evidence.evidence}
+            </p>
+          ) : null}
           {faultProbs?.length ? (
-            <ul className="space-y-1.5 text-xs">
+            <ul className="space-y-1.5 pt-1 text-xs">
               {faultProbs.map(([name, p]) => (
                 <li key={name} className="flex items-center gap-3">
                   <span className="w-28 truncate text-text-secondary">
@@ -550,12 +510,46 @@ function SiteView({ assetId }: { assetId: string }) {
               Fault probabilities: not in this run (M4 output missing).
             </p>
           )}
-        </section>
+        </Fold>
+
+        <Fold title="Status over the week" aside={`${segments.length} changes`}>
+          <div className="relative h-3 overflow-hidden rounded-full bg-muted">
+            {segments.map((s) => (
+              <div
+                key={s.from}
+                title={`${STATUS_WORDS[s.status] ?? s.status} (${s.reason.replaceAll("_", " ")}) from ${dayName(s.from)} ${hhmm(wallClock(s.from))}`}
+                className="absolute inset-y-0"
+                style={{
+                  left: `${pos(s.from)}%`,
+                  width: `${Math.max(0.4, pos(s.to) - pos(s.from) + 100 / 672)}%`,
+                  background: STATUS_COLORS[s.status] ?? UNKNOWN,
+                }}
+              />
+            ))}
+            {weekFrom ? (
+              <div
+                className="absolute inset-y-0 w-0.5 bg-foreground ring-1 ring-card"
+                style={{ left: `${pos(nowTs)}%` }}
+              />
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
+            {Object.entries(STATUS_WORDS).map(([key, word]) => (
+              <span key={key} className="flex items-center gap-1.5">
+                <StatusMark kind={STATUS_KIND[key] ?? "unknown"} size="xs" />
+                {word}
+              </span>
+            ))}
+          </div>
+        </Fold>
 
         {d?.hasBattery ? (
-          <section className="space-y-2.5">
+          <Fold
+            title="Battery: Sentinel schedule"
+            aside={`${battery.absorbedKwh.toFixed(1)} kWh absorbed`}
+          >
             <ChartHeader
-              title="Battery: Sentinel schedule"
+              title="Today"
               legend={[
                 { label: "SoC %", color: SOC_COLOR },
                 { label: "Charge (+) / discharge (−) kW", color: BATT_COLOR },
@@ -606,7 +600,7 @@ function SiteView({ assetId }: { assetId: string }) {
                 ? ` · ${battery.clippedSteps} steps clipped to what the pack could take`
                 : ""}
             </p>
-          </section>
+          </Fold>
         ) : null}
       </div>
     </>

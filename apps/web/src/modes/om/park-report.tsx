@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { StatusMark } from "@/components/brand/status-mark";
 import { dayName } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
@@ -21,7 +22,7 @@ function issuesOf(json: string | null | undefined): Issue[] {
 }
 
 /** Daily park report (production, availability, curtailment, data quality), days up to the replay clock. */
-export function ParkReport({ parkId }: { parkId: string }) {
+export function ParkReport({ parkId, title = true }: { parkId: string; title?: boolean }) {
   const nowTs = useReplayTs();
   const reports = useQuery(
     orpc.om.listReports.queryOptions({ input: { parkId } }),
@@ -35,17 +36,15 @@ export function ParkReport({ parkId }: { parkId: string }) {
 
   return (
     <section className="space-y-2">
-      <h3 className={SECTION_LABEL}>
-        Daily report, park {parkId}
-      </h3>
+      {title ? <h3 className={SECTION_LABEL}>Daily report, park {parkId}</h3> : null}
       {rows.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
           {reports.isLoading ? "Loading…" : "No reports yet."}
         </p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div>
           <table className="w-full text-[13px] tabular-nums">
-            <thead className="bg-muted text-[11px] tracking-[.02em] whitespace-nowrap text-text-secondary uppercase">
+            <thead className="border-b border-border text-[11px] tracking-[.02em] whitespace-nowrap text-text-secondary uppercase">
               <tr className="text-left">
                 <th className="px-2.5 py-2 font-medium">Day</th>
                 <th className="px-1.5 py-2 text-right font-medium">MWh</th>
@@ -78,7 +77,7 @@ export function ParkReport({ parkId }: { parkId: string }) {
                     <td className="px-2.5 py-1.5 whitespace-nowrap">
                       {dayName(`${r.date}T09:00:00Z`)}
                       {issues.length ? (
-                        <span className="ml-1.5 inline-block size-1.5 rounded-full bg-status-warn align-middle" />
+                        <StatusMark kind="warn" size="xs" label={`${issues.length} data issues`} className="ml-1.5 align-middle" />
                       ) : null}
                     </td>
                     <td className="px-1.5 py-1.5 text-right">

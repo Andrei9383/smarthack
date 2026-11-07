@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { curveStepAfter } from "d3-shape";
 import { BatteryCharging, X } from "lucide-react";
 import { parseAsBoolean, parseAsStringLiteral, useQueryState } from "nuqs";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
@@ -13,10 +13,12 @@ import { ChartTooltip } from "@/components/charts/tooltip";
 import { timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { useSelectedFeeder } from "@/modes/feeders/use-feeder-state";
+import { Term } from "@/components/help";
 import { orpc } from "@/utils/orpc";
 
 import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
 import { ACTUAL, ACTUAL_SOFT, BASELINE, FORECAST, OK } from "../colors";
+import { DetailsSheet, Metric, MetricRow, RowButton, SheetSection } from "../disclosure";
 import { ProvenancePill } from "../provenance-pill";
 import { dayRange, inRange, stepTs, wallClock } from "../site/time";
 
@@ -60,33 +62,20 @@ const CHART_MARGIN = { left: 40, right: 18, top: 10, bottom: 26 };
 /** KPI 3 in team/plan.md: realised ≥ committed (P10) on ≥ 90% of feeder-steps. */
 const HIT_TARGET = 0.9;
 
-/** P10 hit-rate tile with a small meter: ok at or above the plan target, warn below. */
-function HitRate({ label, value }: { label: string; value: number | null }) {
+/** P10 hit-rate meter for the popover: ok at or above the plan target, warn below. */
+function HitMeter({ value }: { value: number | null }) {
   const ok = value != null && value >= HIT_TARGET;
   return (
-    <div className="min-w-0 rounded-xl bg-muted/70 px-4 py-3">
-      <div className="truncate text-[11px] leading-4 font-medium text-text-secondary">
-        {label}
-      </div>
+    <div className="relative mt-1 h-1.5 rounded-full bg-muted">
       <div
-        className={`mt-1 text-xl leading-7 font-semibold tabular-nums ${value == null ? "text-muted-foreground" : ok ? "text-foreground" : "text-status-warn"}`}
-      >
-        {pct(value)}
-      </div>
-      <div className="relative mt-2 h-1.5 rounded-full bg-border/70">
-        <div
-          className={`h-full rounded-full transition-[width] duration-150 ${ok ? "bg-status-ok" : "bg-status-warn"}`}
-          style={{ width: `${Math.min(100, (value ?? 0) * 100)}%` }}
-        />
-        <div
-          className="absolute -top-0.5 h-2.5 w-px bg-foreground/50"
-          style={{ left: `${HIT_TARGET * 100}%` }}
-          title={`Target ≥ ${HIT_TARGET * 100}%`}
-        />
-      </div>
-      <div className="mt-1 text-[10px] leading-3 text-muted-foreground tabular-nums">
-        target ≥ {HIT_TARGET * 100}%
-      </div>
+        className={`h-full rounded-full transition-[width] duration-150 ${ok ? "bg-status-ok" : "bg-status-warn"}`}
+        style={{ width: `${Math.min(100, (value ?? 0) * 100)}%` }}
+      />
+      <div
+        className="absolute -top-0.5 h-2.5 w-px bg-foreground/50"
+        style={{ left: `${HIT_TARGET * 100}%` }}
+        title={`Target ≥ ${HIT_TARGET * 100}%`}
+      />
     </div>
   );
 }
@@ -122,6 +111,7 @@ export function FlexDock() {
 
 export function FlexPanel({ onClose }: { onClose?: () => void }) {
   const [step] = useReplayStep();
+  const [poolOpen, setPoolOpen] = useState(false);
   const [feederId, setFeeder] = useSelectedFeeder();
   const [scope, setScope] = useQueryState(
     "flexScope",
@@ -178,8 +168,8 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
   const day = chart[0]?.date;
 
   return (
-    <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border bg-card text-[13px] text-foreground shadow-card">
-      <header className="space-y-3 border-b px-5 pt-4 pb-4">
+    <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl bg-card text-[13px] text-foreground shadow-floating">
+      <header className="space-y-3 px-5 pt-4 pb-4 shadow-[0_1px_0_var(--border)]">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-2">
@@ -204,7 +194,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             </Button>
           ) : null}
         </div>
-        <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-muted p-0.5">
+        <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-muted p-0.5" role="group" aria-label="Scope">
           {SCOPES.map((s) => (
             <Button
               key={s}
@@ -213,7 +203,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               aria-pressed={scope === s}
               className={`w-full rounded-md text-xs transition-colors duration-150 ${
                 scope === s
-                  ? "bg-card font-semibold text-foreground shadow-sm hover:bg-card"
+                  ? "bg-card font-semibold text-foreground shadow-raised hover:bg-card"
                   : "text-text-secondary hover:bg-transparent hover:text-foreground"
               }`}
               onClick={() => setScope(s)}
@@ -224,80 +214,87 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-5 pt-4 pb-5">
-        <section className="space-y-4">
-          <h3 className={SECTION_LABEL}>
-            Hour starting {timeLabel(step - (step % 4))}
-          </h3>
-          <div className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-3.5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[13px] leading-5 font-semibold text-brand-700">
-                  Committed (P10){" "}
-                  <span className="font-normal text-text-secondary">
-                    what we sell
-                  </span>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-3.5 pb-4">
+        <p className="pb-3 text-[14px] leading-snug text-foreground">
+          {committed == null
+            ? `No commitment for the hour starting ${timeLabel(step - (step % 4))}.`
+            : `For the hour starting ${timeLabel(step - (step % 4))} Sentinel sells ${committed.toFixed(1)} kW of battery flexibility${ofNominal != null ? `, ${Math.round(ofNominal * 100)}% of the nominal ${fmtKw(values.nominal)}` : ""}.`}
+        </p>
+
+        <MetricRow className="border-y border-border py-2">
+          <Metric
+            label={<Term id="committed">Committed</Term>}
+            value={committed == null ? "—" : committed.toFixed(1)}
+            unit={committed == null ? undefined : "kW"}
+            tone="text-brand-900"
+            sub="(1−h)·P10"
+            popTitle="From nominal to what we sell"
+            pop={
+              <ul className="space-y-2.5">
+                {SERIES.map(({ key, label, color, dashed, hint }) => {
+                  const v = values[key];
+                  const top = values.nominal || 1;
+                  return (
+                    <li key={key}>
+                      <div className="flex items-baseline gap-2">
+                        <span className="flex shrink-0 items-center gap-1.5 font-medium text-foreground">
+                          <span
+                            aria-hidden
+                            className="inline-block w-3 border-t-2"
+                            style={{ borderColor: color, borderStyle: dashed ? "dashed" : "solid" }}
+                          />
+                          {label}
+                        </span>
+                        <span className="ml-auto shrink-0 font-semibold text-foreground tabular-nums">{fmtKw(v)}</span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>
+                      <div className="mt-1 h-1.5 rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full transition-[width] duration-150"
+                          style={{ width: `${Math.min(100, ((v ?? 0) / top) * 100)}%`, background: color }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            }
+          />
+          <Metric
+            label={<Term id="hit-rate">Hit rate</Term>}
+            value={pct(dayHit)}
+            tone={dayHit != null && dayHit < HIT_TARGET ? "text-status-warn" : undefined}
+            sub="today"
+            popTitle="Did we deliver what we sold?"
+            pop={
+              <div className="space-y-2.5">
+                <p>Share of hours where the realised flexibility reached the committed P10. Target ≥ {HIT_TARGET * 100}%.</p>
+                <div>
+                  <div className="flex justify-between text-[11px]">
+                    <span>Today</span>
+                    <span className="font-semibold text-foreground tabular-nums">{pct(dayHit)}</span>
+                  </div>
+                  <HitMeter value={dayHit} />
                 </div>
-                <div className="font-mono text-[11px] leading-4 text-muted-foreground">
-                  (1−h)·P10
+                <div>
+                  <div className="flex justify-between text-[11px]">
+                    <span>Week</span>
+                    <span className="font-semibold text-foreground tabular-nums">{pct(weekHit)}</span>
+                  </div>
+                  <HitMeter value={weekHit} />
                 </div>
               </div>
-              {ofNominal != null ? (
-                <span className="shrink-0 rounded-full bg-card px-2 py-0.5 text-[11px] leading-4 font-semibold text-brand-700 tabular-nums ring-1 ring-brand-100">
-                  {Math.round(ofNominal * 100)}% of nominal
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-2 text-[32px] leading-10 font-semibold tracking-tight text-brand-900 tabular-nums">
-              {committed == null ? "—" : committed.toFixed(1)}
-              {committed == null ? null : (
-                <span className="ml-1 text-[13px] font-normal tracking-normal text-muted-foreground">
-                  kW
-                </span>
-              )}
-            </div>
-          </div>
-          <ul className="space-y-3">
-            {SERIES.map(({ key, label, color, hint }) => {
-              const v = values[key];
-              const top = values.nominal || 1;
-              return (
-                <li key={key} className="text-xs">
-                  <div className="flex items-baseline gap-2">
-                    <span className="flex shrink-0 items-center gap-1.5 font-medium text-foreground">
-                      <span
-                        className="inline-block size-2 rounded-full"
-                        style={{ background: color }}
-                      />
-                      {label}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                      {hint}
-                    </span>
-                    <span className="shrink-0 font-semibold tabular-nums">
-                      {fmtKw(v)}
-                    </span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full transition-[width] duration-150"
-                      style={{
-                        width: `${Math.min(100, ((v ?? 0) / top) * 100)}%`,
-                        background: color,
-                      }}
-                    />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="grid grid-cols-2 gap-3">
-            <HitRate label="P10 hit rate, today" value={dayHit} />
-            <HitRate label="P10 hit rate, week" value={weekHit} />
-          </div>
-        </section>
+            }
+          />
+          <Metric
+            label="Hit rate"
+            value={pct(weekHit)}
+            tone={weekHit != null && weekHit < HIT_TARGET ? "text-status-warn" : undefined}
+            sub={`week · target ${HIT_TARGET * 100}%`}
+          />
+        </MetricRow>
 
-        <section className="space-y-2.5">
+        <section className="space-y-2.5 pt-4">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
             <h3 className={SECTION_LABEL}>Per hour today (kW)</h3>
             <div className="ml-auto flex flex-wrap justify-end gap-x-2.5 gap-y-1 text-[11px] text-text-secondary">
@@ -352,8 +349,24 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
           )}
         </section>
 
-        <section className="space-y-2.5">
-          <h3 className={SECTION_LABEL}>Sites in the pool, end of run</h3>
+
+        <div className="mt-2 border-t border-border">
+          <RowButton
+            onClick={() => setPoolOpen(true)}
+            aside={feeders.data ? <span>{feeders.data.length} feeders</span> : null}
+          >
+            <span className="font-medium">Sites in the pool</span>
+            <span className="text-text-secondary"> · by feeder</span>
+          </RowButton>
+        </div>
+
+        <DetailsSheet
+          open={poolOpen}
+          onOpenChange={setPoolOpen}
+          title="Sites in the flexibility pool"
+          description="End of run. Derated sites count for less; excluded sites count for nothing. Pick a feeder to scope the panel."
+        >
+          <SheetSection title="By feeder">
           <table className="w-full text-xs tabular-nums">
             <thead className="text-[11px] text-text-secondary">
               <tr className="border-b text-left">
@@ -369,7 +382,10 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
                 <tr
                   key={f.feederId}
                   className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-brand-50 font-medium text-brand-900" : "hover:bg-muted"}`}
-                  onClick={() => setFeeder(f.feederId)}
+                  onClick={() => {
+                    void setFeeder(f.feederId);
+                    setPoolOpen(false);
+                  }}
                 >
                   <td className="py-1.5 pl-2">{f.feederId}</td>
                   <td className="py-1.5 text-right">{f.eligibleSites}</td>
@@ -408,7 +424,8 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               {overview.data.availableKw.toFixed(0)} kW available.
             </p>
           ) : null}
-        </section>
+        </SheetSection>
+        </DetailsSheet>
       </div>
     </aside>
   );

@@ -4,6 +4,7 @@ import { MapGeoJSON, MapMarker, MarkerContent } from "@sentinel-app/ui/component
 import { parseAsString, useQueryState } from "nuqs";
 import { type ReactNode, useMemo } from "react";
 
+import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { usePolicy } from "@/demo/use-replay";
 
 import {
@@ -40,6 +41,14 @@ const STATUS_COLOR: Record<Status, string> = {
   warn: FEEDER_WARN,
   over: FEEDER_OVER,
   unknown: FEEDER_UNKNOWN,
+};
+
+// The chip and legend show status as a shape-coded LED (ui-style §7), not a plain dot.
+const STATUS_KIND: Record<Status, StatusKind> = {
+  ok: "ok",
+  warn: "warn",
+  over: "critical",
+  unknown: "unknown",
 };
 
 // No over-limit row yet (loading, or the feeder isn't in the run) reads as unknown, never as ok.
@@ -79,9 +88,6 @@ type Item = {
   latitude: number;
 };
 
-// The chip's status dot rings outward while its feeder is over the limit (motion-safe only).
-const RING_KEYFRAMES = `@keyframes feeder-over-ring{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--status-critical) 50%,transparent)}100%{box-shadow:0 0 0 7px transparent}}`;
-
 function LegendRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <li className="flex items-center gap-2">
@@ -91,17 +97,33 @@ function LegendRow({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-function FeedersLegend({ charging }: { charging: boolean }) {
-  const swatch = (color: string) => (
-    <span className="block h-1 w-5 rounded-full" style={{ backgroundColor: color }} />
-  );
+// A short cable in the status colour with the chip's LED on it: the line on the map and its label.
+function Swatch({ color, kind }: { color: string; kind: StatusKind }) {
   return (
-    <div className="pointer-events-none absolute bottom-[112px] left-2 z-10 rounded-lg border border-border bg-card px-3 py-2.5 text-xs text-text-secondary shadow-card">
+    <span className="relative flex h-3 w-5 items-center justify-center">
+      <span className="absolute inset-x-0 h-[3px] rounded-full" style={{ backgroundColor: color }} />
+      <StatusMark kind={kind} size="xs" className="relative" />
+    </span>
+  );
+}
+
+// `pointer-events-none … bg-card` must stay: components/app-shell.tsx moves this card by selector.
+function FeedersLegend({ charging }: { charging: boolean }) {
+  return (
+    <div className="pointer-events-none absolute bottom-[112px] left-2 z-10 rounded-lg bg-card px-3 py-2.5 text-xs text-text-secondary shadow-floating">
       <ul className="space-y-1.5">
-        <LegendRow label="Within limit">{swatch(FEEDER_OK)}</LegendRow>
-        <LegendRow label="Near limit">{swatch(FEEDER_WARN)}</LegendRow>
-        <LegendRow label="Over limit now (pulses)">{swatch(FEEDER_OVER)}</LegendRow>
-        <LegendRow label="No data">{swatch(FEEDER_UNKNOWN)}</LegendRow>
+        <LegendRow label="Within limit">
+          <Swatch color={FEEDER_OK} kind="ok" />
+        </LegendRow>
+        <LegendRow label="Near limit">
+          <Swatch color={FEEDER_WARN} kind="warn" />
+        </LegendRow>
+        <LegendRow label="Over limit now (pulses)">
+          <Swatch color={FEEDER_OVER} kind="critical" />
+        </LegendRow>
+        <LegendRow label="No data">
+          <Swatch color={FEEDER_UNKNOWN} kind="unknown" />
+        </LegendRow>
         <LegendRow label="Low GIS trust">
           <span className="block w-5 border-t-[3px] border-dashed border-text-secondary" />
         </LegendRow>
@@ -246,7 +268,6 @@ export function FeedersLayers() {
         }}
       />
       <FeederMotion feeders={motionFeeders} homes={homes} />
-      <style>{RING_KEYFRAMES}</style>
       {items.map((item) => {
         const isSelected = item.id === selected;
         return (
@@ -263,17 +284,12 @@ export function FeedersLayers() {
               <Displaced offset={offsets.get(item.id) ?? NO_OFFSET}>
                 <span
                   ref={passClicksThrough}
-                  className={`pointer-events-auto flex h-7 cursor-pointer items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-bold whitespace-nowrap text-foreground shadow-card transition-[border-color,box-shadow] duration-150 ${
-                    isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-text-secondary"
+                  className={`pointer-events-auto flex h-7 cursor-pointer items-center gap-1.5 rounded-full bg-card px-2.5 text-xs font-bold whitespace-nowrap text-foreground transition-[box-shadow] duration-150 ${
+                    isSelected ? "shadow-raised ring-2 ring-primary" : "shadow-raised hover:shadow-floating"
                   }`}
                   title={item.lowTrust ? `${item.id}: low GIS trust` : item.id}
                 >
-                  <span
-                    className={`size-2 rounded-full ${
-                      item.status === "over" ? "motion-safe:animate-[feeder-over-ring_1.2s_ease-out_infinite]" : ""
-                    }`}
-                    style={{ backgroundColor: item.color }}
-                  />
+                  <StatusMark kind={STATUS_KIND[item.status]} size="sm" pulse={item.status === "over"} />
                   {item.id}
                 </span>
               </Displaced>

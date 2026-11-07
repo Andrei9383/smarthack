@@ -44,12 +44,15 @@ export function ChartAxes({
   ticks,
   unit,
   marks = [],
+  now,
 }: {
   dates: Date[];
   top: number;
   ticks: number[];
   unit: string;
   marks?: AxisMark[];
+  /** The replay clock, drawn as a thin "now" rule when it falls inside the plotted day. */
+  now?: Date;
 }) {
   const first = dates[0];
   const last = dates.at(-1);
@@ -65,6 +68,8 @@ export function ChartAxes({
     return [{ hour, fraction: Math.min(1, fraction) }];
   });
   const yOf = (value: number) => `${(1 - value / top) * 100}%`;
+  const nowFraction = now ? (now.getTime() - start) / span : null;
+  const showNow = nowFraction != null && nowFraction >= 0 && nowFraction <= 1;
 
   return (
     <div
@@ -100,6 +105,13 @@ export function ChartAxes({
           {`${String(hour).padStart(2, "0")}:00`}
         </span>
       ))}
+      {showNow ? (
+        <span className="absolute inset-y-0 border-l border-dashed border-foreground/35" style={{ left: `${(nowFraction ?? 0) * 100}%` }}>
+          <span className="absolute bottom-full left-0 mb-1 -translate-x-1/2 rounded-sm bg-foreground px-1 py-px font-mono text-[9px] leading-none font-medium text-background">
+            now
+          </span>
+        </span>
+      ) : null}
       {marks.map(({ value, label, className }) => (
         <span
           key={label}
