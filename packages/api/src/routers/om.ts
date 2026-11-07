@@ -29,9 +29,9 @@ export const omRouter = os.router({
     emptyIfNoTables(async () => {
       const runId = await resolveRunId(db, input?.runId);
       if (!runId) return [];
-      const at = input?.at
-        ? sql`(select max(ts) from statuses where run_id = ${runId} and ts <= ${input.at})`
-        : sql`(select max(ts) from statuses where run_id = ${runId})`;
+      // Replay writes a status on change and at day start, so read each asset's latest row.
+      const before = input?.at ? sql`and s2.ts <= ${input.at}` : sql``;
+      const at = sql`(select max(s2.ts) from statuses s2 where s2.run_id = ${runId} and s2.asset_id = ${assets.id} ${before})`;
       const rows = await db
         .select({
           id: assets.id,
