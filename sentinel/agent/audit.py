@@ -30,6 +30,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from operator import itemgetter
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
@@ -91,6 +92,43 @@ def format_time(secs: int, affinity: str, unit: int = 1, date_only: bool = False
     if affinity in ("INTEGER", "REAL", "NUMERIC"):
         return int(secs) * unit
     return iso(secs)
+
+
+_MEMO_MAX = 200_000
+_FLOAT_ONLY = {float}
+_step_memo: dict[int, int] = {}
+_date_memo: dict[tuple[int, str, int], Any] = {}
+_iso_memo: dict[str, int] = {}
+
+
+def _memo_step(tsec: int) -> int:
+    """local_step, memoised (a replay has few distinct timestamps)."""
+    r = _step_memo.get(tsec)
+    if r is None:
+        if len(_step_memo) > _MEMO_MAX:
+            _step_memo.clear()
+        r = _step_memo[tsec] = local_step(tsec)
+    return r
+
+
+def _memo_date(tsec: int, affinity: str, unit: int) -> Any:
+    """format_time(..., date_only=True), memoised."""
+    k = (tsec, affinity, unit)
+    r = _date_memo.get(k)
+    if r is None:
+        if len(_date_memo) > _MEMO_MAX:
+            _date_memo.clear()
+        r = _date_memo[k] = format_time(tsec, affinity, unit, True)
+    return r
+
+
+def _memo_parse_iso(s: str) -> int:
+    r = _iso_memo.get(s)
+    if r is None:
+        if len(_iso_memo) > _MEMO_MAX:
+            _iso_memo.clear()
+        r = _iso_memo[s] = parse_iso(s)
+    return r
 
 
 # Equivalent column names (any member may be in the row; the first one the table has is used).
@@ -270,7 +308,7 @@ class AuditDB:
         is_time = col.name in TIME_COLS
         aff = col.affinity
 
-        def conv(v: Any) -> Any:
+        def slow(v: Any) -> Any:
             if v is None:
                 return None
             if isinstance(v, Enum):
@@ -289,6 +327,34 @@ class AuditDB:
                 return v.item()
             return v
 
+        # Fast path by exact type (same results as `slow`, which handles every other type): rows are mostly
+        # plain float / int / str / None / Ts, and a replay has few distinct timestamps, so Ts are memoised.
+        isfinite = math.isfinite
+        ts_memo: dict[int, Any] = {}
+
+        def conv(v: Any) -> Any:
+            t = type(v)
+            if t is float:
+                return v if isfinite(v) else None
+            if t is int:
+                return v
+            if t is str:
+                if is_time and len(v) >= 19 and v[4] == "-":
+                    return slow(v)
+                return v if vmap is None else vmap.get(v, v)
+            if v is None:
+                return None
+            if t is Ts:
+                r = ts_memo.get(v)
+                if r is None:
+                    if len(ts_memo) > 200_000:
+                        ts_memo.clear()
+                    r = ts_memo[v] = format_time(int(v), aff, unit)
+                return r
+            return slow(v)
+
+        # types conv returns unchanged (a float only when finite): lets _flush_table skip whole columns
+        conv.passthrough = frozenset({int, type(None)} | (set() if is_time or vmap is not None else {str}))  # type: ignore[attr-defined]
         return conv
 
     def _plan(self, table: str, keys: tuple[str, ...]):
@@ -364,25 +430,45 @@ class AuditDB:
                 continue
             sql, mapping, real, cols = plan
             src = next((k for k in TIME_SOURCES if k in keys), None)
-            vals = []
-            for r in rs:
-                out = []
-                ts = r.get(src) if src else None
-                tsec = None
-                if ts is not None:
-                    tsec = int(ts) if isinstance(ts, (int, Ts)) else parse_iso(str(ts))
-                for key, col, conv in mapping:
-                    if key == "__step":
-                        out.append(local_step(tsec) if tsec is not None else 0)
-                    elif key == "__date":
-                        out.append(None if tsec is None else format_time(tsec, conv(None), self.ts_unit, True))
-                    elif key == "__fill":
-                        out.append(conv(None))
+            # Column-wise conversion. Every non-derived mapping key is one of `keys`, so r[key] == r.get(key).
+            columns: list[Any] = []
+            tsecs = self._tsecs(rs, src)  # always (as before): an unparseable row time raises even if unused
+            for key, col, conv in mapping:
+                if key in ("__step", "__date", "__fill"):
+                    if key == "__fill":
+                        columns.append([conv(None)] * len(rs))
+                    elif key == "__step":
+                        columns.append([_memo_step(x) if x is not None else 0 for x in tsecs])
                     else:
-                        out.append(conv(r.get(key)))
-                vals.append(out)
+                        aff, unit = conv(None), self.ts_unit
+                        columns.append([None if x is None else _memo_date(x, aff, unit) for x in tsecs])
+                else:
+                    raw = list(map(itemgetter(key), rs))
+                    types = set(map(type, raw))
+                    keep = getattr(conv, "passthrough", frozenset())
+                    if types <= keep or (types == _FLOAT_ONLY and all(map(math.isfinite, raw))):
+                        columns.append(raw)  # conv would return every value unchanged
+                    else:
+                        columns.append(list(map(conv, raw)))
+            vals = list(zip(*columns)) if columns else [() for _ in rs]
             self.conn.executemany(sql, vals)
             self.counts[real] = self.counts.get(real, 0) + len(vals)
+
+    @staticmethod
+    def _tsecs(rs: list[dict[str, Any]], src: Optional[str]) -> list[Optional[int]]:
+        """Row time in unix seconds (None without a time field), as the derived step / day / date use it."""
+        if not src:
+            return [None] * len(rs)
+        out: list[Optional[int]] = []
+        for r in rs:
+            ts = r.get(src)
+            if ts is None:
+                out.append(None)
+            elif isinstance(ts, (int, Ts)):
+                out.append(int(ts))
+            else:
+                out.append(_memo_parse_iso(str(ts)))
+        return out
 
     def flush(self) -> None:
         for t in list(self._buf):
