@@ -50,6 +50,10 @@ Run (heavy: on the lab, never locally):
        $LAB_OUTPUT_DIR/portfolio_forecast.parquet (issue_time, ts, policy, p10, p50, p90),
        positions.parquet (ts, policy, bought_da, traded_id, actual), portfolio_report.json.
 
+Day convention: a portfolio day is one #10 window (96 steps from UTC midnight, as M1/M2 were trained and split);
+outputs carry UTC ``ts`` per step, so I6 joins prices with ``prices_at(ts)`` and local slices (16-24, 17-21) are
+taken by local clock time (``correction_mask``). The adapter day key is that UTC date.
+
 Labels: portfolio, homes, batteries and weather = synthetic RO (fleet simulator, ERA5-driven); a, b = proxy
 (calibrated on AFEER's public 200-375 lei/MWh, X1 #158). The intraday re-forecast uses the nowcast PVNet on ERA5
 weather as the "updated weather at 15:00" (a proxy: an upper bound for a 1-9 h weather update).
