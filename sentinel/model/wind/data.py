@@ -5,11 +5,16 @@ contract") as float32 arrays [T, N]. Conversion to and from the contract's long 
 (`ts, tag, value, is_code`) is lossless, so #22/#23 output drops in through `from_long()`.
 
 Loader order (`load_wind`):
-  1. `$SENTINEL_WIND_DIR`, else the newest `~/.cache/sentinel/data-v{N}/wind/` (#22/#23 output) containing
+  1. `$SENTINEL_WIND_DIR`, else `~/.cache/sentinel/data-v{N}/wind/` written by `python -m sentinel.sim.wind`
+     (#22 ERA5-driven simulator + #23 fault injector; N = sentinel.sim.wind.WIND_DATA_VERSION, else the newest), with
      `wind_telemetry.parquet` + `turbines.parquet` (+ optional `meteo_wind.parquet` = 5-min meteo per TURBINE
      `ts, turbine_id, wind_ms, wdir_deg?`, `weather.parquet` with `point_id` = park id for rh / precip / pressure,
      `fault_labels.parquet`);
-  2. otherwise the deterministic stand-in generator `sentinel.model.wind.synth`.
+  2. otherwise the deterministic stand-in generator `sentinel.model.wind.synth` (quick fallback, no ERA5).
+
+Step labels from `fault_labels`: mode "effective" (default; $SENTINEL_WIND_LABELS=episode switches) labels
+curtailment / icing only where #23 recorded that power was actually cut (`params.cut_onset..cut_end`); "episode"
+labels their whole span. See `label_span`.
 """
 
 from __future__ import annotations
@@ -144,17 +149,61 @@ def _to_naive_utc(t):
     return np.datetime64(t, "m")
 
 
-def labels_from_episodes(episodes: list[dict], ts: np.ndarray, turbine_ids: Sequence[str]) -> np.ndarray:
-    """Per-step label array [T, N] from fault_labels rows (whole episode, overlap resolved by PRIORITY)."""
+LABEL_MODES = ("effective", "episode")
+
+
+def resolve_label_mode(mode: Optional[str] = None) -> str:
+    """Step-label mode: argument, else $SENTINEL_WIND_LABELS, else "effective"."""
+    m = mode or os.environ.get("SENTINEL_WIND_LABELS") or "effective"
+    if m not in LABEL_MODES:
+        raise ValueError(f"label mode {m!r} not in {LABEL_MODES}")
+    return m
+
+
+def _params(e: dict) -> dict:
+    p = e.get("params")
+    if isinstance(p, dict):
+        return p
+    if isinstance(p, str) and p:
+        try:
+            return json.loads(p)
+        except ValueError:
+            return {}
+    return {}
+
+
+def label_span(e: dict, mode: str = "effective"):
+    """(onset, end) used for step labels, or None to skip the row.
+
+    #23 labels curtailment and icing as whole episodes and stores in `params` whether power was actually cut
+    (`power_cut`, `cut_onset`, `cut_end`). mode "effective": use the cut span and drop episodes that never bit (a
+    cap above the available power leaves no trace in SCADA); mode "episode": the whole onset..end span. Rows
+    without these params (other classes, older data) always use onset..end."""
+    if mode == "effective":
+        p = _params(e)
+        if "power_cut" in p:
+            if not p["power_cut"]:
+                return None
+            return p.get("cut_onset") or e["onset"], p.get("cut_end")
+    return e["onset"], e.get("end")
+
+
+def labels_from_episodes(episodes: list[dict], ts: np.ndarray, turbine_ids: Sequence[str],
+                         mode: Optional[str] = None) -> np.ndarray:
+    """Per-step label array [T, N] from fault_labels rows (overlap resolved by PRIORITY; see `label_span`)."""
+    mode = resolve_label_mode(mode)
     col = {tid: i for i, tid in enumerate(turbine_ids)}
     lab = np.zeros((len(ts), len(turbine_ids)), dtype=np.uint8)
     pri = np.zeros_like(lab)
     for e in episodes:
         if e["asset_id"] not in col or e["fault"] not in CLASS_INDEX:
             continue
+        span = label_span(e, mode)
+        if span is None:
+            continue
         j = col[e["asset_id"]]
-        s = _ts_index(ts, e["onset"])
-        en = len(ts) if e.get("end") is None else _ts_index(ts, e["end"])
+        s = _ts_index(ts, span[0])
+        en = len(ts) if span[1] is None else _ts_index(ts, span[1])
         if en <= s:
             continue
         c = CLASS_INDEX[e["fault"]]
@@ -215,10 +264,12 @@ def _not_integral(v: np.ndarray, sensor: str) -> np.ndarray:
     return np.where(integral, v + 1e-3, v)
 
 
-def to_long(data: WindData, sensors: Sequence[str] | None = None):
+def to_long(data: WindData, sensors: Sequence[str] | None = None, decimals: Optional[int] = None):
     """Wide → contract `wind_telemetry` long table (polars): ts, tag, value, is_code. Gaps are null values.
 
-    Error codes are written as integral float64 values with is_code = True (PPC convention)."""
+    Error codes are written as integral float64 values with is_code = True (PPC convention). `decimals` rounds
+    readings (SCADA resolution; the simulator writes 2, which also shrinks the Parquet ~30 %) before the
+    never-integral nudge."""
     import polars as pl
 
     sensors = [s for s in (sensors or SENSORS) if s in data.sensors]
@@ -233,6 +284,8 @@ def to_long(data: WindData, sensors: Sequence[str] | None = None):
             v = data.sensors[s][:, j].astype(np.float64)
             if s == POWER:
                 v = v / scale  # back to the turbine's native unit
+            if decimals is not None:
+                v = np.round(v, decimals + (3 if s == POWER and scale != 1.0 else 0))
             v = _not_integral(v, s)
             v = np.where(code, data.err[:, j].astype(np.float64), v)
             frames.append(
@@ -258,8 +311,9 @@ def turbines_table(data: WindData):
     return pl.DataFrame(data.turbines)
 
 
-def meteo_table(data: WindData):
-    """Contract meteo wind: 5-min per TURBINE `ts, turbine_id, wind_ms, wdir_deg` (15-min if no 5-min series)."""
+def meteo_table(data: WindData, decimals: Optional[int] = None):
+    """Contract meteo wind: 5-min per TURBINE `ts, turbine_id, wind_ms, wdir_deg` (15-min if no 5-min series).
+    `decimals` rounds wind_ms (and wdir_deg to one decimal fewer, min 0)."""
     import polars as pl
 
     if data.meteo_5min is not None:
@@ -273,10 +327,16 @@ def meteo_table(data: WindData):
         frames.append(
             pl.DataFrame(
                 {"ts": ts.astype("datetime64[us]"), "turbine_id": [tid] * len(ts)}
-                | {k: src[k][:, j].astype(np.float64) for k in METEO_FIELDS}
+                | {k: _round(src[k][:, j].astype(np.float64), decimals, k) for k in METEO_FIELDS}
             )
         )
     return pl.concat(frames).with_columns(pl.col("ts").dt.replace_time_zone("UTC"))
+
+
+def _round(v: np.ndarray, decimals: Optional[int], field: str) -> np.ndarray:
+    if decimals is None:
+        return v
+    return np.round(v, max(0, decimals - 1) if field == "wdir_deg" else decimals)
 
 
 def weather_table(data: WindData):
@@ -325,6 +385,63 @@ def _naive_minutes(col) -> np.ndarray:
     return s.to_numpy().astype("datetime64[m]")
 
 
+def _dict_codes(col):
+    """(codes int64 [n], uniques list[str]) of a string / categorical polars Series, via Arrow dictionary encoding
+    (no per-row Python work; a dictionary-encoded column read with read_dictionary costs nothing here)."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    arr = col.to_arrow()
+    if isinstance(arr, pa.ChunkedArray):
+        arr = arr.combine_chunks()
+    if not pa.types.is_dictionary(arr.type):
+        arr = pc.dictionary_encode(arr)
+    codes = arr.indices.to_numpy(zero_copy_only=False).astype(np.int64)
+    return codes, [str(x) for x in arr.dictionary.to_pylist()]
+
+
+def _scatter_telemetry(tel, tids, tmeta, t0, T):
+    """Long telemetry → sensors [T, N] (mean of the readings in each 15-min bin) + err [T, N] (last code in the
+    bin; a code masks that bin's readings for the turbine). Vectorised with bincount: ~1 s for 70 M rows."""
+    import polars as pl
+
+    N = len(tids)
+    col = {tid: j for j, tid in enumerate(tids)}
+    sidx = {s: k for k, s in enumerate(SENSORS)}
+    codes, uniq = _dict_codes(tel["tag"])
+    tj_u = np.full(len(uniq), -1, np.int64)
+    sk_u = np.full(len(uniq), -1, np.int64)
+    for u, tag in enumerate(uniq):
+        m = re.match(r"^(WP[^.]+\.TID[^.]+)\.([A-Za-z0-9_]+)$", tag)
+        if m:
+            tj_u[u] = col.get(m.group(1), -1)
+            sk_u[u] = sidx.get(m.group(2), -1)
+    tj, sk = tj_u[codes], sk_u[codes]
+    del codes
+    ti = ((_naive_minutes(tel["ts"]) - t0) // STEP).astype(np.int64)
+    v = tel["value"].cast(pl.Float64).to_numpy()
+    is_code = tel["is_code"].fill_null(False).to_numpy().astype(bool)
+    ok = (tj >= 0) & (ti >= 0) & (ti < T)
+    sensors = {}
+    scale = np.array([float(t.get("power_scale") or 1.0) for t in tmeta])
+    for s, k in sidx.items():
+        m = ok & (sk == k) & ~is_code & np.isfinite(v)
+        flat = ti[m] * N + tj[m]
+        vs = v[m] * scale[tj[m]] if s == POWER else v[m]
+        cnt = np.bincount(flat, minlength=T * N)
+        sm = np.bincount(flat, weights=vs, minlength=T * N)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            sensors[s] = np.where(cnt > 0, sm / np.maximum(cnt, 1), np.nan).reshape(T, N).astype(np.float32)
+    err = np.zeros((T, N), dtype=np.int32)
+    mc = ok & is_code
+    if mc.any():
+        flat = ti[mc] * N + tj[mc]
+        err.reshape(-1)[flat] = v[mc].astype(np.int64).astype(np.int32)  # last code in the bin wins
+        for s in SENSORS:
+            sensors[s][err != 0] = np.nan
+    return sensors, err
+
+
 def from_long(
     telemetry,
     turbines,
@@ -332,6 +449,7 @@ def from_long(
     weather=None,
     fault_labels=None,
     source: str = "external",
+    label_mode: Optional[str] = None,
 ) -> WindData:
     """Contract tables (polars DataFrames) → WindData on a regular 15-min grid.
 
@@ -350,11 +468,6 @@ def from_long(
         tel = tel.with_columns(
             pl.Series("is_code", [is_error_code(s, v) for s, v in zip(sens_, tel["value"].to_list())])
         )
-    tel = tel.with_columns(
-        pl.col("tag").str.extract(r"^(WP[^.]+\.TID[^.]+)\.", 1).alias("turbine_id"),
-        pl.col("tag").str.extract(r"\.([A-Za-z0-9_]+)$", 1).alias("sensor"),
-        pl.col("ts").dt.truncate("15m").alias("ts"),
-    )
     tmeta = turbines.to_dicts()
     for t in tmeta:
         t.setdefault("power_scale", 1.0)
@@ -362,36 +475,15 @@ def from_long(
     tids = [t["turbine_id"] for t in tmeta]
     parks = sorted({t["park_id"] for t in tmeta})
     ts_all = _naive_minutes(tel["ts"])
-    t0, t1 = ts_all.min(), ts_all.max()
-    grid = np.arange(t0, t1 + STEP, STEP)
+    t0 = ts_all.min().astype("datetime64[h]").astype("datetime64[m]")
+    t0 = t0 + ((ts_all.min() - t0) // STEP) * STEP  # floor to the 15-min grid
+    t1 = ts_all.max()
+    grid = np.arange(t0, t1 + np.timedelta64(1, "m"), STEP)
+    del ts_all
     T, N = len(grid), len(tids)
     col = {tid: j for j, tid in enumerate(tids)}
 
-    sensors = {s: np.full((T, N), np.nan, dtype=np.float32) for s in SENSORS}
-    err = np.zeros((T, N), dtype=np.int32)
-    vals = tel.filter(~pl.col("is_code").fill_null(False))
-    agg = vals.group_by(["ts", "turbine_id", "sensor"]).agg(pl.col("value").mean())
-    ti = ((_naive_minutes(agg["ts"]) - t0) // STEP).astype(np.int64)
-    tj = np.array([col.get(t, -1) for t in agg["turbine_id"].to_list()], dtype=np.int64)
-    sens = agg["sensor"].to_numpy()
-    v = agg["value"].to_numpy().astype(np.float64)
-    for s in SENSORS:
-        m = (sens == s) & (tj >= 0) & np.isfinite(v)
-        vs = v[m]
-        if s == POWER:
-            scale = np.array([float(t["power_scale"] or 1.0) for t in tmeta])
-            vs = vs * scale[tj[m]]
-        sensors[s][ti[m], tj[m]] = vs
-    codes = tel.filter(pl.col("is_code").fill_null(False))
-    if codes.height:
-        cagg = codes.group_by(["ts", "turbine_id"]).agg(pl.col("value").last())
-        ci = ((_naive_minutes(cagg["ts"]) - t0) // STEP).astype(np.int64)
-        cj = np.array([col.get(t, -1) for t in cagg["turbine_id"].to_list()], dtype=np.int64)
-        m = cj >= 0
-        err[ci[m], cj[m]] = cagg["value"].to_numpy().astype(np.int64)[m].astype(np.int32)
-        # a code in a bin masks that bin's readings for that turbine (same as a gap for the model)
-        for s in SENSORS:
-            sensors[s][err != 0] = np.nan
+    sensors, err = _scatter_telemetry(tel, tids, tmeta, t0, T)
 
     P = len(parks)
     weather_arr = {k: np.full((T, P), np.nan, dtype=np.float32) for k in WEATHER_FIELDS}
@@ -410,21 +502,26 @@ def from_long(
                     if ok.sum() >= 2:  # hourly → 15-min by linear interpolation
                         weather_arr[k][:, p] = np.interp(grid.astype(np.int64), wts[ok], y[ok])
     if meteo is not None and meteo.height:
-        has_dir = "wdir_deg" in meteo.columns
-        m15 = meteo.with_columns(pl.col("ts").dt.truncate("15m"), pl.col("wind_ms").cast(pl.Float64))
-        aggs = [pl.col("wind_ms").mean()]
-        if has_dir:
-            rad = np.deg2rad(m15["wdir_deg"].cast(pl.Float64).to_numpy())
-            m15 = m15.with_columns(pl.Series("_s", np.sin(rad)), pl.Series("_c", np.cos(rad)))
-            aggs += [pl.col("_s").mean(), pl.col("_c").mean()]
-        agg = m15.group_by(["ts", "turbine_id"]).agg(aggs)
-        mi = ((_naive_minutes(agg["ts"]) - t0) // STEP).astype(np.int64)
-        mj = np.array([col.get(t, -1) for t in agg["turbine_id"].to_list()], dtype=np.int64)
+        mt = _naive_minutes(meteo["ts"])
+        mi = ((mt - t0) // STEP).astype(np.int64)
+        codes, uniq = _dict_codes(meteo["turbine_id"])
+        mj = np.array([col.get(u, -1) for u in uniq], dtype=np.int64)[codes]
         ok = (mj >= 0) & (mi >= 0) & (mi < T)
-        meteo_arr["wind_ms"][mi[ok], mj[ok]] = agg["wind_ms"].to_numpy()[ok]
-        if has_dir:
-            d = np.rad2deg(np.arctan2(agg["_s"].to_numpy(), agg["_c"].to_numpy())) % 360
-            meteo_arr["wdir_deg"][mi[ok], mj[ok]] = d[ok]
+        flat = mi[ok] * N + mj[ok]
+        w = meteo["wind_ms"].cast(pl.Float64).to_numpy()[ok]
+        fin = np.isfinite(w)
+        cnt = np.bincount(flat[fin], minlength=T * N)
+        sm = np.bincount(flat[fin], weights=w[fin], minlength=T * N)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            meteo_arr["wind_ms"][:] = np.where(cnt > 0, sm / np.maximum(cnt, 1), np.nan).reshape(T, N)
+        if "wdir_deg" in meteo.columns:
+            rad = np.deg2rad(meteo["wdir_deg"].cast(pl.Float64).to_numpy()[ok])
+            fin = np.isfinite(rad)
+            ssum = np.bincount(flat[fin], weights=np.sin(rad[fin]), minlength=T * N)
+            csum = np.bincount(flat[fin], weights=np.cos(rad[fin]), minlength=T * N)
+            dcnt = np.bincount(flat[fin], minlength=T * N)
+            dd = np.rad2deg(np.arctan2(ssum, csum)) % 360
+            meteo_arr["wdir_deg"][:] = np.where(dcnt > 0, dd, np.nan).reshape(T, N)
     if np.isnan(meteo_arr["wind_ms"]).all() and weather is not None:
         from .physics import shear_to_hub
 
@@ -441,7 +538,7 @@ def from_long(
     labels = None
     if fault_labels is not None and fault_labels.height:
         episodes = fault_labels.filter(pl.col("asset_kind") == "turbine").to_dicts()
-        labels = labels_from_episodes(episodes, grid, tids)
+        labels = labels_from_episodes(episodes, grid, tids, mode=label_mode)
     return WindData(
         ts=grid,
         turbines=tmeta,
@@ -460,10 +557,17 @@ def from_long(
 # Loader
 # --------------------------------------------------------------------------------------------------------------
 def external_wind_dir() -> Optional[Path]:
-    """Where #22/#23 write their output: $SENTINEL_WIND_DIR, else the newest ~/.cache/sentinel/data-v{N}/wind/."""
+    """Where #22/#23 write their output: $SENTINEL_WIND_DIR, else ~/.cache/sentinel/data-v{N}/wind/ for the current
+    simulator version (sentinel.sim.wind.WIND_DATA_VERSION), else the newest data-v*/wind/ that exists."""
     env = os.environ.get("SENTINEL_WIND_DIR")
     cands = [Path(env)] if env else []
     base = Path(os.environ.get("SENTINEL_CACHE", Path.home() / ".cache" / "sentinel"))
+    try:
+        from sentinel.sim.wind.config import WIND_DATA_VERSION
+
+        cands.append(base / f"data-v{WIND_DATA_VERSION}" / "wind")
+    except ImportError:  # pragma: no cover
+        pass
     vers = []
     for d in glob.glob(str(base / "data-v*" / "wind")):
         m = re.search(r"data-v(\d+)", d)
@@ -476,30 +580,47 @@ def external_wind_dir() -> Optional[Path]:
     return None
 
 
+def read_wind_dir(d: Path, label_mode: Optional[str] = None, log=print) -> WindData:
+    """Contract tables in a directory → WindData. String id columns are read dictionary-encoded (Arrow), which
+    keeps the ~70 M-row telemetry table at a few hundred MB in memory."""
+    import polars as pl
+    import pyarrow.parquet as pq
+
+    def read(name, dict_cols=()):
+        f = d / name
+        if not f.exists():
+            return None
+        cols = pq.read_schema(f).names
+        return pl.from_arrow(pq.read_table(f, read_dictionary=[c for c in dict_cols if c in cols]))
+
+    t0 = __import__("time").perf_counter()
+    data = from_long(
+        read("wind_telemetry.parquet", ("tag",)),
+        pl.read_parquet(d / "turbines.parquet"),
+        meteo=read("meteo_wind.parquet", ("turbine_id",)),
+        weather=read("weather.parquet"),
+        fault_labels=read("fault_labels.parquet"),
+        source=f"external:{d}",
+        label_mode=label_mode,
+    )
+    log(f"[windnbm] read {d} in {__import__('time').perf_counter() - t0:.1f}s "
+        f"({len(data.turbines)} turbines, {data.n_steps} steps, labels={resolve_label_mode(label_mode)})")
+    return data
+
+
 def load_wind(prefer_external: bool = True, synth_config: Any = None, log=print) -> WindData:
-    """Prefer #22/#23 output when present; otherwise the deterministic stand-in generator."""
+    """Prefer #22/#23 output (`python -m sentinel.sim.wind`, ERA5-driven) when present; otherwise the deterministic
+    stand-in generator `synth.py` (no ERA5 needed; quick fallback for tests and `train --synth`)."""
     if prefer_external:
         d = external_wind_dir()
         if d is not None:
-            import polars as pl
-
-            def opt(name):
-                f = d / name
-                return pl.read_parquet(f) if f.exists() else None
-
             log(f"[windnbm] loading external wind data from {d}")
-            return from_long(
-                pl.read_parquet(d / "wind_telemetry.parquet"),
-                pl.read_parquet(d / "turbines.parquet"),
-                meteo=opt("meteo_wind.parquet"),
-                weather=opt("weather.parquet"),
-                fault_labels=opt("fault_labels.parquet"),
-                source=f"external:{d}",
-            )
+            return read_wind_dir(d, log=log)
     from .synth import SynthConfig, generate
 
     cfg = synth_config or SynthConfig()
-    log(f"[windnbm] no #22/#23 output found; generating stand-in synthetic RO wind ({cfg.describe()})")
+    log(f"[windnbm] no #22/#23 output found (run `python -m sentinel.sim.wind`); generating stand-in synthetic RO "
+        f"wind ({cfg.describe()})")
     return generate(cfg)
 
 
