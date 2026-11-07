@@ -2,7 +2,7 @@
 
 import { Popover as Base } from "@base-ui/react/popover";
 import { cn } from "@sentinel-app/ui/lib/utils";
-import type { ComponentProps, ReactNode } from "react";
+import { type ComponentProps, type ReactNode, useRef } from "react";
 
 // A small white popover for progressive disclosure (ui-style.md §7): opens on click or Enter/Space,
 // closes on Esc and outside click, scales in from its trigger in 180 ms. Built on Base UI, which
@@ -29,10 +29,15 @@ export function PopoverContent({
   align?: "start" | "center" | "end";
   sideOffset?: number;
 }) {
+  // Keyboard opens move focus to the first control (so Enter follows through); pointer opens focus
+  // the popup itself, so no focus ring appears on a button nobody tabbed to.
+  const popup = useRef<HTMLDivElement>(null);
   return (
     <Base.Portal>
       <Base.Positioner side={side} align={align} sideOffset={sideOffset} collisionPadding={12} className="z-50">
         <Base.Popup
+          ref={popup}
+          initialFocus={(openType) => (openType === "keyboard" ? true : popup.current)}
           className={cn(
             "w-[300px] origin-[var(--transform-origin)] rounded-xl bg-card p-4 text-[13px] leading-snug text-foreground shadow-overlay outline-none",
             "transition-[opacity,scale] duration-180 ease-out data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 motion-reduce:transition-none",

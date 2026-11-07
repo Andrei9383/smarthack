@@ -106,7 +106,7 @@ function GoButton({ onClick, children }: { onClick: () => void; children: ReactN
     <button
       type="button"
       onClick={onClick}
-      className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-foreground px-3 text-[13px] font-medium text-background shadow-inset-hi transition-[background-color,transform] duration-150 hover:bg-foreground/85 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-foreground shadow-brand transition-[background-color,transform] duration-150 outline-none hover:bg-brand-700 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-card"
     >
       {children}
       <ChevronRight aria-hidden className="size-3.5" />
@@ -172,7 +172,7 @@ function Briefing({ onTour }: { onTour: () => void }) {
 
   return (
     <ShaderBanner
-      tone={over.length > 0 ? "alert" : "emerald"}
+      tone="emerald"
       className="flex h-full min-h-[300px] flex-col rounded-2xl shadow-floating"
     >
       <div className="flex h-full flex-col px-7 pt-6 pb-6 min-[1440px]:px-8">
