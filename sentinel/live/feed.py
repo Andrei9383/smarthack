@@ -115,6 +115,18 @@ class LiveFeed:
                              "AND level = ? AND entity_id = ? AND quantity = ? AND method = ?", upd)
 
 
+def summary(con: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    """Scored feeder rows per quantity / method: n, MAE kW, nMAE (MAE / mean |actual|), 10-90 coverage, large misses."""
+    rows = con.execute(
+        "SELECT quantity, method, COUNT(*) n, AVG(ABS(err)) mae, AVG(ABS(actual)) lvl, "
+        "AVG(CASE WHEN actual BETWEEN q10 AND q90 THEN 1.0 ELSE 0.0 END) cov, SUM(err_flag) big "
+        "FROM live_predictions WHERE run_id = ? AND level = 'feeder' AND actual IS NOT NULL "
+        "GROUP BY quantity, method ORDER BY quantity, method", (run_id,)).fetchall()
+    return [{"quantity": r["quantity"], "method": r["method"], "n": r["n"], "mae_kw": round(r["mae"], 3),
+             "nmae": round(r["mae"] / r["lvl"], 3) if r["lvl"] else None, "coverage_10_90": round(r["cov"], 3),
+             "large_misses": r["big"]} for r in rows]
+
+
 # -- drivers ----------------------------------------------------------------------------------------------------
 def run_speed(feed: LiveFeed, start: int, seconds: float, max_ticks: Optional[int] = None,
               sleep: Callable[[float], None] = time.sleep, log: Callable[[str], None] = print) -> int:

@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sentinel.live import store  # noqa: E402
-from sentinel.live.feed import LiveFeed, parse, run_realtime, run_speed  # noqa: E402
+from sentinel.live.feed import LiveFeed, parse, run_realtime, run_speed, summary  # noqa: E402
 from sentinel.live.source import SimulatedSource  # noqa: E402
 
 
@@ -64,6 +64,9 @@ def main(argv=None) -> int:
     else:
         start = parse(a.start) if a.start else src.span()[0]
         run_speed(feed, start, a.speed, a.ticks, log=log)
+    for s in summary(con, run_id):  # feeder rows scored so far (simulated readings)
+        print(f"[live] feeder {s['quantity']:<4} {s['method']:<11} n={s['n']:<4} MAE={s['mae_kw']} kW "
+              f"nMAE={s['nmae']} cov10-90={s['coverage_10_90']} large={s['large_misses']}", flush=True)
     return 0
 
 
