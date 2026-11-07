@@ -47,7 +47,8 @@ export function Pop({
   /** Accessible name when the trigger has no readable text. */
   triggerLabel?: string;
 }) {
-  // Focus moves to the popup itself, so a term inside it does not pop its own definition at once.
+  // Pointer opens focus the popup itself (a term inside must not pop its definition at once);
+  // keyboard opens move focus to the first control, so Enter follows through.
   const popupRef = useRef<HTMLDivElement>(null);
   return (
     <Popover.Root>
@@ -62,7 +63,7 @@ export function Pop({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner side={side} align={align} sideOffset={8} collisionPadding={12} className="z-[60]">
-          <Popover.Popup ref={popupRef} initialFocus={popupRef} className={cn(POPUP, className)}>
+          <Popover.Popup ref={popupRef} initialFocus={(openType) => (openType === "keyboard" ? true : popupRef.current)} className={cn(POPUP, className)}>
             {title ? (
               <Popover.Title className="mb-1.5 text-[13px] leading-snug font-semibold text-foreground">{title}</Popover.Title>
             ) : null}
