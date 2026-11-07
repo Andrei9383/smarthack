@@ -272,7 +272,7 @@ export function Tour({
           transitionDuration: `${DUR}ms`,
           transitionTimingFunction: EASE,
           boxShadow:
-            "0 0 0 2px var(--background), 0 0 0 9999px color-mix(in oklab, var(--foreground) 50%, transparent)",
+            "0 0 0 2px var(--ring), 0 0 0 9999px var(--scrim)",
         }}
       />
 
@@ -283,7 +283,7 @@ export function Tour({
         aria-labelledby={titleId}
         aria-describedby={bodyId}
         className={cn(
-          "absolute rounded-xl border border-border bg-card p-5 text-card-foreground shadow-card",
+          "absolute rounded-lg bg-card p-5 text-card-foreground shadow-overlay",
           "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none motion-reduce:transition-none!",
           !card && "invisible",
         )}

@@ -21,7 +21,13 @@ const RAMPS: Record<"light" | "dark", readonly [Rgb, Rgb, Rgb]> = {
 
 /** Theme-dependent; read when the particle layer is (re)built, and the map remounts on a theme change. */
 export let PARTICLE_COLOR_RAMP: [number, Rgba][] = [];
+/**
+ * The speed PNGs bake a light → emerald ramp (scripts/windfield.py, card #92) under the particles. On the
+ * dark basemap the light end would read as haze, so the raster is fainter there.
+ */
+export let RASTER_OPACITY = 0.45;
 onPaletteTheme((_palette, theme) => {
+  RASTER_OPACITY = theme === "dark" ? 0.2 : 0.45;
   const [slow, mid, fast] = RAMPS[theme];
   PARTICLE_COLOR_RAMP = [
     [0, rgbaArray(slow, PARTICLE_ALPHA)],

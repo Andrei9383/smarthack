@@ -46,6 +46,8 @@
   --shadow-brand: inset 0 1px 0 rgb(255 255 255 / 0.16);
   --radius: 0.375rem;
   --motion-fast: 150ms;
+  /* Dims the page behind the tour spotlight and modal surfaces. */
+  --scrim: rgb(13 20 28 / 0.5);
 
   /* Brand (emerald action colour) */
   --brand-50: #ecfbf2;
@@ -139,6 +141,7 @@
   --shadow-overlay: 0 0 0 1px var(--border-strong), 0 8px 16px -4px rgb(0 0 0 / 0.45), 0 24px 48px -12px rgb(0 0 0 / 0.65);
   --shadow-inset-hi: inset 0 1px 0 rgb(255 255 255 / 0.04);
   --shadow-brand: inset 0 1px 0 rgb(255 255 255 / 0.2);
+  --scrim: rgb(0 0 0 / 0.6);
 
   --brand-50: #15352a;
   --brand-100: #1c4535;
@@ -177,6 +180,7 @@
   --color-text-secondary: var(--text-secondary);
   --color-surface-raised: var(--surface-raised);
   --color-border-strong: var(--border-strong);
+  --color-scrim: var(--scrim);
   --color-brand-50: var(--brand-50);
   --color-brand-100: var(--brand-100);
   --color-brand-500: var(--brand-500);
