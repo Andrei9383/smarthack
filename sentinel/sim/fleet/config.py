@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Bump when the generated data changes meaning or shape; the cache key is data-v{DATA_VERSION}.
-DATA_VERSION = 1
+DATA_VERSION = 2
 
 DT_H = 0.25  # 15-min steps
 STEPS_PER_DAY = 96
@@ -40,6 +40,7 @@ class FleetConfig:
     wrong_kwp_share: float = 0.05           # recorded kWp off by 5-15 %
     shaded_share: float = 0.25              # a horizon obstruction in some azimuth sector
     battery_share: float = 0.45
+    unseen_share: float = 0.30              # sites never seen in training (split = unseen)
     gis_wrong_phase_share: float = 0.10
     gis_wrong_feeder_share: float = 0.03
     weather_source: str = "auto"            # auto | raw | synthetic

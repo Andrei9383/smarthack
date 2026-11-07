@@ -7,6 +7,7 @@ and diurnal temperature, snow), so the simulator runs before #9 lands. The manif
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,9 +18,9 @@ from . import solar
 from .localities import Locality
 
 REPO = Path(__file__).resolve().parents[3]
-RAW_PATH = REPO / "data" / "raw" / "weather_localities.parquet"
-# Expected long format from #9 (hourly or 15-min, UTC): one row per (time, locality_id).
-RAW_COLUMNS = ["time", "locality_id", "ghi", "temp_air", "wind_speed_10m", "snow_depth_cm"]
+RAW_PATH = Path(os.environ.get("SENTINEL_WEATHER", REPO / "data" / "raw" / "weather_localities.parquet"))
+# #9's weather table (team/contracts/data.md, schemas.WEATHER), hourly UTC; point_id = Locality.id.
+RAW_COLUMNS = ["ts", "point_id", "ghi_wm2", "temp_c", "wind10_ms", "snow_cm", "source"]
 
 VARS = ("ghi", "dni", "dhi", "temp_air", "wind_speed", "snow_depth_cm", "zenith", "azimuth")
 
@@ -63,11 +64,13 @@ def _finish(locs, ts, zen, az, ghi, temp, wind, snow, source) -> Weather:
 
 def _from_raw(locs: list[Locality], ts: pd.DatetimeIndex) -> Weather:
     df = pd.read_parquet(RAW_PATH, columns=RAW_COLUMNS)
-    df["time"] = pd.to_datetime(df["time"], utc=True)
+    df = df[df.source != "forecast"]  # history = actuals, never the noisy planning forecast
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
     zen, az = _geometry(locs, ts)
-    out = {k: np.empty((len(locs), len(ts)), np.float32) for k in ("ghi", "temp_air", "wind_speed_10m", "snow_depth_cm")}
+    cols = ("ghi_wm2", "temp_c", "wind10_ms", "snow_cm")
+    out = {k: np.empty((len(locs), len(ts)), np.float32) for k in cols}
     for i, loc in enumerate(locs):
-        g = df[df.locality_id == loc.id].set_index("time").sort_index()
+        g = df[df.point_id == loc.id].set_index("ts")[list(cols)].sort_index()
         if g.empty:
             raise ValueError(f"{RAW_PATH.name} has no rows for locality {loc.id}")
         g = g.reindex(g.index.union(ts)).interpolate("time", limit_direction="both").reindex(ts)
@@ -75,9 +78,10 @@ def _from_raw(locs: list[Locality], ts: pd.DatetimeIndex) -> Weather:
             out[k][i] = g[k].to_numpy()
     # Hourly ERA5 GHI is an hourly mean: rescale to 15 min with the clear-sky index (k = ghi / clear-sky).
     cs = np.stack([solar.clearsky_ghi(z) for z in zen])
-    k = np.clip(np.divide(out["ghi"], cs, out=np.zeros_like(cs), where=cs > 20), 0, 1.1)
+    out["snow_cm"] = np.nan_to_num(out["snow_cm"])
+    k = np.clip(np.divide(out["ghi_wm2"], cs, out=np.zeros_like(cs), where=cs > 20), 0, 1.1)
     ghi = k * cs
-    return _finish(locs, ts, zen, az, ghi, out["temp_air"], out["wind_speed_10m"], out["snow_depth_cm"], "raw")
+    return _finish(locs, ts, zen, az, ghi, out["temp_c"], out["wind10_ms"], out["snow_cm"], "raw")
 
 
 def _correlated_normals(rng, locs: list[Locality], n: int, corr_km: float) -> np.ndarray:
