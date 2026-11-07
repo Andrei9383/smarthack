@@ -72,7 +72,10 @@ inside loops. The GIL is released (`py.allow_threads`), and parallel over the ou
 
 Training conventions (for #14/#41): models fit in 4 GB at batch size 1; `--grid` keys map directly to config
 fields; one ONNX file per model with a model card JSON. `val_nmae` is the leaderboard metric (lower is better).
-`torch.compile` is off by default (compile time is too long for 20–30-minute runs); a bench can turn it on.
+`torch.compile` (#140, measured): PVNet/LoadNet/SiteHealth steps are launch-bound (~6 ms/step, GPU ~28 % busy,
+data wait < 1 %), so they default to `--compile auto` = `reduce-overhead` (CUDA graphs) on sm >= 7.5: ~7-12 s compile,
+~1.8x faster steps. WindNBM is GPU-bound in its cuDNN GRUs (72 % busy) and keeps compile off. Every train loop logs
+`samples_per_s`, `gpu_util_mean`, `t_data_wait_s`, `t_compute_s`, `t_val_s`, `ms_per_step`; `--profile` makes the split exact.
 
 ## 6. Cards and order
 

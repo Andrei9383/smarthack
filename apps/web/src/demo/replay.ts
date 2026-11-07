@@ -17,7 +17,6 @@ export function stepToDate(step: number): Date {
 }
 
 export const dayOfStep = (step: number) => Math.floor(step / STEPS_PER_DAY);
-export const stepOfDay = (step: number) => step % STEPS_PER_DAY;
 export const clampStep = (step: number) => Math.max(0, Math.min(STEPS_IN_WEEK - 1, step));
 
 const TIME = new Intl.DateTimeFormat("en-GB", {

@@ -15,7 +15,7 @@ export function ProvenancePill({
 }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap text-text-secondary ${className}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap text-text-secondary ${className}`}
     >
       <span
         className={`size-1.5 rounded-full ${DOTS[label] ?? "bg-status-unknown"}`}
