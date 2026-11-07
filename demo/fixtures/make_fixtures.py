@@ -92,9 +92,13 @@ PARKS = [
     ("WP03", "Deleni Sud",        "VS", "Deleni",     46.690, 27.720, 10, 25.0, 2021),
 ]
 
-COUNTY_CENTRES = {
-    "CT": (44.180, 28.640), "VS": (46.640, 27.730), "PH": (44.940, 26.020),
-    "DJ": (44.320, 23.800), "CJ": (46.770, 23.590),
+# Feeder centres at their localities (#76); coastal towns sit a few km inland so the
+# home scatter and the feeder line stay on land.
+LOCALITY_CENTRES = {
+    "Constanța": (44.205, 28.540), "Medgidia": (44.250, 28.270), "Mangalia": (43.835, 28.520),
+    "Vaslui": (46.640, 27.730), "Bârlad": (46.230, 27.670), "Ploiești": (44.940, 26.020),
+    "Câmpina": (45.130, 25.740), "Craiova": (44.320, 23.800), "Cluj-Napoca": (46.770, 23.590),
+    "Turda": (46.570, 23.780),
 }
 
 # Red evening zones in 2-3 counties (#30): these get the high peak-stress scores.
@@ -201,7 +205,7 @@ def build_fleet(rng: random.Random):
         else:
             fid = feeder_ids[i % len(feeder_ids)]
         feeder = next(f for f in FEEDERS if f[0] == fid)
-        lat0, lon0 = COUNTY_CENTRES[feeder[3]]
+        lat0, lon0 = LOCALITY_CENTRES[feeder[4]]
         kwp = round(rng.uniform(3.0, 10.0), 1)            # R7: residential 3-10 kWp
         has_batt = rng.random() < 0.70
         homes.append({
@@ -209,8 +213,8 @@ def build_fleet(rng: random.Random):
             "feeder": fid,
             "county": feeder[3],
             "locality": feeder[4],
-            "lat": round(lat0 + rng.uniform(-0.09, 0.09), 5),
-            "lon": round(lon0 + rng.uniform(-0.12, 0.12), 5),
+            "lat": round(lat0 + rng.uniform(-0.04, 0.04), 5),
+            "lon": round(lon0 + rng.uniform(-0.06, 0.06), 5),
             "kwp": kwp,
             "batt_kwh": round(rng.choice([5.0, 10.0, 13.5]), 1) if has_batt else None,
             "batt_kw": round(rng.choice([2.5, 3.6, 5.0]), 1) if has_batt else None,
@@ -500,10 +504,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
         else:
             limit = round(max(peak_b, peak_s) * 1.25, 1)
         low_trust = fid in ("F2", "F10")
-        # feeders in the same county fan out from the centre so they do not draw on top of each other
-        k = [f[0] for f in FEEDERS if f[3] == county].index(fid)
-        lat0, lon0 = COUNTY_CENTRES[county]
-        lat0, lon0 = lat0 + 0.07 * k * (-1) ** k, lon0 + 0.16 * k
+        lat0, lon0 = LOCALITY_CENTRES[locality]
         geometry = {"type": "LineString",
                     "coordinates": [[round(lon0 - 0.05, 5), round(lat0 - 0.03, 5)],
                                     [round(lon0, 5), round(lat0, 5)],
@@ -1002,6 +1003,12 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
                   "asset_steps"):
         n = q(f"select count(*) from {table}")[0][0]
         check(f"{table} has rows", n > 0, f"{n:,}")
+    # 12. CT is coastal: no home or feeder vertex east of the shoreline (#76)
+    homes_east = q("select max(lon) from assets where asset_kind='prosumer' and county='CT'")[0][0]
+    feeder_east = max(pt[0] for (g,) in q("select geometry_json from feeders where county='CT'")
+                      for pt in json.loads(g)["coordinates"])
+    check("CT homes and feeders stay on land", max(homes_east, feeder_east) < 28.62,
+          f"max lon {max(homes_east, feeder_east):.3f}")
     check("the run is labelled synthetic RO",
           q("select label from runs") == [(LABEL,)], LABEL)
 
