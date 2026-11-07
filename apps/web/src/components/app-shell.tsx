@@ -84,7 +84,7 @@ export function AppShell() {
 
         <main className="relative min-h-0 flex-1">
           {/* Remount on a basemap switch so mode layers are re-added to the new style. */}
-          <Map key={offline ? "offline" : "online"} styles={styles} theme="dark" center={ROMANIA_CENTER} zoom={5.8} minZoom={4}>
+          <Map key={offline ? "offline" : "online"} styles={styles} theme="light" center={ROMANIA_CENTER} zoom={5.8} minZoom={4}>
             <MapControls position="bottom-left" />
             {Layers ? <Layers /> : null}
           </Map>
