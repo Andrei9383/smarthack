@@ -21,3 +21,4 @@ One line per decision, newest last. Format: `HH:MM — decision (who)`.
 14:15 — Model registry M1-M8 with one prediction envelope; M1/M2/M4 MUST in #14; M3 starts as aggregation of LoadNet scenarios (#44) (yolooo332)
 14:15 — Wind telemetry contract = PPC HackITall schema WP<park>.TID<turbine>.<sensor>, kW / km/h, integers = error codes (replaces 13:00 <park>.<turbine>.<signal>) (yolooo332)
 14:15 — Four map modes via ?mode=: Feeders + O&M MUST, Production + Demand SHOULD; Rust core OPTIONAL with no card; Python package stays sentinel/ (yolooo332)
+14:29 — Rust kernels adopted for Stefan's area (amends R21): PyO3/maturin crate rust/sentinel_core behind sentinel/kernels with a pure-Python reference + parity tests; never needed by check/preview/make reproduce; priority rollout → windows → cusum; design in team/infra.md (Stefan)
