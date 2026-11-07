@@ -79,7 +79,7 @@ const turbineChip = (status: string) => TURBINE_CHIP[status] ?? "bg-muted text-t
 
 const ROW = "-mx-2 w-[calc(100%+1rem)] cursor-pointer rounded-md px-2 text-left transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const ROW_SELECTED = "bg-brand-50";
-const ROW_IDLE = "hover:bg-sidebar";
+const ROW_IDLE = "hover:bg-surface-raised";
 
 const words = (s: string | null | undefined) => (s ? s.replaceAll("_", " ") : "—");
 // MW at risk can be tiny for a home: two significant digits read cleanly
@@ -665,7 +665,7 @@ export function OmPanel() {
                 type="button"
                 onClick={() => setPark(null)}
                 aria-label="Close park"
-                className="grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-sidebar hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
                 <X className="size-4" />
               </button>

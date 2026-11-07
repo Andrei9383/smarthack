@@ -163,7 +163,7 @@ export function ProductionPanel() {
               className={`rounded-full px-2.5 py-1 text-xs font-medium tabular-nums transition-[background-color,box-shadow,color] duration-150 ${
                 p.id === park?.id
                   ? "bg-brand-50 text-brand-900 shadow-raised"
-                  : "bg-card text-text-secondary shadow-raised hover:bg-sidebar hover:text-foreground"
+                  : "bg-card text-text-secondary shadow-raised hover:bg-surface-raised hover:text-foreground"
               }`}
             >
               {p.id}

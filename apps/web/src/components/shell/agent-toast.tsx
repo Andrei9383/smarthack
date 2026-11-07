@@ -146,7 +146,7 @@ export function AgentToast({ className }: { className?: string }) {
         type="button"
         aria-label="Dismiss"
         onClick={hideAgentToast}
-        className="grid size-[22px] shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-sidebar hover:text-foreground"
+        className="grid size-[22px] shrink-0 place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground"
       >
         <X aria-hidden className="size-3.5" />
       </button>

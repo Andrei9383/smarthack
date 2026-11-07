@@ -11,7 +11,7 @@ import { MapSpark } from "@/components/map-spark/map-spark";
 
 import { useCameraFocus, useFocusIntent } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";
-import { PARTICLE_COLOR_RAMP } from "./colors";
+import { PARTICLE_COLOR_RAMP, RASTER_OPACITY } from "./colors";
 import { expectedMwh } from "./data";
 import { type MarkerCircle, type MarkerOffset, resolveCollisions } from "./marker-layout";
 import { useProductionData } from "./use-production-data";
@@ -23,8 +23,6 @@ const PANEL_PADDING_PX = 452;
 const PARK_ZOOM = 9; // the park and its neighbouring county markers, readable
 const SOURCE_ID = "wind-speed";
 const LAYER_ID = "wind-speed-raster";
-// The speed PNGs bake a light → emerald ramp (scripts/windfield.py, card #92) under the particles.
-const RASTER_OPACITY = 0.45;
 
 function imageCoordinates([west, south, east, north]: WindMeta["bounds"]) {
   return [

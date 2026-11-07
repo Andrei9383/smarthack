@@ -218,7 +218,7 @@ export function OmLayers() {
           "text-size": 12,
           "text-allow-overlap": true,
         },
-        paint: { "text-color": OM_COLORS.actual },
+        paint: { "text-color": OM_COLORS.label },
       });
       map.addLayer({
         id: LAYERS.points,
