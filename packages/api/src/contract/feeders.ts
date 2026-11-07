@@ -49,13 +49,51 @@ export const gisFlagItemSchema = z.object({
 });
 export type GisFlagItem = z.infer<typeof gisFlagItemSchema>;
 
+const windowInput = {
+  from: z.string().optional(), // ISO-8601 UTC, inclusive
+  to: z.string().optional(), // ISO-8601 UTC, exclusive
+  runId: z.string().optional(),
+};
+
+export const feederOverLimitSchema = z.object({
+  feederId: z.string(),
+  policy: z.string(),
+  minutesOver: z.number(),
+  peakExportKw: z.number(),
+});
+export type FeederOverLimit = z.infer<typeof feederOverLimitSchema>;
+
+export const socFanPointSchema = z.object({
+  ts: z.string(),
+  socQ10: z.number(),
+  socQ50: z.number(),
+  socQ90: z.number(),
+});
+export type SocFanPoint = z.infer<typeof socFanPointSchema>;
+
+export const absorbingSiteSchema = z.object({
+  assetId: z.string(),
+  absorbedKwh: z.number(),
+});
+export type AbsorbingSite = z.infer<typeof absorbingSiteSchema>;
+
 export const feedersContract = {
   list: oc
     .input(z.object({ runId: z.string().optional() }).optional())
     .output(z.array(feederSummarySchema)),
   getCurves: oc
-    .input(z.object({ feederId: z.string(), runId: z.string().optional() }))
+    .input(z.object({ feederId: z.string(), ...windowInput }))
     .output(z.array(feederCurvePointSchema)),
+  getOverLimit: oc
+    .input(z.object(windowInput).optional())
+    .output(z.array(feederOverLimitSchema)),
+  getSocFan: oc
+    .input(z.object({ feederId: z.string(), policy: z.string(), ...windowInput }))
+    .output(z.array(socFanPointSchema)),
+  // Sentinel charging during the steps where the baseline is over the limit.
+  getAbsorption: oc
+    .input(z.object({ feederId: z.string(), ...windowInput }))
+    .output(z.array(absorbingSiteSchema)),
   getCommitments: oc
     .input(z.object({ feederId: z.string(), runId: z.string().optional() }))
     .output(z.array(commitmentPointSchema)),
