@@ -454,7 +454,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     # ---- runs ------------------------------------------------------------------
     put("runs", "id,kind,policy,label,week_start,git_sha,model_versions_json,created_at,"
         "finished_at,notes",
-        [(RUN_ID, "fixtures", None, LABEL, clock(WEEK_START), "fixtures-no-commit",
+        [(RUN_ID, "fixtures", None, LABEL, clock.day_key(0), "fixtures-no-commit",
           json.dumps({"note": "no models; hand-written fixtures"}),
           clock(WEEK_START), clock(week_end),
           "Mock replay week for UI development (card #30). Not a result.")])
@@ -500,7 +500,10 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
         else:
             limit = round(max(peak_b, peak_s) * 1.25, 1)
         low_trust = fid in ("F2", "F10")
+        # feeders in the same county fan out from the centre so they do not draw on top of each other
+        k = [f[0] for f in FEEDERS if f[3] == county].index(fid)
         lat0, lon0 = COUNTY_CENTRES[county]
+        lat0, lon0 = lat0 + 0.07 * k * (-1) ** k, lon0 + 0.16 * k
         geometry = {"type": "LineString",
                     "coordinates": [[round(lon0 - 0.05, 5), round(lat0 - 0.03, 5)],
                                     [round(lon0, 5), round(lat0, 5)],
