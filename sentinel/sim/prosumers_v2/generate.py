@@ -107,9 +107,10 @@ def generate(cfg: ProsumerConfig, out_dir: Path | None = None, force: bool = Fal
     if n_workers == 1:
         acc = _accumulate(map(_simulate_chunk, range(len(chunks))), years, log)
     else:
+        # spawn, not fork: a parent that already ran a Rust kernel has a live rayon pool, and forked children
+        # deadlock on it (seen in pytest). Each child gets the context once, through the initializer.
         import multiprocessing as mp
-        _CTX["forked"] = True
-        with mp.get_context("fork").Pool(n_workers) as pool:
+        with mp.get_context("spawn").Pool(n_workers, initializer=_init_worker, initargs=(_CTX,)) as pool:
             acc = _accumulate(pool.imap_unordered(_simulate_chunk, range(len(chunks))), years, log)
     _CTX = {}
 
@@ -216,12 +217,16 @@ def _default_workers() -> int:
 WRITE_SLICE = 100  # homes per write call: keeps each process's Arrow buffers small (output bytes unchanged)
 
 
+def _init_worker(ctx: dict) -> None:
+    os.environ.setdefault("RAYON_NUM_THREADS", "2")  # before the first kernel call starts rayon's pool
+    global _CTX
+    _CTX = ctx
+
+
 def _simulate_chunk(ci: int) -> tuple[int, dict]:
     """One chunk of homes through all years (SoC carries over): writes its truth and meter parts, returns the sums
     the parent needs (monthly totals per home, group and county curves)."""
     c = _CTX
-    if c.get("forked"):
-        os.environ.setdefault("RAYON_NUM_THREADS", "2")  # before the first kernel call starts rayon's pool
     cfg, homes, weather = c["cfg"], c["homes"], c["weather"]
     n = len(homes)
     i0, i1 = ci * cfg.chunk_homes, min(n, (ci + 1) * cfg.chunk_homes)

@@ -165,6 +165,51 @@ def strategies_make(scale, rng):
             rng.random((n, days)) > 0.1)
 
 
+PVAC_CHUNK = 64  # sites per call, as sentinel.data.windows does per locality (#133)
+
+
+def pvac_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """#133: 600 sites x 1 year of 15-min steps under one locality's weather (pvlib + clear-sky channels)."""
+    import pandas as pd
+
+    from sentinel.model import physics as ph
+
+    T, n = _sz(35040, scale, 96), _sz(600, scale)
+    times = pd.date_range("2025-01-01", periods=T, freq="15min", tz="UTC")
+    g = ph.solar_geometry(times, 45.0, 25.0).astype(np.float32).astype(np.float64)
+    ghi = np.clip(g[:, 2] * rng.uniform(0.1, 1.05, T), 0, None)
+    dni, dhi = ph.decompose(ghi, g[:, 0], times.day_of_year.to_numpy())
+    site = (rng.uniform(2, 12, n), rng.uniform(0, 60, n), rng.uniform(90, 270, n), rng.uniform(2, 10, n))
+    return site, (ghi, dni, dhi, rng.normal(15, 8, T), rng.gamma(2, 2, T), g[:, 0], g[:, 1])
+
+
+def pvac_run(fn, a):
+    site, (ghi, dni, dhi, temp, wind, zen, saz) = a
+    for k in range(0, len(site[0]), PVAC_CHUNK):
+        s = [x[k:k + PVAC_CHUNK] for x in site]
+        fn(*s, ghi, dni, dhi, temp, wind, zen, saz)
+        fn(*s, ghi, dni, dhi, 20.0, None, zen, saz)
+
+def resim_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """K7 (#134): one fault-injector batch re-simulated: 48 battery sites with a fault x 1 year of 15-min steps,
+    onsets spread over the year, battery_fade capacity ramps and underuse steps, 0.1 % NaN surplus."""
+    m, T = _sz(48, scale), _sz(35040, scale, 2)
+    tod = np.sin(np.arange(T) / 96 * 2 * np.pi)
+    surplus = 4000 * tod[None] + rng.normal(0, 3000, (m, T))
+    surplus[rng.random((m, T)) < 0.001] = np.nan
+    cf, pf = np.ones((m, T)), np.ones((m, T))
+    for r in range(0, m, 4):
+        i0 = int(rng.integers(0, T))
+        cf[r, i0:] = np.linspace(1, 0.6, T - i0)
+        pf[r + 1 if r + 1 < m else r, i0:i0 + T // 8] = 0.2
+    start = rng.integers(0, T, m)
+    cap = rng.uniform(5, 15, m)
+    soc0 = rng.uniform(0, 1, (m, T))
+    t0 = int(start.min())
+    return (surplus, soc0, rng.normal(0, 2000, (m, T)), cf, pf, start, soc0[:, max(t0 - 1, 0)] * cap, cap,
+            rng.uniform(2, 6, m), np.full(m, 0.95), np.full(m, 0.95), np.full(m, 0.1), np.full(m, 0.95), t0, 0.25)
+
+
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description[, parity atol])
 CASES = [
     ("cusum_two_sided", "cusum", cusum_make, cusum_run, lambda a: (a[0][:CUSUM_CHUNK], *a[1:]),
@@ -187,6 +232,12 @@ CASES = [
      lambda a: load_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
     ("site_features", "features_site", lambda sc, rng: (site_raw(sc, rng),), lambda fn, a: [fn(r) for r in a[0]],
      lambda a: (a[0][0],), f"{FEAT_BATCHES} batches x {FEAT_B} M4 site windows (features.site_inputs)", 1e-6),  # cos_zen
+    ("pv_ac_batch", "pvac", pvac_make, pvac_run,
+     lambda a: (*(x[:PVAC_CHUNK] for x in a[0]), *a[1]),
+     "600 sites x 35040 steps, measured + clear-sky channel, 64 sites per call (windows.py pvlib channels)",
+     1e-9),  # bit-exact where numpy's f64 cos/arccos are libm's; a few ulp on AVX-512 SVML CPUs
+    ("battery_resim", "battery_resim", resim_make, lambda fn, a: fn(*a), lambda a: a,
+     "fault injector battery resim (#134): 48 sites x 35040 steps, fade/underuse, 0.1% NaN"),
     ("battery_strategies", "strategies", strategies_make, lambda fn, a: fn(*a),
      lambda a: (a[0][:40], a[1][:40], *(x[:40] for x in a[2:9]), *a[9:13], a[13][:40]),
      "500 homes x 35040 steps, 4 strategies (one data-v2 chunk-year, #172)"),

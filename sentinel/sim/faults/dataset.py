@@ -6,11 +6,13 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from ..fleet.config import DATA_VERSION
@@ -18,6 +20,30 @@ from .inject import TELEMETRY_COLS, FaultConfig, inject_batch, labels_frame
 
 PQ = dict(compression="zstd", compression_level=6)
 ROUND = {"pv_ac_w": 1, "inv_voltage_v": 0.1, "soc": 0.001, "batt_w": 1, "load_w": 1, "grid_w": 1}
+
+
+def _read_sites(f: Path, ids: list[str]) -> pa.Table:
+    """Rows of `ids` from one telemetry file, ordered by (position in ids, ts): the order a stable sort on
+    (site_id, ts) followed by .loc[ids] gives, without the pandas round trip (#134). The fleet files are already in
+    that order, so usually nothing is reordered. Only row groups whose site_id min/max can hold one of `ids` are
+    decoded: read_table(filters=...) decoded about the whole file for every batch, quadratic in fleet size."""
+    pf = pq.ParquetFile(f)
+    col = pf.schema_arrow.get_field_index("site_id")
+    lo, hi = min(ids), max(ids)
+    rgs = []
+    for i in range(pf.metadata.num_row_groups):
+        st = pf.metadata.row_group(i).column(col).statistics
+        if st is None or not st.has_min_max or (st.min <= hi and st.max >= lo):
+            rgs.append(i)
+    value_set = pa.array(ids, pa.string())
+    t = pf.read_row_groups(rgs)
+    t = t.filter(pc.is_in(t.column("site_id"), value_set=value_set))
+    pos = pc.index_in(t.column("site_id"), value_set=value_set).to_numpy(zero_copy_only=False)
+    tsi = t.column("ts").cast(pa.int64()).to_numpy()
+    dp, dt = np.diff(pos), np.diff(tsi)
+    if np.all((dp > 0) | ((dp == 0) & (dt >= 0))):  # already in order (O(n) check before an O(n log n) sort)
+        return t
+    return t.take(np.lexsort((tsi, pos)))
 
 
 def default_out(fleet_dir: Path, cfg: FaultConfig) -> Path:
@@ -44,29 +70,38 @@ def inject_dataset(fleet_dir: Path, cfg: FaultConfig = FaultConfig(), out_dir: P
     files = sorted((fleet_dir / "telemetry").glob("year=*.parquet"))
     writers: dict[Path, pq.ParquetWriter] = {}
     labels: list[dict] = []
+
+    def write(tables: list[tuple[Path, pa.Table, int]]) -> None:
+        for path, table, n in tables:
+            if path not in writers:
+                writers[path] = pq.ParquetWriter(path, table.schema, **PQ)
+            writers[path].write_table(table, row_group_size=n * 32)
+
+    # One writer thread: zstd encoding releases the GIL, so batch k is written while batch k+1 is read and injected
+    # (same tables, same order, so the files are byte-identical to writing inline; #134).
+    # A second thread reads batch k+1 while batch k is injected.
+    pool, reader, pending = ThreadPoolExecutor(1), ThreadPoolExecutor(1), None
+    read = lambda b: [_read_sites(f, list(sites.site_id.iloc[b:b + batch])) for f in files]  # noqa: E731
+    nxt = reader.submit(read, 0)
     try:
         for b0 in range(0, len(sites), batch):
             sb = sites.iloc[b0:b0 + batch].reset_index(drop=True)
             ids = list(sb.site_id)
-            parts, lengths = [], []
-            for f in files:
-                df = pq.read_table(f, filters=[("site_id", "in", ids)]).to_pandas()
-                df["site_id"] = df.site_id.astype(str)
-                df = df.sort_values(["site_id", "ts"], kind="stable")
-                df = df.set_index("site_id").loc[ids].reset_index()  # batch order
-                parts.append(df)
-                lengths.append(len(df) // len(ids))
-            # Via naive datetime64: to_numpy() on tz-aware ts boxes every row into a Timestamp object.
+            parts = nxt.result()
+            if b0 + batch < len(sites):
+                nxt = reader.submit(read, b0 + batch)
+            lengths = [p.num_rows // len(ids) for p in parts]
             ts = pd.DatetimeIndex(
-                np.concatenate([p.ts.dt.tz_convert(None).to_numpy()[:n] for p, n in zip(parts, lengths)])
+                np.concatenate([p.column("ts").slice(0, n).to_numpy() for p, n in zip(parts, lengths)])
             ).tz_localize("UTC")
-            arrays = {c: np.concatenate([p[c].to_numpy().reshape(len(ids), n) for p, n in zip(parts, lengths)], 1)
-                      .astype(np.int16 if c == "inv_status" else np.float64) for c in TELEMETRY_COLS}
+            arrays = {c: np.concatenate([p.column(c).to_numpy().reshape(len(ids), n) for p, n in zip(parts, lengths)],
+                                        1).astype(np.int16 if c == "inv_status" else np.float64) for c in TELEMETRY_COLS}
             labels += inject_batch(ts, arrays, sb, cfg)
-            o = 0
+            o, tables = 0, []
             for f, p, n in zip(files, parts, lengths):
-                ts_arrow = pa.Array.from_pandas(p.ts).cast(pa.timestamp("ns", tz="UTC"))
-                cols = {"ts": ts_arrow, "site_id": pa.array(p.site_id)}
+                # large_string: the type pa.array() gave the pandas site_id column before #134 (keeps files identical)
+                cols = {"ts": p.column("ts").cast(pa.timestamp("ns", tz="UTC")),
+                        "site_id": p.column("site_id").cast(pa.large_string())}
                 for c in TELEMETRY_COLS:
                     v = arrays[c][:, o:o + n].ravel()
                     if c in ROUND:
@@ -74,14 +109,17 @@ def inject_dataset(fleet_dir: Path, cfg: FaultConfig = FaultConfig(), out_dir: P
                         cols[c] = pa.array(v, from_pandas=True)
                     else:
                         cols[c] = pa.array(v.astype(np.int16))
-                table = pa.table(cols)
-                path = tmp / "telemetry" / f.name
-                if path not in writers:
-                    writers[path] = pq.ParquetWriter(path, table.schema, **PQ)
-                writers[path].write_table(table, row_group_size=n * 32)
+                tables.append((tmp / "telemetry" / f.name, pa.table(cols), n))
                 o += n
+            if pending is not None:
+                pending.result()
+            pending = pool.submit(write, tables)
             log(f"sites {b0 + len(ids)}/{len(sites)} ({time.perf_counter() - t0:.0f}s)")
+        if pending is not None:
+            pending.result()
     finally:
+        reader.shutdown(wait=True)
+        pool.shutdown(wait=True)
         for w in writers.values():
             w.close()
 
