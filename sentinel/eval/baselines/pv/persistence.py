@@ -19,6 +19,7 @@ from sentinel.contracts.envelope import Prediction, Window, parse_utc
 
 from .data import D, FleetArrays
 from .features import REF_DAYS, _second_largest
+from .lgbm import parse_weather, power_scale, weather_channels
 from .physical import clearsky_power_kw, pv_power_kw, recorded_meta, solar_geometry
 
 
@@ -60,13 +61,11 @@ class PvlibPredictor:
         self.model_version = model_version
 
     def expected_kw(self, asset: Mapping[str, Any], window: Window) -> np.ndarray:
-        from .lgbm import parse_weather
-
         H = int(window.horizon)
         meta = recorded_meta(asset)
         ts = pd.date_range(pd.Timestamp(parse_utc(window.t0)), periods=H, freq="15min")
         g = solar_geometry(ts, meta["lat"], meta["lon"])
-        wx = parse_weather(window.weather, H, (window.meta or {}).get("weather_cols"))
+        wx = parse_weather(window.weather, H, weather_channels(window))
         if "_need_split" in wx:
             import pvlib
             sp = pvlib.irradiance.erbs(wx["ghi"], g["zenith"], g["doy"])
@@ -95,7 +94,7 @@ class PersistencePredictor:
     def predict(self, asset: Mapping[str, Any], window: Window) -> Prediction:
         H = int(window.horizon)
         src = window.reference if self.kind.startswith("pv") else window.history
-        x = np.asarray(src if src is not None else [], np.float64) / 1000.0
+        x = np.asarray(src if src is not None else [], np.float64).ravel() / power_scale(window)
         need = REF_DAYS * D
         x = np.concatenate([np.full(max(0, need - len(x)), np.nan), x])[-need:].reshape(REF_DAYS, D)
         if self.kind in ("pv_d1", "load_d1"):
