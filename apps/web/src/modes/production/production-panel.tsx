@@ -8,9 +8,11 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { XAxis } from "@/components/charts/x-axis";
+import { stepToDate } from "@/demo/replay";
+import { useReplayStep } from "@/demo/use-replay";
 
 import { expectedMwh, hourly } from "./data";
+import { FanHourTicks, FanNowMarker, FanYAxis } from "./fan-chart-overlays";
 import { useProductionData } from "./use-production-data";
 import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta } from "./wind-field";
@@ -18,8 +20,11 @@ import { fetchWindMeta } from "./wind-field";
 // Sentinel's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
 const FAN_FILL = "var(--brand-500)";
 const FAN_LINE = "var(--primary)";
-const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-muted-foreground uppercase";
-const CHART_MARGIN = { left: 8, right: 8, top: 8, bottom: 24 };
+const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-text-secondary uppercase";
+const PILL = "inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-text-secondary";
+const Y_TICKS = 4;
+const TICK_HOURS = 6;
+const CHART_MARGIN = { left: 32, right: 8, top: 26, bottom: 24 };
 const BEST_HOURS = 3;
 
 const BUCHAREST_HOUR = new Intl.DateTimeFormat("en-GB", {
@@ -47,7 +52,32 @@ function wallClock(ts: string) {
   return new Date(parts.year as number, (parts.month as number) - 1, parts.day as number, parts.hour as number);
 }
 
+// Same dot colours as the shared provenance pill (ui-pass2): synthetic grey, real RO green, non-RO blue.
+function provenanceDot(text: string | undefined) {
+  if (!text) return "bg-status-unknown";
+  if (/non-RO/i.test(text)) return "bg-status-forecast";
+  if (/synthetic|mock/i.test(text)) return "bg-status-unknown";
+  if (/real RO/i.test(text)) return "bg-primary";
+  return "bg-status-unknown";
+}
+
+function Pill({ text }: { text: string }) {
+  return (
+    <span className={PILL}>
+      <span className={`size-1.5 shrink-0 rounded-full ${provenanceDot(text)}`} aria-hidden />
+      {text}
+    </span>
+  );
+}
+
+// Park names carry a trailing "(synthetic RO)"-style tag that the pill already shows; mute it.
+function splitTag(name: string): [string, string | null] {
+  const match = /^(.*?)\s*(\([^()]+\))$/.exec(name);
+  return match ? [match[1] ?? name, match[2] ?? null] : [name, null];
+}
+
 export function ProductionPanel() {
+  const [step] = useReplayStep();
   const hour = useHour();
   const [selected, setSelected] = useSelectedPark();
   const { data: meta } = useQuery({
@@ -58,7 +88,7 @@ export function ProductionPanel() {
   const { label, parks, rows, counties, isLoading } = useProductionData();
   const park = parks.find((p) => p.id === selected) ?? parks[0];
 
-  const { fan, labels, bestHours, parkMwh } = useMemo(() => {
+  const { fan, bestHours, parkMwh } = useMemo(() => {
     const parkRows = rows.filter((row) => row.parkId === park?.id);
     const parkHours = hourly(parkRows);
     return {
@@ -68,7 +98,6 @@ export function ProductionPanel() {
         p50: row.p50,
         p90: row.p90,
       })),
-      labels: parkHours.map((row) => localLabel(row.ts)),
       bestHours: hourly(rows)
         .sort((a, b) => b.p50 - a.p50)
         .slice(0, BEST_HOURS),
@@ -77,21 +106,39 @@ export function ProductionPanel() {
   }, [park?.id, rows]);
   const windCounties = counties.filter((county) => county.windMwh > 0);
 
+  const peakMw = Math.max(...bestHours.map((row) => row.p50), 0);
+  const now = stepToDate(step);
+  const nowDate = new Date(wallClock(now.toISOString()).getTime() + now.getUTCMinutes() * 60_000);
+  const [parkName, parkTag] = park ? splitTag(park.name) : ["", null];
+
   const hourTs = meta?.hours[hour]?.ts;
   const windLabel = meta?.source === "mock" ? "mock wind field" : "real RO, ERA5 100 m wind";
 
   return (
-    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-5 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-card">
-      <header className="space-y-1.5">
-        <h2 className="text-base font-semibold text-foreground">
-          {park ? `${park.id} · ${park.name}` : "Production"}
-        </h2>
-        <p className="text-[13px] leading-relaxed text-text-secondary tabular-nums">
-          {park && `${park.county} · ${park.ratedMw} MW rated · ${Math.round(parkMwh)} MWh next 24 h · `}
-          <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-px text-[11px] font-medium text-text-secondary">
-            {label ?? (isLoading ? "loading" : "no run loaded")}
+    <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col gap-4 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-card">
+      <header className="space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base leading-snug font-semibold text-foreground">
+            {park ? (
+              <>
+                {`${park.id} · ${parkName}`}
+                {parkTag && <span className="text-sm font-normal text-muted-foreground"> {parkTag}</span>}
+              </>
+            ) : (
+              "Production"
+            )}
+          </h2>
+          <span className="shrink-0 pt-0.5">
+            <Pill text={label ?? (isLoading ? "loading" : "no run loaded")} />
           </span>
-        </p>
+        </div>
+        {park && (
+          <p className="text-[13px] text-text-secondary tabular-nums">
+            {`${park.county} · ${park.ratedMw} MW rated · `}
+            <span className="font-semibold text-foreground">{Math.round(parkMwh)} MWh</span>
+            {" next 24 h"}
+          </p>
+        )}
       </header>
 
       {/* Neighbouring parks stack at country zoom, so their markers alone can't select them all. */}
@@ -115,12 +162,15 @@ export function ProductionPanel() {
         </nav>
       )}
 
-      <p className="flex items-baseline justify-between gap-3">
-        <span className={SECTION_LABEL}>Wind at 100 m</span>
-        <span className="text-xs text-text-secondary tabular-nums">
-          {hourTs ? `${localLabel(hourTs)} Bucharest` : "—"} · {meta ? windLabel : "loading"}
-        </span>
-      </p>
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-2.5">
+        <div className="space-y-1">
+          <div className={SECTION_LABEL}>Wind at 100 m</div>
+          <div className="text-[15px] font-semibold text-foreground tabular-nums">
+            {hourTs ? `${localLabel(hourTs)} Bucharest` : "—"}
+          </div>
+        </div>
+        <Pill text={meta ? windLabel : "loading"} />
+      </div>
 
       {fan.length === 0 ? (
         !isLoading && (
@@ -131,9 +181,21 @@ export function ProductionPanel() {
       ) : (
         <>
           <section className="space-y-2">
-            <h3 className={SECTION_LABEL}>Park output, P10–P90 (MW)</h3>
-            <LineChart data={fan} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
-              <Grid />
+            <div className="flex items-center justify-between gap-3">
+              <h3 className={SECTION_LABEL}>Park output, P10–P90 (MW)</h3>
+              <ul className="flex items-center gap-3 text-[11px] text-text-secondary">
+                <li className="flex items-center gap-1.5">
+                  <span className="h-0.5 w-3.5 rounded-full bg-primary" aria-hidden />
+                  P50
+                </li>
+                <li className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-3.5 rounded-sm border border-brand-500/50 bg-brand-500/15" aria-hidden />
+                  P10–P90
+                </li>
+              </ul>
+            </div>
+            <LineChart data={fan} aspectRatio="9 / 4" margin={CHART_MARGIN} animationDuration={0}>
+              <Grid numTicksRows={Y_TICKS} fadeHorizontal={false} strokeDasharray="none" />
               <Band
                 upperKey="p90"
                 lowerKey="p10"
@@ -144,17 +206,22 @@ export function ProductionPanel() {
                 curve={curveMonotoneX}
               />
               <Line dataKey="p50" stroke={FAN_LINE} curve={curveMonotoneX} fadeEdges={false} />
-              <XAxis numTicks={5} labels={labels} />
+              <FanYAxis numTicks={Y_TICKS} unit="MW" />
+              <FanHourTicks everyHours={TICK_HOURS} />
+              <FanNowMarker date={nowDate} label="now" />
               <ChartTooltip />
             </LineChart>
           </section>
 
-          <section className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg bg-sidebar p-4">
+          <section className="space-y-3 rounded-lg bg-sidebar px-4 py-3">
             {windCounties.map(({ county, windMwh }) => (
-              <div key={county} className="space-y-1">
-                <div className={SECTION_LABEL}>{county} wind, next 24 h</div>
+              <div key={county} className="flex items-baseline justify-between gap-4">
+                <div className="text-[13px] font-medium whitespace-nowrap text-text-secondary">
+                  {county} wind · next 24 h
+                </div>
                 <div className="text-[28px] leading-none font-semibold text-foreground tabular-nums">
-                  {Math.round(windMwh)} <span className="text-[13px] font-normal text-muted-foreground">MWh</span>
+                  {Math.round(windMwh)}{" "}
+                  <span className="text-[13px] font-normal whitespace-nowrap text-muted-foreground">MWh</span>
                 </div>
               </div>
             ))}
@@ -162,14 +229,33 @@ export function ProductionPanel() {
 
           <section className="space-y-2">
             <h3 className={SECTION_LABEL}>Best production hours, all parks</h3>
-            <ul className="divide-y divide-border text-[13px] tabular-nums">
-              {bestHours.map(({ ts, p50 }) => (
-                <li key={ts} className="flex justify-between py-1.5">
-                  <span className="font-medium text-foreground">{localLabel(ts)}</span>
-                  <span className="text-text-secondary">{Math.round(p50)} MW</span>
-                </li>
-              ))}
-            </ul>
+            <ol className="space-y-1 text-[13px] tabular-nums">
+              {bestHours.map(({ ts, p50 }, index) => {
+                const top = index === 0;
+                return (
+                  <li
+                    key={ts}
+                    className={`flex items-center gap-3 rounded-md px-2 py-1.5 ${top ? "bg-brand-50" : ""}`}
+                  >
+                    <span className={`w-3 text-[11px] ${top ? "font-semibold text-brand-700" : "text-muted-foreground"}`}>
+                      {index + 1}
+                    </span>
+                    <span className={`w-11 font-medium ${top ? "text-brand-900" : "text-foreground"}`}>
+                      {localLabel(ts)}
+                    </span>
+                    <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                      <span
+                        className={`block h-full rounded-full ${top ? "bg-primary" : "bg-brand-500/50"}`}
+                        style={{ width: `${peakMw > 0 ? (p50 / peakMw) * 100 : 0}%` }}
+                      />
+                    </span>
+                    <span className={`w-14 text-right ${top ? "font-semibold text-brand-900" : "text-text-secondary"}`}>
+                      {Math.round(p50)} <span className="text-[11px] font-normal text-muted-foreground">MW</span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
           </section>
         </>
       )}
