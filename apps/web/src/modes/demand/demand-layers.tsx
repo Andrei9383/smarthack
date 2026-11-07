@@ -7,6 +7,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { orpc } from "@/utils/orpc";
 
 import { useMapRightPadding } from "../use-map-right-padding";
+import {
+  COUNTY_OUTLINE,
+  FEEDER_CASING,
+  FEEDER_RAMP,
+  SELECTED_OUTLINE,
+  STRESS_FILL_OPACITY,
+  STRESS_RAMP,
+} from "./colors";
 import { countyOf, zonesByCountyCode } from "./data";
 import { useDemandData, useSelectedZone } from "./use-demand-data";
 
@@ -16,15 +24,17 @@ type Counties = GeoJSON.FeatureCollection<Geometry, CountyProperties>;
 
 const PANEL_PADDING_PX = 452;
 const ZOOM_PADDING_PX = 48;
-const STRESS_COLOR = "#ef4444";
-const MIN_OPACITY = 0.08;
-const MAX_OPACITY = 0.85;
-const OUTLINE_COLOR = "#737373";
-const SELECTED_OUTLINE_COLOR = "#fafafa";
-const FEEDER_LOW_COLOR = "#fecaca";
 
-const opacityFor = (stress: number) =>
-  MIN_OPACITY + Math.min(1, Math.max(0, stress)) * (MAX_OPACITY - MIN_OPACITY);
+// MapLibre `interpolate` over a ramp of [stress, colour] stops; stress above 1 stays red.
+const rampExpression = (input: unknown, ramp: typeof STRESS_RAMP) => [
+  "interpolate",
+  ["linear"],
+  input,
+  ...ramp.flat(),
+];
+const LEGEND_GRADIENT = `linear-gradient(to right, ${STRESS_RAMP.map(
+  ([stress, color]) => `${color} ${stress * 100}%`,
+).join(", ")})`;
 
 async function fetchCounties(): Promise<Counties> {
   const response = await fetch("/geo/ro_counties.geojson");
@@ -120,23 +130,28 @@ export function DemandLayers() {
   useCountyFocus(shapes, selectedCode, countyFeederLines);
 
   // Counties with no rows stay empty: no data must never read as low stress.
-  const fillOpacity = useMemo(() => {
-    const pairs = [...byCode].flatMap(([code, county]) => {
+  const { fillColor, fillOpacity } = useMemo(() => {
+    const stressPairs = [...byCode].flatMap(([code, county]) => {
       const stress = county.stressByTs.get(ts);
-      return stress === undefined ? [] : [code, opacityFor(stress)];
+      return stress === undefined ? [] : [code, stress];
     });
-    return pairs.length > 0 ? ["match", ["get", "code"], ...pairs, 0] : 0;
+    if (stressPairs.length === 0) return { fillColor: STRESS_RAMP[0]?.[1], fillOpacity: 0 };
+    const codes = stressPairs.filter((_, index) => index % 2 === 0);
+    return {
+      fillColor: rampExpression(["match", ["get", "code"], ...stressPairs, 0], STRESS_RAMP),
+      fillOpacity: ["match", ["get", "code"], codes, STRESS_FILL_OPACITY, 0],
+    };
   }, [byCode, ts]);
 
   const lineColor = useMemo(
     () =>
       selectedCode
-        ? ["match", ["get", "code"], selectedCode, SELECTED_OUTLINE_COLOR, OUTLINE_COLOR]
-        : OUTLINE_COLOR,
+        ? ["match", ["get", "code"], selectedCode, SELECTED_OUTLINE, COUNTY_OUTLINE]
+        : COUNTY_OUTLINE,
     [selectedCode],
   );
   const lineWidth = useMemo(
-    () => (selectedCode ? ["match", ["get", "code"], selectedCode, 2, 0.5] : 0.5),
+    () => (selectedCode ? ["match", ["get", "code"], selectedCode, 2.5, 0.75] : 0.75),
     [selectedCode],
   );
 
@@ -179,7 +194,7 @@ export function DemandLayers() {
         data={shapes}
         beforeId={beforeLabels}
         interactive
-        fillPaint={{ "fill-color": STRESS_COLOR, "fill-opacity": fillOpacity as never }}
+        fillPaint={{ "fill-color": fillColor as never, "fill-opacity": fillOpacity as never }}
         linePaint={{ "line-color": lineColor as never, "line-width": lineWidth as never }}
         onHover={(event) => setHovered((event?.feature?.properties as CountyProperties) ?? null)}
         onClick={(event) => {
@@ -190,21 +205,24 @@ export function DemandLayers() {
           if (county) setSelected(county.id);
         }}
       />
+      {/* White casing keeps feeder lines readable on top of the county fill. */}
+      <MapGeoJSON
+        id="demand-feeders-casing"
+        data={feederLines}
+        fillPaint={false}
+        linePaint={{
+          "line-color": FEEDER_CASING,
+          "line-width": ["+", ["get", "width"], 3],
+        }}
+      />
       <MapGeoJSON
         id="demand-feeders"
         data={feederLines}
         fillPaint={false}
         linePaint={{
-          "line-color": [
-            "interpolate",
-            ["linear"],
-            ["get", "stress"],
-            0,
-            FEEDER_LOW_COLOR,
-            1,
-            STRESS_COLOR,
-          ],
+          "line-color": rampExpression(["get", "stress"], FEEDER_RAMP) as never,
           "line-width": ["get", "width"],
+          "line-opacity": 1,
         }}
       />
       {feeders.map(({ zone, anchor, stress }) => (
@@ -216,8 +234,8 @@ export function DemandLayers() {
         >
           <MarkerContent>
             <span
-              className={`flex cursor-pointer items-center rounded border bg-background/90 px-1.5 py-0.5 text-[11px] font-semibold ${
-                zone.id === selected?.id ? "ring-2 ring-foreground" : ""
+              className={`flex cursor-pointer items-center rounded-full border border-border bg-card px-2 py-0.5 text-[11px] leading-none font-semibold text-foreground shadow-card ${
+                zone.id === selected?.id ? "ring-2 ring-foreground ring-offset-1 ring-offset-card" : ""
               }`}
               title={`${zone.id}, stress ${stress.toFixed(2)}`}
             >
@@ -226,19 +244,17 @@ export function DemandLayers() {
           </MarkerContent>
         </MapMarker>
       ))}
-      <div className="pointer-events-none absolute top-3 left-3 z-10 w-56 rounded-md border bg-background/90 p-2 text-[11px] backdrop-blur">
-        <div className="font-medium">Stress, P90 demand / capacity</div>
+      <div className="pointer-events-none absolute top-3 left-3 z-10 w-60 rounded-lg border border-border bg-card p-3 text-xs text-card-foreground shadow-card">
+        <div className="font-semibold text-foreground">Stress, P90 demand / capacity</div>
         <div
-          className="my-1 h-2 rounded-sm"
-          style={{
-            background: `linear-gradient(to right, rgb(239 68 68 / ${MIN_OPACITY}), rgb(239 68 68 / ${MAX_OPACITY}))`,
-          }}
+          className="mt-2 mb-1 h-2.5 rounded-full ring-1 ring-border ring-inset"
+          style={{ background: LEGEND_GRADIENT, opacity: STRESS_FILL_OPACITY }}
         />
-        <div className="flex justify-between text-muted-foreground">
+        <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
           <span>0</span>
           <span>1</span>
         </div>
-        <div className="mt-1 text-muted-foreground">
+        <div className="mt-2 border-t border-border pt-2 text-text-secondary tabular-nums">
           {hovered
             ? hoveredStress === undefined
               ? `${hovered.name}: no data`
