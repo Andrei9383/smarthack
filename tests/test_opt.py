@@ -1,0 +1,273 @@
+"""Card #18: per-feeder LP, aggregate fallback and baseline policies on MockPredictor forecasts."""
+
+from __future__ import annotations
+
+import time
+
+import numpy as np
+import pytest
+
+from sentinel.contracts import AssetStatus, BatterySpec, FeederPlan, FeederSpec, MockPredictor, self_consumption_step
+from sentinel.opt.aggregate import plan_feeder_aggregate
+from sentinel.opt.lp import LPParams, peak_mask_for, plan_feeder
+from sentinel.opt.policies import (
+    RestOfFeeder,
+    Site,
+    ValidationDay,
+    evaluate_threshold,
+    rest_of_feeder_from_forecasts,
+    self_consumption_plan,
+    simulate_rule,
+    site_from_row,
+    threshold_plan,
+    tune_threshold,
+)
+
+SUMMER = "2025-06-21T00:00:00Z"
+WINTER = "2025-01-15T00:00:00Z"
+PV, LOAD = MockPredictor("pv"), MockPredictor("load")
+
+
+def make_feeder(t0: str = SUMMER, n: int = 20, archetype: str = "base"):
+    rows, fc = [], {}
+    for k in range(n):
+        sid = f"S{k:03d}"
+        row = {
+            "site_id": sid, "kwp_true": [6, 8, 10, 7][k % 4], "lat": 44.4, "archetype": archetype,
+            "battery_kwh": [10.0, 13.5, 8.0, 10.0][k % 4], "battery_kw": [5.0, 5.0, 4.0, 3.6][k % 4],
+            "comfort_reserve_kwh": 2.0, "soc": 0.3,
+        }
+        rows.append(row)
+        fc[sid] = {"pv": PV.predict(row, t0=t0), "load": LOAD.predict(row, t0=t0)}
+    return rows, fc
+
+
+def worst_no_battery(fc) -> np.ndarray:
+    return sum(np.asarray(f["pv"].q90) - np.asarray(f["load"].q10) for f in fc.values())
+
+
+@pytest.fixture(scope="module")
+def sunny():
+    rows, fc = make_feeder()
+    peak = float(worst_no_battery(fc).max())
+    return rows, fc, peak
+
+
+def assert_reserve_and_replay(plan, rows):
+    """Comfort reserve never breached and the schedule replays exactly through the battery model (#27)."""
+    for row in rows:
+        sid = row["site_id"]
+        if sid not in plan.schedule:
+            continue
+        site = site_from_row(row)
+        b = site.battery
+        soc = np.asarray(plan.soc_kwh[sid])
+        assert soc.min() >= b.e_min - 1e-6, f"{sid} below reserve: {soc.min()} < {b.e_min}"
+        assert soc.max() <= b.e_max + 1e-6
+        p = np.asarray(plan.schedule[sid])
+        assert np.abs(p).max() <= b.p_max_kw + 1e-6
+        e = site.initial_energy()
+        for t, pt in enumerate(p):
+            applied, e = b.step(e, pt)
+            assert applied == pytest.approx(pt, abs=1e-6)
+            assert e == pytest.approx(soc[t + 1], abs=1e-6)
+
+
+# --- LP ---------------------------------------------------------------------------------------------------
+def test_lp_meets_limit_when_headroom_suffices(sunny):
+    rows, fc, peak = sunny
+    G = 0.7 * peak
+    usable = sum(site_from_row(r).battery.e_max - site_from_row(r).battery.e_min for r in rows)
+    excess = float(np.maximum(0, worst_no_battery(fc) - G).sum() * 0.25)
+    assert excess < 0.7 * usable  # precondition: headroom suffices
+
+    plan = plan_feeder("F1", rows, None, fc, G=G, prices=0.6)
+    assert isinstance(plan, FeederPlan) and plan.policy == "sentinel" and plan.method == "lp"
+    assert plan.solver_status in ("optimal", "optimal_inaccurate")
+    assert plan.horizon == 96 and len(plan.export_curve) == 96 and set(plan.schedule) == {r["site_id"] for r in rows}
+    assert plan.max_slack_kw == 0.0
+    assert max(plan.worst_export_curve) <= G + 1e-4
+    assert max(plan.export_curve) <= G + 1e-4  # P50 is below the worst case
+    assert plan.simultaneous_steps == 0 and plan.extra["simultaneous_before_repair"] == 0
+    assert plan.solve_time_s < 10
+    assert_reserve_and_replay(plan, rows)
+    plan.to_dict()  # serialisable
+
+
+def test_baseline_exceeds_limit_same_day(sunny):
+    rows, fc, peak = sunny
+    G = 0.7 * peak
+    base = self_consumption_plan("F1", rows, None, fc, G=G)
+    lp = plan_feeder("F1", rows, None, fc, G=G, prices=0.6)
+    assert base.policy == "self_consumption"
+    assert base.max_slack_kw > 1.0 and base.over_limit_steps > 4
+    assert lp.max_slack_kw < base.max_slack_kw
+    assert_reserve_and_replay(lp, rows)
+
+
+def test_slack_reported_when_headroom_insufficient(sunny):
+    rows, fc, peak = sunny
+    G = 0.3 * peak
+    plan = plan_feeder("F1", rows, None, fc, G=G, prices=0.6)
+    base = self_consumption_plan("F1", rows, None, fc, G=G)
+    slack = np.asarray(plan.slack)
+    assert slack.max() > 1.0
+    np.testing.assert_allclose(slack, np.maximum(0, np.asarray(plan.worst_export_curve) - G), atol=1e-5)
+    # Less energy and a lower peak above the limit than the baseline.
+    assert slack.sum() < np.sum(base.slack) and slack.max() < base.max_slack_kw
+    # The LP burns energy (charge + discharge at once) here; the repair removes it without binaries.
+    assert plan.extra["simultaneous_before_repair"] > 0
+    assert plan.simultaneous_steps == 0
+    assert_reserve_and_replay(plan, rows)
+
+
+def test_no_simultaneous_charge_discharge_in_lp_solution(sunny):
+    rows, fc, peak = sunny
+    for frac in (0.9, 0.6, 0.4):
+        plan = plan_feeder("F1", rows, None, fc, G=frac * peak, prices=0.6)
+        assert plan.simultaneous_steps == 0, frac
+
+
+def test_evening_peak_shaved_in_winter():
+    rows, fc = make_feeder(WINTER, archetype="heat_pump")
+    lp = plan_feeder("F1", rows, None, fc, G=1e3, prices=0.6)
+    base = self_consumption_plan("F1", rows, None, fc, G=1e3)
+    assert lp.max_slack_kw == 0.0 and base.max_slack_kw == 0.0
+    assert lp.peak_import_kw < 0.6 * base.peak_import_kw
+    assert_reserve_and_replay(lp, rows)
+
+
+def test_statuses_derate_fold_and_rest(sunny):
+    rows, fc, peak = sunny
+    G = 0.7 * peak
+    statuses = {
+        "S000": AssetStatus("S000", "derated", 0.5, "pv_fault:soiling", battery_ok=True),
+        "S001": AssetStatus("S001", "excluded", 0.0, "stale_telemetry"),
+        "S002": AssetStatus("S002", "derated", 0.7, "pv_fault:shading", battery_ok=False),
+    }
+    plan = plan_feeder(FeederSpec("F1", g_max_kw=G, g_conservative_kw=G), rows, None, fc, prices=0.6,
+                       statuses=statuses)
+    assert plan.g_kw == pytest.approx(G)
+    assert "S000" in plan.schedule
+    assert set(plan.folded_sites) == {"S001", "S002"} and "S001" not in plan.schedule
+    assert plan.n_sites == len(rows) - 2
+    assert plan.max_slack_kw == 0.0
+    # The derated site's PV is cut: total planned export is lower than with no statuses.
+    full = plan_feeder("F1", rows, None, fc, G=G, prices=0.6)
+    assert sum(plan.worst_export_curve) < sum(full.worst_export_curve)
+
+
+def test_rest_of_feeder_enters_the_limit(sunny):
+    rows, fc, peak = sunny
+    eligible, others = rows[:14], rows[14:]
+    rest = rest_of_feeder_from_forecasts(others, fc)
+    assert max(rest.worst_kw) > max(rest.net_kw) > 0
+    G = 0.7 * peak
+    plan = plan_feeder("F1", eligible, rest, fc, G=G, prices=0.6)
+    assert set(plan.schedule) == {r["site_id"] for r in eligible}
+    assert max(plan.worst_export_curve) <= G + 1e-4 + plan.max_slack_kw
+    # Ignoring the rest would plan against a looser feeder: the plain-sequence form shifts the curve 1:1.
+    shifted = plan_feeder("F1", eligible, [10.0] * 96, fc, G=G + 10.0, prices=0.6)
+    no_rest = plan_feeder("F1", eligible, None, fc, G=G, prices=0.6)
+    np.testing.assert_allclose(np.asarray(shifted.worst_export_curve) - 10.0, no_rest.worst_export_curve, atol=1e-3)
+
+
+def test_no_controllable_sites_returns_rule_curve(sunny):
+    rows, fc, peak = sunny
+    st = {r["site_id"]: AssetStatus(r["site_id"], "human_review", 0.0, "ood") for r in rows}
+    plan = plan_feeder("F1", rows, None, fc, G=0.7 * peak, prices=0.6, statuses=st)
+    base = self_consumption_plan("F1", rows, None, fc, G=0.7 * peak)
+    assert plan.solver_status == "no_controllable_sites" and plan.schedule == {}
+    np.testing.assert_allclose(plan.export_curve, base.export_curve, atol=1e-9)
+
+
+# --- aggregate fallback -----------------------------------------------------------------------------------
+def test_aggregate_fallback_feasible(sunny):
+    rows, fc, peak = sunny
+    G = 0.7 * peak
+    agg = plan_feeder_aggregate("F1", rows, None, fc, G=G, prices=0.6)
+    assert agg.method == "aggregate" and agg.policy == "sentinel"
+    assert agg.max_slack_kw <= 1e-6
+    assert max(agg.worst_export_curve) <= G + 1e-4
+    assert agg.extra["split_shortfall_kw"] < 1e-6
+    assert_reserve_and_replay(agg, rows)
+    tight = plan_feeder_aggregate("F1", rows, None, fc, G=0.3 * peak, prices=0.6)
+    assert tight.max_slack_kw > 0
+    assert_reserve_and_replay(tight, rows)
+
+
+# --- policies ---------------------------------------------------------------------------------------------
+def test_rule_simulation_matches_contract_step():
+    b = BatterySpec(capacity_kwh=10, p_max_kw=4, comfort_reserve_kwh=2)
+    pv = np.r_[np.zeros(30), np.full(30, 6.0), np.zeros(36)]
+    load = np.full(96, 1.0)
+    batt, e, grid = simulate_rule(b, 3.0, pv, load)
+    ek = 3.0
+    for t in range(96):
+        bk, ek_next, gk = self_consumption_step(b, ek, pv[t], load[t])
+        assert (batt[t], e[t + 1], grid[t]) == pytest.approx((bk, ek_next, gk))
+        ek = ek_next
+
+
+def test_threshold_rule_and_tuning(sunny):
+    rows, fc, peak = sunny
+    G = 0.7 * peak
+    days = []
+    for t0 in ("2025-06-20T00:00:00Z", SUMMER):
+        r, f = make_feeder(t0)
+        days.append(ValidationDay(
+            sites=r, pv={k: v["pv"].q90 for k, v in f.items()}, load={k: v["load"].q10 for k, v in f.items()},
+            g_kw=G, forecast_pv={k: v["pv"].q50 for k, v in f.items()},
+            forecast_load={k: v["load"].q50 for k, v in f.items()},
+        ))
+    tuned = tune_threshold(days, alphas=[0.0, 0.2, 0.4, 0.6, 0.8])
+    assert tuned.alpha > 0.0  # alpha = 0 is the baseline rule; a congested feeder wants a threshold
+    assert tuned.scores[tuned.alpha]["over_kwh"] < tuned.scores[0.0]["over_kwh"]
+    assert evaluate_threshold(days[0], 0.0)["over_kwh"] > 0
+    th = threshold_plan("F1", rows, None, fc, G=G, alpha=tuned.alpha)
+    base = self_consumption_plan("F1", rows, None, fc, G=G)
+    assert th.policy == "threshold" and sum(th.slack) < sum(base.slack)
+    assert_reserve_like_rule(th, rows)
+
+
+def assert_reserve_like_rule(plan, rows):
+    """Rule plans may use the battery down to soc_min (the rule serves load), never below it."""
+    for r in rows:
+        b = site_from_row(r).battery
+        assert min(plan.soc_kwh[r["site_id"]]) >= b.soc_min * b.capacity_kwh - 1e-9
+
+
+# --- helpers ----------------------------------------------------------------------------------------------
+def test_peak_mask_local_time():
+    summer = peak_mask_for(SUMMER, 96)  # UTC+3: 17:00 local = 14:00 UTC = step 56
+    assert np.flatnonzero(summer)[[0, -1]].tolist() == [56, 75]
+    winter = peak_mask_for(WINTER, 96)  # UTC+2
+    assert np.flatnonzero(winter)[[0, -1]].tolist() == [60, 79]
+
+
+def test_site_from_row_and_inputs():
+    s = site_from_row({"site_id": "X", "battery_kwh": 10, "battery_kw": 5, "comfort_reserve_kwh": 3, "soc": 0.1})
+    assert s.battery.e_min == 3 and s.initial_energy() == pytest.approx(1.0)
+    assert not site_from_row({"site_id": "Y", "battery_kwh": 0}).has_battery
+    with pytest.raises(ValueError):
+        LPParams(big_m=1.0, lam=10.0)
+    with pytest.raises(ValueError):
+        RestOfFeeder([0.0] * 3, [0.0] * 4)
+
+
+def test_battery_below_reserve_at_start_is_feasible(sunny):
+    rows, fc, peak = sunny
+    sites = [Site(r["site_id"], site_from_row(r).battery, e0_kwh=0.5) for r in rows]  # below the 2 kWh reserve
+    plan = plan_feeder("F1", sites, None, fc, G=0.7 * peak, prices=0.6)
+    for s in sites:
+        assert min(plan.soc_kwh[s.site_id]) >= 0.5 - 1e-6
+        assert plan.soc_kwh[s.site_id][-1] >= 0.5 - 1e-6
+
+
+def test_lp_scales_to_60_sites():
+    rows, fc = make_feeder(n=60)
+    G = 0.7 * float(worst_no_battery(fc).max())
+    t = time.perf_counter()
+    plan = plan_feeder("F1", rows, None, fc, G=G, prices=0.6)
+    assert time.perf_counter() - t < 20
+    assert plan.max_slack_kw == 0.0 and plan.simultaneous_steps == 0
