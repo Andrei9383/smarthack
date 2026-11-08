@@ -48,8 +48,7 @@ HIST_DAYS = 15  # ModelBank needs 14 days of history + 1 spare before the first 
 ALPHA = 0.2  # interval score for the P10-P90 band
 HIT_LO, HIT_HI = 0.60, 0.95  # §7.2 forecast validity
 MULTS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0)  # band multipliers for tau_widen / widen_factor
-N0, HALF_LIFE, BACKOFF_MIN = 7.0, 14.0, 5.0  # §6.3
-DEFAULT_PRIOR = {"calibration": 0.7, "sharpness": 0.3, "alarm_precision": 0.6, "miss_score": 0.9}
+N0 = 7.0  # ledger prior weight
 FORECAST_SCORES = ("calibration", "sharpness")
 DETECTOR_SCORES = ("alarm_precision", "miss_score")
 SUBSTITUTE = {"pvnet": "pvlib", "loadnet": "persistence_load"}
@@ -289,126 +288,6 @@ def grade_detector(alarm: np.ndarray, called: np.ndarray, truth: np.ndarray, hea
 def bucket_key(kind: str, seen: bool, battery: bool, month: int, gappy: bool, ood_high: bool) -> str:
     """kind|seen|battery|season|quality|ood (§6.1), J2's wattsentry.judge.buckets key."""
     return _bucket_key(kind, bool(seen), bool(battery), int(month), bool(gappy), bool(ood_high))
-
-
-def ancestors(key: str) -> list[str]:
-    parts = key.split("|")
-    return ["|".join(parts[:lv]) if lv else "*" for lv in range(len(parts), -1, -1)]
-
-
-class MiniLedger:
-    """Stand-in for J2's ledger (§6.3-§6.5). Outcome rows: model, day (int
-    day index), observed (int day index), bucket, score_name, score, weight; norm-error vigintiles for band scale."""
-
-    def __init__(self, priors: Optional[dict] = None):
-        self.priors = priors or {}
-        self.store: dict[tuple, dict[str, dict[int, list]]] = {}  # (model, score) -> key -> day -> [sum ws, sum w, obs]
-        self.err: list[tuple] = []  # (model, bucket, day, observed, e_q [20])
-        self.wipe_from: dict[str, int] = {}
-        self._alert: dict[tuple, int] = {}
-        self._alert_on: dict[tuple, bool] = {}
-        self._err_arr: Optional[tuple] = None
-
-    def prior(self, model: str, score: str, key: str) -> float:
-        p = self.priors.get(model.split("::")[0], {}).get(score, {})
-        for k in ancestors(key):
-            if k in p:
-                return float(p[k]["prior"] if isinstance(p[k], dict) else p[k])
-        return DEFAULT_PRIOR.get(score, 0.5)
-
-    def add(self, model: str, score_name: str, buckets: Sequence[str], day: int, observed: int,
-            scores: np.ndarray, weights: Optional[np.ndarray] = None) -> None:
-        """Asset-day scores of one graded day; summed per bucket and every ancestor (bucket-day averaging, §5.7)."""
-        w = np.ones(len(scores)) if weights is None else np.asarray(weights, float)
-        acc: dict[str, list] = {}
-        for b, sc, ww in zip(buckets, np.asarray(scores, float), w):
-            if np.isfinite(sc):
-                a = acc.setdefault(b, [0.0, 0.0])
-                a[0] += sc * ww
-                a[1] += ww
-        store = self.store.setdefault((model, score_name), {})
-        for b, (ws, ww) in acc.items():
-            for k in ancestors(b):
-                e = store.setdefault(k, {}).setdefault(day, [0.0, 0.0, observed])
-                e[0] += ws
-                e[1] += ww
-                e[2] = max(e[2], observed)
-
-    def add_err(self, model: str, buckets: Sequence[str], day: int, observed: int, e_q: np.ndarray) -> None:
-        for b, e in zip(buckets, e_q):
-            if np.isfinite(e).any():
-                self.err.append((model, b, day, observed, np.asarray(e, float)))
-        self._err_arr = None
-
-    def wipe(self, model: str, day: int) -> None:
-        """Cold start: forget every outcome of predictions made before `day` (a new model version)."""
-        self.wipe_from[model] = day
-
-    def _bucket_days(self, model: str, score: str, day: int) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-        """key (every ancestor) -> (graded days, bucket-day mean scores) observed by `day` (§5.7 averaging)."""
-        wipe = self.wipe_from.get(model, -10 ** 9)
-        out = {}
-        for k, by_day in self.store.get((model, score), {}).items():
-            ds = [(d, e[0] / e[1]) for d, e in by_day.items() if e[2] <= day and d >= wipe and e[1] > 0]
-            if ds:
-                arr = np.array(ds, float)
-                out[k] = (arr[:, 0], arr[:, 1])
-        return out
-
-    def trust(self, model: str, score: str, key: str, day: int, cache: Optional[dict] = None) -> dict[str, float]:
-        bd = cache if cache is not None else self._bucket_days(model, score, day)
-        chain = ancestors(key)
-        for lvl, k in enumerate(chain):
-            days, s = bd.get(k, (np.zeros(0), np.zeros(0)))
-            w = 0.5 ** ((day - days) / HALF_LIFE)
-            n_eff = float(w.sum())
-            if n_eff >= BACKOFF_MIN or k == "*":
-                prior = self.prior(model, score, key)
-                t = (N0 * prior + float((w * s).sum())) / (N0 + n_eff)
-                return {"trust": t, "n_eff": n_eff, "prior": prior, "level": len(chain) - 1 - lvl}
-        raise AssertionError("unreachable")
-
-    def band_scale(self, model: str, key: str, day: int) -> float:
-        """§6.4: the weighted 80 % quantile of recent normalised errors (hit rate -> 0.80), bounded 0.5-3; backs off
-        to the parent bucket below 5 effective asset-days; 1.0 with no evidence."""
-        if self._err_arr is None:
-            self._err_arr = (np.array([r[0] for r in self.err], object), np.array([r[1] for r in self.err], str),
-                             np.array([r[2] for r in self.err], float), np.array([r[3] for r in self.err], float),
-                             np.stack([r[4] for r in self.err]) if self.err else np.zeros((0, 20)))
-        mods, bks, days, obs, E = self._err_arr
-        base = (mods == model) & (obs <= day) & (days >= self.wipe_from.get(model, -10 ** 9))
-        if not base.any():
-            return 1.0
-        for k in ancestors(key):
-            m = base if k == "*" else base & ((bks == k) | np.char.startswith(bks, k + "|"))
-            w = 0.5 ** ((day - days[m]) / HALF_LIFE)
-            if w.sum() >= BACKOFF_MIN or k == "*":
-                if not m.any():
-                    return 1.0
-                e = E[m].ravel()
-                ww = np.repeat(w, E.shape[1])
-                ok = np.isfinite(e)
-                e, ww = e[ok], ww[ok]
-                if ww.sum() <= 0:
-                    return 1.0
-                o = np.argsort(e)
-                cw = np.cumsum(ww[o]) / ww.sum()
-                return float(np.clip(e[o][min(np.searchsorted(cw, 0.8), len(e) - 1)], 0.5, 3.0))
-        return 1.0
-
-    def alert_step(self, model: str, key: str, gap: float, n_eff: float) -> bool:
-        """§6.5 hysteresis on gap = trust - prior (worst score): raise after 3 consecutive days below -0.2 with
-        n_eff >= 5, clear once it is back above -0.1."""
-        k = (model, key)
-        on = self._alert_on.get(k, False)
-        if on:
-            on = gap <= -0.1
-            self._alert[k] = 0
-        else:
-            self._alert[k] = self._alert.get(k, 0) + 1 if (gap < -0.2 and n_eff >= BACKOFF_MIN) else 0
-            on = self._alert[k] >= 3
-        self._alert_on[k] = on
-        return on
 
 
 def lo80(trust, n_eff):
@@ -948,7 +827,7 @@ def _week_rows(m, p, d, keys, table, version, g, subs, spec, asset_ids, seen, ba
 
 
 def _history_cols(p: dict, fam: str, d: int) -> dict[str, np.ndarray]:
-    """The witness's own outputs on earlier days of the replay (burn-in included, drift included): F.HISTORY_COLUMNS.
+    """The witness's own outputs on earlier days of the replay (burn-in included, drift included): the hist_* columns.
     Per-day summaries are computed once per witness and kept on `p`."""
     if "_daily" not in p:
         if fam == "forecast":
