@@ -1,7 +1,7 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-export const feederSummarySchema = z.object({
+const feederSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
   county: z.string(),
@@ -13,9 +13,8 @@ export const feederSummarySchema = z.object({
   gisTrust: z.enum(["ok", "low"]).nullable().optional(),
   geometryJson: z.string().nullable().optional(),
 });
-export type FeederSummary = z.infer<typeof feederSummarySchema>;
 
-export const feederCurvePointSchema = z.object({
+const feederCurvePointSchema = z.object({
   ts: z.string(),
   exportKw: z.number(),
   importKw: z.number().default(0),
@@ -24,20 +23,8 @@ export const feederCurvePointSchema = z.object({
   policy: z.string(),
   isViolation: z.number().default(0),
 });
-export type FeederCurvePoint = z.infer<typeof feederCurvePointSchema>;
 
-export const commitmentPointSchema = z.object({
-  ts: z.string(),
-  nominalKw: z.number(),
-  availableKw: z.number(),
-  committedKw: z.number(),
-  realisedKw: z.number().nullable().optional(),
-  haircutH: z.number().nullable().optional(),
-  hit: z.number().nullable().optional(),
-});
-export type CommitmentPoint = z.infer<typeof commitmentPointSchema>;
-
-export const gisFlagItemSchema = z.object({
+const gisFlagItemSchema = z.object({
   actionId: z.string(),
   sectionId: z.string(),
   recordedFeeder: z.string().nullable().optional(),
@@ -47,7 +34,6 @@ export const gisFlagItemSchema = z.object({
   tau: z.number().nullable().optional(),
   geometryJson: z.string().nullable().optional(),
 });
-export type GisFlagItem = z.infer<typeof gisFlagItemSchema>;
 
 const windowInput = {
   from: z.string().optional(), // ISO-8601 UTC, inclusive
@@ -55,38 +41,35 @@ const windowInput = {
   runId: z.string().optional(),
 };
 
-export const feederOverLimitSchema = z.object({
+const feederOverLimitSchema = z.object({
   feederId: z.string(),
   policy: z.string(),
   minutesOver: z.number(),
   peakExportKw: z.number(),
 });
-export type FeederOverLimit = z.infer<typeof feederOverLimitSchema>;
 
-export const socFanPointSchema = z.object({
+const socFanPointSchema = z.object({
   ts: z.string(),
   socQ10: z.number(),
   socQ50: z.number(),
   socQ90: z.number(),
 });
-export type SocFanPoint = z.infer<typeof socFanPointSchema>;
 
-export const absorbingSiteSchema = z.object({
+const absorbingSiteSchema = z.object({
   assetId: z.string(),
   absorbedKwh: z.number(),
 });
-export type AbsorbingSite = z.infer<typeof absorbingSiteSchema>;
 
-// Feature G (grid) results, read from the JSON documents G1 #159 / G2 #160 / G3 #161 write (no DB table).
+// Grid results, read from the hosting-capacity, voltage and DSO-value JSON documents (no DB table).
 const nn = z.number().nullable();
-export const voltagePolicySchema = z.object({
+const voltagePolicySchema = z.object({
   violations: z.number(),
   minutes: z.number(),
   tripKwh: z.number(),
   tripLei: z.number(),
   vMax: z.number(),
 });
-export const gridResultsSchema = z.object({
+const gridResultsSchema = z.object({
   hosting: z
     .object({
       label: z.string(),
@@ -166,13 +149,10 @@ export const feedersContract = {
   getSocFan: oc
     .input(z.object({ feederId: z.string(), policy: z.string(), ...windowInput }))
     .output(z.array(socFanPointSchema)),
-  // Sentinel charging during the steps where the baseline is over the limit.
+  // Sentinel-policy charging during the steps where the baseline is over the limit.
   getAbsorption: oc
     .input(z.object({ feederId: z.string(), ...windowInput }))
     .output(z.array(absorbingSiteSchema)),
-  getCommitments: oc
-    .input(z.object({ feederId: z.string(), runId: z.string().optional() }))
-    .output(z.array(commitmentPointSchema)),
   listGisFlags: oc
     .input(z.object({ runId: z.string().optional() }).optional())
     .output(z.array(gisFlagItemSchema)),

@@ -1,16 +1,13 @@
 "use client";
 
 import type * as MapLibreGL from "maplibre-gl";
-import type { MarkerOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type * as GeoJSON from "geojson";
 import {
   createContext,
-  forwardRef,
   useContext,
   useEffect,
   useId,
-  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -47,45 +44,6 @@ const defaultStyles = {
   light: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
 };
 
-// A tile-less, dependency-free style with a transparent background. Use it for
-// data visualizations (choropleths, world arcs, dot maps) where you draw your
-// own layers and don't need a street basemap. The easiest way to opt in is the
-// `blank` prop:
-//   <Map blank>...</Map>
-// The transparent background lets the themed container show through.
-const blankMapStyle: MapLibreGL.StyleSpecification = {
-  version: 8,
-  sources: {},
-  layers: [
-    {
-      id: "background",
-      type: "background",
-      paint: { "background-color": "rgba(0, 0, 0, 0)" },
-    },
-  ],
-};
-
-// On a globe the background only covers the sphere, so a neutral tint gives it
-// a visible edge in both themes.
-const blankGlobeStyle: MapLibreGL.StyleSpecification = {
-  ...blankMapStyle,
-  projection: { type: "globe" },
-  layers: [
-    {
-      id: "background",
-      type: "background",
-      paint: { "background-color": "rgba(128, 128, 128, 0.12)" },
-    },
-  ],
-};
-
-// Prevent equivalent inline style objects from triggering a full map style reload.
-function useStableValue<T>(value: T): T {
-  const key = useMemo(() => JSON.stringify(value) ?? "", [value]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => value, [key]);
-}
-
 function mergeHoverPaint<T extends Record<string, unknown>>(
   paint: T,
   hoverPaint: T | undefined,
@@ -110,66 +68,6 @@ function mergeHoverPaint<T extends Record<string, unknown>>(
 
 type Theme = "light" | "dark";
 
-// Check the document for an explicit theme (works with next-themes, etc.).
-// Covers both `attribute="class"` (the default) and `attribute="data-theme"`.
-function getDocumentTheme(): Theme | null {
-  if (typeof document === "undefined") return null;
-  const root = document.documentElement;
-  if (root.classList.contains("dark")) return "dark";
-  if (root.classList.contains("light")) return "light";
-  const dataTheme = root.dataset.theme;
-  if (dataTheme === "dark" || dataTheme === "light") return dataTheme;
-  return null;
-}
-
-// Get system preference
-function getSystemTheme(): Theme {
-  if (typeof window === "undefined") return "light";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-}
-
-function useResolvedTheme(themeProp?: "light" | "dark"): Theme {
-  const [detectedTheme, setDetectedTheme] = useState<Theme>(
-    () => getDocumentTheme() ?? getSystemTheme(),
-  );
-
-  useEffect(() => {
-    if (themeProp) return; // Skip detection if theme is provided via prop
-
-    // Watch for document theme changes (e.g., next-themes toggling the class
-    // or the data-theme attribute).
-    const observer = new MutationObserver(() => {
-      const docTheme = getDocumentTheme();
-      if (docTheme) {
-        setDetectedTheme(docTheme);
-      }
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class", "data-theme"],
-    });
-
-    // Also watch for system preference changes
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleSystemChange = (e: MediaQueryListEvent) => {
-      // Only use system preference if no document class is set
-      if (!getDocumentTheme()) {
-        setDetectedTheme(e.matches ? "dark" : "light");
-      }
-    };
-    mediaQuery.addEventListener("change", handleSystemChange);
-
-    return () => {
-      observer.disconnect();
-      mediaQuery.removeEventListener("change", handleSystemChange);
-    };
-  }, [themeProp]);
-
-  return themeProp ?? detectedTheme;
-}
-
 type MapContextValue = {
   map: MapLibreGL.Map | null;
   mapLib: MapLibreModule | null;
@@ -187,67 +85,18 @@ function useMap() {
   return context;
 }
 
-function useMapLib() {
-  const { mapLib } = useMap();
-  if (!mapLib) {
-    throw new Error("useMapLib must be used within a Map component");
-  }
-  return mapLib;
-}
-
-/** Map viewport state */
-type MapViewport = {
-  /** Center coordinates [longitude, latitude] */
-  center: [number, number];
-  /** Zoom level */
-  zoom: number;
-  /** Bearing (rotation) in degrees */
-  bearing: number;
-  /** Pitch (tilt) in degrees */
-  pitch: number;
-};
-
 type MapStyleOption = string | MapLibreGL.StyleSpecification;
-
-type MapRef = MapLibreGL.Map;
 
 type MapProps = {
   children?: ReactNode;
   /** Additional CSS classes for the map container */
   className?: string;
-  /**
-   * Theme for the map. If not provided, automatically detects system preference.
-   * Pass your theme value here.
-   */
-  theme?: Theme;
+  theme: Theme;
   /** Custom map styles for light and dark themes. Overrides the default Carto styles. */
   styles?: {
     light?: MapStyleOption;
     dark?: MapStyleOption;
   };
-  /**
-   * Use a transparent, tile-less basemap instead of the default Carto street
-   * basemap — a blank canvas. Used alone it renders nothing; add your own
-   * layers on top (`<MapGeoJSON>`, `<MapArc>`, markers, etc.). Ideal for data
-   * visualizations (choropleths, arcs, dot maps). Globes get a tinted sphere.
-   * Ignored when an explicit `styles` prop is provided.
-   */
-  blank?: boolean;
-  /** Map projection type. Use `{ type: "globe" }` for 3D globe view. */
-  projection?: MapLibreGL.ProjectionSpecification;
-  /**
-   * Controlled viewport. When provided with onViewportChange,
-   * the map becomes controlled and viewport is driven by this prop.
-   */
-  viewport?: Partial<MapViewport>;
-  /**
-   * Callback fired continuously as the viewport changes (pan, zoom, rotate, pitch).
-   * Can be used standalone to observe changes, or with `viewport` prop
-   * to enable controlled mode where the map viewport is driven by your state.
-   */
-  onViewportChange?: (viewport: MapViewport) => void;
-  /** Show a loading indicator on the map */
-  loading?: boolean;
 } & Omit<MapLibreGL.MapOptions, "container" | "style">;
 
 function DefaultLoader() {
@@ -262,31 +111,7 @@ function DefaultLoader() {
   );
 }
 
-function getViewport(map: MapLibreGL.Map): MapViewport {
-  const center = map.getCenter();
-  return {
-    center: [center.lng, center.lat],
-    zoom: map.getZoom(),
-    bearing: map.getBearing(),
-    pitch: map.getPitch(),
-  };
-}
-
-const Map = forwardRef<MapRef, MapProps>(function Map(
-  {
-    children,
-    className,
-    theme: themeProp,
-    styles,
-    blank = false,
-    projection,
-    viewport,
-    onViewportChange,
-    loading = false,
-    ...props
-  },
-  ref,
-) {
+function Map({ children, className, theme, styles, ...props }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapLib, setMapLib] = useState<MapLibreModule | null>(null);
   const [mapInstance, setMapInstance] = useState<MapLibreGL.Map | null>(null);
@@ -294,39 +119,17 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
   const [isStyleLoaded, setIsStyleLoaded] = useState(false);
   const [pendingStyle, setPendingStyle] = useState<MapStyleOption | null>(null);
   const currentStyleRef = useRef<MapStyleOption | null>(null);
-  const styleSwapInFlightRef = useRef(false);
-  const internalUpdateRef = useRef(false);
-  const resolvedTheme = useResolvedTheme(themeProp);
 
-  const isControlled = viewport !== undefined && onViewportChange !== undefined;
+  const mapStyles = useMemo(
+    () => ({
+      dark: styles?.dark ?? defaultStyles.dark,
+      light: styles?.light ?? defaultStyles.light,
+    }),
+    [styles],
+  );
 
-  const onViewportChangeRef = useRef(onViewportChange);
-  onViewportChangeRef.current = onViewportChange;
-
-  const stableStyles = useStableValue(styles);
-  const isGlobe = projection?.type === "globe";
-
-  const mapStyles = useMemo(() => {
-    // Explicit styles win. Otherwise `blank` opts into the transparent
-    // tile-less basemap; with neither, fall back to the Carto defaults.
-    if (stableStyles) {
-      return {
-        dark: stableStyles.dark ?? defaultStyles.dark,
-        light: stableStyles.light ?? defaultStyles.light,
-      };
-    }
-    if (blank) {
-      const style = isGlobe ? blankGlobeStyle : blankMapStyle;
-      return { dark: style, light: style };
-    }
-    return defaultStyles;
-  }, [stableStyles, blank, isGlobe]);
-
-  const initOptionsRef = useRef({ props, viewport, resolvedTheme, mapStyles });
-  initOptionsRef.current = { props, viewport, resolvedTheme, mapStyles };
-
-  // Expose the map instance to the parent component
-  useImperativeHandle(ref, () => mapInstance as MapLibreGL.Map, [mapInstance]);
+  const initOptionsRef = useRef({ props, theme, mapStyles });
+  initOptionsRef.current = { props, theme, mapStyles };
 
   // Initialize the map once maplibre-gl has loaded
   useEffect(() => {
@@ -338,10 +141,8 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
         if (cancelled || !containerRef.current) return;
 
         // Latest props, not the first render's
-        const { props, viewport, resolvedTheme, mapStyles } =
-          initOptionsRef.current;
-        const initialStyle =
-          resolvedTheme === "dark" ? mapStyles.dark : mapStyles.light;
+        const { props, theme, mapStyles } = initOptionsRef.current;
+        const initialStyle = mapStyles[theme];
         currentStyleRef.current = initialStyle;
 
         // Create the map (no painter means WebGL2 is unavailable)
@@ -353,24 +154,13 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
             compact: true,
           },
           ...props,
-          ...viewport,
         });
         if (!instance.painter) throw new lib.GPUInitializationError({}, null);
         map = instance;
 
-        // Track load state
         instance.on("load", () => setIsLoaded(true));
-        instance.on("style.load", () => {
-          styleSwapInFlightRef.current = false;
-          setIsStyleLoaded(true);
-        });
-        // Skip viewport changes triggered by internal updates
-        instance.on("move", () => {
-          if (internalUpdateRef.current) return;
-          onViewportChangeRef.current?.(getViewport(instance));
-        });
+        instance.on("style.load", () => setIsStyleLoaded(true));
 
-        // set values for context
         setMapLib(lib);
         setMapInstance(instance);
       })
@@ -392,74 +182,33 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
     };
   }, []);
 
-  // Sync controlled viewport to map
-  useEffect(() => {
-    if (!mapInstance || !isControlled || !viewport) return;
-    if (mapInstance.isMoving()) return;
-
-    const current = getViewport(mapInstance);
-    const next = {
-      center: viewport.center ?? current.center,
-      zoom: viewport.zoom ?? current.zoom,
-      bearing: viewport.bearing ?? current.bearing,
-      pitch: viewport.pitch ?? current.pitch,
-    };
-
-    if (
-      next.center[0] === current.center[0] &&
-      next.center[1] === current.center[1] &&
-      next.zoom === current.zoom &&
-      next.bearing === current.bearing &&
-      next.pitch === current.pitch
-    ) {
-      return;
-    }
-
-    internalUpdateRef.current = true;
-    mapInstance.jumpTo(next);
-    internalUpdateRef.current = false;
-  }, [mapInstance, isControlled, viewport]);
-
   // Handle style change: close the gate (so layer children tear down and
   // re-add on the incoming style) - the swap itself is staged to the effect below.
   useEffect(() => {
-    if (!mapInstance || !resolvedTheme) return;
-
-    const newStyle =
-      resolvedTheme === "dark" ? mapStyles.dark : mapStyles.light;
-
+    if (!mapInstance) return;
+    const newStyle = mapStyles[theme];
     if (currentStyleRef.current === newStyle) return;
-
     currentStyleRef.current = newStyle;
     setIsStyleLoaded(false);
     setPendingStyle(newStyle);
-  }, [mapInstance, resolvedTheme, mapStyles]);
+  }, [mapInstance, theme, mapStyles]);
 
   useEffect(() => {
     if (!mapInstance || !pendingStyle) return;
-
     setPendingStyle(null);
-    styleSwapInFlightRef.current = true;
     // Full reload (no diff) so `style.load` fires deterministically. A
     // successful diff would never fire it, leaving isStyleLoaded stuck false.
     mapInstance.setStyle(pendingStyle, { diff: false });
   }, [mapInstance, pendingStyle]);
-
-  // Sync projection when the prop changes after mount.
-  useEffect(() => {
-    if (!mapInstance || !isStyleLoaded || !projection) return;
-    if (styleSwapInFlightRef.current) return;
-    mapInstance.setProjection(projection);
-  }, [mapInstance, isStyleLoaded, projection]);
 
   const contextValue = useMemo(
     () => ({
       map: mapInstance,
       mapLib,
       isLoaded: isLoaded && isStyleLoaded,
-      resolvedTheme,
+      resolvedTheme: theme,
     }),
-    [mapInstance, mapLib, isLoaded, isStyleLoaded, resolvedTheme],
+    [mapInstance, mapLib, isLoaded, isStyleLoaded, theme],
   );
 
   return (
@@ -468,207 +217,77 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
         ref={containerRef}
         className={cn("relative h-full w-full", className)}
       >
-        {(!isLoaded || loading) && <DefaultLoader />}
+        {!isLoaded && <DefaultLoader />}
         {/* SSR-safe: children render only when map is loaded on client */}
         {mapInstance && children}
       </div>
     </MapContext.Provider>
   );
-});
-
-type MarkerContextValue = {
-  marker: MapLibreGL.Marker;
-  map: MapLibreGL.Map | null;
-};
-
-const MarkerContext = createContext<MarkerContextValue | null>(null);
-
-function useMarkerContext() {
-  const context = useContext(MarkerContext);
-  if (!context) {
-    throw new Error("Marker components must be used within MapMarker");
-  }
-  return context;
 }
 
+const MarkerContext = createContext<MapLibreGL.Marker | null>(null);
+
 type MapMarkerProps = {
-  /** Longitude coordinate for marker position */
   longitude: number;
-  /** Latitude coordinate for marker position */
   latitude: number;
-  /** Marker subcomponents (MarkerContent, MarkerPopup, MarkerTooltip, MarkerLabel) */
+  /** MarkerContent */
   children: ReactNode;
-  /** Callback when marker is clicked */
   onClick?: (e: MouseEvent) => void;
-  /** Callback when mouse enters marker */
-  onMouseEnter?: (e: MouseEvent) => void;
-  /** Callback when mouse leaves marker */
-  onMouseLeave?: (e: MouseEvent) => void;
-  /** Callback when marker drag starts (requires draggable: true) */
-  onDragStart?: (lngLat: { lng: number; lat: number }) => void;
-  /** Callback during marker drag (requires draggable: true) */
-  onDrag?: (lngLat: { lng: number; lat: number }) => void;
-  /** Callback when marker drag ends (requires draggable: true) */
-  onDragEnd?: (lngLat: { lng: number; lat: number }) => void;
-} & Omit<MarkerOptions, "element">;
+};
 
-function MapMarker({
-  longitude,
-  latitude,
-  children,
-  onClick,
-  onMouseEnter,
-  onMouseLeave,
-  onDragStart,
-  onDrag,
-  onDragEnd,
-  draggable = false,
-  ...markerOptions
-}: MapMarkerProps) {
-  const { map } = useMap();
-  const { Marker } = useMapLib();
+function MapMarker({ longitude, latitude, children, onClick }: MapMarkerProps) {
+  const { map, mapLib } = useMap();
 
-  const callbacksRef = useRef({
-    onClick,
-    onMouseEnter,
-    onMouseLeave,
-    onDragStart,
-    onDrag,
-    onDragEnd,
-  });
-  callbacksRef.current = {
-    onClick,
-    onMouseEnter,
-    onMouseLeave,
-    onDragStart,
-    onDrag,
-    onDragEnd,
-  };
+  const onClickRef = useRef(onClick);
+  onClickRef.current = onClick;
 
   const marker = useMemo(() => {
-    const markerInstance = new Marker({
-      ...markerOptions,
+    if (!mapLib) throw new Error("MapMarker must be used within a Map component");
+    const markerInstance = new mapLib.Marker({
       element: document.createElement("div"),
-      draggable,
     }).setLngLat([longitude, latitude]);
-
-    const handleClick = (e: MouseEvent) => callbacksRef.current.onClick?.(e);
-    const handleMouseEnter = (e: MouseEvent) =>
-      callbacksRef.current.onMouseEnter?.(e);
-    const handleMouseLeave = (e: MouseEvent) =>
-      callbacksRef.current.onMouseLeave?.(e);
-
-    markerInstance.getElement()?.addEventListener("click", handleClick);
     markerInstance
       .getElement()
-      ?.addEventListener("mouseenter", handleMouseEnter);
-    markerInstance
-      .getElement()
-      ?.addEventListener("mouseleave", handleMouseLeave);
-
-    const handleDragStart = () => {
-      const lngLat = markerInstance.getLngLat();
-      callbacksRef.current.onDragStart?.({ lng: lngLat.lng, lat: lngLat.lat });
-    };
-    const handleDrag = () => {
-      const lngLat = markerInstance.getLngLat();
-      callbacksRef.current.onDrag?.({ lng: lngLat.lng, lat: lngLat.lat });
-    };
-    const handleDragEnd = () => {
-      const lngLat = markerInstance.getLngLat();
-      callbacksRef.current.onDragEnd?.({ lng: lngLat.lng, lat: lngLat.lat });
-    };
-
-    markerInstance.on("dragstart", handleDragStart);
-    markerInstance.on("drag", handleDrag);
-    markerInstance.on("dragend", handleDragEnd);
-
+      ?.addEventListener("click", (e) => onClickRef.current?.(e));
     return markerInstance;
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!map) return;
-
     marker.addTo(map);
-
     return () => {
       marker.remove();
     };
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map]);
-
-  const { offset, rotation, rotationAlignment, pitchAlignment } = markerOptions;
 
   useEffect(() => {
     const current = marker.getLngLat();
     if (current.lng !== longitude || current.lat !== latitude) {
       marker.setLngLat([longitude, latitude]);
     }
-
-    if (marker.isDraggable() !== draggable) {
-      marker.setDraggable(draggable);
-    }
-
-    const currentOffset = marker.getOffset();
-    const newOffset = offset ?? [0, 0];
-    const [newOffsetX, newOffsetY] = Array.isArray(newOffset)
-      ? newOffset
-      : [newOffset.x, newOffset.y];
-    if (currentOffset.x !== newOffsetX || currentOffset.y !== newOffsetY) {
-      marker.setOffset(newOffset);
-    }
-
-    if (marker.getRotation() !== (rotation ?? 0)) {
-      marker.setRotation(rotation ?? 0);
-    }
-    if (marker.getRotationAlignment() !== (rotationAlignment ?? "auto")) {
-      marker.setRotationAlignment(rotationAlignment ?? "auto");
-    }
-    if (marker.getPitchAlignment() !== (pitchAlignment ?? "auto")) {
-      marker.setPitchAlignment(pitchAlignment ?? "auto");
-    }
-  }, [
-    marker,
-    longitude,
-    latitude,
-    draggable,
-    offset,
-    rotation,
-    rotationAlignment,
-    pitchAlignment,
-  ]);
+  }, [marker, longitude, latitude]);
 
   return (
-    <MarkerContext.Provider value={{ marker, map }}>
-      {children}
-    </MarkerContext.Provider>
+    <MarkerContext.Provider value={marker}>{children}</MarkerContext.Provider>
   );
 }
 
-type MarkerContentProps = {
-  /** Custom marker content. Defaults to a blue dot if not provided */
-  children?: ReactNode;
-  /** Additional CSS classes for the marker container */
+function MarkerContent({
+  children,
+  className,
+}: {
+  children: ReactNode;
   className?: string;
-};
-
-function MarkerContent({ children, className }: MarkerContentProps) {
-  const { marker } = useMarkerContext();
-
+}) {
+  const marker = useContext(MarkerContext);
+  if (!marker) {
+    throw new Error("Marker components must be used within MapMarker");
+  }
   return createPortal(
-    <div className={cn("relative cursor-pointer", className)}>
-      {children || <DefaultMarkerIcon />}
-    </div>,
+    <div className={cn("relative cursor-pointer", className)}>{children}</div>,
     marker.getElement(),
-  );
-}
-
-function DefaultMarkerIcon() {
-  return (
-    <div className="relative h-4 w-4 rounded-full border-2 border-white bg-blue-500 shadow-lg" />
   );
 }
 
@@ -752,10 +371,8 @@ const GEOJSON_DEFAULT_COLORS = {
 } satisfies Record<Theme, { fill: string; line: string }>;
 
 /**
- * Renders arbitrary GeoJSON as fill + outline layers on the map. Composes like
- * `MapRoute` / `MapArc` — drop it inside `<Map>` (typically with `blank`) for
- * choropleths and region/data maps. For full control over expressions and
- * multiple layers, manage layers directly via `useMap()` instead.
+ * Renders arbitrary GeoJSON as fill + outline layers on the map. For full control over
+ * expressions and multiple layers, manage layers directly via `useMap()` instead.
  */
 function MapGeoJSON<
   P extends GeoJSON.GeoJsonProperties = GeoJSON.GeoJsonProperties,

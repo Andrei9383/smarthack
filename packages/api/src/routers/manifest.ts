@@ -8,7 +8,7 @@ import {
   parks,
   runs,
   workOrders,
-} from "@wattsentry/db/schema/sentinel";
+} from "@wattsentry/db/schema/replay";
 import { and, count, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 
 import type { Context } from "../context";

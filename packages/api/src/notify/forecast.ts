@@ -1,17 +1,17 @@
-// Day-ahead feeder congestion forecast (card #120, team/contracts/notify.md).
+// Day-ahead feeder congestion forecast.
 //
 // Export forecast per 15-min step = sum over the feeder's homes of M1 PVNet PV quantiles (asset_steps)
 // minus yesterday's measured load at the same time (persistence load forecast). Everything used is known
 // the evening before the day, so the notice can go out then. Pure functions: the router feeds them rows.
 
+import type { CongestionLevelValue as CongestionLevel } from "../contract/notify";
+
 export const STEP_HOURS = 0.25;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type CongestionLevel = "none" | "watch" | "congested" | "severe";
 export const LEVEL_RANK: Record<CongestionLevel, number> = { none: 0, watch: 1, congested: 2, severe: 3 };
 
-// Thresholds (why: see team/contracts/notify.md).
-export const THRESHOLDS = {
+const THRESHOLDS = {
   /** congested: P50 export over the limit for at least this many steps (30 min) */
   congestedSteps: 2,
   /** severe: P10 export over the limit for at least this many steps (1 h), i.e. over even on a dull day */
@@ -22,7 +22,7 @@ export const THRESHOLDS = {
   watchRatio: 0.9,
 };
 
-export type LoadSource = "yesterday" | "weekly_profile" | "none";
+type LoadSource = "yesterday" | "weekly_profile" | "none";
 
 export type ForecastStep = {
   ts: string;
@@ -33,7 +33,7 @@ export type ForecastStep = {
   loadSource: LoadSource;
 };
 
-export type FeederForecast = {
+type FeederForecast = {
   level: CongestionLevel;
   windowFrom: string | null; // first step of the congestion window (UTC)
   windowTo: string | null; // end of the last step (exclusive, UTC)
@@ -45,12 +45,11 @@ export type FeederForecast = {
   overLimitP50Kwh: number;
   loadSource: LoadSource;
   reason: string;
-  steps: ForecastStep[];
 };
 
-export const shiftTs = (ts: string, ms: number) =>
+const shiftTs = (ts: string, ms: number) =>
   new Date(Date.parse(ts) + ms).toISOString().replace(".000Z", "Z");
-export const yesterday = (ts: string) => shiftTs(ts, -DAY_MS);
+const yesterday = (ts: string) => shiftTs(ts, -DAY_MS);
 const minuteOfDay = (ts: string) => {
   const d = new Date(ts);
   return d.getUTCHours() * 60 + d.getUTCMinutes();
@@ -131,7 +130,6 @@ export function gradeForecast(steps: ForecastStep[]): FeederForecast {
     overLimitP50Kwh: overKwh,
     loadSource: worstSource(steps),
     reason,
-    steps,
   };
 }
 

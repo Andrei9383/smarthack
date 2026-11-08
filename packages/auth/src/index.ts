@@ -4,7 +4,7 @@ import * as schema from "@wattsentry/db/schema/auth";
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
 
-export type AuthConfig = {
+type AuthConfig = {
   BETTER_AUTH_URL: string;
   BETTER_AUTH_SECRET: string;
 };
