@@ -18,8 +18,10 @@ cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .ven
 timeout = "15m"
 
 [runs.preview]
-setup   = "set -e; npm ci --no-audit --no-fund && { [ -f demo/sentinel.sqlite ] || python3 demo/fixtures/make_fixtures.py; } && npm run build"
-cmd     = "npm start"               # must listen on $HOST:$PORT (both set by the lab)
+# #211: when demo/sentinel-homes600.sqlite.gz (600-home fleet, replay #568) is committed, the preview serves it;
+# delete the .gz to go back to demo/sentinel.sqlite (replay#506).
+setup   = "set -e; npm ci --no-audit --no-fund && { [ -f demo/sentinel.sqlite ] || python3 demo/fixtures/make_fixtures.py; } && { [ ! -f demo/sentinel-homes600.sqlite.gz ] || python3 -c 'import gzip,shutil; shutil.copyfileobj(gzip.open(\"demo/sentinel-homes600.sqlite.gz\"), open(\"demo/sentinel-homes600.sqlite\",\"wb\"))'; } && npm run build"
+cmd     = "if [ -f demo/sentinel-homes600.sqlite ]; then export DATABASE_URL=file:$PWD/demo/sentinel-homes600.sqlite; fi; npm start"   # must listen on $HOST:$PORT (both set by the lab)
 keep    = true
 
 # ML runs (Stefan, #6). Light deps everywhere; torch only where a run trains. MODEL / POLICY can be overridden per

@@ -18,3 +18,6 @@ sentinel/_core*.so
 sentinel/_core*.pyd
 # live feed output (card #128)
 demo/live.sqlite*
+# unpacked from demo/sentinel-homes600.sqlite.gz (card #211)
+demo/sentinel-homes600.sqlite
+demo/sentinel-homes600.sqlite-*
