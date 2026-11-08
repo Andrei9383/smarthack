@@ -1,0 +1,265 @@
+/* One-pager tokens. Values mirror the Calm palette in packages/ui/src/styles/globals.css (light roles for
+   paper sections, charcoal roles for night sections) so the page reads as the same product. The page sets its
+   own scope so the app's light/dark toggle never repaints it. */
+
+.op {
+  --op-bg: #f6f7f8;
+  --op-paper: #ffffff;
+  --op-raised: #f1f2f4;
+  --op-ink: #111113;
+  --op-ink-2: #3f3f46;
+  --op-muted: #6b6b74;
+  --op-line: #e7e8eb;
+  --op-line-strong: #d4d5da;
+
+  --op-night: #0d0e10;
+  --op-night-2: #18191b;
+  --op-night-3: #1f2023;
+  --op-night-line: #2e2f33;
+  --op-night-text: #ededef;
+  --op-night-muted: #9b9ba2;
+
+  --op-emerald: #0b7f48;
+  --op-emerald-2: #12b76a;
+  --op-glow: #3dd68c;
+  --op-live: #00dc55;
+  --op-critical: #c9353b;
+  --op-critical-glow: #ee8a91;
+  --op-sun: #f3c56a;
+  --op-forecast: #69d4e4;
+  --op-soc: #a5b4fc;
+  --op-review: #c4b5fd;
+  --op-warn: #b45309;
+
+  --op-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  background: var(--op-bg);
+  color: var(--op-ink);
+  font-family: var(--font-sans, "Inter Variable", ui-sans-serif, system-ui, sans-serif);
+  font-feature-settings: "ss01", "cv11";
+  overflow-x: clip;
+}
+
+.op ::selection {
+  background: color-mix(in oklab, var(--op-glow) 35%, transparent);
+}
+
+html:has(.op) {
+  scroll-behavior: smooth;
+}
+
+/* Film grain over the whole page: keeps the large gradients from banding and gives the "HDR" depth. */
+.op-grain {
+  pointer-events: none;
+  position: fixed;
+  inset: -50%;
+  z-index: 60;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  animation: op-grain 1.2s steps(6) infinite;
+}
+
+@keyframes op-grain {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-3%, 2%); }
+  40% { transform: translate(2%, -3%); }
+  60% { transform: translate(-2%, -1%); }
+  80% { transform: translate(3%, 3%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* Aurora: soft light sources that drift. Used behind the product frame and the closing section. */
+.op-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.op-aurora > span {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.75;
+  will-change: transform;
+  animation: op-drift 18s var(--op-ease) infinite alternate;
+}
+
+.op-aurora > span:nth-child(2) { animation-duration: 22s; animation-delay: -6s; }
+.op-aurora > span:nth-child(3) { animation-duration: 26s; animation-delay: -11s; }
+.op-aurora > span:nth-child(4) { animation-duration: 30s; animation-delay: -3s; }
+
+@keyframes op-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(6%, -8%, 0) scale(1.12); }
+  100% { transform: translate3d(-8%, 6%, 0) scale(0.94); }
+}
+
+/* Rotating light on a frame edge (the product window and the closing CTA). */
+@property --op-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.op-edge {
+  position: relative;
+  isolation: isolate;
+}
+
+.op-edge::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--op-angle),
+    transparent 0deg,
+    color-mix(in oklab, var(--op-glow) 90%, white) 40deg,
+    transparent 110deg,
+    transparent 200deg,
+    color-mix(in oklab, var(--op-forecast) 80%, white) 250deg,
+    transparent 320deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: op-spin 7s linear infinite;
+}
+
+@keyframes op-spin {
+  to { --op-angle: 360deg; }
+}
+
+/* Light-emitting text for night sections. */
+.op-hdr {
+  background: linear-gradient(100deg, var(--op-glow) 0%, #c9ffe0 45%, var(--op-forecast) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 28px color-mix(in oklab, var(--op-glow) 45%, transparent));
+}
+
+.op-shimmer {
+  background: linear-gradient(
+    110deg,
+    var(--op-emerald) 0%,
+    var(--op-emerald-2) 35%,
+    #7af0b4 50%,
+    var(--op-emerald-2) 65%,
+    var(--op-emerald) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: op-shimmer 5s linear infinite;
+}
+
+@keyframes op-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+/* Pointer spotlight on cards: JS sets --mx/--my. */
+.op-spot {
+  position: relative;
+  overflow: hidden;
+}
+
+.op-spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s var(--op-ease);
+  background: radial-gradient(
+    420px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in oklab, var(--op-glow) 16%, transparent),
+    transparent 60%
+  );
+}
+
+.op-spot:hover::after {
+  opacity: 1;
+}
+
+/* Data-source marquee. */
+.op-marquee {
+  display: flex;
+  width: max-content;
+  animation: op-marquee 40s linear infinite;
+}
+
+.op-marquee:hover {
+  animation-play-state: paused;
+}
+
+@keyframes op-marquee {
+  to { transform: translateX(-50%); }
+}
+
+/* Live dot. */
+.op-pulse {
+  position: relative;
+}
+
+.op-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: inherit;
+  animation: op-ping 1.8s var(--op-ease) infinite;
+}
+
+@keyframes op-ping {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(3); opacity: 0; }
+}
+
+/* Faint engineering grid, Attio style. */
+.op-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--op-ink) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--op-ink) 6%, transparent) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 75%);
+}
+
+.op-grid-night {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 20%, transparent 75%);
+}
+
+.op-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: -0.2em;
+  background: var(--op-glow);
+  animation: op-blink 1s steps(2) infinite;
+}
+
+@keyframes op-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-grain,
+  .op-aurora > span,
+  .op-edge::before,
+  .op-shimmer,
+  .op-marquee,
+  .op-pulse::after,
+  .op-caret {
+    animation: none !important;
+  }
+}
