@@ -37,7 +37,7 @@ import { OM_TABS, useFocusedPark, useOmTab, useSelectedTurbine } from "./use-om-
 
 // Calm glance (#199): one status pill, three numbers each with one pill, the focused park, and the
 // top 5 work orders. The status breakdowns (by crew, turbines, homes) sit in their own Details
-// sheet; every list (work orders, review queue, alerts, audit) opens in full in the repair-queue
+// sheet; every list (work orders, review queue, alerts) opens in full in the repair-queue
 // sheet, on the tab that `?omTab` names.
 
 const SEVERITY_TONE: Record<string, Tone> = {
@@ -69,7 +69,6 @@ const TAB_LABELS: Record<(typeof OM_TABS)[number], string> = {
   orders: "Work orders",
   review: "Review",
   alerts: "Alerts",
-  audit: "Audit",
 };
 const TOP_N = 5;
 
@@ -347,6 +346,25 @@ function ReviewQueue({ onOpen }: { onOpen: (assetId: string) => void }) {
   );
 }
 
+const ALERT_TIME = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Bucharest",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Alert text without the machine bits: times read "Sat 22:00", no codes in brackets, no boilerplate. */
+function plainAlert(message: string) {
+  return message
+    .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z/g, (ts) => ALERT_TIME.format(new Date(ts)).replace(",", ""))
+    .replace(/\s*\([a-z_]+\)/g, "")
+    .replace(/;\s*one window until it reports again/g, "")
+    .replace(/:\s*curtailment,/g, ",")
+    .replace(/,\s*no work order/g, "")
+    .trim();
+}
+
 function Alerts({ onOpen }: { onOpen: (assetId: string) => void }) {
   const { data } = useAlerts();
   const selected = useSelectedAssetId();
@@ -363,78 +381,15 @@ function Alerts({ onOpen }: { onOpen: (assetId: string) => void }) {
             <span className="pt-px font-mono text-caption text-muted-foreground tabular-nums">{when(a.ts)}</span>
             <span className="min-w-0">
               <Status tone={SEVERITY_TONE[a.severity] ?? "unknown"}>{words(a.code)}</Status>
-              <span className="mt-1 block text-dense leading-snug text-foreground">{a.message}</span>
-              <span className="mt-0.5 block text-muted-foreground tabular-nums">
-                {a.createsWorkOrder ? "Work order created" : "Logged · no work order"}
-                {a.curtailedMwh ? ` · ${a.curtailedMwh} MWh curtailed` : ""}
-              </span>
+              <span className="mt-1 block text-dense leading-snug text-foreground">{plainAlert(a.message)}</span>
+              {a.createsWorkOrder ? (
+                <span className="mt-0.5 block text-muted-foreground">Work order created</span>
+              ) : null}
             </span>
           </button>
         </li>
       ))}
     </ul>
-  );
-}
-
-function Audit() {
-  const until = useReplayTs();
-  const [withCommitments, setWithCommitments] = useState(false);
-  const logs = useQuery(
-    orpc.audit.listLogs.queryOptions({
-      input: { until, limit: withCommitments ? 300 : 2000 },
-    }),
-  );
-  const rows = (logs.data ?? []).filter((r) => withCommitments || r.actionType !== "feeder_commitment").slice(0, 300);
-  return (
-    <div className="space-y-2">
-      <label className="flex items-center gap-2 text-caption text-text-secondary">
-        <input
-          className="accent-primary"
-          type="checkbox"
-          checked={withCommitments}
-          onChange={(e) => setWithCommitments(e.target.checked)}
-        />
-        Include hourly feeder commitments (committed vs realised)
-      </label>
-      {rows.length === 0 ? (
-        logs.isLoading ? (
-          <p className="text-caption text-muted-foreground">Loading…</p>
-        ) : (
-          <EmptyState icon={ScrollText}>No actions yet.</EmptyState>
-        )
-      ) : (
-        <ul className="divide-y divide-border text-caption">
-          {rows.map((r) => (
-            <li key={r.id} className="grid grid-cols-[3.75rem_minmax(0,1fr)] gap-x-3 py-2.5">
-              <span className="pt-px font-mono text-caption text-muted-foreground tabular-nums">{when(r.ts)}</span>
-              <div className="min-w-0">
-                <span className="font-semibold text-foreground">
-                  {words(r.actionType)} · {r.assetId ?? r.feederId ?? r.parkId ?? "fleet"}
-                </span>
-                <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 text-muted-foreground tabular-nums">
-                  <span>
-                    {r.model ?? "—"} · {r.modelVersion ?? "—"}
-                  </span>
-                  <span className="truncate" title={r.inputHash ?? ""}>
-                    input {r.inputHash ?? "—"}
-                  </span>
-                  <span>threshold {r.threshold ?? "—"}</span>
-                  <span>status {words(r.status)}</span>
-                  {r.predictionJson ? <span className="col-span-2 truncate">prediction {r.predictionJson}</span> : null}
-                  {r.committedKw != null ? (
-                    <span className="col-span-2">
-                      committed {r.committedKw.toFixed(1)} kW · realised{" "}
-                      {r.realisedKw != null ? `${r.realisedKw.toFixed(1)} kW` : "—"}
-                    </span>
-                  ) : null}
-                  {r.note ? <span className="col-span-2 text-text-secondary">{r.note}</span> : null}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }
 
@@ -532,7 +487,7 @@ export function OmPanel() {
   // Overview's "Open the review queue") opens it. A link that also opens an asset's drawer
   // (an agent action) keeps just the drawer.
   useEffect(() => {
-    if (tab === "alerts" || tab === "audit" || (tab === "review" && !selected)) setSheetOpen(true);
+    if (tab === "alerts" || (tab === "review" && !selected)) setSheetOpen(true);
     // Only a tab change opens the sheet (not a later change of the selected asset).
   }, [tab]);
 
@@ -693,7 +648,7 @@ export function OmPanel() {
 
       <div className="mt-3 border-t border-border">
         <RowButton onClick={() => openQueue("review")} aside={`${reviewList.length} in review`}>
-          <span className="font-medium">Review, alerts and audit</span>
+          <span className="font-medium">Review and alerts</span>
         </RowButton>
         <RowButton onClick={() => setStatusOpen(true)} aside="crews, turbines, homes">
           <span className="font-medium">Status breakdown</span>
@@ -743,9 +698,6 @@ export function OmPanel() {
           </TabsContent>
           <TabsContent value="alerts">
             <Alerts onOpen={(id) => openFromSheet(id)} />
-          </TabsContent>
-          <TabsContent value="audit">
-            <Audit />
           </TabsContent>
         </Tabs>
       </DetailsSheet>

@@ -9,7 +9,6 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { StatusMark } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
 import { stepToTs, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
@@ -65,7 +64,7 @@ function bucharestWallClock(ts: string) {
 const OVER_TONE = "text-status-critical";
 
 /**
- * Sentinel against the baseline as a delta chip: "−40%" in green when Sentinel is lower (less time
+ * WattSentry against the baseline as a delta chip: "−40%" in green when WattSentry is lower (less time
  * over the limit, a lower peak), neutral when equal; none without a baseline to compare with.
  * `neutral` keeps the chip grey (export now: more export is only bad over the limit).
  */
@@ -112,14 +111,14 @@ function nowSentence({
 }) {
   const today =
     baselineOver > 0
-      ? `Today Sentinel cut time over the limit from ${baselineOver} to ${sentinelOver} min.`
+      ? `Today WattSentry cut time over the limit from ${baselineOver} to ${sentinelOver} min.`
       : "It never went over its limit today.";
   if (baselineNow == null || sentinelNow == null) return `No reading for ${name} at ${at}. ${today}`;
   const b = Math.round(baselineNow);
   const s = Math.round(sentinelNow);
-  if (s > limit) return `${name} is over its ${limit} kW limit at ${at}: ${s} kW even with Sentinel.`;
+  if (s > limit) return `${name} is over its ${limit} kW limit at ${at}: ${s} kW even with WattSentry.`;
   if (b > limit)
-    return `Sentinel holds ${name} at ${s} kW, under its ${limit} kW limit. Without it, solar would push it to ${b} kW.`;
+    return `WattSentry holds ${name} at ${s} kW, under its ${limit} kW limit. Without it, solar would push it to ${b} kW.`;
   if (b < 1) return `${name} is not exporting at ${at}: no solar surplus. ${today}`;
   return `${name} is under its ${limit} kW limit at ${at} (${s} kW). ${today}`;
 }
@@ -140,7 +139,7 @@ export function FeederPanel() {
   );
   const { data: soc } = useQuery(
     orpc.feeders.getSocFan.queryOptions({
-      input: { ...input, policy: "sentinel" }, // replay.py stores schedules for Sentinel only
+      input: { ...input, policy: "sentinel" }, // replay.py stores schedules for WattSentry only
       enabled: Boolean(feederId),
     }),
   );
@@ -265,22 +264,13 @@ export function FeederPanel() {
           <span>{feeder.county}</span>
           <span aria-hidden>·</span>
           <span className="tabular-nums">{limitKw} kW limit</span>
-          <span aria-hidden>·</span>
-          {feeder.gisTrust === "low" ? (
-            <span className="inline-flex items-center gap-1 text-status-warn">
-              <StatusMark kind="warn" size="xs" />
-              <Term id="gis-trust">GIS trust low</Term>
-            </span>
-          ) : (
-            <span>GIS trust {feeder.gisTrust ?? "unknown"}</span>
-          )}
         </div>
       </header>
 
       <div className="flex flex-col px-5">
         <p className="pt-3 pb-4 leading-snug text-foreground">{sentence}</p>
 
-        {/* Three tiles: Sentinel's value, its change against the baseline, the baseline underneath. */}
+        {/* Three tiles: WattSentry's value, its change against the baseline, the baseline underneath. */}
         <MetricRow className="border-y border-border py-3">
           <Metric
             label={
@@ -326,7 +316,7 @@ export function FeederPanel() {
               <ChartLegend
                 items={[
                   { label: "Baseline", color: BASELINE_SERIES },
-                  { label: "Sentinel", color: SENTINEL_SERIES },
+                  { label: "WattSentry", color: SENTINEL_SERIES },
                   { label: "Limit", color: LIMIT_SERIES, dashed: true },
                 ]}
               />
@@ -371,7 +361,6 @@ export function FeederPanel() {
             className="border-t border-border"
           >
             <span className="font-medium">Details</span>
-            <span className="text-text-secondary"> · import, batteries, homes</span>
           </RowButton>
         </div>
       </div>
@@ -380,7 +369,7 @@ export function FeederPanel() {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         title={`${name}: the rest of the day`}
-        description={`${feeder.county} · ${limitKw} kW limit · Baseline = what happens without Sentinel`}
+        description={`${feeder.county} · ${limitKw} kW limit · Baseline = what happens without WattSentry`}
       >
         <SheetSection
           title="Evening import (kW)"
@@ -388,7 +377,7 @@ export function FeederPanel() {
             <ChartLegend
               items={[
                 { label: "Baseline", color: BASELINE_SERIES },
-                { label: "Sentinel", color: SENTINEL_SERIES },
+                { label: "WattSentry", color: SENTINEL_SERIES },
               ]}
             />
           }
@@ -413,7 +402,7 @@ export function FeederPanel() {
         <SheetSection
           title={
             <>
-              Battery <Term id="soc">charge</Term>, Sentinel (%)
+              Battery <Term id="soc">charge</Term>, WattSentry (%)
             </>
           }
           aside={

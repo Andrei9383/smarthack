@@ -37,7 +37,7 @@ export type MapSparkProps = {
   to: number;
   unit: string;
   expanded?: boolean;
-  /** Measured line colour: near-black for telemetry, green for Sentinel's own series. */
+  /** Measured line colour: near-black for telemetry, green for WattSentry's own series. */
   tone?: "actual" | "brand";
   /** Dashed horizontal limit with its value at the end, e.g. a feeder's 62 kW. */
   limit?: { value: number; label: string };

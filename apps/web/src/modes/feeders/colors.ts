@@ -18,7 +18,7 @@ onPaletteTheme((palette) => {
   LOW_TRUST_GAP = hex(palette.mapCasing);
 });
 
-// Charts: Sentinel is always --sentinel, the baseline always --chart-baseline (ink at 45%).
+// Charts: WattSentry is always --sentinel, the baseline always --chart-baseline (ink at 45%).
 export const SENTINEL_SERIES = "var(--sentinel)";
 export const BASELINE_SERIES = "var(--chart-baseline)";
 export const LIMIT_SERIES = "var(--status-critical)";

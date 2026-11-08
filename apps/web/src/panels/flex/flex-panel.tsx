@@ -22,7 +22,7 @@ import { dayRange, inRange, stepTs, wallClock } from "../site/time";
 
 // Ordered from the most the fleet could ever do to what it actually delivered (plan §3.5).
 // Colours (ui-style §3): nominal is the naive baseline (grey), available is a forecast
-// (blue, dashed), committed is Sentinel (green), realised is the measured actual (near-black).
+// (blue, dashed), committed is WattSentry (green), realised is the measured actual (near-black).
 const SERIES = [
   {
     key: "nominal",
@@ -164,7 +164,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
   const sentence =
     committed == null
       ? `No commitment for the hour starting ${timeLabel(step - (step % 4))}.`
-      : `For the hour starting ${timeLabel(step - (step % 4))} Sentinel sells ${committed.toFixed(1)} kW of battery flexibility${ofNominal != null ? `, ${Math.round(ofNominal * 100)}% of the nominal ${fmtKw(values.nominal)}` : ""}.`;
+      : `For the hour starting ${timeLabel(step - (step % 4))} WattSentry sells ${committed.toFixed(1)} kW of battery flexibility${ofNominal != null ? `, ${Math.round(ofNominal * 100)}% of the nominal ${fmtKw(values.nominal)}` : ""}.`;
 
   return (
     <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl bg-card text-dense text-foreground shadow-floating">

@@ -19,18 +19,22 @@ export function FanYAxis({ numTicks, unit }: { numTicks: number; unit: string })
   const container = useOverlayContainer();
   const { yScale, margin } = useChartStable();
   if (!container) return null;
+  const ticks = yScale.ticks(numTicks);
+  // One decimal when the ticks are closer than 1 apart (e.g. MWh per 15 min), else whole numbers.
+  const step = ticks.length > 1 ? Math.abs(ticks[1]! - ticks[0]!) : 1;
+  const digits = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
   return createPortal(
     <div className="pointer-events-none absolute inset-0">
       <span className={LABEL} style={{ left: 0, top: 2 }}>
         {unit}
       </span>
-      {yScale.ticks(numTicks).map((tick) => (
+      {ticks.map((tick) => (
         <span
           key={tick}
           className={`${LABEL} -translate-y-1/2 text-right`}
           style={{ left: 0, width: margin.left - 8, top: margin.top + yScale(tick) }}
         >
-          {Math.round(tick)}
+          {tick.toFixed(digits)}
         </span>
       ))}
     </div>,
@@ -43,7 +47,10 @@ export function FanHourTicks({ everyHours }: { everyHours: number }) {
   const container = useOverlayContainer();
   const { data, xAccessor, xScale, margin, innerHeight } = useChartStable();
   if (!container) return null;
-  const ticks = data.map(xAccessor).filter((date) => date.getHours() % everyHours === 0);
+  // One label per whole hour: data at 15-min steps would otherwise stack four labels on each hour.
+  const ticks = data
+    .map(xAccessor)
+    .filter((date) => date.getMinutes() === 0 && date.getHours() % everyHours === 0);
   return createPortal(
     <div className="pointer-events-none absolute inset-0">
       {ticks.map((date) => (

@@ -6,7 +6,7 @@ import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import { wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
-// The global Baseline/Sentinel switch picks between PPC's method today and Sentinel. Every policy of the day is in
+// The global Baseline/WattSentry switch picks between PPC's method today and WattSentry. Every policy of the day is in
 // one query, so the switch only re-slices rows the browser already has (spec I step 9: < 1 s).
 export const POLICY_OF = { baseline: "profile", sentinel: "sentinel" } as const;
 const FOREVER = Number.POSITIVE_INFINITY;

@@ -3,7 +3,7 @@
 import { DAYS, dayWindow, STEPS_PER_DAY, stepToDate, stepToTs } from "@/demo/replay";
 import { client } from "@/utils/orpc";
 
-// What "Ask Sentinel" can look up (card #207). The agent runs in ElevenLabs' cloud; these run in
+// What "Ask WattSentry" can look up (card #207). The agent runs in ElevenLabs' cloud; these run in
 // the browser as client tools and read the same API the screens use, so a spoken answer matches
 // what is on screen. Each returns a short plain-text block the agent can read out.
 
@@ -44,7 +44,7 @@ const round = (value: number | null | undefined, digits = 0) =>
   value === null || value === undefined ? "unknown" : value.toFixed(digits);
 const say = (lines: (string | null | false | undefined)[]) => lines.filter(Boolean).join("\n");
 
-/** Feeders: where they are, their limits, and minutes over the limit on one day, with and without Sentinel. */
+/** Feeders: where they are, their limits, and minutes over the limit on one day, with and without WattSentry. */
 export async function getFeeders(dayInput: unknown, currentDay: number) {
   const parsed = parseDay(dayInput, currentDay);
   if ("error" in parsed) return parsed.error;
@@ -54,11 +54,11 @@ export async function getFeeders(dayInput: unknown, currentDay: number) {
   const within = (policy: string) => feeders.filter((f) => (row(f.id, policy)?.minutesOver ?? 0) === 0).length;
   return say([
     `Feeders on ${dayName(parsed.day)} 2025 (low-voltage feeders in Romania; limit = what the line can take back from rooftop solar).`,
-    `Within their limit all day: ${within("sentinel")} of ${feeders.length} with Sentinel, ${within("baseline")} of ${feeders.length} without Sentinel.`,
+    `Within their limit all day: ${within("sentinel")} of ${feeders.length} with WattSentry, ${within("baseline")} of ${feeders.length} without WattSentry.`,
     ...feeders.map((f) => {
       const withAgent = row(f.id, "sentinel");
       const without = row(f.id, "baseline");
-      return `- ${f.name} (${f.locality}, ${f.county} county): limit ${round(f.limitKw)} kW. With Sentinel: ${round(withAgent?.minutesOver)} min over, peak ${round(withAgent?.peakExportKw)} kW. Without: ${round(without?.minutesOver)} min over, peak ${round(without?.peakExportKw)} kW.`;
+      return `- ${f.name} (${f.locality}, ${f.county} county): limit ${round(f.limitKw)} kW. With WattSentry: ${round(withAgent?.minutesOver)} min over, peak ${round(withAgent?.peakExportKw)} kW. Without: ${round(without?.minutesOver)} min over, peak ${round(without?.peakExportKw)} kW.`;
     }),
   ]);
 }
@@ -109,7 +109,7 @@ export async function getFaults(dayInput: unknown, currentDay: number) {
   ]);
 }
 
-/** One day at a glance plus the week's results against no Sentinel. */
+/** One day at a glance plus the week's results against no WattSentry. */
 export async function getDaySummary(dayInput: unknown, currentDay: number, currentStep: number) {
   const parsed = parseDay(dayInput, currentDay);
   if ("error" in parsed) return parsed.error;
@@ -146,10 +146,10 @@ export async function getDaySummary(dayInput: unknown, currentDay: number, curre
   return say([
     `${dayName(parsed.day)} 2025 at a glance: ${overview.feeders} feeders, ${overview.homes} homes, ${overview.parks} wind park(s) with ${overview.turbines} turbines.`,
     `Wind production: ${round(overview.productionMwh)} MWh, average wind ${round(overview.avgWindKmh)} km/h, park availability ${round(overview.availabilityPct, 1)}%, open issues ${round(overview.activeIssues)}.`,
-    "Results for the whole week, with Sentinel vs without:",
+    "Results for the whole week, with WattSentry vs without:",
     ...[...byName].map(
       ([name, k]) =>
-        `- ${KPI_NAMES[name]}: ${value(name, k.sentinel, k.unit)} with Sentinel, ${value(name, k.baseline, k.unit)} without.`,
+        `- ${KPI_NAMES[name]}: ${value(name, k.sentinel, k.unit)} with WattSentry, ${value(name, k.baseline, k.unit)} without.`,
     ),
   ]);
 }

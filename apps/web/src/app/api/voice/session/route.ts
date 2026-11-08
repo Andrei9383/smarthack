@@ -3,7 +3,7 @@ import { AGENT_ID, elevenlabs, voiceEnabled } from "@/components/voice/server";
 export const dynamic = "force-dynamic";
 
 /**
- * A short-lived WebRTC token for one conversation with the "Ask Sentinel" agent. The agent has
+ * A short-lived WebRTC token for one conversation with the "Ask WattSentry" agent. The agent has
  * auth on, so the browser can only connect with a token minted here.
  */
 export async function GET() {

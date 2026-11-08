@@ -20,7 +20,7 @@ import { useHour, useSelectedPark } from "./use-production-state";
 import { WindActions } from "./wind-actions";
 import { fetchWindMeta } from "./wind-field";
 
-// Sentinel's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
+// WattSentry's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
 const FAN_FILL = "var(--brand-500)";
 const FAN_LINE = "var(--sentinel)";
 const Y_TICKS = 4;
@@ -302,7 +302,7 @@ export function ProductionPanel() {
             open={detailsOpen}
             onOpenChange={setDetailsOpen}
             title={park ? `${park.id} · details` : "Production details"}
-            description="What Sentinel sold and what the park made, the park battery, and the wind field."
+            description="What WattSentry sold and what the park made, the park battery, and the wind field."
             wide
           >
             <WindActions parkId={park?.id} clock={now} wallClock={wallClock} />

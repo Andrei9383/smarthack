@@ -20,14 +20,14 @@ export function useGrid() {
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-GB");
 
-/** Two bars, without / with Sentinel, on one shared scale. */
+/** Two bars, without / with WattSentry, on one shared scale. */
 function PairBars({ without, withS, max, unit }: { without: number; withS: number; max: number; unit: string }) {
   const w = (v: number) => `${Math.max(2, (v / Math.max(1, max)) * 100)}%`;
   return (
     <div className="space-y-1">
       {[
         { label: "Without", value: without, color: BASELINE_SERIES },
-        { label: "Sentinel", value: withS, color: SENTINEL_SERIES },
+        { label: "WattSentry", value: withS, color: SENTINEL_SERIES },
       ].map((bar) => (
         <div key={bar.label} className="flex items-center gap-2 text-caption">
           <span className="w-14 shrink-0 text-text-secondary">{bar.label}</span>
@@ -45,13 +45,11 @@ function PairBars({ without, withS, max, unit }: { without: number; withS: numbe
 
 /** Inspector row that opens the grid sheet. The selected feeder's "+N prosumers" lives in the sheet. */
 export function GridRow({ feederId, feederName }: { feederId: string; feederName: string }) {
-  const { data } = useGrid();
   const [open, setOpen] = useState(false);
   return (
     <>
       <RowButton onClick={() => setOpen(true)} className="border-t border-border">
         <span className="font-medium">Grid capacity</span>
-        <span className="text-text-secondary">{data?.voltage ? " · voltage, map, value" : " · map, value"}</span>
       </RowButton>
       <GridSheet open={open} onOpenChange={setOpen} feederId={feederId} feederName={feederName} />
     </>
@@ -87,13 +85,13 @@ function GridSheet({
       onOpenChange={onOpenChange}
       wide
       title="Same cables, more prosumers"
-      description={`${feederName} selected · Without = the self-consumption rule, no Sentinel`}
+      description={`${feederName} selected · Without = the self-consumption rule, no WattSentry`}
     >
       {hc ? (
         <SheetSection title="Room for new prosumers" aside={<span className="text-caption text-text-secondary">{feederName}</span>}>
           <MetricRow>
             <Metric
-              label="With Sentinel"
+              label="With WattSentry"
               value={`+${fmt(hc.with - hc.without)}${hc.censored ? "+" : ""}`}
               unit="homes"
               tone="text-status-ok"
@@ -111,7 +109,7 @@ function GridSheet({
               {hosting.variant === "batteries" ? "new homes get batteries in the fleet's share" : "new homes without battery"}).
               In total: <span className="font-medium text-foreground tabular-nums">+{fmt(hosting.totalWith - hosting.totalWithout)}</span>.
             </p>
-            <ChartLegend items={[{ label: "Without", color: BASELINE_SERIES }, { label: "Sentinel", color: SENTINEL_SERIES }]} />
+            <ChartLegend items={[{ label: "Without", color: BASELINE_SERIES }, { label: "WattSentry", color: SENTINEL_SERIES }]} />
             <ul className="divide-y divide-border">
               {hosting.feeders.map((f) => (
                 <li key={f.feederId} className={`py-2 ${f.feederId === feederId ? "font-semibold" : ""}`}>
@@ -158,7 +156,7 @@ function GridSheet({
             <p className="text-caption text-muted-foreground">
               {voltage.nHomes} simulated homes on the 55 loads of the IEEE European LV test feeder: a European test
               topology, not a Romanian street. Lost production ≈ {fmt(voltage.baseline.tripLei)} lei without,{" "}
-              {fmt(voltage.sentinel.tripLei)} lei with Sentinel. Run {voltage.runId}.
+              {fmt(voltage.sentinel.tripLei)} lei with WattSentry. Run {voltage.runId}.
             </p>
         </SheetSection>
       ) : null}

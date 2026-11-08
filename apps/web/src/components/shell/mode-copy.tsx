@@ -17,7 +17,7 @@ export type ModeCopy = {
 
 export const MODE_COPY: Record<ModeId, ModeCopy> = {
   overview: {
-    descriptor: "Alerts and today's results",
+    descriptor: "What prosumers cost PPC today",
     heading: "Overview",
   },
   feeders: {
@@ -25,8 +25,10 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     heading: "Feeders · peak shaving",
     what: (
       <>
-        Rooftop solar can overload street cables (<Term id="feeder">feeders</Term>) at midday. Sentinel charges
-        home batteries to keep each feeder under its <Term id="feeder-limit">limit</Term>.
+        Rooftop solar can overload street cables (
+        <Term id="feeder">feeders</Term>) at midday. WattSentry charges home
+        batteries to keep each feeder under its{" "}
+        <Term id="feeder-limit">limit</Term>.
       </>
     ),
     doing: "Plans every home battery a day ahead, then checks the plan held.",
@@ -38,7 +40,8 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     what: "Turbine and solar alarms become a short, ranked to-do list for repair crews.",
     doing: (
       <>
-        Ranks faults by lost energy and lei a day; unsure cases go to <Term id="human-review">human review</Term>.
+        Ranks faults by lost energy and lei a day; unsure cases go to{" "}
+        <Term id="human-review">human review</Term>.
       </>
     ),
     look: "Red and purple dots on the map, then the top of the work-order list.",
@@ -48,10 +51,12 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     heading: "Production · forecast",
     what: (
       <>
-        How much wind and solar power is coming, with a likely range (<Term id="forecast-band">P10–P90</Term>).
+        How much wind and solar power is coming, with a likely range (
+        <Term id="forecast-band">P10–P90</Term>).
       </>
     ),
-    doing: "Forecasts the next 24 hours for each park and each county's rooftop solar.",
+    doing:
+      "Forecasts the next 24 hours for each park and each county's rooftop solar.",
     look: "The wind arrows on the map and the shaded band on the park chart.",
   },
   demand: {
@@ -60,7 +65,8 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     what: "Where electricity use will peak this evening, county by county.",
     doing: (
       <>
-        Forecasts demand per county and feeder and scores its <Term id="stress">stress</Term>.
+        Forecasts demand per county and feeder and scores its{" "}
+        <Term id="stress">stress</Term>.
       </>
     ),
     look: "The darkest counties on the map and the peak hour beside each.",

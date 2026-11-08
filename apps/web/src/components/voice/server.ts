@@ -6,7 +6,7 @@ import agent from "./agent.json";
 // (.env.local at the repo root, loaded via "varlock.loadPath" in apps/web/package.json) and never
 // reaches the browser.
 
-/** The "Ask Sentinel" agent made by scripts/elevenlabs/sync-agent.mjs; the env var overrides it. */
+/** The "Ask WattSentry" agent made by scripts/elevenlabs/sync-agent.mjs; the env var overrides it. */
 export const AGENT_ID = process.env.ELEVENLABS_AGENT_ID ?? agent.agentId;
 /** One voice for the whole app, so the story narrator and the assistant sound the same. */
 export const VOICE_ID = process.env.ELEVENLABS_VOICE_ID ?? agent.voiceId;

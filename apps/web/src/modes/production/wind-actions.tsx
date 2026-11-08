@@ -1,6 +1,6 @@
 "use client";
 
-// W7 (#170): the last 24 h as settled: P10–P90 band, what Sentinel sold day-ahead (W3) and what the park
+// W7 (#170): the last 24 h as settled: P10–P90 band, what WattSentry sold day-ahead (W3) and what the park
 // made, with marks where W2 took turbines out of the sale; then the park battery (W5) on the same hours.
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";

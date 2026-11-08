@@ -1,5 +1,5 @@
 // Household congestion notice: subject, HTML and plain text (card #120). Content depends on the
-// congestion level and on the home: its solar in the window, its Sentinel battery plan, its appliances.
+// congestion level and on the home: its solar in the window, its WattSentry battery plan, its appliances.
 import type { CongestionLevel, FeederForecast } from "./forecast";
 
 export type Household = {
@@ -19,7 +19,7 @@ export type Household = {
   pvWindowKwh: number;
   /** P50 solar minus yesterday's load, summed over the window where positive */
   exportWindowKwh: number;
-  /** Sentinel battery schedule: charge planned inside the window */
+  /** WattSentry battery schedule: charge planned inside the window */
   batteryPlanKwh: number;
 };
 
@@ -104,7 +104,7 @@ export function renderNotice(h: Household, ctx: NoticeContext): RenderedEmail | 
   const todo = tips(h, window);
   const why =
     `Level "${f.level}": ${f.reason}. Forecast peak ${Math.round(f.peakP50Kw)} kW (P50) / ${Math.round(f.peakP90Kw)} kW (P90) ` +
-    `against a ${Math.round(ctx.limitKw)} kW limit on feeder ${ctx.feederId}. Solar forecast by Sentinel's PVNet model ` +
+    `against a ${Math.round(ctx.limitKw)} kW limit on feeder ${ctx.feederId}. Solar forecast by WattSentry's PVNet model ` +
     `(${ctx.modelVersion}); load forecast = ${f.loadSource === "yesterday" ? "yesterday's measured load" : f.loadSource === "weekly_profile" ? "typical load profile (no data for yesterday)" : "none available"}.`;
 
   const text = [
@@ -121,7 +121,7 @@ export function renderNotice(h: Household, ctx: NoticeContext): RenderedEmail | 
     "",
     `Why you got this: ${why}`,
     "",
-    `Demo notice for a synthetic household (site ${h.assetId}), Smarthack XI / Sentinel.`,
+    `Demo notice for a synthetic household (site ${h.assetId}), Smarthack XI / WattSentry.`,
   ].join("\n");
 
   const li = (items: string[]) =>
@@ -130,7 +130,7 @@ export function renderNotice(h: Household, ctx: NoticeContext): RenderedEmail | 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border:1px solid #e4e7ec;border-radius:10px">
 <tr><td style="padding:20px 24px 0">
-  <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#667085">Sentinel · grid notice</div>
+  <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#667085">WattSentry · grid notice</div>
   <div style="display:inline-block;margin-top:12px;padding:4px 10px;border-radius:999px;background:${copy.bg};color:${copy.color};font-size:13px;font-weight:600">${esc(copy.tag)} · ${esc(day)}, ${esc(window)}</div>
   <h1 style="font-size:20px;line-height:1.3;margin:14px 0 8px">${esc(subject)}</h1>
   <p style="font-size:15px;line-height:1.5;margin:0 0 12px">Hello, household ${esc(h.assetId)} in ${esc(h.locality)}. On <b>${esc(day)}</b> between <b>${esc(window)}</b> the local power line (feeder ${esc(ctx.feederId)}, ${esc(ctx.feederName)}) ${esc(copy.lead)}.</p>
@@ -142,7 +142,7 @@ export function renderNotice(h: Household, ctx: NoticeContext): RenderedEmail | 
 </td></tr>
 <tr><td style="padding:14px 24px 20px;border-top:1px solid #e4e7ec;font-size:12px;line-height:1.5;color:#667085">
   <b>Why you got this.</b> ${esc(why)}<br><br>
-  Demo notice for a synthetic household (site ${esc(h.assetId)}), Smarthack XI · Sentinel.
+  Demo notice for a synthetic household (site ${esc(h.assetId)}), Smarthack XI · WattSentry.
 </td></tr></table></td></tr></table></body></html>`;
 
   return { subject, html, text };

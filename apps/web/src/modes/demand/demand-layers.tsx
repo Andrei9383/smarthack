@@ -2,6 +2,7 @@
 
 import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
@@ -561,6 +562,16 @@ export function DemandLayers() {
           </div>
         )}
       </div>
+      {selectedId ? (
+        <button
+          type="button"
+          onClick={() => void setSelected(null)}
+          className="absolute top-[84px] left-1/2 z-20 inline-flex h-9 -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-3.5 text-dense font-medium text-foreground shadow-floating transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <ChevronLeft aria-hidden className="size-4" />
+          Back to all of Romania
+        </button>
+      ) : null}
     </>
   );
 }

@@ -27,7 +27,7 @@ const METRICS = [
 // The three numbers the summary leads with.
 const HEROES = ["peak_reduction", "minutes_over_limit", "comfort_breaches"];
 
-// Sentinel-only metrics that are already measured against the baseline; their hero tile says so.
+// WattSentry-only metrics that are already measured against the baseline; their hero tile says so.
 const VS_BASELINE: Record<string, string> = { peak_reduction: "Feeder peak cut vs baseline" };
 
 // Which way is better, for colouring the change chip. Metrics not listed get a neutral chip.
@@ -162,13 +162,13 @@ export function SummaryCard() {
         ) : null}
 
         <div className="mt-7">
-          <Fold title="All metrics, baseline vs Sentinel" aside={`${METRICS.length} metrics`}>
+          <Fold title="All metrics, baseline vs WattSentry" aside={`${METRICS.length} metrics`}>
             <table className="w-full text-dense">
               <thead className="text-left text-caption text-muted-foreground">
                 <tr className="border-b border-border">
                   <th className="pb-2 font-medium">Metric</th>
                   <th className="pb-2 text-right font-medium">Baseline</th>
-                  <th className="pb-2 text-right font-medium text-status-ok">Sentinel</th>
+                  <th className="pb-2 text-right font-medium text-status-ok">WattSentry</th>
                   <th className="w-20 pb-2 text-right font-medium">Change</th>
                 </tr>
               </thead>
@@ -193,11 +193,6 @@ export function SummaryCard() {
                 })}
               </tbody>
             </table>
-            {runIds.length > 0 ? (
-              <p className="mt-3 text-caption text-muted-foreground">
-                Run ID <span className="font-mono text-text-secondary">{runIds.join(" · ")}</span>
-              </p>
-            ) : null}
           </Fold>
         </div>
         {anyKpi ? null : <p className="mt-3 text-xs text-muted-foreground">No logged run yet.</p>}

@@ -116,7 +116,6 @@ export function LiveRow({
         }
       >
         <span className="font-medium">Live</span>
-        <span className="text-text-secondary"> · {feed?.source === "live" ? "simulated feed" : "simulated, replay"}</span>
       </RowButton>
       <DetailsSheet
         open={open}

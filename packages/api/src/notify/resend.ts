@@ -3,7 +3,7 @@
 
 export type OutgoingEmail = { to: string[]; subject: string; html: string; text: string; tags?: { name: string; value: string }[] };
 
-const DEFAULT_FROM = "Sentinel grid alerts <alerts@devsolution.ro>";
+const DEFAULT_FROM = "WattSentry grid alerts <alerts@devsolution.ro>";
 const BATCH_MAX = 100; // Resend batch limit
 
 export function notifyConfig() {

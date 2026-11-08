@@ -9,7 +9,7 @@ export function useFocusedPark() {
   return useQueryState("park", parseAsString);
 }
 
-export const OM_TABS = ["orders", "review", "alerts", "audit"] as const;
+export const OM_TABS = ["orders", "review", "alerts"] as const;
 export function useOmTab() {
   return useQueryState(
     "omTab",

@@ -22,7 +22,7 @@ export function useOverLimit() {
 export type FeederNow = {
   exportKw: number;
   limitKw: number;
-  /** Sentinel only: the feeder's batteries gained charge in this 15-min step. */
+  /** WattSentry only: the feeder's batteries gained charge in this 15-min step. */
   charging: boolean;
 };
 
@@ -49,7 +49,7 @@ export function useFeedersNow(feederIds: string[], policy: Policy) {
   const socData = useQueries({
     queries: feederIds.map((feederId) => ({
       ...orpc.feeders.getSocFan.queryOptions({
-        input: { feederId, ...window, policy: "sentinel" }, // replay stores schedules for Sentinel only
+        input: { feederId, ...window, policy: "sentinel" }, // replay stores schedules for WattSentry only
         enabled: policy === "sentinel",
       }),
       placeholderData: keepPreviousData,

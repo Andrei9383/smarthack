@@ -17,7 +17,7 @@ import { setNarrationOn, useNarrationOn, useVoiceStatus } from "./use-voice-stat
 
 // "Play today's story", told by an ElevenLabs voice (card #207). The script is written from the
 // same data the Overview shows: what the agent did overnight, the midday solar on the worst
-// feeder, each action it takes during the day, the evening peak and the day against no Sentinel.
+// feeder, each action it takes during the day, the evening peak and the day against no WattSentry.
 
 const DAY = HERO_DAY * STEPS_PER_DAY;
 const at = (hour: number, minute = 0) => DAY + hour * 4 + Math.round(minute / 15);
@@ -40,8 +40,8 @@ const total = (feeders: FeederState[], pick: (f: FeederState) => number | undefi
 const peak = (feeders: FeederState[], pick: (f: FeederState) => number | undefined) =>
   feeders.some((f) => pick(f) !== undefined) ? Math.max(...feeders.map((f) => pick(f) ?? 0)) : undefined;
 
-/** "Scheduled 15 home batteries on …" → "Sentinel scheduled 15 home batteries on …" */
-const asSentinel = (title: string) => `Sentinel ${title.charAt(0).toLowerCase()}${title.slice(1)}`;
+/** "Scheduled 15 home batteries on …" → "WattSentry scheduled 15 home batteries on …" */
+const asSentinel = (title: string) => `WattSentry ${title.charAt(0).toLowerCase()}${title.slice(1)}`;
 
 function actionLine(group: AgentAction[]): string {
   const [lead] = group;
@@ -67,7 +67,7 @@ export function buildStory(feeders: FeederState[], actions: AgentAction[], comfo
   const homes = plans.reduce((sum, a) => sum + (a.homes ?? 0), 0);
   const crews = overnight.filter((a) => a.kind === "workorder");
   const remote = overnight.filter((a) => a.kind === "remote");
-  let intro = `Good morning. It's 6 a.m. on ${date}, and this is today's story, with Sentinel running the grid.`;
+  let intro = `Good morning. It's 6 a.m. on ${date}, and this is today's story, with WattSentry running the grid.`;
   if (plans.length > 0) {
     intro += ` Overnight it forecast the sun and the load on every feeder, and planned ${plural(homes, "home battery", "home batteries")} across ${plural(plans.length, "feeder")} to soak up the midday solar.`;
   }
@@ -81,14 +81,14 @@ export function buildStory(feeders: FeederState[], actions: AgentAction[], comfo
   }
   lines.push({ step: STORY_START, text: intro });
 
-  // 10:00 — solar ramps up on the feeder that would suffer most without Sentinel.
+  // 10:00 — solar ramps up on the feeder that would suffer most without WattSentry.
   const hero = [...feeders]
     .filter((f) => f.baselinePeakKw !== undefined)
     .sort((a, b) => (b.baselinePeakKw ?? 0) / b.limitKw - (a.baselinePeakKw ?? 0) / a.limitKw)[0];
   if (hero && (hero.baselinePeakKw ?? 0) > hero.limitKw) {
     lines.push({
       step: at(10),
-      text: `By 10, the solar is ramping up. Without Sentinel, ${hero.name} would push ${kw(hero.baselinePeakKw!)} into a line built for ${kw(hero.limitKw)}. Instead, its home batteries start charging and soak up the surplus.`,
+      text: `By 10, the solar is ramping up. Without WattSentry, ${hero.name} would push ${kw(hero.baselinePeakKw!)} into a line built for ${kw(hero.limitKw)}. Instead, its home batteries start charging and soak up the surplus.`,
     });
   } else {
     lines.push({
@@ -103,7 +103,7 @@ export function buildStory(feeders: FeederState[], actions: AgentAction[], comfo
   if (withPeak !== undefined && withoutPeak !== undefined) {
     lines.push({
       step: at(13),
-      text: `1 p.m., the solar peak. With Sentinel, the highest feeder peak today is ${kw(withPeak)}, against ${kw(withoutPeak)} without it.`,
+      text: `1 p.m., the solar peak. With WattSentry, the highest feeder peak today is ${kw(withPeak)}, against ${kw(withoutPeak)} without it.`,
     });
   }
 
@@ -121,12 +121,12 @@ export function buildStory(feeders: FeederState[], actions: AgentAction[], comfo
     text: "5:30 p.m., and the evening peak begins. The batteries now give back the solar they stored at midday, when the grid needs it most.",
   });
 
-  // 20:00 — the day against no Sentinel.
+  // 20:00 — the day against no WattSentry.
   const withMinutes = total(feeders, (f) => f.sentinelMinutes);
   const withoutMinutes = total(feeders, (f) => f.baselineMinutes);
   let outro = "That's the day.";
   if (withMinutes !== undefined && withoutMinutes !== undefined) {
-    outro += ` Across all feeders, ${Math.round(withMinutes)} minutes over the limit with Sentinel, against ${Math.round(withoutMinutes)} without it`;
+    outro += ` Across all feeders, ${Math.round(withMinutes)} minutes over the limit with WattSentry, against ${Math.round(withoutMinutes)} without it`;
     outro += comfortBreaches === 0 ? ", and not one home dipped below its comfort reserve." : ".";
   }
   outro += " Every decision is in the audit log, next to the model prediction behind it.";

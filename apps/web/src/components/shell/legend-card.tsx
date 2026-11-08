@@ -64,7 +64,7 @@ function Title({ children }: { children: ReactNode }) {
 
 export function LegendCard({ mode, className }: { mode: ModeId; className?: string }) {
   const [policy] = usePolicy();
-  const shown = policy === "sentinel" ? "Sentinel" : "Baseline";
+  const shown = policy === "sentinel" ? "WattSentry" : "Baseline";
 
   let body: ReactNode;
   if (mode === "overview") {

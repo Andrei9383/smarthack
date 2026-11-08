@@ -58,7 +58,7 @@ const STATUS_WORDS: Record<string, string> = {
 const ACTUAL_COLOR = ACTUAL;
 const FORECAST_COLOR = FORECAST;
 const SOC_COLOR = SOC;
-// The battery schedule is Sentinel's own series (ui-style §6).
+// The battery schedule is WattSentry's own series (ui-style §6).
 const BATT_COLOR = "var(--sentinel)";
 // Room for the y-axis labels on the left and the 24:00 tick on the right.
 const CHART_MARGIN = { left: 40, right: 18, top: 10, bottom: 26 };
@@ -539,7 +539,7 @@ function SiteView({ assetId }: { assetId: string }) {
 
         {d?.hasBattery ? (
           <Fold
-            title="Battery: Sentinel schedule"
+            title="Battery: WattSentry schedule"
             aside={`${battery.absorbedKwh.toFixed(1)} kWh absorbed`}
           >
             <ChartHeader
