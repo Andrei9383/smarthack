@@ -10,13 +10,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Activity } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { Term } from "@/components/help";
 import { PROVENANCE_PILL_CLASS } from "@/components/provenance-pill";
-import { stepToTs } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
-import { orpc } from "@/utils/orpc";
+import { stepToTs } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { DetailsSheet, RowButton, SheetSection } from "@/components/panels/disclosure";
+import { orpc } from "@/lib/orpc";
 
 import { ACTUAL_SERIES, FORECAST_SERIES, LIMIT_SERIES } from "./colors";
 import { LiveChart } from "./live-chart";

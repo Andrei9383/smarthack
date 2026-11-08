@@ -31,7 +31,7 @@ import {
 } from "@/components/shell/agent-actions";
 import { KIND_STYLE } from "@/components/shell/agent-toast";
 import { useStoryNarration } from "@/components/voice/story-narration";
-import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
+import { setPlaying, useReplayPlaying } from "@/lib/replay-playing";
 import {
   clampStep,
   dayOfStep,
@@ -40,12 +40,12 @@ import {
   STEPS_PER_DAY,
   stepToTs,
   timeLabel,
-} from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
+} from "@/lib/replay";
+import { usePolicy, useReplayStep } from "@/lib/use-replay";
 import type { ModePageProps } from "@/modes/registry";
-import type { Delta } from "@/panels/disclosure";
-import { wallClock } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+import type { Delta } from "@/components/panels/disclosure";
+import { wallClock } from "@/components/panels/site/time";
+import { orpc } from "@/lib/orpc";
 
 import { useOmAssets } from "@/modes/om/use-om-data";
 

@@ -4,12 +4,12 @@ import { cn } from "@wattsentry/ui/lib/utils";
 import { Sun } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { usePolicy } from "@/demo/use-replay";
+import { usePolicy } from "@/lib/use-replay";
 import { STRESS_RAMP } from "@/modes/demand/colors";
 import type { ModeId } from "@/modes/registry";
 
-import { StatusMark } from "@/components/brand/status-mark";
-import { SparkKey } from "@/components/map-spark/map-spark";
+import { StatusMark } from "@/components/status-mark";
+import { SparkKey } from "@/components/map-spark";
 import { Term } from "@/components/help";
 
 // One legend card per mode, top-left under the top bar as in the prototype. Colours are the

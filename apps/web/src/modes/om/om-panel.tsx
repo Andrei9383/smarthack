@@ -10,11 +10,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, CheckCircle2, ChevronDown, ScrollText, UserRoundCheck, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
-import { StatusMark } from "@/components/brand/status-mark";
+import { StatusMark } from "@/components/status-mark";
 import { Term } from "@/components/help";
 import { useInspectorEmbedded } from "@/components/shell/inspector-embedded";
-import { dayLabel, dayOfStep, timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { dayLabel, dayOfStep, timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
 import {
   DetailsLink,
   DetailsSheet,
@@ -25,10 +25,10 @@ import {
   SectionHeader,
   SheetSection,
   StatusPill,
-} from "@/panels/disclosure";
-import { useSelectedSite } from "@/panels/site/use-site";
-import { dayName, hhmm, wallClock } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+} from "@/components/panels/disclosure";
+import { useSelectedSite } from "@/components/panels/site/use-site";
+import { dayName, hhmm, wallClock } from "@/components/panels/site/time";
+import { orpc } from "@/lib/orpc";
 
 import { ParkReport } from "./park-report";
 import { EmptyState, Meter, TONE_BG, TONE_KIND, TONE_TEXT, type Tone } from "./ui";

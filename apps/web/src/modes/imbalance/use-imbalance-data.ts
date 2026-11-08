@@ -1,10 +1,10 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { dayWindow } from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
-import { wallClock } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+import { dayWindow } from "@/lib/replay";
+import { usePolicy, useReplayStep } from "@/lib/use-replay";
+import { wallClock } from "@/components/panels/site/time";
+import { orpc } from "@/lib/orpc";
 
 // The global Baseline/WattSentry switch picks between PPC's method today and WattSentry. Every policy of the day is in
 // one query, so the switch only re-slices rows the browser already has (spec I step 9: < 1 s).

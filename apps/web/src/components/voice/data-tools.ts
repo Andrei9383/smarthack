@@ -1,7 +1,7 @@
 "use client";
 
-import { DAYS, dayWindow, STEPS_PER_DAY, stepToDate, stepToTs } from "@/demo/replay";
-import { client } from "@/utils/orpc";
+import { DAYS, dayWindow, STEPS_PER_DAY, stepToDate, stepToTs } from "@/lib/replay";
+import { client } from "@/lib/orpc";
 
 // What "Ask WattSentry" can look up (card #207). The agent runs in ElevenLabs' cloud; these run in
 // the browser as client tools and read the same API the screens use, so a spoken answer matches

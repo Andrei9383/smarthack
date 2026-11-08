@@ -10,10 +10,10 @@ import { useMemo, useState } from "react";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
 import { useSelectedFeeder } from "@/modes/feeders/use-feeder-state";
-import { orpc } from "@/utils/orpc";
+import { orpc } from "@/lib/orpc";
 
 import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
 import { ACTUAL, ACTUAL_SOFT, BASELINE, FORECAST, OK } from "../colors";

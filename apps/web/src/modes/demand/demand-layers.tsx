@@ -5,11 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { MapSpark, type SparkPoint, SparkKey } from "@/components/map-spark/map-spark";
-import { dayWindow, stepToDate } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { MapSpark, type SparkPoint, SparkKey } from "@/components/map-spark";
+import { dayWindow, stepToDate } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 import { tweenPaint, useMotionAllowed } from "../feeders/map-motion";
 import {

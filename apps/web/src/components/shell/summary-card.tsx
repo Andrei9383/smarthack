@@ -4,12 +4,12 @@ import { Button } from "@wattsentry/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { TriangleAlert, X } from "lucide-react";
 
-import { Fold } from "@/panels/disclosure";
+import { Fold } from "@/components/panels/disclosure";
 
-import { orpc } from "@/utils/orpc";
+import { orpc } from "@/lib/orpc";
 
 import { useSummaryOpen } from "./demo-jumps";
-import { canonicalName, formatKpiParts, type Kpi } from "./kpi-format";
+import { canonicalName, formatKpiParts, type Kpi } from "@/lib/kpi-format";
 
 // Plan §7 step 7. The WindMon comparison comes from the baseline row of the same metric.
 const METRICS = [

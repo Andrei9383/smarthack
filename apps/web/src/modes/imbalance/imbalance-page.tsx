@@ -10,7 +10,7 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { FanHourTicks, FanYAxis } from "@/modes/production/fan-chart-overlays";
-import { DetailsLink, DetailsSheet, Metric, MetricRow, SheetSection, StatusPill } from "@/panels/disclosure";
+import { DetailsLink, DetailsSheet, Metric, MetricRow, SheetSection, StatusPill } from "@/components/panels/disclosure";
 
 import { type Step, useImbalanceData } from "./use-imbalance-data";
 

@@ -4,8 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Cable, MapPinned } from "lucide-react";
 import { useState } from "react";
 
-import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SheetSection } from "@/panels/disclosure";
-import { orpc } from "@/utils/orpc";
+import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SheetSection } from "@/components/panels/disclosure";
+import { orpc } from "@/lib/orpc";
 
 import { BASELINE_SERIES, WATTSENTRY_SERIES } from "./colors";
 

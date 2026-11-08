@@ -1,6 +1,6 @@
 import type { ParkForecastItem } from "@wattsentry/api/contract/production";
 
-import { stepToDate } from "@/demo/replay";
+import { stepToDate } from "@/lib/replay";
 
 const HOUR_MS = 3_600_000;
 const WINDOW_HOURS = 24;

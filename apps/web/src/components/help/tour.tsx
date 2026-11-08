@@ -13,7 +13,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 
 /**
  * Elements the tour points at. The shell marks them with `data-tour="…"` (see README.md):

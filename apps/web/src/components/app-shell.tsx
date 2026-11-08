@@ -15,13 +15,13 @@ import { Rail } from "@/components/shell/rail";
 import { TimelineDock } from "@/components/shell/timeline-dock";
 import { TopBar } from "@/components/shell/top-bar";
 import { VoiceAssistantProvider, VoicePanel } from "@/components/voice/voice-assistant";
-import { SummaryCard } from "@/demo/summary-card";
-import { useBasemapStyles, useRomaniaFocus } from "@/demo/use-basemap";
+import { SummaryCard } from "@/components/shell/summary-card";
+import { useBasemapStyles, useRomaniaFocus } from "@/lib/use-basemap";
 import { useMapTheme } from "@/lib/palette";
 import { TurbineSheet } from "@/modes/om/turbine-sheet";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
-import { FlexDock, useFlexOpen } from "@/panels/flex/flex-panel";
-import { SiteSheet } from "@/panels/site/site-sheet";
+import { FlexDock, useFlexOpen } from "@/components/panels/flex/flex-panel";
+import { SiteSheet } from "@/components/panels/site/site-sheet";
 
 const ROMANIA_CENTER: [number, number] = [25, 45.9];
 const RAIL_KEY = "sentinel.rail";

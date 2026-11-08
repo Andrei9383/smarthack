@@ -1,8 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import { useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 import { forecastWindow, inWindow } from "./data";
 

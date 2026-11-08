@@ -4,7 +4,7 @@ import { scaleLinear } from "d3-scale";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { LABEL, SectionHeader as CalmSectionHeader } from "@/panels/disclosure";
+import { LABEL, SectionHeader as CalmSectionHeader } from "@/components/panels/disclosure";
 
 // Small presentational pieces shared by the Feeders and Demand panels (team/contracts/ui-style.md, Calm).
 

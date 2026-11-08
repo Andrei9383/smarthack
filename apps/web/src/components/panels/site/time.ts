@@ -1,4 +1,4 @@
-import { STEPS_PER_DAY, stepToTs } from "@/demo/replay";
+import { STEPS_PER_DAY, stepToTs } from "@/lib/replay";
 
 // Shared by the site and flexibility panels. Storage is UTC ISO with 'Z'; the replay clock and
 // every label are Europe/Bucharest (plan R19).

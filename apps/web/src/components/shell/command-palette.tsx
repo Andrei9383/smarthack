@@ -18,12 +18,12 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { useDemandData } from "@/modes/demand/use-demand-data";
 import { useOmAssets } from "@/modes/om/use-om-data";
 import { useOverviewFeeders } from "@/modes/overview/use-overview-data";
 import { MODE_IDS, MODES } from "@/modes/registry";
-import { orpc } from "@/utils/orpc";
+import { orpc } from "@/lib/orpc";
 
 import { MODE_COPY } from "./mode-copy";
 

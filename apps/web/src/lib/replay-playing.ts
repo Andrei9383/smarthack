@@ -1,6 +1,5 @@
 "use client";
 
-import { cn } from "@wattsentry/ui/lib/utils";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { clampStep, STEPS_IN_WEEK } from "./replay";
@@ -27,7 +26,7 @@ export function useReplayPlaying() {
   return useSyncExternalStore(subscribe, () => playingNow, () => false);
 }
 
-// The story narrator (#207) holds the clock while it speaks, so the voice and the screen stay on
+// The story narrator holds the clock while it speaks, so the voice and the screen stay on
 // the same moment. Playing stays true: the button still reads "Pause the story".
 let heldNow = false;
 export function setReplayHeld(held: boolean) {
@@ -55,20 +54,3 @@ export function useReplayTicker() {
   }, [playing, setStep]);
   useEffect(() => () => setPlaying(false), []);
 }
-
-/** Live dot: pulses green while the replay plays, quiet grey when paused. */
-export function LiveDot({ playing, className }: { playing: boolean; className?: string }) {
-  return (
-    <span aria-hidden className={cn("relative flex size-1.5 shrink-0", className)}>
-      {playing ? (
-        <>
-          <span className="absolute inline-flex size-full rounded-full bg-live opacity-60 motion-safe:animate-ping" />
-          <span className="relative inline-flex size-1.5 rounded-full bg-live" />
-        </>
-      ) : (
-        <span className="relative inline-flex size-1.5 rounded-full bg-status-unknown" />
-      )}
-    </span>
-  );
-}
-

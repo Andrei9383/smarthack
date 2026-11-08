@@ -3,7 +3,7 @@
 import { cn } from "@wattsentry/ui/lib/utils";
 import { Search } from "lucide-react";
 
-import { DemoKeys } from "@/demo/demo-jumps";
+import { DemoKeys } from "@/components/shell/demo-jumps";
 import { MODES, type ModeId } from "@/modes/registry";
 
 import { useShortcutLabel } from "./command-palette";

@@ -10,8 +10,8 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { Term } from "@/components/help";
-import { stepToTs, timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { stepToTs, timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
 import {
   type Delta,
   DetailsSheet,
@@ -22,10 +22,10 @@ import {
   SectionHeader,
   SheetSection,
   StatusPill,
-} from "@/panels/disclosure";
-import { useVerdicts } from "@/panels/judge/use-judge";
-import { orpc } from "@/utils/orpc";
-import { VerdictCard } from "@/panels/judge/verdict-card";
+} from "@/components/panels/disclosure";
+import { useVerdicts } from "@/components/panels/judge/use-judge";
+import { orpc } from "@/lib/orpc";
+import { VerdictCard } from "@/components/panels/judge/verdict-card";
 
 import { BASELINE_SERIES, LIMIT_SERIES, WATTSENTRY_SERIES, SOC_SERIES } from "./colors";
 import { FeederRanking } from "./feeder-ranking";

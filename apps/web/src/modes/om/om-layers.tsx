@@ -4,7 +4,7 @@ import { useMap } from "@wattsentry/ui/components/map";
 import type { GeoJSONSource, MapLayerMouseEvent } from "maplibre-gl";
 import { useEffect, useMemo, useRef } from "react";
 
-import { useSelectedSite } from "@/panels/site/use-site";
+import { useSelectedSite } from "@/components/panels/site/use-site";
 
 import { setPaint, useCameraFocus, useFrameLoop, useMotionAllowed } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";

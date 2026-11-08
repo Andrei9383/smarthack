@@ -1,8 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
-import { stepToDate } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import { stepToDate } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 // Judge rows are keyed by the local (Europe/Bucharest) calendar day, design §8.
 const LOCAL_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest" });

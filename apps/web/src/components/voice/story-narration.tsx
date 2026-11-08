@@ -6,9 +6,9 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 
 import type { AgentAction } from "@/components/shell/agent-actions";
 import { useAgentActions } from "@/components/shell/agent-actions";
-import { useReplayPlaying } from "@/demo/replay-bar";
-import { clampStep, dayOfStep, HERO_DAY, STEPS_PER_DAY, stepToDate, timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { useReplayPlaying } from "@/lib/replay-playing";
+import { clampStep, dayOfStep, HERO_DAY, STEPS_PER_DAY, stepToDate, timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
 import type { FeederState } from "@/modes/overview/use-overview-data";
 import { useOverviewData } from "@/modes/overview/use-overview-data";
 

@@ -12,10 +12,10 @@ import { Mic, MicOff, PhoneOff, X } from "lucide-react";
 import { parseAsString, useQueryStates } from "nuqs";
 import { type ReactNode, useState, useSyncExternalStore } from "react";
 
-import { StatusMark } from "@/components/brand/status-mark";
-import { setPlaying } from "@/demo/replay-bar";
-import { clampStep, clockLabel, dayOfStep } from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
+import { StatusMark } from "@/components/status-mark";
+import { setPlaying } from "@/lib/replay-playing";
+import { clampStep, clockLabel, dayOfStep } from "@/lib/replay";
+import { usePolicy, useReplayStep } from "@/lib/use-replay";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 import { getDaySummary, getFaults, getFeeders, getWindParks } from "./data-tools";

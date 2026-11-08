@@ -4,7 +4,7 @@ import { cn } from "@wattsentry/ui/lib/utils";
 import { BatteryCharging, Radio, UserRound, Wrench, X } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 
-import { clockLabel } from "@/demo/replay";
+import { clockLabel } from "@/lib/replay";
 
 import { type ActionKind, type AgentAction, useExplainAction } from "./agent-actions";
 

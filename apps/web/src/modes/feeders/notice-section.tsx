@@ -16,9 +16,9 @@ import { BatteryCharging, Car, Mail, MailCheck, Send, ShieldCheck } from "lucide
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
-import { orpc } from "@/utils/orpc";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { DetailsSheet, RowButton, SheetSection } from "@/components/panels/disclosure";
+import { orpc } from "@/lib/orpc";
 
 import { EmptyNote } from "./ui";
 

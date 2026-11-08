@@ -13,13 +13,13 @@ import { useMemo, useRef } from "react";
 
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { Fold, Metric, MetricRow } from "@/panels/disclosure";
-import { VerdictCard } from "@/panels/judge/verdict-card";
-import { timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { dayName, wallClock } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { Fold, Metric, MetricRow } from "@/components/panels/disclosure";
+import { VerdictCard } from "@/components/panels/judge/verdict-card";
+import { timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { dayName, wallClock } from "@/components/panels/site/time";
+import { orpc } from "@/lib/orpc";
 
 import { OmTimeAxis, OmYAxis } from "./chart-axes";
 import { OM_COLORS } from "./colors";

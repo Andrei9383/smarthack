@@ -3,9 +3,21 @@ import type { StyleSpecification } from "maplibre-gl";
 import { parseAsBoolean, useQueryState } from "nuqs";
 import { useEffect, useState } from "react";
 
-import { themeName } from "@/lib/palette";
+import { hex, paletteFor, themeName, type ThemeName } from "@/lib/palette";
 
-import { basemapFor } from "./colors";
+// Raw basemap colours for MapLibre paint properties, which can't read CSS variables: Romania reads as
+// the subject, neighbours recede.
+function basemapFor(theme: ThemeName) {
+  const palette = paletteFor(theme);
+  return {
+    sea: hex(palette.mapSea),
+    land: hex(palette.mapLand), // Romania
+    neighbour: hex(palette.mapNeighbour),
+    border: hex(palette.mapBorder), // other country borders
+    focusBorder: hex(palette.mapFocusBorder), // Romania's border
+    county: hex(palette.mapCounty),
+  } as const;
+}
 
 // The probe only checks that CARTO is reachable; <Map> picks Positron (light) or dark-matter (dark) itself.
 const ONLINE_STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";

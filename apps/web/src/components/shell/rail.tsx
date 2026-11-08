@@ -4,9 +4,9 @@ import { cn } from "@wattsentry/ui/lib/utils";
 import { AudioLines, BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { useAskSentinel } from "@/components/voice/voice-assistant";
-import { useSummaryOpen } from "@/demo/demo-jumps";
+import { useSummaryOpen } from "@/components/shell/demo-jumps";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 import { MODE_COPY } from "./mode-copy";

@@ -1,9 +1,9 @@
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { dayWindow, stepToTs } from "@/demo/replay";
-import { type Policy, useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import { dayWindow, stepToTs } from "@/lib/replay";
+import { type Policy, useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 export function useDayWindow() {
   const [step] = useReplayStep();

@@ -2,8 +2,8 @@
 
 import { cn } from "@wattsentry/ui/lib/utils";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { StatusPill } from "@/panels/disclosure";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { StatusPill } from "@/components/panels/disclosure";
 
 import { useVerdicts, witnessName } from "./use-judge";
 

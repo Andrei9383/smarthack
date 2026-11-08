@@ -4,8 +4,8 @@ import { cn } from "@wattsentry/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { type KeyboardEvent, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { setPlaying, useReplayPlaying, useReplayTicker } from "@/demo/replay-bar";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { setPlaying, useReplayPlaying, useReplayTicker } from "@/lib/replay-playing";
 import {
   clampStep,
   clockLabel,
@@ -17,9 +17,9 @@ import {
   STEPS_PER_DAY,
   stepToTs,
   tsToStep,
-} from "@/demo/replay";
-import { type Policy, usePolicy, useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+} from "@/lib/replay";
+import { type Policy, usePolicy, useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 import { groupMarkers, useAgentActions } from "./agent-actions";
 import { showAgentToast } from "./agent-toast";

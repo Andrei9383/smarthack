@@ -7,7 +7,7 @@ import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";
 import { parseAsString, useQueryState } from "nuqs";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import { MapSpark } from "@/components/map-spark/map-spark";
+import { MapSpark } from "@/components/map-spark";
 
 import { useCameraFocus, useFocusIntent } from "../feeders/map-motion";
 import { useMapRightPadding } from "../use-map-right-padding";

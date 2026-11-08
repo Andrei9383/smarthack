@@ -13,8 +13,8 @@ import { useChartPortalContainer, useChartStable } from "@/components/charts/cha
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { Metric, MetricRow } from "@/panels/disclosure";
-import { orpc } from "@/utils/orpc";
+import { Metric, MetricRow } from "@/components/panels/disclosure";
+import { orpc } from "@/lib/orpc";
 
 import { FanHourTicks, FanYAxis } from "./fan-chart-overlays";
 

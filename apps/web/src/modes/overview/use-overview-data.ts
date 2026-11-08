@@ -1,14 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { usePolicy } from "@/demo/use-replay";
-import { canonicalName } from "@/demo/kpi-format";
+import { usePolicy } from "@/lib/use-replay";
+import { canonicalName } from "@/lib/kpi-format";
 import { useDemandData } from "@/modes/demand/use-demand-data";
 import { useFeederList, useOverLimit } from "@/modes/feeders/use-feeder-data";
 import { useOmAssets, useReviewQueue, useWorkOrders } from "@/modes/om/use-om-data";
 import { expectedMwh } from "@/modes/production/data";
 import { useProductionData } from "@/modes/production/use-production-data";
-import { orpc } from "@/utils/orpc";
+import { orpc } from "@/lib/orpc";
 
 // Overview reuses each mode's own hooks and queries (same query keys), so it adds no new API
 // and switching to a mode afterwards hits a warm cache.

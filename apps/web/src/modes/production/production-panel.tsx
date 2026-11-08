@@ -8,10 +8,10 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { stepToDate } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { stepToDate } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
 import { Term } from "@/components/help";
-import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SectionHeader, SheetSection } from "@/panels/disclosure";
+import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SectionHeader, SheetSection } from "@/components/panels/disclosure";
 
 import { expectedMwh, hourly } from "./data";
 import { FanHourTicks, FanNowMarker, FanYAxis } from "./fan-chart-overlays";

@@ -15,12 +15,12 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { Fold, Metric, MetricRow, StatusPill } from "@/panels/disclosure";
-import { VerdictCard } from "@/panels/judge/verdict-card";
-import { STEP_MINUTES, timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { Fold, Metric, MetricRow, StatusPill } from "@/components/panels/disclosure";
+import { VerdictCard } from "@/components/panels/judge/verdict-card";
+import { STEP_MINUTES, timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
 import {

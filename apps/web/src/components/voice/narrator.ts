@@ -1,6 +1,6 @@
 "use client";
 
-import { setReplayHeld } from "@/demo/replay-bar";
+import { setReplayHeld } from "@/lib/replay-playing";
 
 // Speaks story lines one after another through /api/voice/tts (ElevenLabs), card #207.
 // While a line is waiting or playing, the replay clock is held so the voice and the screen

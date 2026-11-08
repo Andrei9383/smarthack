@@ -8,9 +8,9 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { DetailsSheet, LABEL, Metric, MetricRow, SectionHeader, SheetSection, StatusPill } from "@/panels/disclosure";
+import { DetailsSheet, LABEL, Metric, MetricRow, SectionHeader, SheetSection, StatusPill } from "@/components/panels/disclosure";
 
-import { hhmm, wallClock } from "@/panels/site/time";
+import { hhmm, wallClock } from "@/components/panels/site/time";
 
 import { AXIS_MARGIN, ChartAxes, ChartLegend, EmptyNote, yAxisFor } from "../feeders/ui";
 import { DEMAND_SERIES, rampColor } from "./colors";

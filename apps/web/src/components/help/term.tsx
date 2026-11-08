@@ -13,7 +13,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { type GlossaryId, getTerm } from "@/lib/glossary";
-import { cn } from "@/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 
 const OPEN_DELAY_MS = 120;
 const CLOSE_DELAY_MS = 120;

@@ -5,9 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useCallback, useMemo } from "react";
 
-import type { StatusKind } from "@/components/brand/status-mark";
-import { STEPS_IN_WEEK, tsToStep } from "@/demo/replay";
-import { orpc } from "@/utils/orpc";
+import type { StatusKind } from "@/components/status-mark";
+import { STEPS_IN_WEEK, tsToStep } from "@/lib/replay";
+import { orpc } from "@/lib/orpc";
 
 // The agent-actions lane and the Overview's "Latest agent actions" read the same audit trail
 // (`audit.listLogs`, #32), grouped into one marker per action type and replay step.

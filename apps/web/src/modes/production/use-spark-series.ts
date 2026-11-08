@@ -2,10 +2,10 @@ import type { CountySeriesItem, ParkForecastItem, ParkItem } from "@wattsentry/a
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import type { SparkPoint } from "@/components/map-spark/map-spark";
-import { stepToDate } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import type { SparkPoint } from "@/components/map-spark";
+import { stepToDate } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 import { hourly } from "./data";
 

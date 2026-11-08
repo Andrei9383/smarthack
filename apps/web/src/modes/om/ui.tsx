@@ -3,7 +3,7 @@
 import { Info, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import type { StatusKind } from "@/components/brand/status-mark";
+import type { StatusKind } from "@/components/status-mark";
 
 // Small presentational pieces shared by the O&M panel, the turbine drawer and the park report.
 // Section titles use the `section-title` utility.

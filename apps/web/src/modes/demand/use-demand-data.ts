@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryState } from "nuqs";
 import { useMemo } from "react";
 
-import { dayWindow, stepToTs } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import { dayWindow, stepToTs } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 import { byStress, toZones } from "./data";
 
