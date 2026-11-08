@@ -25,7 +25,7 @@ def test_deferred_value_formula():
 
 def test_years_deferred():
     assert dv.years_deferred(40, 0, 0) == 0.0
-    assert dv.years_deferred(40, 5, 3) == 0.0  # Sentinel below baseline never counts as value
+    assert dv.years_deferred(40, 5, 3) == 0.0  # WattSentry below baseline never counts as value
     y = dv.years_deferred(40, 0, 10, growth=0.15)
     assert y == pytest.approx(math.log(50 / 40) / math.log(1.15))
     assert dv.years_deferred(40, 0, 20) > y  # more capacity -> longer deferral

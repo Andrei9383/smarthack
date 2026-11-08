@@ -510,7 +510,7 @@ def run_job(job: Job, planner: Planner = default_planner) -> dict[str, Any]:
             "evals": len(details), "plan_status": status, "seconds": round(time.perf_counter() - t, 2)}
 
 
-def _job_cost(job: Job) -> float:  # schedule the expensive ones first (Sentinel LP on big feeders)
+def _job_cost(job: Job) -> float:  # schedule the expensive ones first (WattSentry LP on big feeders)
     return job.fw.n_sites * (50.0 if job.policy == "sentinel" else 1.0) * (2.0 if job.variant == "batteries" else 1.0)
 
 

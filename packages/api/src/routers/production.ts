@@ -28,7 +28,6 @@ const meanMw = (column: AnyColumn, ts: AnyColumn) =>
   sql<number | null>`sum(${column}) / count(distinct ${ts}) / 1000.0`;
 
 export const productionRouter = os.router({
-  getRun: os.getRun.handler(({ context }) => latestRunWith(context.db, parkForecasts)),
 
   listParks: os.listParks.handler(async ({ context }) => {
     return emptyIfNoTables(() => context.db.select().from(parks).orderBy(asc(parks.id)));

@@ -23,23 +23,6 @@ from .lgbm import parse_weather, power_scale, weather_channels
 from .physical import clearsky_power_kw, pv_power_kw, recorded_meta, solar_geometry
 
 
-def shift_days(arr: np.ndarray, k: int) -> np.ndarray:
-    """[n, d, 96] -> value k days earlier (NaN for the first k days)."""
-    out = np.full_like(arr, np.nan)
-    out[:, k:] = arr[:, :-k]
-    return out
-
-
-def pv_ref7_bulk(a: FleetArrays) -> np.ndarray:
-    out = np.full_like(a.pv_kw, np.nan)
-    for d in range(REF_DAYS, a.pv_kw.shape[1]):
-        env = _second_largest(a.pv_kw[:, d - REF_DAYS:d], axis=1)
-        cs = np.nanmean(a.pvlib_cs_kw[:, d - REF_DAYS:d], axis=1)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            out[:, d] = np.where(cs > 1e-3, env / cs, 0.0) * a.pvlib_cs_kw[:, d]
-    return out
-
-
 def pvlib_band(a: FleetArrays, day_mask: np.ndarray, site_mask: np.ndarray) -> tuple[float, float]:
     """P10 / P90 of actual / pvlib on healthy daylight training steps with meaningful power."""
     sl = (slice(None), day_mask)

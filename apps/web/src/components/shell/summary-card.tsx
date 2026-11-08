@@ -11,7 +11,7 @@ import { orpc } from "@/lib/orpc";
 import { useSummaryOpen } from "./demo-jumps";
 import { canonicalName, formatKpiParts, type Kpi } from "@/lib/kpi-format";
 
-// Plan §7 step 7. The WindMon comparison comes from the baseline row of the same metric.
+// The WindMon comparison comes from the baseline row of the same metric.
 const METRICS = [
   { name: "peak_reduction", label: "Peak reduction" },
   { name: "minutes_over_limit", label: "Minutes over limit" },

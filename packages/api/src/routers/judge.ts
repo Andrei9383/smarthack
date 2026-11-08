@@ -21,17 +21,13 @@ function groupBy(rows: Row[], key: (r: Row) => string) {
   for (const r of rows) out.set(key(r), [...(out.get(key(r)) ?? []), r]);
   return out;
 }
-const mean = (rows: Row[], field: string) => {
-  const v = rows.map((r) => num(r[field])).filter((x): x is number => x !== null && Number.isFinite(x));
-  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
-};
 
-// Newest run with rows in `table` (the Judge may write under its own run id).
-async function judgeRun(db: Database, table: "judge_verdicts" | "trust", runId?: string) {
+// Newest run with verdicts (the Judge may write under its own run id).
+async function judgeRun(db: Database, runId?: string) {
   if (runId) return runId;
   const [row] = await emptyIfNoTables(() =>
     db.all<Row>(
-      sql`select t.run_id from ${sql.identifier(table)} t left join runs r on r.id = t.run_id
+      sql`select t.run_id from judge_verdicts t left join runs r on r.id = t.run_id
           group by t.run_id order by max(r.created_at) desc, t.run_id desc limit 1`,
     ),
   );
@@ -54,17 +50,12 @@ const input = z
   .object({ runId: z.string().optional(), until: z.string().optional(), assetId: z.string().optional() })
   .optional();
 
-type TrustWitness = {
-  model: string;
-  series: { day: string; trust: number | null; prior: number | null; nEff: number }[];
-  alerts: { bucket: string; trust: number | null; prior: number | null; message: string | null; since: string }[];
-};
 
 export const judgeRouter = {
   // Latest verdict per (asset, witness) on or before `until` (local day YYYY-MM-DD), with its graded outcomes once known.
   verdicts: publicProcedure.input(input).handler(({ context: { db }, input }) =>
     emptyIfNoTables(async () => {
-      const runId = await judgeRun(db, "judge_verdicts", input?.runId);
+      const runId = await judgeRun(db, input?.runId);
       if (!runId) return [];
       const until = input?.until;
       const rows = await db.all<Row>(sql`
@@ -110,41 +101,4 @@ export const judgeRouter = {
       }));
     }),
   ),
-
-  // Trust over the week per witness (mean over its context buckets per day) and its open health alerts.
-  trustBoard: publicProcedure.input(input).handler(async ({ context: { db }, input }) => {
-    const runId = await judgeRun(db, "trust", input?.runId);
-    if (!runId) return { runId: null, witnesses: [] as TrustWitness[] };
-    const rows = await emptyIfNoTables(() =>
-      db.all<Row>(sql`
-        select day, model, bucket, prior, n_eff, trust, health_alert from trust
-        where ${where([sql`run_id = ${runId}`, input?.until !== undefined && sql`day <= ${input.until}`])}
-        order by model, day, bucket`),
-    );
-    const witnesses = [...groupBy(rows, (r) => String(r.model))].map(([model, list]): TrustWitness => {
-      const days = [...groupBy(list, (r) => String(r.day))];
-      const series = days.map(([day, xs]) => ({
-        day,
-        trust: mean(xs, "trust"),
-        prior: mean(xs, "prior"),
-        nEff: xs.reduce((a, x) => a + (num(x.n_eff) ?? 0), 0),
-      }));
-      const latest = days.at(-1)?.[1] ?? [];
-      const alerts = latest.filter((x) => flag(x.health_alert)).map((x) => {
-        // first day of the current unbroken alert streak for this bucket
-        const history = list.filter((y) => y.bucket === x.bucket);
-        let i = history.length - 1;
-        while (i > 0 && flag(history[i - 1]?.health_alert)) i--;
-        return {
-          bucket: String(x.bucket),
-          trust: num(x.trust),
-          prior: num(x.prior),
-          message: typeof x.health_alert === "string" && Number.isNaN(Number(x.health_alert)) ? x.health_alert : null,
-          since: String(history[i]?.day ?? x.day),
-        };
-      });
-      return { model, series, alerts };
-    });
-    return { runId, witnesses };
-  }),
 };

@@ -912,7 +912,7 @@ def cache_key(cfg: RowConfig, weeks: Sequence[WeekSpec], windows: Path, models_d
 
 def cache_dir() -> Path:
     base = os.environ.get("LAB_CACHE_DIR")
-    return (Path(base) if base else Path.home() / ".cache" / "sentinel") / "judge_rows"
+    return (Path(base) if base else Path.home() / ".cache" / "wattsentry") / "judge_rows"
 
 
 def _mem_available_gb() -> float:

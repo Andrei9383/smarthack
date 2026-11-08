@@ -26,6 +26,8 @@ import numpy as np
 from wattsentry.contracts.envelope import WindAnomaly
 from wattsentry.contracts.wind import SENSORS, make_tag, parse_tag
 
+from wattsentry.infra.paths import cache_root
+
 CLASSES: list[str] = [a.value for a in WindAnomaly]  # index = label code
 CLASS_INDEX = {c: i for i, c in enumerate(CLASSES)}
 NORMAL = 0
@@ -537,11 +539,11 @@ def from_long(
 # Loader
 # --------------------------------------------------------------------------------------------------------------
 def external_wind_dir() -> Optional[Path]:
-    """Simulator output dir: $WATTSENTRY_WIND_DIR, else $WATTSENTRY_CACHE (default ~/.cache/sentinel)/data-v{N}/wind/
+    """Simulator output dir: $WATTSENTRY_WIND_DIR, else $WATTSENTRY_CACHE (default ~/.cache/wattsentry)/data-v{N}/wind/
     for the current WIND_DATA_VERSION, else the newest data-v*/wind/ holding wind_telemetry + turbines parquet."""
     env = os.environ.get("WATTSENTRY_WIND_DIR")
     cands = [Path(env)] if env else []
-    base = Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
+    base = cache_root()
     try:
         from wattsentry.sim.wind.config import WIND_DATA_VERSION
 

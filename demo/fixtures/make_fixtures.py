@@ -37,7 +37,7 @@ N_HOMES = 300
 SEED = 20261107
 
 # The demo story. The UI relies on these ids, so they are pinned here rather than drawn at random.
-HERO_FEEDER = "F7"                      # over its limit under baseline, under it with Sentinel
+HERO_FEEDER = "F7"                      # over its limit under baseline, under it with WattSentry
 HERO_SITE = "1042"                      # string failure on day 4
 OOD_SITE = "1177"                       # goes to human review, no work order
 FAULT_DAY = 3                           # 0-based -> "day 4" as the story tells it
@@ -247,7 +247,7 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
         for g in range(fault_from, TOTAL_STEPS):
             pv[g] = round(pv[g] * 0.58, 4)
 
-    # Sentinel's absorption window, per day. A 10 kWh / 5 kW pack can only soak up ~2 h, so
+    # WattSentry's absorption window, per day. A 10 kWh / 5 kW pack can only soak up ~2 h, so
     # charging has to land ON the export peak, not simply "at midday": spend the usable energy
     # in the steps centred on each day's peak surplus. This is the per-feeder LP's outcome
     # reproduced by hand -- the fixtures must not claim to run the real optimiser.
@@ -273,7 +273,7 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
                     # the time the midday export peak arrives and cannot absorb it
                     p = min(pmax, surplus) if surplus > 0 else -min(pmax, -surplus)
                 else:
-                    # Sentinel keeps the pack empty until the surplus is near its own daily
+                    # WattSentry keeps the pack empty until the surplus is near its own daily
                     # peak, so the whole capacity lands on the hours that breach the feeder
                     # limit. This is the per-feeder LP's behaviour, hand-rolled.
                     if g in charge_window and surplus > 0:
@@ -419,7 +419,7 @@ def seed(con: sqlite3.Connection, rng: random.Random) -> dict:
         [(RUN_ID, "fixtures", None, LABEL, day_key(0), "fixtures-no-commit",
           json.dumps({"note": "no models; hand-written fixtures"}),
           iso(WEEK_START), iso(week_end),
-          "Mock replay week for UI development (card #30). Not a result.")])
+          "Mock replay week for UI development. Not a result.")])
 
     # ---- topology --------------------------------------------------------------
     put("parks", "id,name,county,lat,lon,rated_mw,turbine_count",
@@ -457,7 +457,7 @@ def seed(con: sqlite3.Connection, rng: random.Random) -> dict:
         sent = [feeder_curve[fid]["sentinel"][g] + rest[fid][g] for g in range(TOTAL_STEPS)]
         peak_b, peak_s = max(base), max(sent)
         if fid == HERO_FEEDER:
-            # the whole point of the demo: baseline crosses, Sentinel does not
+            # the whole point of the demo: baseline crosses, WattSentry does not
             limit = round((peak_b + peak_s) / 2.0, 1)
         else:
             limit = round(max(peak_b, peak_s) * 1.25, 1)
@@ -773,7 +773,7 @@ def seed(con: sqlite3.Connection, rng: random.Random) -> dict:
                       row[2], None, None, "M4" if prosumer else "M6",
                       "sitehealth@fixtures" if prosumer else "windnbm@fixtures",
                       h(row[0], row[2]), json.dumps({"confidence": row[9]}), 0.70, row[17],
-                      None, None, None, "top-K triage (§3.5)"))
+                      None, None, None, "top-K triage"))
     for row in alerts:
         audit.append((f"au-{row[0]}", RUN_ID, row[0], "alert", row[5], None, "agent", row[2],
                       row[4], row[3], "M6", "windnbm@fixtures", h(row[0]),
@@ -834,7 +834,7 @@ def seed(con: sqlite3.Connection, rng: random.Random) -> dict:
 
 # ----------------------------------------------------------------- verification
 # The demo story is easy to break
-# silently: an earlier version of this script produced a Sentinel curve identical to the
+# silently: an earlier version of this script produced a WattSentry curve identical to the
 # baseline (the battery filled up two hours before the export peak) and every county saturated
 # at peak_stress 1.0. Both looked fine in the row counts. So the beats are asserted here.
 
@@ -850,15 +850,15 @@ def verify(con: sqlite3.Connection) -> list[str]:
 
     at = lambda **kw: iso(WEEK_START + timedelta(**kw))
 
-    # 1. the hero feeder: baseline crosses its limit, Sentinel never does
+    # 1. the hero feeder: baseline crosses its limit, WattSentry never does
     v = dict((p, (n, mx)) for p, n, mx in
              q("select policy,sum(is_violation),max(export_kw) from feeder_curves "
                "where feeder_id=? group by policy", HERO_FEEDER))
     check("F7 baseline crosses the limit", v["baseline"][0] > 0,
           f"{v['baseline'][0]} steps over")
-    check("F7 Sentinel stays under", v["sentinel"][0] == 0,
+    check("F7 WattSentry stays under", v["sentinel"][0] == 0,
           f"{v['sentinel'][0]} steps over")
-    check("Sentinel lowers the peak", v["sentinel"][1] < v["baseline"][1],
+    check("WattSentry lowers the peak", v["sentinel"][1] < v["baseline"][1],
           f"{v['baseline'][1]:.0f} -> {v['sentinel'][1]:.0f} kW")
     check("no other feeder violates",
           q("select count(*) from feeder_curves where feeder_id!=? and is_violation=1",

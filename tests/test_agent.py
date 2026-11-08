@@ -285,7 +285,7 @@ def test_baseline_wind_alerts_use_the_24_windmon_rules():
     assert sens["act_pwt"].shape == (2 * 96, len(ids)) == err.shape and len(rated) == len(ids)
     b = L.run_policy(w, comps, L.LoopConfig(policy="baseline", run_id="b"))
     s = L.run_policy(w, comps, L.LoopConfig(policy="sentinel", run_id="s"))
-    assert b.turbine_alerts > s.turbine_alerts > 0  # WindMon rules fire more than the Sentinel triage
+    assert b.turbine_alerts > s.turbine_alerts > 0  # WindMon rules fire more than the WattSentry triage
     assert L.default_components(w, force_fallback=True).windmon_flags is None  # built-in stand-in stays the fallback
 
 

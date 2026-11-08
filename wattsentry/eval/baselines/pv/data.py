@@ -46,18 +46,6 @@ def day_grid(days: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(pd.to_datetime(ns, utc=True))
 
 
-def ensure_dataset(n_sites: int = 100, n_feeders: int = 6, start_year: int = 2023, end_year: int = 2024,
-                   seed: int = 7, log=print) -> Path:
-    """Generate (or reuse the cached) fleet and its fault-injected copy; returns the faults dir."""
-    from wattsentry.sim.faults import inject_dataset
-    from wattsentry.sim.fleet import FleetConfig, generate
-
-    cfg = FleetConfig(seed=seed, n_sites=n_sites, n_feeders=n_feeders, n_congested=max(1, n_feeders // 2),
-                      start_year=start_year, end_year=end_year)
-    fleet = generate(cfg, plots=False)
-    return inject_dataset(fleet, log=log)
-
-
 def load_arrays(data_dir: Path, years: list[int] | None = None, site_ids: list[str] | None = None) -> FleetArrays:
     data_dir = Path(data_dir)
     sites = pd.read_parquet(data_dir / "sites.parquet")

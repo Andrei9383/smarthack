@@ -1,6 +1,6 @@
-"""Real-model adapters for the replay (card #29): wattsentry/agent/predictors.py.
+"""Real-model adapters for the replay: wattsentry/agent/predictors.py.
 
-ONNX tests skip when models/ has no promoted weights; the SimWorld test skips without #10's window cache."""
+ONNX tests skip when models/ has no promoted weights; the SimWorld test skips without the window cache."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def _have_windows() -> bool:
 
 
 @needs_models
-@pytest.mark.skipif(not _have_windows(), reason="no #10 window cache")
+@pytest.mark.skipif(not _have_windows(), reason="no window cache")
 def test_simworld_demo_ids_and_story():
     from wattsentry.agent.world import HERO_FEEDER_ID, STORY_SITE_ID, SimWorld
 

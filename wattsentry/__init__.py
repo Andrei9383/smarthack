@@ -1,1 +1,1 @@
-"""WattSentry: forecasting, fault detection and feeder peak shaving (see team/plan.md)."""
+"""WattSentry: forecasting, fault detection and feeder peak shaving."""

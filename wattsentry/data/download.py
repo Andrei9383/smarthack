@@ -32,7 +32,7 @@ import polars as pl
 REPO = Path(__file__).resolve().parents[2]
 RAW = REPO / "data" / "raw"
 CACHE = REPO / "data" / ".cache"
-UA = "prosumer-sentinel/0.1 (SmartHack 2026; research use)"
+UA = "wattsentry/0.1 (research use)"
 RO_TZ = zoneinfo.ZoneInfo("Europe/Bucharest")
 # OPCOM PZU (and PI) intervals are numbered in CET/CEST, the SDAC/SIDC market time, not Romanian time: delivery
 # day D runs 00:00-24:00 CET = 01:00-01:00 Romanian time.
@@ -183,7 +183,7 @@ WIND_PARKS = [
     dict(park_id="fantanele_cogealac", name="Fântânele-Cogealac-Grădina", county="Constanța", operator="CEZ",
          lat=44.59, lon=28.57, n_turbines=240, rated_mw=2.5, source="CEZ Romania public data (to verify)"),
     dict(park_id="deleni", name="Deleni", county="Vaslui", operator="",
-         lat=46.53, lon=27.40, n_turbines=23, rated_mw=6.1, source="plan §4 (to verify)"),
+         lat=46.53, lon=27.40, n_turbines=23, rated_mw=6.1, source="approximate"),
     dict(park_id="pestera", name="Peștera", county="Constanța", operator="EDPR",
          lat=44.19, lon=28.10, n_turbines=30, rated_mw=3.0, source="EDPR Romania public data (to verify)"),
 ]

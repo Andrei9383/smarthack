@@ -15,7 +15,6 @@ sites only; test uses all sites (seen + unseen reported separately).
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +23,8 @@ import numpy as np
 import pandas as pd
 
 from . import physics as ph
+
+from wattsentry.infra.paths import cache_root
 
 HIST_DAYS = 14
 H = ph.DAY
@@ -86,8 +87,8 @@ class ArraySource:
 
 
 def find_lab_windows() -> Path | None:
-    """Highest-N $WATTSENTRY_CACHE/data-v{N}/windows (default ~/.cache/sentinel) in our layout, else None."""
-    base = Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
+    """Highest-N $WATTSENTRY_CACHE/data-v{N}/windows (default ~/.cache/wattsentry) in our layout, else None."""
+    base = cache_root()
     cands = []
     for p in base.glob("data-v*/windows/index.json"):
         m = re.match(r"data-v(\d+)", p.parent.parent.name)

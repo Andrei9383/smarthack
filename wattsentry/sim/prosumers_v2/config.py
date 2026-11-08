@@ -8,20 +8,16 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
+
+from wattsentry.infra.paths import cache_root as default_cache_root
 
 # Bump when the generated data changes meaning or shape; the cache dir is prosumers-v2/v{PV2_VERSION}-<digest>.
 PV2_VERSION = 1
 
 DT_H = 0.25
 STEPS_PER_DAY = 96
-
-
-def default_cache_root() -> Path:
-    """$WATTSENTRY_CACHE, else ~/.cache/sentinel (the name the lab's existing caches live under)."""
-    return Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
 
 
 @dataclass(frozen=True)

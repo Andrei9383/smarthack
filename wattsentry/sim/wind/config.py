@@ -14,16 +14,14 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from wattsentry.infra.paths import cache_root as default_cache_root
+
 # Bump when the generated wind data changes meaning or shape. Starts at 4 so it never collides with the fleet's
 # data-v1..v3 directories.
 WIND_DATA_VERSION = 4
 
 REPO = Path(__file__).resolve().parents[3]
 RAW = REPO / "data" / "raw"
-
-
-def default_cache_root() -> Path:
-    return Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
 
 
 def default_out_dir() -> Path:

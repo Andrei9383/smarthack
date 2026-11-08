@@ -1,4 +1,4 @@
-"""J1 Judge grader (card #146): the team/judge-design.md §12 rows J1 owns, plus gate / audit / speed checks."""
+"""Judge grader: grading rules, gate, audit and speed checks."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def pick(rows, **kw):
     return [r for r in rows if all(r[k] == v for k, v in kw.items())]
 
 
-# ---------------------------------------------------------------------------------- §12: wide bands win hit rate
+# ---------------------------------------------------------------------------------- wide bands win hit rate
 def test_wide_bands_lose():
     obs = make_obs(n_sites=6, days=3, seed=1)
     preds = []
@@ -114,7 +114,7 @@ def test_nanquantile_matches_numpy():
     np.testing.assert_allclose(S.nanquantile(x, qs), ref, equal_nan=True)
 
 
-# ---------------------------------------------------------------------------------- §12: always healthy
+# ---------------------------------------------------------------------------------- always healthy
 def test_always_healthy_loses():
     obs = make_obs(n_sites=6, days=3)
     faulty = {"S1": "string_outage", "S2": "soiling"}
@@ -143,7 +143,7 @@ def test_alarm_precision_partial_and_false():
     assert a.tolist() == [1.0, 0.5, 0.0]
 
 
-# ---------------------------------------------------------------------------------- §12: gate never uses the witness
+# ---------------------------------------------------------------------------------- gate never uses the witness
 def test_gate_never_uses_graded_witness():
     for fn in (G.gate_pv, G.gate_load, G.gate_turbine, G.own_history_jump):
         params = set(inspect.signature(fn).parameters)
@@ -187,7 +187,7 @@ def test_gate_physics_checks():
     assert G.gate_turbine(tp, np.array([2500.0]))[0, 0] & G.TURB_RANGE
 
 
-# ---------------------------------------------------------------------------------- §12: 96 readings = one day
+# ---------------------------------------------------------------------------------- 96 readings = one day
 def test_96_readings_count_as_one_asset_day():
     obs = make_obs(n_sites=1, days=1)
     y = obs.load[0, 0]
@@ -204,7 +204,7 @@ def test_96_readings_count_as_one_asset_day():
     assert r["quality"] == "clean" and r["ood_high"] is False and r["source"] == "telemetry"
 
 
-# ---------------------------------------------------------------------------------- §12: observed_at ordering
+# ---------------------------------------------------------------------------------- observed_at ordering
 def test_observed_at_ordering():
     obs = make_obs(n_sites=4, days=3)
     y = obs.load
@@ -251,7 +251,7 @@ def test_m7_waits_14_days_and_m8_flags():
     assert got == {("S0", "flag"): 1.0, ("S1", "flag"): 0.0, ("S2", "miss_score"): 0.0}
 
 
-# ---------------------------------------------------------------------------------- §12: gated days ungraded
+# ---------------------------------------------------------------------------------- gated days ungraded
 def test_gated_days_are_ungraded():
     obs0 = make_obs(n_sites=3, days=2)
     pv = obs0.pv.copy()
@@ -337,6 +337,6 @@ def test_grade_mock_week_under_5s():
     print(f"grade week: {dt:.2f}s, {len(P)} predictions, {len(rows)} rows")
     assert dt < 5.0
     assert pick(rows, model="pvnet", score_name="calibration") and pick(rows, model="sitehealth")
-    assert pick(rows, model="persistence_load", score_name="sharpness")  # internal substitute, #147 prior id
+    assert pick(rows, model="persistence_load", score_name="sharpness")  # internal substitute prior id
     a = pick(rows, model="sitehealth", asset_id=w.story_site, score_name="alarm_precision")
     assert a and a[0]["source"] == "crew" and a[0]["weight"] == ACTION_VISIT_WEIGHT

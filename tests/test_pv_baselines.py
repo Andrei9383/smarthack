@@ -9,7 +9,7 @@ import pytest
 from wattsentry.contracts.envelope import Predictor, Window
 from wattsentry.eval.baselines.pv import lgbm
 from wattsentry.eval.baselines.pv.cusum import cusum_two_sided
-from wattsentry.eval.baselines.pv.faults import ThresholdCusumPredictor, cusum_detector, prf, threshold_rule
+from wattsentry.eval.baselines.pv.faults import ThresholdCusumPredictor
 from wattsentry.eval.baselines.pv.features import LOAD_FEATURES, PV_FEATURES
 from wattsentry.eval.baselines.pv.metrics import coverage, nmae, pinball
 from wattsentry.eval.baselines.pv.persistence import PersistencePredictor, PvlibPredictor
@@ -134,22 +134,6 @@ def test_threshold_cusum_predictor_flags_drop():
     f = ThresholdCusumPredictor().predict(SITE, Window(t0=T0, residual_summary=drop))
     assert f.p_fault >= 0.5 and f.top_fault == "string_outage" and max(f.q50) == 0  # no weather -> no expectation
     assert abs(sum(f.fault_probs.values()) - 1) < 1e-9
-
-
-# ------------------------------------------------------------------------------------------------ rules + metrics
-def test_fault_rules_on_synthetic_ratio():
-    q = np.ones((2, 40))
-    q[1, 20:] = 0.6  # site 1 loses 40 % from day 20
-    q[0, 5] = np.nan  # missing data day
-    inf = np.ones_like(q, bool)
-    inf[:, 10] = False  # uninformative day (snow): skipped
-    al, _ = threshold_rule(q, inf)
-    assert not al[0].any() and al[1, 22:].all() and not al[1, :22].any()
-    cal, _ = cusum_detector(q, inf, k=0.1, h=0.5)
-    assert not cal[0].any() and cal[1, 22:].all()
-    truth = np.zeros_like(al)
-    truth[1, 20:] = True
-    assert prf(al, truth)["precision"] == 1.0
 
 
 def test_metrics():

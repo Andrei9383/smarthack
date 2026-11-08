@@ -72,7 +72,7 @@ def main(argv=None) -> int:
         agent = LiveAgent(world, con, f"{run_id}:agent", feeders=sorted(src.feeders()))
     feed = LiveFeed(src, con, run_id, world=a.world, clock=clock, agent=agent,
                     notes=f"simulated readings ({world.label}); clock {clock}; feeders {sorted(src.feeders())}"
-                          + ("; agent decides each tick (#129, live_agent_*)" if agent else ""))
+                          + ("; agent decides each tick (live_agent_*)" if agent else ""))
     print(f"[live] {run_id} -> {store.db_path(a.db)}  feeders={sorted(src.feeders())} homes={len(src.sites())} "
           f"models={feed.da.versions()}  resume_after={feed.last}", flush=True)
     log = lambda s: print(s, flush=True)  # noqa: E731
