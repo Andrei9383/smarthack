@@ -82,11 +82,11 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
     { value: "sentinel", label: "Sentinel" },
   ];
   return (
-    <div role="radiogroup" aria-label="Policy shown" data-tour="policy" className="relative flex rounded-md border border-border bg-surface-raised p-[3px]">
+    <div role="radiogroup" aria-label="Policy shown" data-tour="policy" className="relative flex rounded-lg bg-surface-raised p-[3px]">
       <span
         aria-hidden
         className={cn(
-          "absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-sm bg-card shadow-raised transition-[left] duration-250 ease-out motion-reduce:transition-none",
+          "absolute top-[3px] bottom-[3px] w-[calc(50%-3px)] rounded-md bg-card shadow-card transition-[left] duration-250 ease-out motion-reduce:transition-none",
           policy === "baseline" ? "left-[3px]" : "left-1/2",
         )}
       />
@@ -98,7 +98,7 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
           aria-checked={policy === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "relative z-[1] flex h-8 flex-1 items-center justify-center gap-1.5 rounded-sm px-2 text-[13px] font-medium whitespace-nowrap transition-colors duration-200 min-[1440px]:px-3",
+            "relative z-[1] flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-dense font-medium whitespace-nowrap transition-colors duration-200 min-[1440px]:px-3",
             policy === option.value ? "text-foreground" : "text-text-secondary hover:text-foreground",
           )}
         >
@@ -367,7 +367,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
         aria-label={playing ? "Pause the replay" : "Play the replay"}
         onClick={() => setPlaying((value) => !value)}
         className={cn(
-          "grid shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-fast hover:bg-primary/85 active:scale-95",
+          "grid shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-fast hover:bg-primary/85 active:scale-95",
           compact ? "size-9" : "size-10",
         )}
       >
@@ -378,7 +378,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
         <b className="block font-mono text-[13px] leading-tight font-semibold tracking-tighter min-[1440px]:text-[15px] whitespace-nowrap text-foreground tabular-nums">
           {clockLabel(step)}
         </b>
-        <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-caption whitespace-nowrap text-muted-foreground">
           <StatusMark kind={playing ? "live" : "unknown"} size="xs" pulse={playing} />
           {status}
           {!playing && offset !== 0 ? (
@@ -398,7 +398,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
         {compact ? null : (
         <>
         <div className="mb-0.5 flex h-3 items-center justify-between gap-2 text-[10px] leading-none">
-          <span className="font-medium whitespace-nowrap text-muted-foreground @min-[294px]:tracking-[0.04em] @min-[294px]:uppercase">
+          <span className="font-medium whitespace-nowrap text-muted-foreground">
             Agent actions{agentOn ? "" : " · none in Baseline"}
           </span>
           <span
@@ -436,7 +436,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
           >
             now
           </span>
-          <span className="absolute top-0.5 bottom-0 -ml-px w-0.5 rounded-t-full bg-foreground/55" style={{ left: pct(NOW_STEP) }} />
+          <span className="absolute top-0.5 bottom-0 -ml-px w-0.5 rounded-t-full bg-muted-foreground" style={{ left: pct(NOW_STEP) }} />
         </div>
         </>
         )}
@@ -463,11 +463,11 @@ export function TimelineDock({ className, compact = false }: { className?: strin
             {Array.from({ length: DAYS }, (_, day) => (
               <span key={day}>
                 <span
-                  className="absolute inset-y-0 bg-foreground/[0.06]"
+                  className="absolute inset-y-0 bg-surface-raised"
                   style={{ left: pct(day * STEPS_PER_DAY), width: pct(24) }}
                 />
                 <span
-                  className="absolute inset-y-0 bg-foreground/[0.06]"
+                  className="absolute inset-y-0 bg-surface-raised"
                   style={{ left: pct(day * STEPS_PER_DAY + 80), width: pct(16) }}
                 />
               </span>
@@ -485,7 +485,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
           ))}
           <span
             aria-hidden
-            className="absolute top-0 bottom-1 -ml-px w-0.5 rounded-b-full bg-foreground/55"
+            className="absolute top-0 bottom-1 -ml-px w-0.5 rounded-b-full bg-muted-foreground"
             style={{ left: pct(NOW_STEP) }}
           />
           <span

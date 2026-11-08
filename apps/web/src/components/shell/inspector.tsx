@@ -41,7 +41,6 @@ const PANEL_IN_INSPECTOR =
 export function Inspector({ mode, children, className }: { mode: ModeId; children: ReactNode; className?: string }) {
   const { label: runLabel } = useOverview();
   const copy = MODE_COPY[mode];
-  const { icon: Icon } = MODES[mode];
   const subline = useSubline(mode);
 
   return (
@@ -49,7 +48,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
       aria-label={`${MODES[mode].label} details`}
       data-tour="inspector"
       className={cn(
-        "flex flex-col overflow-hidden rounded-lg bg-card shadow-floating",
+        "flex flex-col overflow-hidden rounded-xl bg-card shadow-floating",
         className,
       )}
     >
@@ -57,64 +56,60 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
         key={mode}
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-3 motion-safe:duration-250"
       >
-        <header className="flex items-start gap-3 border-b border-border px-4 pt-4 pb-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand">
-            <Icon aria-hidden className="size-5" />
-          </span>
+        {/* Calm header: the view's title and its data-source pill. The plain-language "what", the
+            counts and the agent's loop are one click away, under "About this view". */}
+        <header className="flex items-start gap-3 px-5 pt-5 pb-3">
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[15px] leading-tight font-semibold text-foreground">{copy.heading}</h2>
-            {subline ? <p className="mt-0.5 text-xs leading-snug text-pretty text-text-secondary tabular-nums">{subline}</p> : null}
-            {runLabel ? <ProvenancePill label={runLabel} className="mt-1.5" /> : null}
-          </div>
-        </header>
-
-        {copy.what ? (
-          <section className="border-b border-border px-5 pt-3.5 pb-2.5">
-            <p className="text-[13px] leading-snug text-foreground">{copy.what}</p>
-            {copy.doing || copy.look ? (
+            <h2 className="truncate text-title tracking-tight text-foreground">{copy.heading}</h2>
+            {copy.what || subline ? (
               <Popover>
-                <PopoverTrigger className="mt-1.5 -ml-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-surface-raised">
+                <PopoverTrigger className="mt-1 -ml-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption font-medium text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-surface-raised">
                   <Info aria-hidden className="size-3.5" />
-                  What am I looking at?
+                  About this view
                 </PopoverTrigger>
-                <PopoverContent side="left" align="start" sideOffset={14} className="w-[288px]">
-                  <PopoverTitle className="text-[13px] font-semibold">{copy.heading}</PopoverTitle>
-                  <dl className="mt-2 space-y-2.5 text-[13px] leading-snug">
-                    <div>
-                      <dt className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
-                        The agent now
-                      </dt>
-                      <dd className="mt-0.5 text-text-secondary">{copy.doing}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-[11px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">
-                        Look at
-                      </dt>
-                      <dd className="mt-0.5 text-text-secondary">{copy.look}</dd>
-                    </div>
-                  </dl>
+                <PopoverContent side="left" align="start" sideOffset={14} className="w-[300px]">
+                  <PopoverTitle className="text-dense font-semibold">{copy.heading}</PopoverTitle>
+                  {copy.what ? <p className="mt-1.5 text-dense leading-snug text-text-secondary">{copy.what}</p> : null}
+                  {subline ? <p className="mt-1.5 text-caption text-muted-foreground tabular-nums">{subline}</p> : null}
+                  {copy.doing || copy.look ? (
+                    <dl className="mt-3 space-y-2.5 border-t border-border pt-3 text-dense leading-snug">
+                      {copy.doing ? (
+                        <div>
+                          <dt className="section-label">The agent now</dt>
+                          <dd className="mt-0.5 text-text-secondary">{copy.doing}</dd>
+                        </div>
+                      ) : null}
+                      {copy.look ? (
+                        <div>
+                          <dt className="section-label">Look at</dt>
+                          <dd className="mt-0.5 text-text-secondary">{copy.look}</dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  ) : null}
                 </PopoverContent>
               </Popover>
             ) : null}
-          </section>
-        ) : null}
+          </div>
+          {runLabel ? <ProvenancePill label={runLabel} className="mt-0.5 shrink-0" /> : null}
+        </header>
 
-        {/* #114: the agent loop for this mode, one click away so the live content stays on top. */}
-        <details className="group/how border-b border-border">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-2.5 text-[13px] font-medium text-foreground transition-colors duration-150 select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+        <div className={PANEL_IN_INSPECTOR}>
+          <InspectorEmbedded runLabel={runLabel ?? null}>{children}</InspectorEmbedded>
+        </div>
+
+        {/* #114: the agent loop for this mode, folded under the live content. */}
+        <details className="group/how mx-5 mt-2 mb-4 border-t border-border">
+          <summary className="-mx-2 flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-3 text-dense font-medium text-foreground transition-colors duration-150 select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               className="size-4 text-muted-foreground transition-transform duration-150 group-open/how:rotate-90"
             />
             How Sentinel decides
-            <span className="ml-auto text-[11px] font-normal whitespace-nowrap text-muted-foreground">4 steps</span>
+            <span className="ml-auto text-caption font-normal whitespace-nowrap text-muted-foreground">4 steps</span>
           </summary>
-          <HowItDecides mode={mode} title="The agent's loop" className="px-5 pt-1 pb-4" />
+          <HowItDecides mode={mode} title="The agent's loop" className="pt-1 pb-2" />
         </details>
-
-        <div className={PANEL_IN_INSPECTOR}>
-          <InspectorEmbedded runLabel={runLabel ?? null}>{children}</InspectorEmbedded>
-        </div>
       </div>
     </aside>
   );

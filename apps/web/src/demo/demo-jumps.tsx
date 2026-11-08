@@ -127,7 +127,7 @@ export function DemoPopover() {
         aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          "flex items-center gap-2 rounded-lg bg-card px-3.5 text-[13px] font-semibold text-foreground shadow-floating transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+          "flex items-center gap-2 rounded-xl bg-card px-3.5 text-dense font-semibold text-foreground shadow-floating transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           open && "bg-surface-raised",
         )}
       >
