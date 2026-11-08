@@ -49,6 +49,7 @@ import { orpc } from "@/lib/orpc";
 
 import { useOmAssets } from "@/modes/om/use-om-data";
 
+import { FOREVER } from "@/lib/utils";
 import { MiniMap } from "./mini-map";
 import { useOverviewData } from "./use-overview-data";
 
@@ -59,7 +60,6 @@ import { useOverviewData } from "./use-overview-data";
 // 3. The day's bought-vs-used chart and this month's imbalance cost with and without WattSentry.
 
 const CARD = "rounded-xl bg-card shadow-card";
-const FOREVER = Number.POSITIVE_INFINITY;
 const LINK =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-dense font-medium whitespace-nowrap text-foreground underline-offset-2 transition-colors duration-150 hover:bg-surface-raised hover:underline focus-visible:outline-2 focus-visible:outline-ring";
 
@@ -100,16 +100,12 @@ const BOUGHT_PROFILE = "Bought, standard profile";
 const BOUGHT_SENTINEL = "Bought, WattSentry";
 const ACTUAL = "Actually used";
 
-/** Today's imbalance for the day on the replay clock, plus the full-year totals per policy. */
+/** Today's imbalance for the day on the replay clock. */
 function useImbalance() {
   const [step] = useReplayStep();
   const window = dayWindow(step);
   const day = useQuery({
     ...orpc.imbalance.getImbalanceDay.queryOptions({ input: window }),
-    staleTime: FOREVER,
-  });
-  const year = useQuery({
-    ...orpc.imbalance.getPolicyComparison.queryOptions({ input: {} }),
     staleTime: FOREVER,
   });
 
@@ -142,20 +138,12 @@ function useImbalance() {
 
   const today = (policy: string) =>
     day.data?.totals.find((t) => t.policy === policy);
-  const ofYear = (policy: string) =>
-    year.data?.find((r) => r.policy === policy);
   return {
     dayName: DAY.format(new Date(Date.parse(window.from) + 3_600_000)),
     rows,
     shortMwh,
     profile: today("profile"),
     sentinel: today("sentinel"),
-    year: {
-      profile: ofYear("profile"),
-      forecast: ofYear("forecast_only"),
-      sentinel: ofYear("sentinel"),
-      corrected: ofYear("sentinel_id"),
-    },
     loading: day.isPending,
   };
 }
@@ -170,7 +158,7 @@ function usePlayDemo() {
   const [, setPolicy] = usePolicy();
   const playing = useReplayPlaying();
   const started = useRef(false);
-  // #207: each fresh start from 06:00 is a new narrated run (voice only, when the server has a key).
+  // Each fresh start from 06:00 is a new narrated run (voice only, when the server has a key).
   const [storyRun, setStoryRun] = useState(0);
   useStoryNarration(storyRun);
   const step = clampStep(rawStep);

@@ -7,24 +7,16 @@ import { stepToDate } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import { orpc } from "@/lib/orpc";
 
+import { FOREVER, hm } from "@/lib/utils";
 import { hourly } from "./data";
 
-const FOREVER = Number.POSITIVE_INFINITY;
 const HOUR_MS = 3_600_000;
 const HALF_HOUR_MS = HOUR_MS / 2;
 // The map sparklines look 6 h back and 24 h ahead of the replay clock: the same day ahead the
 // inspector's fan chart and "strongest wind around …" sentence cover.
-export const SPARK_PAST_HOURS = 6;
-export const SPARK_AHEAD_HOURS = 24;
+const SPARK_PAST_HOURS = 6;
+const SPARK_AHEAD_HOURS = 24;
 
-const BUCHAREST_HOUR = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
-export const sparkTime = (ms: number) => BUCHAREST_HOUR.format(new Date(ms));
 
 // Hourly buckets plot at their middle and are labelled by their start ("11:00"). A bucket counts
 // as measured only once it has ended, so the measured line always stops at or before "now".
@@ -36,7 +28,7 @@ function toSpark(buckets: Bucket[], now: number): SparkPoint[] {
     const ended = start + HOUR_MS <= now;
     return {
       t: start + HALF_HOUR_MS,
-      label: sparkTime(start),
+      label: hm(start),
       actual: ended ? (bucket.actual ?? null) : null,
       p10: bucket.p10,
       p50: bucket.p50,

@@ -7,7 +7,7 @@ import { cn } from "@wattsentry/ui/lib/utils";
 // status stays readable for colour-blind viewers and in greyscale print-outs.
 //   ok        round LED                 warn     rounded triangle
 //   critical  diamond (+ halo if pulse) review   hexagon with a hollow core
-//   forecast  dashed ring               soc      battery cell (optional fill level)
+//   forecast  dashed ring               soc      battery cell
 //   unknown   hollow ring               live     round LED that breathes
 // Colour comes from the --status-* tokens through currentColor.
 
@@ -26,19 +26,17 @@ const TONE: Record<StatusKind, string> = {
 
 const SIZE = { xs: 8, sm: 10, md: 12, lg: 16 } as const;
 
-export type StatusMarkProps = {
+type StatusMarkProps = {
   kind: StatusKind;
   size?: keyof typeof SIZE;
   /** Critical/live only: a slow halo for things that need attention now. Off under reduced motion. */
   pulse?: boolean;
-  /** soc only: 0..1 charge level drawn inside the cell. */
-  level?: number;
   /** Accessible name. Leave empty when a visible text label sits next to the mark. */
   label?: string;
   className?: string;
 };
 
-export function StatusMark({ kind, size = "sm", pulse = false, level, label, className }: StatusMarkProps) {
+export function StatusMark({ kind, size = "sm", pulse = false, label, className }: StatusMarkProps) {
   const id = useId().replace(/:/g, "");
   const px = SIZE[size];
   const dome = `sm-dome-${id}`;
@@ -67,13 +65,13 @@ export function StatusMark({ kind, size = "sm", pulse = false, level, label, cla
             <feDropShadow dx="0" dy="0.8" stdDeviation="0.7" floodColor="currentColor" floodOpacity="0.3" />
           </filter>
         </defs>
-        <Shape kind={kind} dome={dome} shade={shade} level={level} />
+        <Shape kind={kind} dome={dome} shade={shade} />
       </svg>
     </span>
   );
 }
 
-function Shape({ kind, dome, shade, level }: { kind: StatusKind; dome: string; shade: string; level?: number }) {
+function Shape({ kind, dome, shade }: { kind: StatusKind; dome: string; shade: string }) {
   const fill = `url(#${dome})`;
   const filter = `url(#${shade})`;
   // The contact ring and hollow cores take the surface colour, so marks sit flat on a card in either theme.
@@ -134,17 +132,14 @@ function Shape({ kind, dome, shade, level }: { kind: StatusKind; dome: string; s
       return (
         <circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeDasharray="3 2.2" />
       );
-    case "soc": {
-      const l = Math.max(0, Math.min(1, level ?? 1));
-      const h = 9 * l;
+    case "soc":
       return (
         <g filter={filter}>
           <rect x="4.5" y="2.6" width="7" height="12" rx="2" fill="var(--card)" stroke="currentColor" strokeWidth="1.3" />
           <rect x="6.5" y="1" width="3" height="1.8" rx="0.6" fill="currentColor" />
-          <rect x="6" y={13.1 - h} width="4" height={h} rx="0.8" fill={fill} />
+          <rect x="6" y={4.1} width="4" height={9} rx="0.8" fill={fill} />
         </g>
       );
-    }
     case "unknown":
       return <circle cx="8" cy="8" r="5.6" fill="var(--card)" stroke="currentColor" strokeWidth="2" />;
   }

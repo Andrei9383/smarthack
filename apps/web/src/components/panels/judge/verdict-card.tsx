@@ -7,10 +7,10 @@ import { StatusPill } from "@/components/panels/disclosure";
 
 import { useVerdicts, witnessName } from "./use-judge";
 
-// Judge verdict card (#151, design §8): what each witness claims about this asset, how much the Judge
+// Judge verdict card: what each witness claims about this asset, how much the Judge
 // trusts it, the verdict and why, and the graded outcome once it is known. Mount it in any panel
 // with <VerdictCard assetId={id} />; it renders nothing when the DB has no Judge tables.
-// Calm (#199): an unboxed section under a hairline (no card inside the sheet), verdicts as StatusPills.
+// An unboxed section under a hairline (no card inside the sheet), verdicts as StatusPills.
 
 type Pill = "ok" | "forecast" | "critical" | "unknown";
 const VERDICT: Record<string, { label: string; kind: StatusKind; pill: Pill }> = {

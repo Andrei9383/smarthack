@@ -9,7 +9,7 @@ import { useAskWattSentry } from "@/components/voice/voice-assistant";
 import { useSummaryOpen } from "@/components/shell/demo-jumps";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
-import { MODE_COPY } from "./mode-copy";
+import { MODE_DESCRIPTOR } from "./mode-descriptor";
 
 function RailItem({
   active,
@@ -73,7 +73,7 @@ function RailItem({
   );
 }
 
-/** #207: voice conversation with the ElevenLabs agent; hidden when the server has no key. */
+/** Voice conversation with the ElevenLabs agent; hidden when the server has no key. */
 function AskWattSentryItem({ expanded }: { expanded: boolean }) {
   const { available, live, toggle } = useAskWattSentry();
   if (!available) return null;
@@ -101,7 +101,7 @@ export function Rail({
   onMode: (mode: ModeId) => void;
   expanded: boolean;
   onToggle: () => void;
-  /** Opens the guided tour (#114). */
+  /** Opens the guided tour. */
   onHelp: () => void;
 }) {
   const [summaryOpen, setSummaryOpen] = useSummaryOpen();
@@ -131,7 +131,7 @@ export function Rail({
             expanded={expanded}
             icon={<Icon className="size-5" strokeWidth={1.7} />}
             label={modeLabel}
-            descriptor={MODE_COPY[id].descriptor}
+            descriptor={MODE_DESCRIPTOR[id]}
             onClick={() => {
               setSummaryOpen(false);
               onMode(id);

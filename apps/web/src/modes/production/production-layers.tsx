@@ -10,16 +10,16 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { MapSpark } from "@/components/map-spark";
 
 import { useCameraFocus, useFocusIntent } from "../feeders/map-motion";
-import { useMapRightPadding } from "../use-map-right-padding";
+import { useMapRightPadding, useZoomAtLeast } from "../map-hooks";
+import { hm, PANEL_PADDING_PX } from "@/lib/utils";
 import { PARTICLE_COLOR_RAMP, RASTER_OPACITY } from "./colors";
 import { expectedMwh } from "./data";
 import { type MarkerCircle, type MarkerOffset, resolveCollisions } from "./marker-layout";
 import { useProductionData } from "./use-production-data";
-import { sparkTime, useProductionSparks } from "./use-spark-series";
+import { useProductionSparks } from "./use-spark-series";
 import { useHour, useSelectedPark } from "./use-production-state";
 import { fetchWindMeta, speedUrl, textureUrl, type WindMeta } from "./wind-field";
 
-const PANEL_PADDING_PX = 452;
 const PARK_ZOOM = 9; // the park and its neighbouring county markers, readable
 const SOURCE_ID = "wind-speed";
 const LAYER_ID = "wind-speed-raster";
@@ -94,7 +94,7 @@ function coveredRight(container: HTMLElement) {
 }
 
 // The wind field only covers meta.bounds. While Production is open the camera can't pan or zoom out
-// past that box, so the wind never ends in a visible edge (#208). The part of the map behind the
+// past that box, so the wind never ends in a visible edge. The part of the map behind the
 // inspector doesn't count (measured, not the map padding, which is wider than the panel), so the
 // strip between the map and the panel stays covered too. Leaving the mode restores the defaults.
 function useWindBounds(meta: WindMeta | undefined) {
@@ -199,7 +199,7 @@ function useWindParticles(meta: WindMeta | undefined, hour: number) {
 
 // Each marker is a dot on its point with a label chip below it. Collisions are resolved on a
 // circle around the chip: its radius and how far its centre sits below the point. Chips carry a
-// sparkline (#137): compact 120 × 36 under the label, 220 × 90 for the selected park. Hovering
+// sparkline: compact 120 × 36 under the label, 220 × 90 for the selected park. Hovering
 // expands a chip in place without a new layout, so nothing jumps under the cursor.
 const FOOTPRINT = {
   county: { diameter: 132, below: 52 },
@@ -217,7 +217,7 @@ export type ChipBox = { halfWidth: number; halfHeight: number };
 
 const EDGE_PX = 8;
 
-// After the #91 layout, slide chips sideways so none hangs off the map's left edge or under the
+// After the collision layout, slide chips sideways so none hangs off the map's left edge or under the
 // zoom controls beside the inspector; the leader line still points back to the real spot.
 // Positions change on pan, so this runs on moveend, unlike the zoom-only collision layout.
 type Rect = { left: number; right: number; top: number; bottom: number };
@@ -310,7 +310,7 @@ export function useKeepInView(markers: (PlacedMarker & ChipBox)[], offsets: Map<
       return kept;
     };
     // A chip slid in from an edge may now touch a neighbour: settle once more with the same
-    // #91 rules from the slid positions, then keep the result inside the edges.
+    // Collision rules from the slid positions, then keep the result inside the edges.
     const slid = clamp(offsets);
     const settled = resolveCollisions(
       markers.flatMap(({ id, kind, diameter, below = 0 }) => {
@@ -330,7 +330,7 @@ export function useKeepInView(markers: (PlacedMarker & ChipBox)[], offsets: Map<
   }, [view, markers, offsets]);
 }
 
-export type HoverPlacement = { dx: number; dy: number; up: boolean };
+type HoverPlacement = { dx: number; dy: number; up: boolean };
 
 const OPEN_CHIP = { halfWidth: 120, height: 176, restHeight: 90, centredHeight: 150 } as const;
 const CHIP_GAP_PX = 6; // dot to chip
@@ -411,21 +411,6 @@ export function useMarkerOffsets(markers: PlacedMarker[]) {
 // At country zoom every chip stays compact, so Romania reads calmly; once the camera is in a region
 // the selected park opens its full sparkline. Hover always opens one in place.
 const EXPAND_SELECTED_ZOOM = 7;
-
-function useZoomAtLeast(threshold: number) {
-  const { map, isLoaded } = useMap();
-  const [above, setAbove] = useState(false);
-  useEffect(() => {
-    if (!map || !isLoaded) return;
-    const sync = () => setAbove(map.getZoom() >= threshold);
-    sync();
-    map.on("zoomend", sync);
-    return () => {
-      map.off("zoomend", sync);
-    };
-  }, [map, isLoaded, threshold]);
-  return above;
-}
 
 // The marker stays on its real point; only the circle moves, with a line back to that point.
 export function Displaced({ offset, children }: { offset: MarkerOffset; children: ReactNode }) {
@@ -580,7 +565,7 @@ export function ProductionLayers() {
   const placement =
     map && hoveredMarker ? hoverPlacement(map, hoveredMarker, offsets.get(hoveredMarker.id) ?? NO_OFFSET) : null;
 
-  // Picking a park (chip or link) flies to it; empty-map click or no ?park keeps Romania (#115).
+  // Picking a park (chip or link) flies to it; empty-map click or no ?park keeps Romania.
   const [explicitPark] = useQueryState("park", parseAsString);
   const [focusedPark, setFocusedPark] = useFocusIntent(explicitPark);
   const focusPark = parks.find((park) => park.id === focusedPark);
@@ -619,8 +604,7 @@ export function ProductionLayers() {
                         to={sparks.to}
                         unit="kW"
                         expanded={hovered === id}
-                        formatTime={sparkTime}
-                        showKey
+                        formatTime={hm}
                       />
                     )
                   }
@@ -674,8 +658,7 @@ export function ProductionLayers() {
                         to={sparks.to}
                         unit="MW"
                         expanded={park.id === expandedPark || hovered === park.id}
-                        formatTime={sparkTime}
-                        showKey
+                        formatTime={hm}
                       />
                     )
                   }

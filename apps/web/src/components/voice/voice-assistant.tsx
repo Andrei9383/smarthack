@@ -22,7 +22,7 @@ import { getDaySummary, getFaults, getFeeders, getWindParks } from "./data-tools
 import { narrator } from "./narrator";
 import { useVoiceStatus } from "./use-voice-status";
 
-// "Ask WattSentry" (card #207): a voice conversation with the ElevenLabs agent made by
+// "Ask WattSentry": a voice conversation with the ElevenLabs agent made by
 // scripts/elevenlabs/sync-agent.mjs. It answers questions about the grid and the week on screen
 // (feeders, wind parks, faults, results), never about the code. Its facts come from client tools
 // that read the app's own API (./data-tools), so answers match the screens.

@@ -1,8 +1,8 @@
 "use client";
 
-// Live (#130): the 15-minute cycle for this feeder. Measured export up to "now", the next-15-min
+// Live: the 15-minute cycle for this feeder. Measured export up to "now", the next-15-min
 // forecast ahead of it, how close the last prediction was, and a warning when the forecast crosses
-// the limit. Source: the #128 loop when it runs (LIVE_DB), else the replay day at the replay clock.
+// the limit. Source: the live loop when it runs (LIVE_DB), else the replay day at the replay clock.
 // Readings are simulated either way and the row says so. Server: packages/api/src/routers/live.ts.
 import type { CongestionLevelValue } from "@wattsentry/api/contract/notify";
 import { liveView, type LiveFeeder, type LiveTick } from "@wattsentry/api/contract/live";
@@ -12,23 +12,20 @@ import { useMemo, useState } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { Term } from "@/components/help";
-import { PROVENANCE_PILL_CLASS } from "@/components/provenance-pill";
 import { stepToTs } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import { DetailsSheet, RowButton, SheetSection } from "@/components/panels/disclosure";
 import { orpc } from "@/lib/orpc";
 
+import { hm } from "@/lib/utils";
 import { ACTUAL_SERIES, FORECAST_SERIES, LIMIT_SERIES } from "./colors";
 import { LiveChart } from "./live-chart";
 import { ChartLegend, EmptyNote } from "./ui";
 
-const HM = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-const hm = (ts: string) => HM.format(new Date(ts));
+// The small neutral pill for the live feed status.
+const PILL =
+  "inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-text-secondary";
+
 const kw = (v: number) => `${Math.round(v)}`;
 
 const WARN: Record<CongestionLevelValue, { label: string; kind: StatusKind; text: string }> = {
@@ -52,7 +49,7 @@ function SimPill({ feed, fetchedAt }: { feed: LiveFeeder; fetchedAt: number }) {
       ? `simulated${feed.speed && feed.speed > 1 ? ` ×${Math.round(feed.speed)}` : ""} · ${age != null ? ageText(age) : "age unknown"}`
       : "simulated · replay clock";
   return (
-    <span title={feed.sourceNote} className={PROVENANCE_PILL_CLASS}>
+    <span title={feed.sourceNote} className={PILL}>
       <StatusMark kind={feed.source === "live" ? "live" : "unknown"} size="xs" pulse={feed.source === "live"} />
       {text}
     </span>
@@ -81,7 +78,7 @@ function missText(t: LiveTick) {
 
 /**
  * One hairline row in the feeder inspector: a warning mark in words; the next-15-min forecast and the
- * misses are in the sheet (Calm: no numbers in the row).
+ * misses are in the sheet (no numbers in the row).
  */
 export function LiveRow({
   feederId,
@@ -95,7 +92,7 @@ export function LiveRow({
   to: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { feed, view, isLoading } = useLive(feederId, from, to);
+  const { view, isLoading } = useLive(feederId, from, to);
   const warn = view ? WARN[view.warning.level] : null;
   return (
     <>
@@ -129,7 +126,7 @@ export function LiveRow({
   );
 }
 
-export function LiveSection({
+function LiveSection({
   feederId,
   feederName,
   from,

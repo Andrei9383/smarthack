@@ -7,63 +7,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@wattsentry/ui/components/sheet";
+import { Popover } from "@base-ui/react/popover";
 import { cn } from "@wattsentry/ui/lib/utils";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useRef } from "react";
-
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shell/popover";
 
 // Progressive disclosure and the Calm building blocks. A glance shows a
 // title and one status pill, up to three numbers, one chart and one top-5 list; the rest sits one
 // click away in a popover (a breakdown, a definition, the "why") or a Details sheet (tables,
 // secondary charts, logs).
-// Popovers and sheets are base-ui (already in packages/ui): Esc and outside click close them,
-// sheets trap focus. Both lift with shadow-overlay and fade/scale in from their trigger.
+// Popovers and sheets are Base UI: Esc and outside click close them, sheets trap focus.
 
 /** Section title: 14px / 600, sentence case, ink. */
 export const LABEL = "section-title whitespace-nowrap";
-
-/** Click (or Enter/Space) opens; Esc, outside click or the trigger again closes. */
-function Pop({
-  trigger,
-  title,
-  children,
-  side = "bottom",
-  align = "start",
-  className,
-  triggerClassName,
-  triggerLabel,
-}: {
-  /** The trigger's content; it renders inside a <button>. */
-  trigger: ReactNode;
-  title?: ReactNode;
-  children: ReactNode;
-  side?: "top" | "bottom" | "left" | "right";
-  align?: "start" | "center" | "end";
-  className?: string;
-  triggerClassName?: string;
-  /** Accessible name when the trigger has no readable text. */
-  triggerLabel?: string;
-}) {
-  // The shell's popover (#124): shadow-overlay, 180 ms scale-in from the trigger, focus handling.
-  return (
-    <Popover>
-      <PopoverTrigger
-        aria-label={triggerLabel}
-        className={cn(
-          "cursor-pointer rounded-md text-left transition-[background-color,box-shadow,color] duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-surface-raised",
-          triggerClassName,
-        )}
-      >
-        {trigger}
-      </PopoverTrigger>
-      <PopoverContent side={side} align={align} className={cn("w-[min(18rem,calc(100vw-2rem))] p-3.5 text-xs leading-relaxed", className)}>
-        {title ? <PopoverTitle className="mb-1.5 text-[13px] leading-snug font-semibold text-foreground">{title}</PopoverTitle> : null}
-        <div className="text-text-secondary">{children}</div>
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 /** Units small and muted after the number; the number itself in Inter with tabular digits. */
 function Num({ value, unit, className }: { value: ReactNode; unit?: string; className?: string }) {
@@ -79,7 +35,7 @@ function Num({ value, unit, className }: { value: ReactNode; unit?: string; clas
 export type Delta = { text: ReactNode; good?: boolean | null };
 
 /** Small delta chip: the word or number first, colour second (never colour alone). */
-function DeltaChip({ delta, className }: { delta: Delta; className?: string }) {
+function DeltaChip({ delta }: { delta: Delta }) {
   const tone =
     delta.good === true
       ? "bg-status-ok/10 text-status-ok"
@@ -87,7 +43,7 @@ function DeltaChip({ delta, className }: { delta: Delta; className?: string }) {
         ? "bg-status-critical/10 text-status-critical"
         : "bg-surface-raised text-text-secondary";
   return (
-    <span className={cn("inline-flex items-center rounded-full px-1.5 py-px text-caption font-medium whitespace-nowrap tabular-nums", tone, className)}>
+    <span className={cn("inline-flex items-center rounded-full px-1.5 py-px text-caption font-medium whitespace-nowrap tabular-nums", tone)}>
       {delta.text}
     </span>
   );
@@ -141,14 +97,36 @@ export function Metric({
     </>
   );
   if (!pop) return <div className="flex min-w-0 flex-col px-4 py-1.5 first:pl-0">{body}</div>;
+  return <MetricPopover trigger={body} title={popTitle}>{pop}</MetricPopover>;
+}
+
+/**
+ * Click (or Enter/Space) opens; Esc, outside click or the trigger again closes. Scales in from the
+ * trigger in 180 ms. Keyboard opens move focus to the first control (so Enter follows through);
+ * pointer opens focus the popup itself, so no focus ring appears on a button nobody tabbed to.
+ */
+function MetricPopover({ trigger, title, children }: { trigger: ReactNode; title?: ReactNode; children: ReactNode }) {
+  const popup = useRef<HTMLDivElement>(null);
   return (
-    <Pop
-      trigger={body}
-      title={popTitle}
-      triggerClassName="group/metric -my-0.5 flex min-w-0 flex-col px-4 py-2 first:ml-[-0.5rem] first:pl-2"
-    >
-      {pop}
-    </Pop>
+    <Popover.Root>
+      <Popover.Trigger className="group/metric -my-0.5 flex min-w-0 cursor-pointer flex-col rounded-md px-4 py-2 text-left transition-[background-color,box-shadow,color] duration-150 outline-none first:ml-[-0.5rem] first:pl-2 hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring data-popup-open:bg-surface-raised">
+        {trigger}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner side="bottom" align="start" sideOffset={8} collisionPadding={12} className="z-50">
+          <Popover.Popup
+            ref={popup}
+            initialFocus={(openType) => (openType === "keyboard" ? true : popup.current)}
+            className="w-[min(18rem,calc(100vw-2rem))] origin-[var(--transform-origin)] rounded-xl bg-card p-3.5 text-xs leading-relaxed text-foreground shadow-overlay outline-none transition-[opacity,scale] duration-180 ease-out data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 motion-reduce:transition-none"
+          >
+            {title ? (
+              <Popover.Title className="mb-1.5 text-[13px] leading-snug font-semibold text-foreground">{title}</Popover.Title>
+            ) : null}
+            <div className="text-text-secondary">{children}</div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -257,15 +235,13 @@ export function SheetSection({
   title,
   aside,
   children,
-  className,
 }: {
   title: ReactNode;
   aside?: ReactNode;
   children: ReactNode;
-  className?: string;
 }) {
   return (
-    <section className={cn("space-y-2.5 border-t border-border py-5 first:border-t-0 first:pt-1", className)}>
+    <section className="space-y-2.5 border-t border-border py-5 first:border-t-0 first:pt-1">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <h3 className={LABEL}>{title}</h3>
         {aside}
@@ -283,15 +259,13 @@ export function Fold({
   title,
   aside,
   children,
-  defaultOpen = false,
 }: {
   title: ReactNode;
   aside?: ReactNode;
   children: ReactNode;
-  defaultOpen?: boolean;
 }) {
   return (
-    <details open={defaultOpen} className="group/fold border-t border-border">
+    <details className="group/fold border-t border-border">
       <summary className="-mx-2 flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-3 text-dense font-medium text-foreground transition-colors duration-150 select-none hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
         <ChevronRight aria-hidden className="size-4 text-muted-foreground transition-transform duration-150 group-open/fold:rotate-90" />
         <span className="min-w-0 flex-1">{title}</span>
@@ -324,18 +298,16 @@ export function SectionHeader({
   title,
   lead,
   aside,
-  className,
   as: Heading = "h2",
 }: {
   title: ReactNode;
   /** Muted words before the title: lead="Today vs" title="without WattSentry". */
   lead?: ReactNode;
   aside?: ReactNode;
-  className?: string;
   as?: "h2" | "h3";
 }) {
   return (
-    <div className={cn("flex min-h-8 items-center justify-between gap-3", className)}>
+    <div className="flex min-h-8 items-center justify-between gap-3">
       <Heading className="section-title min-w-0 truncate">
         {lead ? <span className="text-muted-foreground">{lead} </span> : null}
         {title}

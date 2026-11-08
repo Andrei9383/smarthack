@@ -19,7 +19,7 @@ export function useOverLimit() {
   return useQuery(orpc.feeders.getOverLimit.queryOptions({ input: window }));
 }
 
-export type FeederNow = {
+type FeederNow = {
   exportKw: number;
   limitKw: number;
   /** WattSentry only: the feeder's batteries gained charge in this 15-min step. */
@@ -27,12 +27,12 @@ export type FeederNow = {
 };
 
 // Stable reference, so useQueries memoises the combined array between renders.
-const dataOf = <T,>(results: { data?: T }[]) => results.map((result) => result.data);
+export const dataOf = <T,>(results: { data?: T }[]) => results.map((result) => result.data);
 
 const SOC_RISE = 0.002; // median SoC gain per step that counts as charging (0..1 scale)
 
 /**
- * Each feeder's export and battery state at the replay clock, for the map (#115). Uses the same
+ * Each feeder's export and battery state at the replay clock, for the map. Uses the same
  * day-window getCurves / getSocFan queries as the feeder panel, so the selected feeder is cached.
  */
 export function useFeedersNow(feederIds: string[], policy: Policy) {

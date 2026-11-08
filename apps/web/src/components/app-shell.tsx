@@ -117,7 +117,7 @@ export function AppShell() {
       >
         {Page ? (
           <>
-            {/* #124: Overview is a page. The rail, top bar and a compact dock stay; the map and
+            {/* Overview is a page. The rail, top bar and a compact dock stay; the map and
                 inspector give way to the briefing, the mini map and the glance sections. */}
             <div
               key={mode}
@@ -184,7 +184,7 @@ export function AppShell() {
         {/* One instance each across modes: the dock owns the replay ticker (unmounting it pauses). */}
         <TopBar mode={mode} onSearch={() => setPaletteOpen(true)} className="absolute inset-x-4 top-3 z-30 h-14" />
         <AgentToast className={cn("absolute left-4 z-[25]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
-        {/* #207: the "Ask WattSentry" conversation sits in the toast's slot, above it. */}
+        {/* The "Ask WattSentry" conversation sits in the toast's slot, above it. */}
         <VoicePanel className={cn("absolute left-4 z-[26]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
         <TimelineDock
           compact={Boolean(Page)}

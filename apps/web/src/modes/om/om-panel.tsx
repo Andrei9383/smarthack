@@ -6,13 +6,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@wattsentry/ui/components/tabs";
-import { useQuery } from "@tanstack/react-query";
-import { Bell, CheckCircle2, ChevronDown, ScrollText, UserRoundCheck, X } from "lucide-react";
+import { Bell, CheckCircle2, ChevronDown, UserRoundCheck, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { StatusMark } from "@/components/status-mark";
 import { Term } from "@/components/help";
-import { useInspectorEmbedded } from "@/components/shell/inspector-embedded";
 import { dayLabel, dayOfStep, timeLabel } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import {
@@ -28,14 +26,14 @@ import {
 } from "@/components/panels/disclosure";
 import { useSelectedSite } from "@/components/panels/site/use-site";
 import { dayName, hhmm, wallClock } from "@/components/panels/site/time";
-import { orpc } from "@/lib/orpc";
 
+import { lei, parseJson } from "@/lib/utils";
 import { ParkReport } from "./park-report";
 import { EmptyState, Meter, TONE_BG, TONE_KIND, TONE_TEXT, type Tone } from "./ui";
 import { useAlerts, useOmAssets, useReplayTs, useReviewQueue, useWorkOrders } from "./use-om-data";
 import { OM_TABS, useFocusedPark, useOmTab, useSelectedTurbine } from "./use-om-state";
 
-// Calm glance (#199): one status pill, three numbers each with one pill, the focused park, and the
+// Glance: one status pill, three numbers each with one pill, the focused park, and the
 // top 5 work orders. The status breakdowns (by crew, turbines, homes) sit in their own Details
 // sheet; every list (work orders, review queue, alerts) opens in full in the repair-queue
 // sheet, on the tab that `?omTab` names.
@@ -97,17 +95,6 @@ const lostLabel = (o: { assetKind: string; lostKwhDay?: number | null }) =>
 type Order = NonNullable<ReturnType<typeof useWorkOrders>["data"]>[number];
 // W4: lei/day ranks the queue; older runs only have lost_lei_day
 const leiDay = (o: Order) => o.leiPerDay ?? o.lostLeiDay ?? 0;
-const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
-
-function parseJson(text: string | null | undefined): Record<string, unknown> | null {
-  if (!text) return null;
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function evidenceText(o: Order) {
   const evidence = parseJson(o.evidenceJson);
   if (typeof evidence?.evidence === "string") return evidence.evidence;
@@ -131,20 +118,10 @@ function useOpenAsset() {
 }
 
 /** Status = shape-coded mark + word, one per row (no pill soup). */
-function Status({
-  tone,
-  children,
-  pulse,
-  size = "sm",
-}: {
-  tone: Tone;
-  children: ReactNode;
-  pulse?: boolean;
-  size?: "xs" | "sm";
-}) {
+function Status({ tone, children, size = "sm" }: { tone: Tone; children: ReactNode; size?: "xs" | "sm" }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${TONE_TEXT[tone]}`}>
-      <StatusMark kind={TONE_KIND[tone]} size={size} pulse={pulse} />
+      <StatusMark kind={TONE_KIND[tone]} size={size} />
       {children}
     </span>
   );
@@ -475,7 +452,6 @@ export function OmPanel() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const embedded = useInspectorEmbedded();
   const { data: assets } = useOmAssets();
   const { data: orders } = useWorkOrders();
   const { data: review } = useReviewQueue();
@@ -520,7 +496,6 @@ export function OmPanel() {
   return (
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto rounded-xl bg-card px-5 pt-4 pb-3 text-foreground shadow-floating">
       <header className="space-y-2">
-        {embedded ? null : <h2 className="text-title text-foreground">O&amp;M · operations and maintenance</h2>}
         <div className="flex flex-wrap items-center gap-2">
           {/* The one status pill: is every turbine turning? */}
           {tStopped > 0 ? (

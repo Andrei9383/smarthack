@@ -130,7 +130,7 @@ const FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"
 
 /**
  * Spotlight tour: a dimmed scrim with a cut-out around `[data-tour=…]`, and a small card with
- * Back / Next / Skip and "3 of 7". Controlled: pair it with `useTour()`.
+ * Back / Next / Skip and "3 of 6". Controlled: pair it with `useTour()`.
  *
  *   const tour = useTour();
  *   <button onClick={tour.start}>?</button>

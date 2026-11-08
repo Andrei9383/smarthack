@@ -1,14 +1,12 @@
 // Colour values for chart props and inline swatches in the site and flex panels. They are CSS variable
-// references to the status/brand tokens in packages/ui/src/styles/globals.css (team/contracts/ui-style.md
-// §2, §3), so SVG strokes, fills and inline styles follow the light/dark theme. Components should still use
-// the Tailwind token classes (text-status-ok, bg-status-warn/12, …) wherever they can.
+// references to the status/brand tokens in packages/ui/src/styles/globals.css, so SVG strokes, fills and
+// inline styles follow the light/dark theme. Prefer the Tailwind token classes wherever they work.
 
 export const OK = "var(--status-ok)"; // ok, eligible, WattSentry (= --primary)
-export const WARN = "var(--status-warn)"; // derated, warning
-export const CRITICAL = "var(--status-critical)"; // over limit, fault
+const WARN = "var(--status-warn)"; // derated, warning
 export const FORECAST = "var(--status-forecast)"; // forecast / expected (dashed)
 export const SOC = "var(--status-soc)"; // battery state of charge
-export const REVIEW = "var(--status-review)"; // handed to a human
+const REVIEW = "var(--status-review)"; // handed to a human
 export const UNKNOWN = "var(--status-unknown)"; // excluded, no data
 export const ACTUAL = "var(--status-actual)"; // measured series
 /** Measured actual at 85%, for bars and legend swatches where a solid line reads too heavy. */

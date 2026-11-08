@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, type LucideIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { StatusKind } from "@/components/status-mark";
@@ -27,7 +27,7 @@ export const TONE_BG: Record<Tone, string> = {
   critical: "bg-status-critical",
   info: "bg-status-forecast",
 };
-/** Tone → shape-coded StatusMark kind (ui-style §7). */
+/** Tone → shape-coded StatusMark kind. */
 export const TONE_KIND: Record<Tone, StatusKind> = {
   ok: "ok",
   warn: "warn",
@@ -36,16 +36,6 @@ export const TONE_KIND: Record<Tone, StatusKind> = {
   critical: "critical",
   info: "forecast",
 };
-/** Badge: the status colour as text plus the same colour at 10% behind it. */
-export const TONE_PILL: Record<Tone, string> = {
-  ok: "bg-status-ok/10 text-status-ok",
-  warn: "bg-status-warn/10 text-status-warn",
-  review: "bg-status-review/10 text-status-review",
-  unknown: "bg-muted text-text-secondary",
-  critical: "bg-status-critical/10 text-status-critical",
-  info: "bg-status-forecast/10 text-status-forecast",
-};
-
 /** A thin 0–1 meter with its value beside it, for confidence and other shares. */
 export function Meter({
   value,
@@ -90,19 +80,6 @@ export function EmptyState({
     <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-5 text-center">
       <Icon className="size-5 text-muted-foreground" aria-hidden />
       <p className="text-caption text-muted-foreground">{children}</p>
-    </div>
-  );
-}
-
-/** Explanatory note as a soft info callout instead of floating grey text. */
-export function InfoNote({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex gap-2 rounded-lg border border-status-forecast/20 bg-status-forecast/5 p-2.5 text-caption leading-relaxed text-text-secondary">
-      <Info
-        className="mt-px size-3.5 shrink-0 text-status-forecast"
-        aria-hidden
-      />
-      <p>{children}</p>
     </div>
   );
 }

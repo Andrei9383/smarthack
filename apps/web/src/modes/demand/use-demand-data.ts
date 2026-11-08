@@ -6,9 +6,8 @@ import { dayWindow, stepToTs } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import { orpc } from "@/lib/orpc";
 
+import { FOREVER } from "@/lib/utils";
 import { byStress, toZones } from "./data";
-
-const FOREVER = Number.POSITIVE_INFINITY;
 
 export function useSelectedZone() {
   return useQueryState("zone", parseAsString);

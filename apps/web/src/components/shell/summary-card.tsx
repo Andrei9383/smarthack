@@ -91,14 +91,6 @@ export function SummaryCard() {
   const realRun = runs?.find((run) => run.kind === "replay");
   const anyKpi = (kpis?.length ?? 0) > 0;
 
-  const runIds = [
-    ...new Set(
-      METRICS.flatMap(({ name }) => [find(name, "baseline")?.runId, find(name, "sentinel")?.runId]).filter(
-        (id): id is string => Boolean(id),
-      ),
-    ),
-  ];
-
   return (
     <>
       <div

@@ -30,6 +30,8 @@ import {
   STATUS_COLORS,
   UNKNOWN,
 } from "../colors";
+import { parseJson } from "@/lib/utils";
+
 import { customerTip } from "./customer-tip";
 import { dayName, dayRange, hhmm, inRange, stepTs, wallClock } from "./time";
 import { useSelectedSite } from "./use-site";
@@ -142,17 +144,6 @@ function Fact({
       </dd>
     </div>
   );
-}
-
-function parseJson(
-  text: string | null | undefined,
-): Record<string, unknown> | null {
-  if (!text) return null;
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 export function SiteSheet() {

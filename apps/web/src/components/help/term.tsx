@@ -38,11 +38,9 @@ type Pos = { left: number; top: number; side: "top" | "bottom" };
 export function Term({
   id,
   children,
-  className,
 }: {
   id: GlossaryId;
   children: ReactNode;
-  className?: string;
 }) {
   const entry = getTerm(id);
   const descId = useId();
@@ -146,7 +144,6 @@ export function Term({
           "cursor-help rounded-[3px] underline decoration-muted-foreground decoration-dotted decoration-[1.5px] underline-offset-[3px] outline-none transition-colors duration-150",
           "hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1",
           open && "decoration-foreground",
-          className,
         )}
       >
         {children}

@@ -4,13 +4,7 @@ import { scaleLinear } from "d3-scale";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { LABEL, SectionHeader as CalmSectionHeader } from "@/components/panels/disclosure";
-
-// Small presentational pieces shared by the Feeders and Demand panels (team/contracts/ui-style.md, Calm).
-
-/** @deprecated Use `LABEL` from panels/disclosure. Kept for demand-panel until #200 lands. */
-export const SECTION_LABEL = LABEL;
-
+// Small presentational pieces shared by the Feeders and Demand panels.
 
 /** Plot margins: room on the left for y labels, below for time ticks. */
 export const AXIS_MARGIN = { left: 36, right: 10, top: 22, bottom: 24 };
@@ -142,14 +136,6 @@ export function ChartLegend({ items }: { items: { label: string; color: string; 
       ))}
     </div>
   );
-}
-
-/**
- * @deprecated Use `SectionHeader` from panels/disclosure (`aside` instead of children). This wrapper
- * keeps demand-panel's call sites working until #200 lands.
- */
-export function SectionHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
-  return <CalmSectionHeader as="h3" title={title} aside={children} />;
 }
 
 export function EmptyNote({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {

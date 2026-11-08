@@ -1,8 +1,7 @@
 // Raw colour values for code that can't read CSS variables (deck.gl particle ramps, MapLibre paint).
-// The RGB source is apps/web/src/lib/palette.ts (team/contracts/ui-style.md §3 particles).
 import { onPaletteTheme, type Rgb, rgbaArray, type Rgba } from "@/lib/palette";
 
-// Spec §3: production wind particles are brand green at 60%, light → strong by wind speed. The slow end is a
+// Production wind particles are brand green at 60%, light → strong by wind speed. The slow end is a
 // mid green, not the palest tint, so it never vanishes into the land colour.
 const PARTICLE_ALPHA = 0.6;
 const RAMPS: Record<"light" | "dark", readonly [Rgb, Rgb, Rgb]> = {
@@ -22,7 +21,7 @@ const RAMPS: Record<"light" | "dark", readonly [Rgb, Rgb, Rgb]> = {
 /** Theme-dependent; read when the particle layer is (re)built, and the map remounts on a theme change. */
 export let PARTICLE_COLOR_RAMP: [number, Rgba][] = [];
 /**
- * The speed PNGs bake a light → emerald ramp (scripts/windfield.py, card #92) under the particles. On the
+ * The speed PNGs bake a light → emerald ramp (scripts/windfield.py) under the particles. On the
  * dark basemap the light end would read as haze, so the raster is fainter there.
  */
 export let RASTER_OPACITY = 0.45;

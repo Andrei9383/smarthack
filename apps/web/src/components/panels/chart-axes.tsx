@@ -18,19 +18,17 @@ export const Y_TICKS = 3;
 const tickClass =
   "absolute text-[11px] leading-none whitespace-nowrap text-muted-foreground tabular-nums";
 
-/** Ticks every `every` hours across one wall-clock day, labelled 00:00 … 24:00. */
-export function HourTicks({ day, every = 6 }: { day: Date; every?: number }) {
+const HOUR_TICKS = [0, 6, 12, 18, 24];
+
+/** Ticks every 6 hours across one wall-clock day, labelled 00:00 … 24:00. */
+export function HourTicks({ day }: { day: Date }) {
   const { xScale, margin, containerRef, innerHeight } = useChartStable();
   const container = useChartPortalContainer(containerRef);
   if (!container) return null;
   const midnight = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-  const hours = Array.from(
-    { length: Math.floor(24 / every) + 1 },
-    (_, i) => i * every,
-  );
   return createPortal(
     <div className="pointer-events-none absolute inset-0">
-      {hours.map((h) => {
+      {HOUR_TICKS.map((h) => {
         const x =
           (xScale(new Date(midnight.getTime() + h * 3_600_000)) ?? 0) +
           margin.left;

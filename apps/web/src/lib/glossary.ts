@@ -14,12 +14,6 @@ type GlossaryEntry = {
 
 const GLOSSARY = {
   // ── The grid ────────────────────────────────────────────────────────────────
-  feeder: {
-    term: "Feeder",
-    short:
-      "A cable that carries electricity from a local substation down a street to a group of homes. Every home on it shares the same cable, so they share its capacity too.",
-    more: "The demo watches 5 feeders with 118 homes, e.g. F7 Oșorhei in Bihor.",
-  },
   "feeder-limit": {
     term: "Feeder limit",
     short:

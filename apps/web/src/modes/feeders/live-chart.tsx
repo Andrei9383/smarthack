@@ -1,6 +1,6 @@
 "use client";
 
-// Live chart (#130): measured export up to "now", the P10–P90 band and P50 ahead of it, and the
+// Live chart: measured export up to "now", the P10–P90 band and P50 ahead of it, and the
 // past P50 predictions behind it so each tick's miss is visible. Plain SVG: the shared LineChart
 // draws one gap-free series per key, and here every series stops or starts at "now".
 import type { LivePoint, LiveView } from "@wattsentry/api/contract/live";
@@ -8,18 +8,13 @@ import { scaleLinear, scaleTime } from "d3-scale";
 import { area, line } from "d3-shape";
 import { useMemo } from "react";
 
+import { hm } from "@/lib/utils";
 import { ACTUAL_SERIES as ACTUAL, FORECAST_SERIES as FORECAST, LIMIT_SERIES } from "./colors";
 
 const W = 400;
 const H = 150;
 const M = { left: 34, right: 8, top: 14, bottom: 20 };
-
-const HM = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
+const PAST_STEPS = 24; // six hours of 15-min ticks behind "now"
 
 type XY = { t: Date; v: number };
 const series = (points: LivePoint[], key: keyof LivePoint): XY[] =>
@@ -28,8 +23,8 @@ const series = (points: LivePoint[], key: keyof LivePoint): XY[] =>
     return typeof v === "number" ? [{ t: new Date(p.ts), v }] : [];
   });
 
-export function LiveChart({ view, limitKw, pastSteps = 24 }: { view: LiveView; limitKw: number; pastSteps?: number }) {
-  const past = view.past.slice(-pastSteps);
+export function LiveChart({ view, limitKw }: { view: LiveView; limitKw: number }) {
+  const past = view.past.slice(-PAST_STEPS);
   const geom = useMemo(() => {
     const all = [...past, ...view.ahead];
     if (all.length < 2) return null;
@@ -97,7 +92,7 @@ export function LiveChart({ view, limitKw, pastSteps = 24 }: { view: LiveView; l
           textAnchor="middle"
           className="fill-muted-foreground text-caption tabular-nums"
         >
-          {HM.format(t)}
+          {hm(t)}
         </text>
       ))}
       <text x={M.left - 6} y={M.top - 6} textAnchor="end" className="fill-muted-foreground text-caption font-medium">

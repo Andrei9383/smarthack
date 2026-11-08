@@ -7,6 +7,7 @@ import { useCallback, useMemo } from "react";
 
 import { STEPS_IN_WEEK, tsToStep } from "@/lib/replay";
 import { orpc } from "@/lib/orpc";
+import { FOREVER } from "@/lib/utils";
 
 // The agent-actions lane and the Overview's "Latest agent actions" read the same audit trail
 // (`audit.listLogs`), grouped into one marker per action type and replay step.
@@ -38,8 +39,6 @@ export const ACTION_LABEL: Record<ActionKind, string> = {
   review: "Human review",
   remote: "Remote check",
 };
-
-const FOREVER = Number.POSITIVE_INFINITY;
 
 const FAULTS: Record<string, string> = {
   overvoltage_trip: "inverter trips on high voltage",

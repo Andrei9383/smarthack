@@ -3,7 +3,7 @@
 import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@wattsentry/ui/components/map";
 import { keepPreviousData, useQueries } from "@tanstack/react-query";
 import { parseAsString, useQueryState } from "nuqs";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { MapSpark, type SparkPoint, SparkKey } from "@/components/map-spark";
@@ -21,7 +21,8 @@ import {
   useKeepInView,
   useMarkerOffsets,
 } from "../production/production-layers";
-import { useMapRightPadding } from "../use-map-right-padding";
+import { useMapRightPadding, useZoomAtLeast } from "../map-hooks";
+import { hm, lineOf, PANEL_PADDING_PX } from "@/lib/utils";
 import {
   FEEDER_CASING,
   FEEDER_OK,
@@ -32,13 +33,12 @@ import {
 } from "./colors";
 import { FeederMotion, type MotionFeeder } from "./feeder-motion";
 import { boundsOf, useCameraFocus, useFocusIntent } from "./map-motion";
-import { useAbsorbingHomes, useFeederList, useFeedersNow, useOverLimit } from "./use-feeder-data";
+import { dataOf, useAbsorbingHomes, useFeederList, useFeedersNow, useOverLimit } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
-const PANEL_PADDING_PX = 452; // FeederPanel width + gutter; keeps Dobrogea clear of the panel.
 const LINE_WIDTH = 4;
 const SELECTED_LINE_WIDTH = 7;
-// GridTwin (G5 #163): feeders whose M8 map confidence tau is below this get a hatched halo (the LP tightens G there).
+// GridTwin: feeders whose M8 map confidence tau is below this get a hatched halo (the LP tightens G there).
 const LOW_TAU = 0.6;
 const CASING_PX = 2; // white casing on each side of the line
 const NEAR_LIMIT = 0.9; // export above 90 % of the limit reads amber
@@ -52,7 +52,7 @@ const STATUS_COLOR: Record<Status, string> = {
   unknown: FEEDER_UNKNOWN,
 };
 
-// The chip and legend show status as a shape-coded LED (ui-style §7), not a plain dot.
+// The chip and legend show status as a shape-coded LED, not a plain dot.
 const STATUS_KIND: Record<Status, StatusKind> = {
   ok: "ok",
   warn: "warn",
@@ -67,40 +67,19 @@ function statusFor(minutes: number | undefined): Status {
   return minutes <= 60 ? "warn" : "over";
 }
 
-// Status at the replay clock (#115): over its limit now, near it (amber, no pulse), or within.
+// Status at the replay clock: over its limit now, near it (amber, no pulse), or within.
 function statusNow(exportKw: number, limitKw: number): Status {
   if (exportKw > limitKw) return "over";
   return exportKw > limitKw * NEAR_LIMIT ? "warn" : "ok";
 }
 
-function lineOf(geometryJson?: string | null): [number, number][] {
-  if (!geometryJson) return [];
-  try {
-    const geometry = JSON.parse(geometryJson) as { coordinates?: [number, number][] };
-    return geometry.coordinates ?? [];
-  } catch {
-    return [];
-  }
-}
-
-// Each chip is a small card: the status LED and id, then today's export as a sparkline (#137).
-// Collision layout (#91) treats labels as circles; the card is about 136 × 66, 236 × 150 opened.
+// Each chip is a small card: the status LED and id, then today's export as a sparkline.
+// Collision layout treats labels as circles; the card is about 136 × 66, 236 × 150 opened.
 const CHIP = { diameter: 128, halfWidth: 68, halfHeight: 33 } as const;
 const OPEN_CHIP = { diameter: 220, halfWidth: 118, halfHeight: 75 } as const;
 // The selected feeder opens its chart once the camera is near it; at country zoom all stay compact.
 const EXPAND_SELECTED_ZOOM = 9;
 const MS_PER_MINUTE = 60_000;
-
-const BUCHAREST_TIME = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-const sparkTime = (ms: number) => BUCHAREST_TIME.format(new Date(ms));
-
-// Stable reference, so useQueries memoises the combined array between renders.
-const dataOf = <T,>(results: { data?: T }[]) => results.map((result) => result.data);
 
 type FeederSpark = { points: SparkPoint[]; limitKw: number };
 
@@ -140,21 +119,6 @@ function useFeederSparks(feederIds: string[], policy: Policy) {
     // The last 15-min step of the day, so the line reaches the right edge.
     to: Date.parse(window.to) - 15 * MS_PER_MINUTE,
   };
-}
-
-function useZoomAtLeast(threshold: number) {
-  const { map, isLoaded } = useMap();
-  const [above, setAbove] = useState(false);
-  useEffect(() => {
-    if (!map || !isLoaded) return;
-    const sync = () => setAbove(map.getZoom() >= threshold);
-    sync();
-    map.on("zoomend", sync);
-    return () => {
-      map.off("zoomend", sync);
-    };
-  }, [map, isLoaded, threshold]);
-  return above;
 }
 
 type Item = {
@@ -291,7 +255,7 @@ export function FeedersLayers() {
   const openFeeder = zoomedIn ? selected : null;
   const [hovered, setHovered] = useState<string | null>(null);
 
-  // Labels are all peers, so colliding ones push each other equally (#91).
+  // Labels are all peers, so colliding ones push each other equally.
   const placed = useMemo<(PlacedMarker & ChipBox)[]>(
     () =>
       items.map((item) => {
@@ -440,8 +404,7 @@ export function FeedersLayers() {
                       tone={policy === "sentinel" ? "brand" : "actual"}
                       limit={{ value: feederSpark.limitKw, label: `${Math.round(feederSpark.limitKw)} kW` }}
                       expanded={isOpen}
-                      formatTime={sparkTime}
-                      showKey
+                      formatTime={hm}
                       peakLabel="expanded"
                       keyLabels={{ measured: "so far", forecast: "rest of day" }}
                     />

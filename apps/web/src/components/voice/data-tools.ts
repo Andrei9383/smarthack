@@ -3,7 +3,7 @@
 import { DAYS, dayWindow, STEPS_PER_DAY, stepToDate, stepToTs } from "@/lib/replay";
 import { client } from "@/lib/orpc";
 
-// What "Ask WattSentry" can look up (card #207). The agent runs in ElevenLabs' cloud; these run in
+// What "Ask WattSentry" can look up. The agent runs in ElevenLabs' cloud; these run in
 // the browser as client tools and read the same API the screens use, so a spoken answer matches
 // what is on screen. Each returns a short plain-text block the agent can read out.
 

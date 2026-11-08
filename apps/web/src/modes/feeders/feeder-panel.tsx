@@ -46,7 +46,7 @@ const BUCHAREST = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
-// Charts format dates in the browser's zone, so hand them Bucharest wall-clock time (plan R19).
+// Charts format dates in the browser's zone, so hand them Bucharest wall-clock time.
 function bucharestWallClock(ts: string) {
   const parts = Object.fromEntries(
     BUCHAREST.formatToParts(new Date(ts)).map((part) => [part.type, Number(part.value)]),
@@ -60,7 +60,7 @@ function bucharestWallClock(ts: string) {
   );
 }
 
-// Status text class (team/contracts/ui-style.md §2). Red only for a value over its limit now.
+// Status text class. Red only for a value over its limit now.
 const OVER_TONE = "text-status-critical";
 
 /**
@@ -75,7 +75,7 @@ function deltaVs(baseline: number | undefined, sentinel: number | undefined, neu
   return { text: `${change > 0 ? "+" : "−"}${Math.abs(change)}%`, good: neutral ? null : change < 0 };
 }
 
-/** Judge verdicts (#192) for this feeder, folded on the glance; nothing when the DB has no Judge rows. */
+/** Judge verdicts for this feeder, folded on the glance; nothing when the DB has no Judge rows. */
 function JudgeFold({ feederId }: { feederId: string }) {
   const { data } = useVerdicts(feederId);
   if (!data?.length) return null;

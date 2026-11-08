@@ -79,7 +79,7 @@ function useRunStep() {
 
 /**
  * Keys 1–6 run the demo script anywhere (the command palette sends the same keys). No button: the
- * top bar stays clean (#206); the steps are listed in the command palette under "Demo script".
+ * top bar stays clean; the steps are listed in the command palette under "Demo script".
  */
 export function DemoKeys() {
   const runStep = useRunStep();

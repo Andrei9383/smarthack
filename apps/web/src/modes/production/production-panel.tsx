@@ -13,6 +13,7 @@ import { useReplayStep } from "@/lib/use-replay";
 import { Term } from "@/components/help";
 import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SectionHeader, SheetSection } from "@/components/panels/disclosure";
 
+import { hm } from "@/lib/utils";
 import { expectedMwh, hourly } from "./data";
 import { FanHourTicks, FanNowMarker, FanYAxis } from "./fan-chart-overlays";
 import { useProductionData } from "./use-production-data";
@@ -20,7 +21,7 @@ import { useHour, useSelectedPark } from "./use-production-state";
 import { WindActions } from "./wind-actions";
 import { fetchWindMeta } from "./wind-field";
 
-// WattSentry's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
+// WattSentry's own forecast: primary green line over a brand-500 P10–P90 band.
 const FAN_FILL = "var(--brand-500)";
 const FAN_LINE = "var(--sentinel)";
 const Y_TICKS = 4;
@@ -30,12 +31,6 @@ const BEST_HOURS = 3;
 /** Counties on the glance; the rest are in Details. */
 const TOP_COUNTIES = 5;
 
-const BUCHAREST_HOUR = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
 const BUCHAREST_PARTS = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Bucharest",
   year: "numeric",
@@ -45,9 +40,8 @@ const BUCHAREST_PARTS = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
-const localLabel = (ts: string) => BUCHAREST_HOUR.format(new Date(ts));
 
-// Charts format dates in the browser's zone, so hand them Bucharest wall-clock time (plan R19).
+// Charts format dates in the browser's zone, so hand them Bucharest wall-clock time.
 function wallClock(ts: string) {
   const parts = Object.fromEntries(
     BUCHAREST_PARTS.formatToParts(new Date(ts)).map((part) => [part.type, Number(part.value)]),
@@ -55,7 +49,7 @@ function wallClock(ts: string) {
   return new Date(parts.year as number, (parts.month as number) - 1, parts.day as number, parts.hour as number);
 }
 
-// Park names carry a trailing "(synthetic RO)"-style tag; the panel shows the name without it (#212).
+// Park names carry a trailing "(synthetic RO)"-style tag; the panel shows the name without it.
 function splitTag(name: string): [string, string | null] {
   const match = /^(.*?)\s*(\([^()]+\))$/.exec(name);
   return match ? [match[1] ?? name, match[2] ?? null] : [name, null];
@@ -200,7 +194,7 @@ export function ProductionPanel() {
             />
             <Metric
               label="Best hour"
-              value={best ? localLabel(best.ts) : "—"}
+              value={best ? hm(best.ts) : "—"}
               sub={best ? `${Math.round(best.p50)} MW, all parks` : undefined}
               popTitle="Best production hours, all parks"
               pop={
@@ -212,7 +206,7 @@ export function ProductionPanel() {
                         <span className={`w-3 text-caption ${top ? "font-semibold text-status-ok" : "text-muted-foreground"}`}>
                           {index + 1}
                         </span>
-                        <span className={`w-11 font-medium ${top ? "font-semibold text-foreground" : "text-foreground"}`}>{localLabel(ts)}</span>
+                        <span className={`w-11 font-medium ${top ? "font-semibold text-foreground" : "text-foreground"}`}>{hm(ts)}</span>
                         <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                           <span
                             className={`block h-full rounded-full ${top ? "bg-sentinel" : "bg-brand-500/50"}`}
@@ -310,7 +304,7 @@ export function ProductionPanel() {
               <dl className="divide-y divide-border text-dense">
                 <div className="flex items-center justify-between gap-3 py-2.5">
                   <dt className="text-text-secondary">Wind at 100 m</dt>
-                  <dd className="font-semibold text-foreground tabular-nums">{hourTs ? localLabel(hourTs) : "—"}</dd>
+                  <dd className="font-semibold text-foreground tabular-nums">{hourTs ? hm(hourTs) : "—"}</dd>
                 </div>
                 {windCounties.map(({ county, windMwh }) => (
                   <div key={county} className="flex items-baseline justify-between gap-3 py-2.5">

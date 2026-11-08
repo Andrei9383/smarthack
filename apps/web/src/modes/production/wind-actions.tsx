@@ -1,6 +1,6 @@
 "use client";
 
-// W7 (#170): the last 24 h as settled: P10–P90 band, what WattSentry sold day-ahead (W3) and what the park
+// The last 24 h as settled: P10–P90 band, what WattSentry sold day-ahead (W3) and what the park
 // made, with marks where W2 took turbines out of the sale; then the park battery (W5) on the same hours.
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -16,13 +16,13 @@ import { ChartTooltip } from "@/components/charts/tooltip";
 import { Metric, MetricRow } from "@/components/panels/disclosure";
 import { orpc } from "@/lib/orpc";
 
+import { lei } from "@/lib/utils";
 import { FanHourTicks, FanYAxis } from "./fan-chart-overlays";
 
 const SECTION_LABEL = "section-title";
 const MARGIN = { left: 32, right: 8, top: 26, bottom: 24 };
 const HOUR_MS = 3_600_000;
 const BATTERY_VARIANTS = ["lp", "rule"];
-const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
 const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
 
 type Hour = { date: Date; ts: string; p10: number; p90: number; sold: number; actual: number; removed: number };
