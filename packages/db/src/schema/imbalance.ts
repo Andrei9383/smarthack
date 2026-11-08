@@ -1,8 +1,8 @@
 import { index, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-// Feature I (#177, spec I step 9a). Written by wattsentry/eval/imbalance_replay.py (#176, `TABLES`): it drops and
-// recreates these tables, so columns and index names mirror that writer. ts / issue_time = ISO-8601 UTC text,
-// quantities MWh per 15-min step, + = the portfolio takes from the grid.
+// Imbalance replay tables, written by wattsentry/eval/imbalance_replay.py (`TABLES`): it drops and recreates
+// them, so columns and index names mirror that writer. ts / issue_time = ISO-8601 UTC text, quantities MWh per
+// 15-min step, + = the portfolio takes from the grid.
 
 export const portfolioForecast = sqliteTable(
   "portfolio_forecast",
@@ -56,7 +56,7 @@ export const imbalanceKpis = sqliteTable(
   (table) => [index("imbalance_kpis_idx").on(table.policy, table.name)],
 );
 
-// I4 #174 battery strategy per home. No writer yet: the API falls back to assets.has_battery.
+// Battery strategy per home. No writer yet: the API falls back to assets.has_battery.
 export const siteStrategy = sqliteTable("site_strategy", {
   siteId: text("site_id").primaryKey(),
   strategy: text("strategy"), // none | self_consumption | price_driven | enrolled

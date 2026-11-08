@@ -1,22 +1,22 @@
 import { implement } from "@orpc/server";
 import { createDb, type Database } from "@wattsentry/db";
 import { imbalanceKpis, portfolioForecast, positions, siteStrategy } from "@wattsentry/db/schema/imbalance";
-import { assets } from "@wattsentry/db/schema/sentinel";
+import { assets } from "@wattsentry/db/schema/replay";
 import { and, asc, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { Context } from "../context";
 import { imbalanceContract, type PolicyTotals } from "../contract/imbalance";
-import { emptyIfNoTables } from "./runs";
+import { emptyIfNoTables, inWindow as tsWindow } from "./runs";
 
 const os = implement(imbalanceContract).$context<Context>();
 const DAY_MS = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
 
 // The imbalance replay's tables (positions, portfolio_forecast) live in their own file when one exists:
-// WATTSENTRY_IMBALANCE_DB, else demo/imbalance.sqlite (#193; kept out of demo/wattsentry.sqlite so replay#506's file
-// stays byte-identical and under R18's 50 MB). Otherwise they are read from the app DB.
+// WATTSENTRY_IMBALANCE_DB, else demo/imbalance.sqlite (kept out of demo/wattsentry.sqlite to keep that file
+// unchanged and small). Otherwise they are read from the app DB.
 const IMBALANCE_FILE = [process.env.WATTSENTRY_IMBALANCE_DB, "demo/imbalance.sqlite"]
   .filter((p): p is string => Boolean(p))
   .flatMap((p) => [resolve(p), resolve("../..", p)])
@@ -30,8 +30,7 @@ const store = (db: Database): Database =>
 const localHour = sql`CAST(strftime('%H', ${positions.ts}, CASE WHEN substr(${positions.ts}, 6, 5) BETWEEN '03-30' AND '10-25' THEN '+3 hours' ELSE '+2 hours' END) AS INTEGER)`;
 const f = (expr: SQL) => sql<number>`COALESCE(${expr}, 0)`.mapWith(Number);
 
-const inWindow = (from?: string, to?: string) =>
-  and(from ? gte(positions.ts, from) : undefined, to ? lt(positions.ts, to) : undefined);
+const inWindow = (from?: string, to?: string) => tsWindow(positions.ts, from, to);
 
 async function totals(db: Database, where?: SQL): Promise<PolicyTotals[]> {
   const rows = await emptyIfNoTables(() =>
@@ -54,7 +53,7 @@ async function totals(db: Database, where?: SQL): Promise<PolicyTotals[]> {
 }
 
 // Whole-replay totals as the replay wrote them (imbalance_kpis = the run's LAB_METRIC headline). The demo copy of
-// positions only covers the days around the demo week (#193), so summing it would not be the whole replay.
+// positions only covers the days around the demo week, so summing it would not be the whole replay.
 const KPI_OF = {
   avoidable_cost_lei: "avoidableLei",
   intraday_lei: "intradayLei",
@@ -164,7 +163,7 @@ export const imbalanceRouter = os.router({
         .groupBy(siteStrategy.strategy),
     );
     if (classified.length) return { source: "site_strategy" as const, rows: classified };
-    // Not classified yet (no I4 writer in the replay DB): split the fleet by declared battery only.
+    // Not classified yet (no strategy writer in the replay DB): split the fleet by declared battery only.
     const declared = await emptyIfNoTables(() =>
       db
         .select({

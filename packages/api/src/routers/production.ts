@@ -8,32 +8,16 @@ import {
   parks,
   runs,
   windPositions,
-} from "@wattsentry/db/schema/sentinel";
-import { type AnyColumn, and, asc, desc, eq, gte, isNotNull, lt, sql, type SQL } from "drizzle-orm";
-
-import type { CountySeriesPoint } from "../contract/production";
+} from "@wattsentry/db/schema/replay";
+import { type AnyColumn, and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 
 import type { Context } from "../context";
-import { productionContract } from "../contract/production";
-import { emptyIfNoTables, latestRunWith } from "./runs";
+import { type CountySeriesPoint, productionContract } from "../contract/production";
+import { emptyIfNoTables, inWindow, latestRunWith } from "./runs";
 
 const os = implement(productionContract).$context<Context>();
 
 const STEP_HOURS = 0.25;
-
-type TsColumn =
-  | typeof assetSteps.ts
-  | typeof parkForecasts.ts
-  | typeof measurements.ts
-  | typeof windPositions.ts
-  | typeof parkBattery.ts;
-
-function inWindow(ts: TsColumn, from?: string, to?: string) {
-  const bounds: SQL[] = [];
-  if (from) bounds.push(gte(ts, from));
-  if (to) bounds.push(lt(ts, to));
-  return bounds;
-}
 
 // 'YYYY-MM-DDTHH:00:00Z', the hour a stored step falls in (stored ts are UTC text).
 const hourOf = (ts: AnyColumn) => sql<string>`substr(${ts}, 1, 13) || ':00:00Z'`;
@@ -42,20 +26,6 @@ const hourOf = (ts: AnyColumn) => sql<string>`substr(${ts}, 1, 13) || ':00:00Z'`
 // the number of 15-min steps seen in that hour.
 const meanMw = (column: AnyColumn, ts: AnyColumn) =>
   sql<number | null>`sum(${column}) / count(distinct ${ts}) / 1000.0`;
-
-// Newest run that wrote W3/W5 rows; empty until the wind writers fill these tables.
-async function windRun(db: Context["db"], table: typeof windPositions | typeof parkBattery, runId?: string) {
-  if (runId) return runId;
-  const [run] = await emptyIfNoTables(() =>
-    db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(sql`EXISTS (SELECT 1 FROM ${table} WHERE ${table.runId} = ${runs.id})`)
-      .orderBy(desc(runs.createdAt))
-      .limit(1),
-  );
-  return run?.id;
-}
 
 export const productionRouter = os.router({
   getRun: os.getRun.handler(({ context }) => latestRunWith(context.db, parkForecasts)),
@@ -106,7 +76,7 @@ export const productionRouter = os.router({
           })
           .from(parkForecasts)
           .innerJoin(parks, eq(parks.id, parkForecasts.parkId))
-          .where(and(eq(parkForecasts.runId, windRun), ...inWindow(parkForecasts.ts, from, to)))
+          .where(and(eq(parkForecasts.runId, windRun), inWindow(parkForecasts.ts, from, to)))
           .groupBy(parks.county)
       : [];
 
@@ -124,7 +94,7 @@ export const productionRouter = os.router({
             and(
               eq(assetSteps.runId, solarRun),
               eq(assets.assetKind, "prosumer"),
-              ...inWindow(assetSteps.ts, from, to),
+              inWindow(assetSteps.ts, from, to),
             ),
           )
           .groupBy(assets.county)
@@ -179,7 +149,7 @@ export const productionRouter = os.router({
               and(
                 eq(assetSteps.runId, solarRun),
                 eq(assets.assetKind, "prosumer"),
-                ...inWindow(assetSteps.ts, from, to),
+                inWindow(assetSteps.ts, from, to),
               ),
             )
             .groupBy(assets.county, hourOf(assetSteps.ts)),
@@ -202,7 +172,7 @@ export const productionRouter = os.router({
                 eq(measurements.runId, windRunId),
                 eq(assets.assetKind, "turbine"),
                 isNotNull(measurements.actPwtKw),
-                ...inWindow(measurements.ts, from, to),
+                inWindow(measurements.ts, from, to),
               ),
             )
             .groupBy(parks.county, hourOf(measurements.ts)),
@@ -244,7 +214,7 @@ export const productionRouter = os.router({
   }),
 
   getWindPositions: os.getWindPositions.handler(async ({ context: { db }, input }) => {
-    const runId = await windRun(db, windPositions, input?.runId);
+    const runId = input?.runId ?? (await latestRunWith(db, windPositions))?.runId;
     if (!runId) return [];
     return db
       .select({
@@ -265,14 +235,14 @@ export const productionRouter = os.router({
           eq(windPositions.runId, runId),
           eq(windPositions.policy, input?.policy ?? "sentinel"),
           input?.parkId ? eq(windPositions.parkId, input.parkId) : undefined,
-          ...inWindow(windPositions.ts, input?.from, input?.to),
+          inWindow(windPositions.ts, input?.from, input?.to),
         ),
       )
       .orderBy(asc(windPositions.ts));
   }),
 
   getParkBattery: os.getParkBattery.handler(async ({ context: { db }, input }) => {
-    const runId = await windRun(db, parkBattery, input?.runId);
+    const runId = input?.runId ?? (await latestRunWith(db, parkBattery))?.runId;
     if (!runId) return [];
     return db
       .select({
@@ -292,7 +262,7 @@ export const productionRouter = os.router({
         and(
           eq(parkBattery.runId, runId),
           input?.parkId ? eq(parkBattery.parkId, input.parkId) : undefined,
-          ...inWindow(parkBattery.ts, input?.from, input?.to),
+          inWindow(parkBattery.ts, input?.from, input?.to),
         ),
       )
       .orderBy(asc(parkBattery.variant), asc(parkBattery.ts));

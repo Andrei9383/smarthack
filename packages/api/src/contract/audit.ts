@@ -1,7 +1,7 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-export const auditLogItemSchema = z.object({
+const auditLogItemSchema = z.object({
   id: z.string(),
   actionId: z.string().nullable().optional(),
   actionType: z.string(),
@@ -17,7 +17,7 @@ export const auditLogItemSchema = z.object({
   modelVersion: z.string().nullable().optional(),
   committedKw: z.number().nullable().optional(),
   realisedKw: z.number().nullable().optional(),
-  // #32: the audit trail shows what the decision was based on
+  // what the decision was based on
   inputHash: z.string().nullable().optional(),
   predictionJson: z.string().nullable().optional(),
   threshold: z.number().nullable().optional(),

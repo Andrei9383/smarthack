@@ -86,7 +86,7 @@ export const assets = sqliteTable(
     batteryKwh: real("battery_kwh"),
     batteryKw: real("battery_kw"),
     comfortReserveKwh: real("comfort_reserve_kwh"),
-    contract: text("contract"), // standard | maxcontrol (I2 #172 prosumers_v2 homes)
+    contract: text("contract"), // standard | maxcontrol (prosumers_v2 homes)
     meter: text("meter"), // smart | profile
     recordedKwp: real("recorded_kwp"), // what the GIS says
     trueKwp: real("true_kwp"), // what M8 / grid-twin estimates
@@ -106,8 +106,8 @@ export const assets = sqliteTable(
   ],
 );
 
-// The assets columns without the I7 additions (#177): `select(assetColumns)` keeps reading DBs replayed before
-// contract/meter existed (demo/wattsentry.sqlite), where `select()` would ask for missing columns.
+// The assets columns without contract/meter: `select(assetColumns)` keeps reading DBs replayed before those
+// columns existed (demo/wattsentry.sqlite), where `select()` would ask for missing columns.
 const { contract: _contract, meter: _meter, ...assetColumns } = getTableColumns(assets);
 export { assetColumns };
 
@@ -261,7 +261,7 @@ export const commitments = sqliteTable(
     availableKw: real("available_kw").notNull(),
     committedKw: real("committed_kw").notNull(),
     realisedKw: real("realised_kw"),
-    haircutH: real("haircut_h"), // telemetry-loss haircut h, 0..1 (plan 3.5)
+    haircutH: real("haircut_h"), // telemetry-loss haircut h, 0..1
     hit: integer("hit"),
   },
   (table) => [
@@ -321,9 +321,9 @@ export const workOrders = sqliteTable(
     rank: integer("rank"),
     status: text("status").default("open").notNull(),
     evidenceJson: text("evidence_json"),
-    leiPerDay: real("lei_per_day"), // W4: lost MWh/day x PZU next 24 h
-    triageScore: real("triage_score"), // W4: p_fault x lei_per_day x days_to_visit
-    bestRepairDay: text("best_repair_day"), // W6: cheapest repair day, YYYY-MM-DD
+    leiPerDay: real("lei_per_day"), // lost MWh/day x PZU next 24 h
+    triageScore: real("triage_score"), // p_fault x lei_per_day x days_to_visit
+    bestRepairDay: text("best_repair_day"), // cheapest repair day, YYYY-MM-DD
   },
   (table) => [
     index("work_orders_queue_idx").on(table.runId, table.crewType, table.day, table.rank),
@@ -407,9 +407,9 @@ export const parkForecasts = sqliteTable(
   ],
 );
 
-// ---------------------------------------------------------------- wind actions (W2-W5, card #170)
+// ---------------------------------------------------------------- wind actions
 
-// W3: one row per policy x park x 15-min step (wattsentry/eval/wind_portfolio.py).
+// One row per policy x park x 15-min step.
 export const windPositions = sqliteTable(
   "wind_positions",
   {
@@ -431,7 +431,7 @@ export const windPositions = sqliteTable(
     pzuLeiMwh: real("pzu_lei_mwh"),
     devMwh: real("dev_mwh"),
     avoidableLei: real("avoidable_lei"),
-    removedTurbines: integer("removed_turbines"), // W2: turbines out of tomorrow's availability at sale
+    removedTurbines: integer("removed_turbines"), // turbines out of tomorrow's availability at sale
   },
   (table) => [
     primaryKey({ columns: [table.runId, table.parkId, table.policy, table.ts] }),
@@ -439,7 +439,7 @@ export const windPositions = sqliteTable(
   ],
 );
 
-// W2: tomorrow's availability per turbine and day (availability.table()).
+// Tomorrow's availability per turbine and day (availability.table()).
 export const turbineAvailability = sqliteTable(
   "turbine_availability",
   {
@@ -466,7 +466,7 @@ export const turbineAvailability = sqliteTable(
   ],
 );
 
-// W5: park battery per variant x park x step (wattsentry/opt/park_battery.py).
+// Park battery per variant x park x step.
 export const parkBattery = sqliteTable(
   "park_battery",
   {
@@ -569,12 +569,12 @@ export const auditLog = sqliteTable(
   ],
 );
 
-// ---------------------------------------------------------------- judge (trust filter, team/judge-design.md §8)
-// Written by the replay's Judge slot (wattsentry/judge/slot.py, #149). Additive: no existing query reads them, and a
-// DB built before these tables existed still works (the replay skips tables a schema lacks).
+// ---------------------------------------------------------------- judge (trust filter)
+// Written by the replay's Judge slot (wattsentry/judge/slot.py). A DB built before these tables existed still
+// works (the replay skips tables a schema lacks).
 
-// One graded outcome per witness x asset x day x score (§5): telemetry d+1, crew/audit visits, delayed events.
-// Several rows per asset-day are allowed (e.g. score_name 'norm_err' for the band scale, §6.4), hence the id.
+// One graded outcome per witness x asset x day x score: telemetry d+1, crew/audit visits, delayed events.
+// Several rows per asset-day are allowed (e.g. score_name 'norm_err' for the band scale), hence the id.
 export const outcomes = sqliteTable(
   "outcomes",
   {
@@ -588,11 +588,11 @@ export const outcomes = sqliteTable(
     day: text("day").notNull(), // 'YYYY-MM-DD' (Europe/Bucharest) of the graded prediction
     scoreName: text("score_name").notNull(), // calibration | sharpness | alarm_precision | miss_score | hit | flag | norm_err
     score: real("score"), // 0..1, higher is better (norm_err: signed normalised error)
-    weight: real("weight").default(1).notNull(), // audit inverse-probability weight; action visits 0.5 (§5.6)
+    weight: real("weight").default(1).notNull(), // audit inverse-probability weight; action visits 0.5
     source: text("source").notNull(), // telemetry | crew | audit | event | residual
-    observedAt: text("observed_at").notNull(), // ISO-8601 UTC: when the outcome could first be known (§5.5)
-    gated: integer("gated").default(0).notNull(), // 1 = failed the §5.4 quality gate: ungraded
-    bucket: text("bucket"), // context bucket key kind|seen|battery|season|quality|ood (§6.1)
+    observedAt: text("observed_at").notNull(), // ISO-8601 UTC: when the outcome could first be known
+    gated: integer("gated").default(0).notNull(), // 1 = failed the quality gate: ungraded
+    bucket: text("bucket"), // context bucket key kind|seen|battery|season|quality|ood
   },
   (table) => [
     index("outcomes_run_model_day_idx").on(table.runId, table.model, table.day),
@@ -600,7 +600,7 @@ export const outcomes = sqliteTable(
   ],
 );
 
-// Trust ledger state per day (§6): the value the next day's verdicts read.
+// Trust ledger state per day: the value the next day's verdicts read.
 export const trust = sqliteTable(
   "trust",
   {
@@ -628,7 +628,7 @@ export const trust = sqliteTable(
   ],
 );
 
-// One verdict per witness prediction (§7.7): what actions will read instead of the raw prediction.
+// One verdict per witness prediction: what actions will read instead of the raw prediction.
 export const judgeVerdicts = sqliteTable(
   "judge_verdicts",
   {

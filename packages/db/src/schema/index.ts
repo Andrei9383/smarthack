@@ -1,3 +1,3 @@
 export * from "./auth";
-export * from "./sentinel";
+export * from "./replay";
 export * from "./imbalance";
