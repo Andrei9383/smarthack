@@ -133,8 +133,8 @@ function useOverLimitRanges(policy: Policy) {
   }, [data]);
 }
 
-/** Red bars where a cable was over its limit, purple dots where a person had to check a home. */
-function ProblemMarks({ policy, reviews }: { policy: Policy; reviews: number[] }) {
+/** Red bars where a cable was over its limit. */
+function ProblemMarks({ policy }: { policy: Policy }) {
   const ranges = useOverLimitRanges(policy);
   return (
     <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[3px] h-1">
@@ -144,13 +144,6 @@ function ProblemMarks({ policy, reviews }: { policy: Policy; reviews: number[] }
           title={`${clockLabel(r.start)}: ${plural(r.feeders, "cable")} over limit`}
           className="absolute inset-y-0 rounded-full bg-status-critical"
           style={{ left: pct(r.start), width: `max(2px, ${pct(r.end - r.start)})` }}
-        />
-      ))}
-      {reviews.map((step) => (
-        <span
-          key={step}
-          className="absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-status-review ring-1 ring-card"
-          style={{ left: pct(step) }}
         />
       ))}
     </div>
@@ -340,10 +333,6 @@ export function TimelineDock({ className, compact = false }: { className?: strin
   const track = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const agentOn = policy === "sentinel";
-  const reviewSteps = useMemo(
-    () => [...new Set(actions.filter((a) => a.kind === "review").map((a) => a.step))],
-    [actions],
-  );
 
   // Crossing an action while playing raises its toast (the last one crossed, if several).
   const previous = useRef(step);
@@ -516,7 +505,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
             ))}
             <span className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: pct(step) }} />
           </div>
-          <ProblemMarks policy={policy} reviews={reviewSteps} />
+          <ProblemMarks policy={policy} />
           {/* day boundaries, just above the bar */}
           {Array.from({ length: DAYS - 1 }, (_, day) => (
             <span

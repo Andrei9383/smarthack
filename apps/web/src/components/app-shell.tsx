@@ -6,7 +6,6 @@ import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { useCallback, useEffect, useState } from "react";
 
 import { defaultTourSteps, Tour, useTour } from "@/components/help";
-import { PROVENANCE_PILL_CLASS } from "@/components/provenance-pill";
 import { AgentToast } from "@/components/shell/agent-toast";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { Inspector } from "@/components/shell/inspector";
@@ -179,11 +178,6 @@ export function AppShell() {
               )}
             </Inspector>
 
-            {offline ? (
-              <span className={cn(PROVENANCE_PILL_CLASS, "absolute bottom-[116px] left-4 z-10 bg-card shadow-raised")}>
-                Offline basemap
-              </span>
-            ) : null}
           </>
         )}
 
