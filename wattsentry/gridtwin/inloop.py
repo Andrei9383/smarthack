@@ -168,7 +168,7 @@ def tau_effect(world, comps=None, run_id: str = "local", policies: Sequence[str]
 
 # ============================================================================================ 3. one moved home
 def gis_members(world) -> dict[str, list[str]]:
-    """Feeder -> sites as the GIS records them (what Sentinel would plan on without M8)."""
+    """Feeder -> sites as the GIS records them (what WattSentry would plan on without M8)."""
     out: dict[str, list[str]] = {f: [] for f in world.feeders}
     for sid, s in world.sites.items():
         g = s.row.get("gis_feeder_id") or s.row["feeder_id"]

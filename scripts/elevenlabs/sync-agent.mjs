@@ -1,4 +1,4 @@
-// Creates or updates the "Ask Sentinel" ElevenLabs voice agent.
+// Creates or updates the "Ask WattSentry" ElevenLabs voice agent.
 //
 //   node --env-file=.env.local scripts/elevenlabs/sync-agent.mjs
 //
@@ -23,7 +23,7 @@ const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"; // George
 const LLM = "claude-haiku-5-5"; // fast enough for a voice turn
 
 const PROMPT = `# Personality
-You are Sentinel, the voice of the WattSentry control room for PPC in Romania. You are calm, precise and friendly, like a control-room engineer briefing the shift.
+You are WattSentry, the voice of the control room for PPC in Romania. You are calm, precise and friendly, like a control-room engineer briefing the shift.
 
 # Environment
 You talk to people looking at the WattSentry app: a replay of one week, Monday 2 June to Sunday 8 June 2025, of a Romanian distribution grid and wind fleet. The story day is Wednesday 4 June. "Today" means the day on the replay clock, which current_view tells you.
@@ -31,22 +31,22 @@ What is on the grid:
 - Five low-voltage feeders with rooftop solar and home batteries: F7 Oșorhei (Bihor), F3 Florești and F10 Apahida (Cluj), F6 Măgura (Bacău), F11 Otopeni (Ilfov). Each has a limit: how much solar power the line can take back.
 - One wind park (eolian park) near Fântânele-Cogealac, Constanța county, with 70 turbines.
 - About 118 homes with solar.
-- Sentinel is the agent: each night it plans which home batteries charge at midday so feeders stay under their limit, it ranks faults and sends crews, and it hands unsure cases to a person. "Without Sentinel" (the baseline) is the same week where batteries only store their own solar.
+- WattSentry is the agent: each night it plans which home batteries charge at midday so feeders stay under their limit, it ranks faults and sends crews, and it hands unsure cases to a person. "Without WattSentry" (the baseline) is the same week where batteries only store their own solar.
 - All data is synthetic, placed at real Romanian sites.
 App views: Overview (the shift briefing), Feeders, O&M (faults, work orders, turbines), Production (wind), Demand (zone demand map), Imbalance (15-minute prices).
 
 # Tools
 This step is important: get every number from a tool, never from memory, and never invent one.
-- get_feeders(day): feeder limits, minutes over the limit and peaks with and without Sentinel, how many feeders stayed within their limit.
+- get_feeders(day): feeder limits, minutes over the limit and peaks with and without WattSentry, how many feeders stayed within their limit.
 - get_wind_parks(): where the wind parks are, their size, which turbines are stopped right now.
 - get_faults(day): work orders, alerts and cases handed to a person on a day.
-- get_day_summary(day): one day at a glance (production, wind, availability, open issues) and the week's results with and without Sentinel.
+- get_day_summary(day): one day at a glance (production, wind, availability, open issues) and the week's results with and without WattSentry.
 - current_view(): what the person is looking at and the replay clock.
 - open_view(mode, feeder): show a view; use it when it helps, and say what you opened.
 Pass day as the person said it ("today", "Thursday", "5 June"). If a tool says the day is outside the week, tell them the replay covers 2 to 8 June 2025.
 
 # Scope
-Answer only questions about the grid, the assets, the events and the results in this week: where things are, what happened on a day, faults, feeders, wind, batteries, how Sentinel compares with no Sentinel, and what a term on screen means (in one sentence).
+Answer only questions about the grid, the assets, the events and the results in this week: where things are, what happened on a day, faults, feeders, wind, batteries, how WattSentry compares with no WattSentry, and what a term on screen means (in one sentence).
 This step is important: do not answer questions about the code, the repository, the software, the tech stack, files, functions, how the app or the models were built or trained, the team or the hackathon. Say briefly: "I only answer questions about the grid and this week's data, for example the faults on Thursday or how many feeders stayed within their limit." Off-topic questions get the same short answer.
 
 # Tone
@@ -73,7 +73,7 @@ const clientTool = (name, description, properties = {}, required = []) => ({
 const TOOLS = [
   clientTool(
     "get_feeders",
-    "Feeders on one day: location, limit, minutes over the limit and peak with and without Sentinel, and how many stayed within their limit.",
+    "Feeders on one day: location, limit, minutes over the limit and peak with and without WattSentry, and how many stayed within their limit.",
     { day: dayParam },
   ),
   clientTool(
@@ -87,7 +87,7 @@ const TOOLS = [
   ),
   clientTool(
     "get_day_summary",
-    "One day at a glance (homes, feeders, turbines, wind production, wind speed, availability, open issues) and the whole week's results with and without Sentinel.",
+    "One day at a glance (homes, feeders, turbines, wind production, wind speed, availability, open issues) and the whole week's results with and without WattSentry.",
     { day: dayParam },
   ),
   clientTool(
@@ -105,7 +105,7 @@ const TOOLS = [
   ),
   clientTool(
     "current_view",
-    "Which view the person is looking at, the replay clock (the current day), whether Sentinel or the baseline is shown, and what is selected.",
+    "Which view the person is looking at, the replay clock (the current day), whether WattSentry or the baseline is shown, and what is selected.",
   ),
 ];
 
@@ -113,12 +113,12 @@ function agentBody() {
   // Plain REST JSON (snake_case, as in the ElevenLabs docs); the SDK's typed serializer is strict
   // about nested tool shapes, so agent create/update go through fetch below.
   return {
-    name: "Ask Sentinel (WattSentry)",
+    name: "Ask WattSentry",
     tags: ["smarthack", "sentinel"],
     conversation_config: {
       agent: {
         first_message:
-          "Hi, I'm Sentinel. Ask me about the grid this week: faults on a day, the feeders, or the wind park.",
+          "Hi, I'm WattSentry. Ask me about the grid this week: faults on a day, the feeders, or the wind park.",
         language: "en",
         prompt: {
           prompt: PROMPT,

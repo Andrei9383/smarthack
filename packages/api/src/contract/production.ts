@@ -1,11 +1,6 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-const productionRunSchema = z.object({
-  runId: z.string(),
-  label: z.string(), // 'synthetic RO' | 'real RO' | 'non-RO': shown on screen
-});
-
 const parkItemSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -93,7 +88,6 @@ const windowInput = z.object({
 
 // The wind field is static, not a procedure: /windfield/meta.json + NN.png + NN-speed.png.
 export const productionContract = {
-  getRun: oc.input(z.object({}).optional()).output(productionRunSchema.nullable()),
   listParks: oc.input(z.object({}).optional()).output(z.array(parkItemSchema)),
   getParkForecasts: oc
     .input(

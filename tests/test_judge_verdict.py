@@ -1,4 +1,4 @@
-"""Card #149 (J4): Judge verdict rules (judge-design §7.5), output contract (§7.7), the loop slot, ledger-only mode,
+"""Judge verdict rules, output contract, the loop slot, ledger-only mode,
 and judge on/off giving identical decisions."""
 
 import json
@@ -29,7 +29,7 @@ def _judge(rows, th=None):
     return df, apply_rules(df, th)
 
 
-# --------------------------------------------------------------------------------------------- §7.5 rule order
+# --------------------------------------------------------------------------------------------- rule order
 def test_rule_order_first_match_wins():
     rows = [
         _row(input_bad=True, safety_call=True, n_eff=0, trust=0.99),       # 1 beats 2 and 3
@@ -265,7 +265,7 @@ def test_replay_judge_check_and_tables(tmp_path):
 
 
 def test_db_without_judge_tables_still_replays(tmp_path):
-    """Old schema (the #38 copy, no judge tables), strict mode: the slot skips the tables, nothing raises."""
+    """Old schema (no judge tables), strict mode: the slot skips the tables, nothing raises."""
     rep = replay(["sentinel"], tmp_path / "old.sqlite", world=MockWorld(days=1, scale=0.3),
                  schema_dir=tmp_path / "no-drizzle", force_fallback=True, print_metrics=False, strict=True)
     s = rep.results["sentinel"].judge
@@ -273,7 +273,7 @@ def test_db_without_judge_tables_still_replays(tmp_path):
 
 
 def test_with_the_j1_grader_and_j2_ledger_outcomes_feed_trust(tmp_path):
-    """Once #146 (grader) and #147 (ledger) are in: outcomes are written and graded evidence reaches the verdicts,
+    """With the grader and ledger: outcomes are written and graded evidence reaches the verdicts,
     still without changing a decision."""
     grader = pytest.importorskip("wattsentry.judge.grader")
     ledger = pytest.importorskip("wattsentry.judge.ledger")

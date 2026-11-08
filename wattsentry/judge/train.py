@@ -84,7 +84,7 @@ class GpuSampler(threading.Thread):
 def ensure_windows(log=print) -> Path:
     from wattsentry.agent.world import find_windows
     if os.environ.get("LAB_CACHE_DIR") and not os.environ.get("WATTSENTRY_CACHE"):
-        lab_cache = Path(os.environ["LAB_CACHE_DIR"]) / "sentinel"
+        lab_cache = Path(os.environ["LAB_CACHE_DIR"]) / "wattsentry"
         if find_windows() is None:  # the worker has no shared cache: build (once) under $LAB_CACHE_DIR
             os.environ["WATTSENTRY_CACHE"] = str(lab_cache)
     w = find_windows()

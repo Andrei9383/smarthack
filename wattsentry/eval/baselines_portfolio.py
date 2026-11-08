@@ -24,6 +24,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from wattsentry.infra.paths import cache_root
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROFILE_PATH = REPO_ROOT / "data" / "raw" / "standard_profile.parquet"
 TZ = "Europe/Bucharest"
@@ -227,7 +229,7 @@ def find_fleet_dirs(root: Optional[Path] = None) -> tuple[Path, Optional[Path]]:
         fleet, faults = w.parent / key.get("fleet", "-"), w.parent / key.get("faults", "-")
         if (fleet / "sites.parquet").exists():
             return fleet, faults if (faults / "telemetry").exists() else None
-    base = Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
+    base = cache_root()
     cands = sorted(base.glob("data-v*/fleet-*/manifest.json"), key=lambda p: p.stat().st_mtime)
     if cands:
         return cands[-1].parent, None

@@ -1,4 +1,4 @@
-"""Voltage rise and inverter trips on the IEEE European LV test feeder, baseline vs Sentinel.
+"""Voltage rise and inverter trips on the IEEE European LV test feeder, baseline vs WattSentry.
 
     python -m wattsentry.gridtwin.voltage [--world sim|mock] [--days 7] [--v-source 1.03,1.00,1.05] [--out DIR]
 

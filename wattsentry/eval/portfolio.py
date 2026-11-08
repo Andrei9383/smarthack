@@ -338,27 +338,6 @@ def correction_mask(ts_utc: Any, start_hour: int = 16, end_hour: int = 24, tz: s
     return np.asarray((h >= start_hour) & (h < end_hour))
 
 
-# ================================================================================================ one day, end to end
-@dataclass
-class DayForecast:
-    total: np.ndarray  # (K, T) raw scenarios, MWh/step
-    bands_raw: np.ndarray  # (T, 3)
-    bands: np.ndarray  # (T, 3) calibrated
-    bought: np.ndarray  # (T,) quantile q* of the calibrated scenarios
-    q_star: float
-
-
-def forecast_day(pv_q: np.ndarray, load_q: np.ndarray, fleet: Fleet, *, conformal: Optional[TotalConformal] = None,
-                 q_star: Optional[float] = None, n_scen: int = N_SCENARIOS, seed: int = 0,
-                 soc0: Optional[np.ndarray] = None, battery: bool = True) -> DayForecast:
-    """Steps 2-6 for one day: validated per-home bands (N, T, 3) -> portfolio scenarios, band, purchase."""
-    qs = purchase_quantile() if q_star is None else float(q_star)
-    total = portfolio_scenarios(pv_q, load_q, fleet, n_scen=n_scen, seed=seed, soc0=soc0, battery=battery)
-    raw = scenario_bands(total)
-    cal = raw if conformal is None else conformal.apply(raw)
-    return DayForecast(total, raw, cal, bought_da(total, qs, conformal), qs)
-
-
 # ================================================================================================ data layer (fleet)
 def fleet_from_source(src: Any, region_key: str = "county") -> Fleet:
     """Fleet from a window source (``wattsentry.model.data.ArraySource``): sites.json rows."""

@@ -5,7 +5,7 @@ fetch it whole. A ZIP keeps its directory at the end, so with HTTP range request
 only the members of the requested farm(s). Wind Farm A (EDP, onshore Portugal, the farm with named gearbox /
 generator-bearing / transformer temperatures and failure events) is ~0.16 GB compressed.
 
-Cache: ~/.cache/sentinel/care/<record>/ (or $WATTSENTRY_CACHE/care). Offline, or when the requested members exceed
+Cache: ~/.cache/wattsentry/care/<record>/ (or $WATTSENTRY_CACHE/care). Offline, or when the requested members exceed
 `max_gb`, `fetch()` returns None and prints why: the eval reports `care_status` instead of failing.
 """
 
@@ -13,19 +13,20 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import shutil
 import urllib.request
 import zipfile
 from pathlib import Path
 
+from wattsentry.infra.paths import cache_root
+
 RECORDS = ("15846963", "14958989")  # newest first
 API = "https://zenodo.org/api/records/{}"
-UA = {"User-Agent": "sentinel-care/1.0 (smarthack; +card 43)"}
+UA = {"User-Agent": "wattsentry/0.1 (research use)"}
 
 
 def cache_dir() -> Path:
-    return Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel")) / "care"
+    return cache_root() / "care"
 
 
 class HTTPRangeFile(io.RawIOBase):

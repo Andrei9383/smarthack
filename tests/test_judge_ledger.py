@@ -1,4 +1,4 @@
-"""Trust ledger (#147, team/judge-design.md §6): invariants and rules on small hand-made outcome rows."""
+"""Trust ledger: invariants and rules on small hand-made outcome rows."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def test_bucket_prior_comes_from_validation_bucket_else_overall():
     assert pr.get("pvnet", "v1", "calibration", "site|seen|batt|warm|clean|ood_lo") == 0.7  # n=3 too thin
 
 
-# ---------------------------------------------------------------- update rule (§6.3)
+# ---------------------------------------------------------------- update rule
 
 def test_update_rule_exact():
     s, age = 0.2, 10
@@ -203,7 +203,7 @@ def test_late_outcome_updates_its_bucket_day():
     assert at(led, 40)["trust"] == pytest.approx(at(ref, 40)["trust"])
 
 
-# ---------------------------------------------------------------- backoff (§6.1)
+# ---------------------------------------------------------------- backoff
 
 def test_backoff_to_parent_below_min_evidence():
     sib = bucket_key("site", seen=False, battery=True, season="warm", quality="clean", ood_high=False)
@@ -235,7 +235,7 @@ def test_buckets_from_attribute_columns():
     assert led.full == ["site|unseen|batt|warm|gappy|ood_hi"]
 
 
-# ---------------------------------------------------------------- health alerts (§6.5)
+# ---------------------------------------------------------------- health alerts
 
 def test_alert_hysteresis():
     p = np.array([[0.8]])
@@ -248,7 +248,7 @@ def test_alert_hysteresis():
     assert _alert_state(tr, p, np.full_like(tr, 4.0)).sum() == 0
 
 
-# ---------------------------------------------------------------- band scale (§6.4)
+# ---------------------------------------------------------------- band scale
 
 def _band_rows(n_days, sites, true_sigma_ratio, rng, start=0, weight=1.0):
     """Forecast bands built for sigma=1 while the truth has sigma=ratio → normalised errors."""

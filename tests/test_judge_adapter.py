@@ -1,4 +1,4 @@
-"""Judge adapter (card #157): dont_use + substitute, widen, no-Judge passthrough, batch == single."""
+"""Judge adapter: dont_use + substitute, widen, no-Judge passthrough, batch == single."""
 
 import sqlite3
 

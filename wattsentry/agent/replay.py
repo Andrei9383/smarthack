@@ -2,8 +2,8 @@
 
 Same world, predictions, prices and limits for every policy; only decide/act differ. Writes one `runs` row per policy
 (components real vs fallback in `notes`), the topology once, then every row the loop writes, and prints the replay
-metrics as LAB_METRIC lines. The Judge runs on the Sentinel policy (`--judge off` to skip); `--judge-check` replays
-Sentinel again with the judge off and fails unless every KPI and action id is identical (the judge only records).
+metrics as LAB_METRIC lines. The Judge runs on the WattSentry policy (`--judge off` to skip); `--judge-check` replays
+WattSentry again with the judge off and fails unless every KPI and action id is identical (the judge only records).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ METRICS = ("peak_reduction", "minutes_over_limit", "p10_hit_rate", "comfort_brea
 
 
 class JudgeChangedDecisions(RuntimeError):
-    """--judge-check: the Sentinel run with the judge on differs from the run with it off."""
+    """--judge-check: the WattSentry run with the judge on differs from the run with it off."""
 
 
 class _NullSink:
@@ -249,7 +249,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
            strict: bool = True, judge: bool = True, judge_check: bool = False,
            detail_sites: Optional[frozenset[str]] = None) -> ReplayReport:
     """Default output is the demo DB (< 50 MB): no per-step pv/load prediction rows (asset_steps keeps the PV
-    quantiles) and schedules only for Sentinel (baseline battery rows are not shown by the UI). `full=True`
+    quantiles) and schedules only for WattSentry (baseline battery rows are not shown by the UI). `full=True`
     stores both. `strict=True` raises `audit.SchemaMismatch` on any field the schema cannot hold that is not in
     `audit.ALLOWED_DROPS`."""
     t_start = time.perf_counter()
@@ -317,7 +317,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
         same_actions = on.action_ids == off.action_ids and on.n_actions == off.n_actions
         check = {"identical": not diffs and same_actions, "kpi_diffs": diffs, "actions_identical": same_actions,
                  "n_kpis": len(metrics), "n_actions": len(on.action_ids), "seconds": time.perf_counter() - t0}
-        log(f"judge check (judge on vs off, Sentinel): {'IDENTICAL' if check['identical'] else 'DIFFERENT'}; "
+        log(f"judge check (judge on vs off, WattSentry): {'IDENTICAL' if check['identical'] else 'DIFFERENT'}; "
             f"{len(metrics)} KPIs, {len(on.action_ids)} actions; diffs {diffs}")
     for pol, rid in run_ids.items():
         for name in METRICS + ("peak_reduction_congested", "clip_rate"):
@@ -370,7 +370,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
             print("# SCHEMA GAPS (non-strict run): " + json.dumps(
                 {k: summary[k] for k in ("unexpected_drops", "missing_tables", "filled_not_null")}), file=sys.stderr)
     if check is not None and not check["identical"]:
-        raise JudgeChangedDecisions(f"judge on vs off changed the Sentinel run: KPI diffs {check['kpi_diffs']}, "
+        raise JudgeChangedDecisions(f"judge on vs off changed the WattSentry run: KPI diffs {check['kpi_diffs']}, "
                                     f"actions identical: {check['actions_identical']}")
     return report
 
@@ -385,7 +385,7 @@ def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
         from wattsentry.eval.imbalance_replay import main as imbalance_main
 
         return imbalance_main(argv)  # type: ignore[return-value]
-    ap = argparse.ArgumentParser(description="Replay a test week (baseline vs Sentinel) into SQLite")
+    ap = argparse.ArgumentParser(description="Replay a test week (baseline vs WattSentry) into SQLite")
     ap.add_argument("--policy", default="baseline,sentinel", help="comma list: baseline|threshold|sentinel")
     ap.add_argument("--out", default=os.path.join(os.environ.get("LAB_OUTPUT_DIR", "."), "wattsentry.sqlite"))
     ap.add_argument("--world", default="mock", choices=["mock", "sim"])
@@ -401,9 +401,9 @@ def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
                     help="raise if a produced field has no column and is not in audit.ALLOWED_DROPS (default)")
     ap.add_argument("--no-strict", dest="strict", action="store_false", help="warn and drop instead")
     ap.add_argument("--judge", default="on", choices=["on", "off"],
-                    help="Judge verdicts for the Sentinel policy: judge_verdicts / trust / outcomes rows")
+                    help="Judge verdicts for the WattSentry policy: judge_verdicts / trust / outcomes rows")
     ap.add_argument("--judge-check", action="store_true",
-                    help="replay Sentinel again with the judge off and fail unless KPIs and actions are identical")
+                    help="replay WattSentry again with the judge off and fail unless KPIs and actions are identical")
     a = ap.parse_args(argv)
     ff: bool | list[str] = True if a.fallback == "all" else [x for x in a.fallback.split(",") if x]
     return replay([p for p in a.policy.split(",") if p], a.out, world=a.world, days=a.days, seed=a.seed,

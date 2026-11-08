@@ -151,21 +151,6 @@ def train(kind: str, a: FleetArrays, day_mask: np.ndarray, site_mask: np.ndarray
     return fit_quantiles(X, y, names, kind, rounds=rounds, seed=seed, version=f"lgbm-{kind}-local")
 
 
-def predict_bulk(b: QuantileBundle, a: FleetArrays, day_mask: np.ndarray) -> np.ndarray:
-    """[3, n, d, 96] kW for the masked days (NaN elsewhere)."""
-    out = np.full((3,) + a.pv_kw.shape, np.nan)
-    for di in _chunks(np.flatnonzero(day_mask)):
-        f = pv_bulk_features(a, di) if b.kind == "pv" else load_bulk_features(a, di)
-        q = b.predict(stack(f, b.features)).reshape((3, a.n, len(di), D))
-        if b.kind == "pv":
-            q = np.clip(q, 0, None) * a.sites.kwp_recorded.to_numpy()[None, :, None, None]
-            q = np.where(a.geom["zenith"][None, :, di] < NIGHT_ZENITH, q, 0.0)
-        else:
-            q = np.clip(q, 0, None) * f["scale"][None]
-        out[:, :, di] = q
-    return out
-
-
 # --------------------------------------------------------------------------------------- one window (contract)
 def _to_steps(x: np.ndarray, H: int) -> np.ndarray:
     x = np.asarray(x, np.float64)

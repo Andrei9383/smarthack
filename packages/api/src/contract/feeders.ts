@@ -149,7 +149,7 @@ export const feedersContract = {
   getSocFan: oc
     .input(z.object({ feederId: z.string(), policy: z.string(), ...windowInput }))
     .output(z.array(socFanPointSchema)),
-  // Sentinel-policy charging during the steps where the baseline is over the limit.
+  // WattSentry-policy charging during the steps where the baseline is over the limit.
   getAbsorption: oc
     .input(z.object({ feederId: z.string(), ...windowInput }))
     .output(z.array(absorbingSiteSchema)),

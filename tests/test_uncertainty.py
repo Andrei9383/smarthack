@@ -240,7 +240,7 @@ def test_p10_hit_rate_on_same_distribution(feeder_day):
 
 
 def _deliverable_ref(sched, soc0, specs, pv, load):
-    """The pre-#77 _deliverable: numpy rollout / rollout_baseline directly."""
+    """The reference _deliverable: numpy rollout / rollout_baseline directly."""
     _, _, x_plan = rollout(sched, soc0, battery_params(specs, respect_reserve=True), pv, load)
     _, _, x_base = rollout_baseline(soc0, battery_params(specs, respect_reserve=False), pv, load)
     return (x_base - x_plan).sum(axis=-2)

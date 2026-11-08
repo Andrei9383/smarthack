@@ -1,4 +1,4 @@
-"""Shared pytest setup (#179).
+"""Shared pytest setup.
 
 - ``slow`` marker: heavy training/data tests. ``check`` deselects them (``-m "not slow"``) so it stays under ~10 min
   and ``rustcheck`` runs them (``-m slow``), so coverage moves rather than drops. Run locally with ``pytest -m slow``.

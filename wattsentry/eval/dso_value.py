@@ -6,7 +6,7 @@
 `--build-caches` first builds (or reuses) the windows / grid-twin caches. `--run-g1` runs the hosting-capacity
 search in the same run, `--hosting-capacity FILE` reads its JSON; without either a labelled STUB is used.
 
-Deferred capex, per feeder that Sentinel lets take more prosumers:
+Deferred capex, per feeder that WattSentry lets take more prosumers:
     value = cost x (1 - 1 / (1 + r)^years)
     years = ln((N + HC_sentinel) / (N + HC_baseline)) / ln(1 + growth)
 i.e. the years of compound prosumer growth (on the N homes the feeder has today) the extra hosting capacity
@@ -43,7 +43,7 @@ LABEL_PROXY = "proxy"
 LABEL_DEO = "other-operator (DEO), not PPC"
 
 # STUB hosting capacity (homes that can be added before minutes over the limit exceed the tolerance), baseline
-# rule vs Sentinel, used without a hosting_capacity.json. Numbers are NOT measured.
+# rule vs WattSentry, used without a hosting_capacity.json. Numbers are NOT measured.
 _HC_STUB = {"baseline": 0, "sentinel": 8}
 
 
@@ -55,7 +55,7 @@ def deferred_value(cost: float, years: float, r: float = DISCOUNT_RATE) -> float
 
 
 def years_deferred(n_homes: int, hc_baseline: float, hc_sentinel: float, growth: float = GROWTH_RATE) -> float:
-    """Years of compound prosumer growth the extra hosting capacity absorbs (0 if Sentinel adds none)."""
+    """Years of compound prosumer growth the extra hosting capacity absorbs (0 if WattSentry adds none)."""
     if hc_sentinel <= hc_baseline or growth <= 0:
         return 0.0
     n = max(1.0, float(n_homes))
@@ -64,7 +64,7 @@ def years_deferred(n_homes: int, hc_baseline: float, hc_sentinel: float, growth:
 
 def hosting_capacity(world=None, doc: Optional[Mapping[str, Any]] = None, variant: str = "batteries",
                      tol: int = 30) -> dict[str, dict[str, Any]]:
-    """Hosting capacity per feeder (baseline = self_consumption rule vs Sentinel).
+    """Hosting capacity per feeder (baseline = self_consumption rule vs WattSentry).
 
     `doc`: the `hosting_capacity/v1` document (hosting_capacity.json). Without it, a STUB: congested feeders get
     the constant _HC_STUB, labelled as such."""
