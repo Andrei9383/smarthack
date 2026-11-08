@@ -220,6 +220,27 @@ export const feedersRouter = os.router({
     ),
   ),
 
+  getOverLimitSteps: os.getOverLimitSteps.handler(({ context, input }) =>
+    emptyIfNoTables(async () =>
+      context.db
+        .select({
+          ts: feederCurves.ts,
+          feeders: sql<number>`count(distinct ${feederCurves.feederId})`.mapWith(Number),
+        })
+        .from(feederCurves)
+        .where(
+          and(
+            inArray(feederCurves.runId, await currentRunIds(context.db)),
+            eq(feederCurves.policy, input.policy),
+            sql`${feederCurves.exportKw} > ${feederCurves.limitKw}`,
+            ...inWindow(feederCurves.ts, input.from, input.to),
+          ),
+        )
+        .groupBy(feederCurves.ts)
+        .orderBy(asc(feederCurves.ts)),
+    ),
+  ),
+
   getSocFan: os.getSocFan.handler(({ context, input }) =>
     emptyIfNoTables(async () => {
       const rows = await context.db

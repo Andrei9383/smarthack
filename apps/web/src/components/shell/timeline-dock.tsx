@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
-import { Pause, Play } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import {
   type FocusEvent,
   type KeyboardEvent,
@@ -23,11 +23,14 @@ import {
   DEFAULT_STEP,
   STEPS_IN_WEEK,
   STEPS_PER_DAY,
+  stepToTs,
   timeLabel,
+  tsToStep,
 } from "@/demo/replay";
 import { type Policy, usePolicy, useReplayStep } from "@/demo/use-replay";
 
 import { StatusMark } from "@/components/brand/status-mark";
+import { orpc } from "@/utils/orpc";
 
 import {
   ACTION_LABEL,
@@ -104,6 +107,51 @@ function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Poli
           <StatusMark kind={option.value === "sentinel" ? "ok" : "unknown"} size="xs" />
           {option.label}
         </button>
+      ))}
+    </div>
+  );
+}
+
+/** Consecutive over-limit steps merged into ranges [start, end) on the week's step axis. */
+function useOverLimitRanges(policy: Policy) {
+  const window = { from: stepToTs(0), to: stepToTs(STEPS_IN_WEEK) };
+  const { data } = useQuery({
+    ...orpc.feeders.getOverLimitSteps.queryOptions({ input: { policy, ...window } }),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  return useMemo(() => {
+    const ranges: { start: number; end: number; feeders: number }[] = [];
+    for (const row of data ?? []) {
+      const step = tsToStep(row.ts);
+      const last = ranges.at(-1);
+      if (last && last.end === step) {
+        last.end = step + 1;
+        last.feeders = Math.max(last.feeders, row.feeders);
+      } else ranges.push({ start: step, end: step + 1, feeders: row.feeders });
+    }
+    return ranges;
+  }, [data]);
+}
+
+/** Red bars where a cable was over its limit, purple dots where a person had to check a home. */
+function ProblemMarks({ policy, reviews }: { policy: Policy; reviews: number[] }) {
+  const ranges = useOverLimitRanges(policy);
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-x-0 top-[3px] h-1">
+      {ranges.map((r) => (
+        <span
+          key={r.start}
+          title={`${clockLabel(r.start)}: ${plural(r.feeders, "cable")} over limit`}
+          className="absolute inset-y-0 rounded-full bg-status-critical"
+          style={{ left: pct(r.start), width: `max(2px, ${pct(r.end - r.start)})` }}
+        />
+      ))}
+      {reviews.map((step) => (
+        <span
+          key={step}
+          className="absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-status-review ring-1 ring-card"
+          style={{ left: pct(step) }}
+        />
       ))}
     </div>
   );
@@ -292,6 +340,10 @@ export function TimelineDock({ className, compact = false }: { className?: strin
   const track = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const agentOn = policy === "sentinel";
+  const reviewSteps = useMemo(
+    () => [...new Set(actions.filter((a) => a.kind === "review").map((a) => a.step))],
+    [actions],
+  );
 
   // Crossing an action while playing raises its toast (the last one crossed, if several).
   const previous = useRef(step);
@@ -345,15 +397,8 @@ export function TimelineDock({ className, compact = false }: { className?: strin
     else if (event.key === "End") setStep(LAST);
   };
 
-  const offset = step - NOW_STEP;
-  const hours = Math.round(Math.abs(offset) / 4);
-  const relative =
-    hours >= 24 ? `${Math.floor(hours / 24)} d ${hours % 24} h` : hours > 0 ? `${hours} h` : "15 min";
-  const status = playing
-    ? "Replaying"
-    : offset === 0
-      ? "Story now"
-      : `${offset < 0 ? "−" : "+"}${relative}`;
+  const live = step === NOW_STEP;
+  const status = playing ? "Playing demo" : live ? "Live" : step < NOW_STEP ? "Viewing the past" : "Viewing the forecast";
 
   return (
     <div
@@ -364,36 +409,31 @@ export function TimelineDock({ className, compact = false }: { className?: strin
         className,
       )}
     >
-      <button
-        type="button"
-        aria-label={playing ? "Pause the replay" : "Play the replay"}
-        onClick={() => setPlaying((value) => !value)}
-        className={cn(
-          "grid shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground shadow-brand transition-[background-color,transform] duration-fast hover:bg-primary/85 active:scale-95",
-          compact ? "size-9" : "size-10",
-        )}
-      >
-        {playing ? <Pause aria-hidden className="size-4 fill-current" /> : <Play aria-hidden className="size-4 translate-x-px fill-current" />}
-      </button>
 
       <div className="w-[100px] shrink-0 min-[1440px]:w-[136px]">
         <b className="block font-mono text-[13px] leading-tight font-semibold tracking-tighter min-[1440px]:text-[15px] whitespace-nowrap text-foreground tabular-nums">
           {clockLabel(step)}
         </b>
-        <span className="flex items-center gap-1.5 text-caption whitespace-nowrap text-muted-foreground">
-          <StatusMark kind={playing ? "live" : "unknown"} size="xs" pulse={playing} />
+        <span
+          className={cn(
+            "flex items-center gap-1.5 text-caption whitespace-nowrap",
+            live || playing ? "font-medium text-status-ok" : "text-muted-foreground",
+          )}
+        >
+          <StatusMark kind={live || playing ? "ok" : "unknown"} size="xs" pulse={live || playing} />
           {status}
-          {!playing && offset !== 0 ? (
-            <button
-              type="button"
-              onClick={() => setStep(NOW_STEP)}
-              className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
-            >
-              · back<span className="hidden min-[1440px]:inline"> to now</span>
-            </button>
-          ) : null}
         </span>
       </div>
+
+      {!live && !playing ? (
+        <button
+          type="button"
+          onClick={() => setStep(NOW_STEP)}
+          className="h-8 shrink-0 cursor-pointer rounded-lg bg-primary px-3 text-dense font-medium whitespace-nowrap text-primary-foreground transition-colors duration-150 hover:bg-primary/85 focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Back to live
+        </button>
+      ) : null}
 
       <div className="@container relative min-w-0 flex-1 select-none">
         {/* Agent actions lane: off (the day's actions are listed on the Overview instead). */}
@@ -476,6 +516,7 @@ export function TimelineDock({ className, compact = false }: { className?: strin
             ))}
             <span className="absolute inset-y-0 left-0 rounded-full bg-primary" style={{ width: pct(step) }} />
           </div>
+          <ProblemMarks policy={policy} reviews={reviewSteps} />
           {/* day boundaries, just above the bar */}
           {Array.from({ length: DAYS - 1 }, (_, day) => (
             <span

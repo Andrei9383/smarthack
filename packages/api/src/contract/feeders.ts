@@ -159,6 +159,10 @@ export const feedersContract = {
   getOverLimit: oc
     .input(z.object(windowInput).optional())
     .output(z.array(feederOverLimitSchema)),
+  // The 15-min steps where at least one feeder exported over its limit, with how many (the timeline's red marks).
+  getOverLimitSteps: oc
+    .input(z.object({ policy: z.string(), ...windowInput }))
+    .output(z.array(z.object({ ts: z.string(), feeders: z.number() }))),
   getSocFan: oc
     .input(z.object({ feederId: z.string(), policy: z.string(), ...windowInput }))
     .output(z.array(socFanPointSchema)),

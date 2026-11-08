@@ -38,6 +38,7 @@ import {
   dayWindow,
   HERO_DAY,
   STEPS_PER_DAY,
+  stepToTs,
   timeLabel,
 } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
@@ -55,7 +56,7 @@ import { useOverviewData } from "./use-overview-data";
 // 1. Status strip: Prosumers, Grid cables, Wind farms: one number and one line each; the card opens that area.
 // 2. Needs your decision: only what a person must do (review cases, an intraday purchase when PPC is
 //    short). Empty, it says so and counts what the agent handled.
-// 3. The day's bought-vs-used chart and what each Sentinel step saves over a year.
+// 3. The day's bought-vs-used chart and this month's imbalance cost with and without Sentinel.
 
 const CARD = "rounded-xl bg-card shadow-card";
 const FOREVER = Number.POSITIVE_INFINITY;
@@ -746,75 +747,113 @@ function GapChart() {
   );
 }
 
-/* ---------- 3. How Sentinel closes the gap ---------- */
+/* ---------- 3. This month so far ---------- */
 
-function Steps() {
-  const { year } = useImbalance();
-  const steps = [
-    { label: "PPC today: standard profile", v: year.profile?.avoidableLei },
-    {
-      label: "1 · Predict each home’s solar and consumption",
-      v: year.forecast?.avoidableLei,
-    },
-    {
-      label: "2 · Predict what home batteries will do",
-      v: year.sentinel?.avoidableLei,
-    },
-    {
-      label: "3 · Correct at 15:00 on the intraday market",
-      v: year.corrected?.avoidableLei,
-    },
-  ].filter((s): s is { label: string; v: number } => s.v !== undefined);
-  const max = Math.max(1, ...steps.map((s) => s.v));
+const WITHOUT = "Without Sentinel";
+const WITH = "With Sentinel";
+const MONTH = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Bucharest", month: "long" });
+const DAY_NUM = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Bucharest", day: "numeric" });
 
+/** Imbalance cost from the 1st of the month to the replay clock, with and without Sentinel. */
+function useMonthSoFar() {
+  const [rawStep] = useReplayStep();
+  const step = clampStep(rawStep);
+  const { from: dayFrom } = dayWindow(step);
+  // Local midnight on the 1st: the day window starts at local midnight, so keep its UTC hour.
+  const d = new Date(dayFrom);
+  const local = new Date(d.getTime() + 12 * 3_600_000); // safely inside the local day
+  const monthStart = new Date(
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), 1, d.getUTCHours()) -
+      (d.getUTCHours() > 12 ? 86_400_000 : 0),
+  ).toISOString().replace(".000Z", "Z");
+  const to = stepToTs(step + 1);
+  const q = useQuery({
+    ...orpc.imbalance.getImbalanceDay.queryOptions({ input: { from: monthStart, to } }),
+    staleTime: FOREVER,
+  });
+  return useMemo(() => {
+    const steps = (q.data?.steps ?? [])
+      .filter((s) => s.policy === "profile" || s.policy === "sentinel")
+      .sort((a, b) => a.ts.localeCompare(b.ts));
+    const byHour = new Map<string, { date: Date; [WITHOUT]: number; [WITH]: number }>();
+    let without = 0;
+    let withS = 0;
+    for (const s of steps) {
+      if (s.policy === "profile") without += s.avoidableLei ?? 0;
+      else withS += s.avoidableLei ?? 0;
+      const hour = s.ts.slice(0, 13);
+      byHour.set(hour, { date: wallClock(s.ts), [WITHOUT]: without, [WITH]: withS });
+    }
+    const first = steps[0]?.ts;
+    return {
+      rows: [...byHour.values()],
+      without,
+      with: withS,
+      range: first
+        ? `${DAY_NUM.format(new Date(first))}–${DAY_NUM.format(new Date(to))} ${MONTH.format(new Date(to))}`
+        : "",
+      loading: q.isPending,
+    };
+  }, [q.data, q.isPending, to]);
+}
+
+function MonthSoFar() {
+  const go = useGo();
+  const m = useMonthSoFar();
+  const saved = m.without - m.with;
+  const cut = pctChange(m.without, m.with);
   return (
-    <section
-      aria-labelledby="ov-steps"
-      className={cn(CARD, "flex h-full flex-col p-6")}
-    >
-      <h2 id="ov-steps" className="section-title">
-        How Sentinel closes the gap
-      </h2>
-      <p className="mt-1 text-dense text-text-secondary">
-        Avoidable imbalance cost over a full year, after each step.
-      </p>
-      <ol className="mt-4 space-y-3.5">
-        {steps.map((s, i) => {
-          const prev = i ? steps[i - 1]!.v : s.v;
-          const change = i ? pctChange(prev, s.v) : null;
-          return (
-            <li key={s.label}>
-              <div className="mb-1 flex items-baseline justify-between gap-3 text-dense">
-                <span className={i ? "text-foreground" : "text-text-secondary"}>
-                  {s.label}
-                </span>
-                <span className="font-medium whitespace-nowrap text-foreground tabular-nums">
-                  {lei(s.v)} lei
-                  {change !== null ? (
-                    <span className="ml-2 font-normal text-status-ok">
-                      {chip(change)?.text}
-                    </span>
-                  ) : null}
-                </span>
-              </div>
-              <div className="h-2.5 rounded-sm bg-surface-raised">
-                <span
-                  className="block h-full rounded-sm"
-                  style={{
-                    width: `${(s.v / max) * 100}%`,
-                    background: i ? "var(--sentinel)" : "var(--chart-baseline)",
-                  }}
-                />
-              </div>
-            </li>
-          );
-        })}
-        {!steps.length ? (
-          <li className="text-dense text-text-secondary">
-            No imbalance replay in this database yet.
-          </li>
+    <section aria-labelledby="ov-month" className={cn(CARD, "flex h-full flex-col p-6")}>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="ov-month" className="section-title">
+          This month so far
+        </h2>
+        <span className="text-dense text-text-secondary tabular-nums">{m.range}</span>
+      </div>
+      <p className="mt-3 flex items-baseline gap-2">
+        <span className="text-[32px] leading-none font-semibold tracking-tight text-foreground tabular-nums">
+          {m.rows.length ? lei(saved) : "—"}
+        </span>
+        <span className="text-dense text-text-secondary">lei saved</span>
+        {cut !== null && m.rows.length ? (
+          <span className="text-dense font-medium text-status-ok">{chip(cut)?.text}</span>
         ) : null}
-      </ol>
+      </p>
+      <p className="mt-2 text-dense text-text-secondary">
+        Imbalance cost: <b className="font-medium text-foreground tabular-nums">{lei(m.with)} lei</b> with
+        Sentinel, <span className="tabular-nums">{lei(m.without)} lei</span> without.
+      </p>
+      <ul className="mt-4 flex items-center gap-4 text-caption text-text-secondary">
+        <li className="flex items-center gap-1.5">
+          <span className="h-0.5 w-4 rounded-full bg-[var(--chart-baseline)]" aria-hidden />
+          {WITHOUT}
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span className="h-0.5 w-4 rounded-full bg-[var(--sentinel)]" aria-hidden />
+          {WITH}
+        </li>
+      </ul>
+      <div className="mt-2 flex-1">
+        {m.rows.length > 1 ? (
+          <LineChart
+            data={m.rows}
+            aspectRatio="5 / 2"
+            margin={{ left: 4, right: 4, top: 8, bottom: 4 }}
+            animationDuration={0}
+          >
+            <Grid numTicksRows={3} fadeHorizontal={false} strokeDasharray="none" />
+            <Line dataKey={WITHOUT} stroke="var(--chart-baseline)" fadeEdges={false} />
+            <Line dataKey={WITH} stroke="var(--sentinel)" strokeWidth={1.75} fadeEdges={false} />
+            <ChartTooltip />
+          </LineChart>
+        ) : (
+          <div className={cn("h-[140px] rounded-lg bg-surface-raised", m.loading && "animate-pulse")} />
+        )}
+      </div>
+      <button type="button" onClick={() => go("imbalance")} className={cn(LINK, "mt-3 self-start")}>
+        Details
+        <ChevronRight aria-hidden className="size-3.5" />
+      </button>
     </section>
   );
 }
@@ -842,7 +881,7 @@ export function OverviewPage(_props: ModePageProps) {
       </div>
       <div className="grid grid-cols-1 gap-4 @min-[1100px]:grid-cols-[1.6fr_1fr]">
         <GapChart />
-        <Steps />
+        <MonthSoFar />
       </div>
       <ActivityLog />
     </div>

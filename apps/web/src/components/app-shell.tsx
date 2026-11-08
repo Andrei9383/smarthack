@@ -40,6 +40,9 @@ const INSPECTOR_W = "w-[352px] min-[1440px]:w-[392px]";
 const BESIDE_INSPECTOR = "right-[384px] min-[1440px]:right-[424px]";
 
 // Renders inside <Map> so it can style the basemap once it has loaded.
+// West, south / east, north, with room for the panels floating over the map's edges.
+const ROMANIA_BOUNDS: [[number, number], [number, number]] = [[16.5, 41], [34.5, 50.5]];
+
 function RomaniaFocus() {
   useRomaniaFocus();
   return null;
@@ -135,7 +138,9 @@ export function AppShell() {
               theme={mapTheme}
               center={ROMANIA_CENTER}
               zoom={5.8}
-              minZoom={4}
+              // Romania always fills the view: no zooming out past the whole country or panning away from it.
+              minZoom={5.3}
+              maxBounds={ROMANIA_BOUNDS}
             >
               <RomaniaFocus />
               <ResizeWith value={railExpanded} />
