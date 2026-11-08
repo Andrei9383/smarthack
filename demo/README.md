@@ -104,3 +104,39 @@ Earlier runs: 322 (interim weights, LP fallback on 10 days) 2880 min / P10 83.4 
 
 Reproduce: `make replay-demo` builds the caches in `.lab-out/reproduce/` (~6 min) and runs replay#506's commands
 (~20 s); its KPIs match #506. It refuses to overwrite `demo/sentinel.sqlite` unless `PROMOTE=1`.
+
+## Feature G grid documents: `demo/grid/` (card #193)
+`feeders.getGrid` reads `SENTINEL_GRID_DIR`, then the writers' default `--out` dirs, then `demo/grid/`. The three files
+are the exact outputs of **replay#1092** (card #193, worker laptop, commit `359d88fe5e`, Rust kernels), copied out of
+the run log with `scripts/demo_data_load.py` (sha256 checked against the log markers):
+`lab submit 193 --run replay --needs gpu --cmd ".venv/bin/python scripts/demo_data_dump.py grid"` = G3
+`python -m sentinel.eval.dso_value --world sim --build-caches --run-g1` (G1 hosting capacity in the same run) and
+G2 `python -m sentinel.gridtwin.voltage --world sim`. Same week and world as replay#506; `demo/sentinel.sqlite` is not
+touched, so the KPIs above are unchanged.
+
+| file | what | numbers (run 1092) |
+|---|---|---|
+| `hosting_capacity.json` | G1, synthetic RO, 15 fleet feeders, seed 0 | +151 homes at 30 min/week (255 -> 406), +132 at 0 min; without batteries +93 / +86; Sentinel never below baseline. F3/F6/F7 (already over the limit today) take 0 under every policy |
+| `dso_value.json` | G3 deferred capex (proxy: placeholder 500k lei per feeder, r 7 %, growth 15 %/yr) + GridTwin | 488,005 lei on G1's +151; DEO basis other-operator; gis_recovery_rate 0.871; moved home 1425 F7 -> F11 |
+| `voltage.json` | G2, topology non-RO (IEEE European LV feeder), homes synthetic RO | busbar 1.03 pu: 118 -> 79 steps over 253 V, inverter trips 858 -> 472 kWh. `run_id` added by hand (voltage.py writes it only after the file) |
+
+Without `voltage.json` the Feeders grid sheet leaves the voltage section out.
+
+## Feature I imbalance replay: `demo/imbalance.sqlite` (card #193)
+The `imbalance` router reads `positions` / `portfolio_forecast` / `imbalance_kpis` from `SENTINEL_IMBALANCE_DB`, else
+`demo/imbalance.sqlite`, else the app DB. Kept out of `demo/sentinel.sqlite` so replay#506's file stays byte-identical
+and under 50 MB. Source: **imbalance#1071** (card #184, server-gpu, commit `101f250c5d`, after the #186 PZU timestamp
+fix, Rust kernels), `replay.py --mode imbalance`, 600 homes, test year 2025-01-01..2025-12-30. Copied out of the run
+log by imbalance#1145 (card #203, `scripts/demo_data_dump.py imbalance --from-run 1071`) and built with
+`scripts/demo_imbalance_db.py`. Labels: synthetic RO quantities, real RO PZU prices, proxy imbalance penalty a, b.
+- `imbalance_kpis`: all rows of the run = the whole-replay totals (`getPolicyComparison` without a window).
+- `positions`, `portfolio_forecast` (day-ahead only): 2025-05-28T21:00Z .. 2025-06-11T21:00Z, the demo week ± 3 days
+  (a full year of positions is 20 MB of CSV, and lab logs keep ~1 MB per run). Price columns are left NULL.
+
+| policy (whole replay, run 1071) | avoidable lei | lei/MWh injected | abs dev MWh | bought for nothing 18-21 MWh | vs profile |
+|---|---|---|---|---|---|
+| profile (today's method) | 873,110 | 354.2 | 1607 | 109.9 | 0 % |
+| persistence | 708,778 | 287.5 | 1499 | 52.4 | -18.8 % |
+| forecast_only | 564,822 | 229.1 | 1011 | 55.9 | -35.3 % |
+| sentinel (L1, PZU only) | 177,397 | 72.0 | 388 | 44.9 | -79.7 % |
+| sentinel_id (L2, +15:00 correction, PI = PZU) | 165,885 | 67.3 | 355 | 40.0 | -81.0 % |

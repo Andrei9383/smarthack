@@ -18,7 +18,7 @@ import { orpc } from "@/utils/orpc";
 
 import { FanHourTicks, FanYAxis } from "./fan-chart-overlays";
 
-const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-text-secondary uppercase";
+const SECTION_LABEL = "section-title";
 const MARGIN = { left: 32, right: 8, top: 26, bottom: 24 };
 const HOUR_MS = 3_600_000;
 const BATTERY_VARIANTS = ["lp", "rule"];
@@ -101,12 +101,12 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
   return (
     <>
       {hours.length ? (
-        <section className="space-y-1.5 border-t border-border pt-3.5">
+        <section className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between gap-3">
             <h3 className={SECTION_LABEL}>Last 24 h: sold vs made (MWh/h)</h3>
             <ul className="flex items-center gap-3 text-[11px] text-text-secondary">
               <li className="flex items-center gap-1.5">
-                <span className="h-0.5 w-3.5 rounded-full bg-primary" aria-hidden />
+                <span className="h-0.5 w-3.5 rounded-full bg-sentinel" aria-hidden />
                 Sold
               </li>
               <li className="flex items-center gap-1.5">
@@ -122,7 +122,7 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
           <LineChart data={hours} aspectRatio="5 / 2" margin={MARGIN} animationDuration={0}>
             <Grid numTicksRows={4} fadeHorizontal={false} strokeDasharray="none" />
             <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill="var(--brand-500)" fillOpacity={0.12} strokeOpacity={0.4} curve={curveMonotoneX} />
-            <Line dataKey="sold" stroke="var(--primary)" curve={curveStepAfter} fadeEdges={false} />
+            <Line dataKey="sold" stroke="var(--sentinel)" curve={curveStepAfter} fadeEdges={false} />
             <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} fadeEdges={false} />
             <FanYAxis numTicks={4} unit="MWh" />
             <FanHourTicks everyHours={6} />
@@ -138,7 +138,7 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
       ) : null}
 
       {bat.soc.length ? (
-        <section className="mt-3 space-y-1.5 border-t border-border pt-3.5">
+        <section className="mt-5 space-y-1.5 border-t border-border pt-5">
           <h3 className={SECTION_LABEL}>Park battery, {bat.variant === "lp" ? "hourly plan" : "rule"} (45.7 MW / 91.4 MWh)</h3>
           <MetricRow className="py-1">
             <Metric label="Saved" value={lei(bat.savedLei)} unit="lei" sub="vs no battery" />

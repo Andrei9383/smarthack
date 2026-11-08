@@ -212,7 +212,7 @@ export function MapSpark({
 
   const lineWidth = expanded ? 1.75 : 1.5;
   const dash = expanded ? "4 3" : "3 2.5";
-  const measuredStroke = tone === "brand" ? "var(--primary)" : "var(--status-actual)";
+  const measuredStroke = tone === "brand" ? "var(--sentinel)" : "var(--status-actual)";
   const ticks = tickHours
     .map((hours) => ({ hours, at: x(now + hours * HOUR_MS) }))
     .filter((tick) => tick.at >= pad.left - 1 && tick.at <= width - pad.right + 1);
@@ -403,7 +403,7 @@ export function SparkKey({
         <span className="flex items-center gap-1">
           <span
             aria-hidden
-            className={cn("block h-[1.5px] w-3 rounded-full", tone === "brand" ? "bg-primary" : "bg-status-actual")}
+            className={cn("block h-[1.5px] w-3 rounded-full", tone === "brand" ? "bg-sentinel" : "bg-status-actual")}
           />
           {text.measured}
         </span>

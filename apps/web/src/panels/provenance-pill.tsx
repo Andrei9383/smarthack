@@ -2,7 +2,7 @@
 // components/provenance-pill.tsx). Shown once per panel header.
 const DOTS: Record<string, string> = {
   "synthetic RO": "bg-status-unknown",
-  "real RO": "bg-primary",
+  "real RO": "bg-status-ok",
   "non-RO": "bg-status-forecast",
 };
 

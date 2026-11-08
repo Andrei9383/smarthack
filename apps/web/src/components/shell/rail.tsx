@@ -40,16 +40,13 @@ function RailItem({
       type="button"
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      title={expanded ? undefined : `${label}: ${descriptor}`}
+      title={`${label}: ${descriptor}`}
       className={cn(
-        "relative flex min-h-11 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left transition-colors duration-fast focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
-        active ? "bg-brand-50 text-brand-900" : "text-text-secondary hover:bg-surface-raised hover:text-foreground",
+        "relative flex h-10 w-full items-center gap-3 rounded-lg px-2.5 text-left transition-colors duration-fast focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring",
+        active ? "bg-surface-raised font-semibold text-foreground" : "font-medium text-text-secondary hover:bg-surface-raised/70 hover:text-foreground",
       )}
     >
-      {active ? (
-        <span aria-hidden className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-sm bg-primary" />
-      ) : null}
-      <span className={cn("relative flex size-5 shrink-0 items-center justify-center", active && "text-primary")}>
+      <span className={cn("relative flex size-5 shrink-0 items-center justify-center", active ? "text-foreground" : "text-muted-foreground")}>
         {icon}
         {mark && !expanded ? (
           <StatusMark kind={mark.kind} size="xs" label={mark.label} className="absolute -top-1 -right-1.5" />
@@ -61,20 +58,19 @@ function RailItem({
           expanded ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
-        <b className="flex items-center gap-1.5 text-[13px] font-semibold text-inherit">
+        <span className="flex items-center gap-1.5 text-body text-inherit">
           <span className="truncate">{label}</span>
           {mark ? (
-            <span title={mark.label} className="flex shrink-0 items-center">
+            <span title={mark.label} className="ml-auto flex shrink-0 items-center">
               <StatusMark kind={mark.kind} size="xs" label={mark.label} />
             </span>
           ) : null}
-        </b>
-        <span className={cn("block text-[11px] leading-snug", active ? "text-brand-700" : "text-muted-foreground")}>
-          {descriptor}
         </span>
+        {/* The one-line descriptor lives in the tooltip (title) and the top bar, not in the rail. */}
+        <span className="sr-only">{descriptor}</span>
       </span>
       {expanded && shortcut ? (
-        <kbd className="shrink-0 rounded-sm border border-border px-1 font-mono text-[10px] font-medium text-muted-foreground">
+        <kbd className="shrink-0 rounded-sm border border-border px-1 font-mono text-[10px] font-normal text-muted-foreground">
           {shortcut}
         </kbd>
       ) : null}
@@ -90,10 +86,10 @@ function RailReplayStatus({ runLabel }: { runLabel?: string }) {
     <div className="flex min-w-0 items-center gap-2.5 text-xs">
       <StatusMark kind={playing ? "live" : "unknown"} size="xs" pulse={playing} />
       <span className="min-w-0 leading-tight">
-        <span className="block truncate font-mono text-[12px] font-medium text-foreground tabular-nums">
+        <span className="block truncate font-mono text-caption font-medium text-foreground tabular-nums">
           {clockLabel(clampStep(step))}
         </span>
-        <span className="block truncate text-[11px] text-muted-foreground">
+        <span className="block truncate text-caption text-muted-foreground">
           {playing ? "Replaying the test week" : "Replay paused"}
           {runLabel ? ` · ${runLabel}` : ""}
         </span>
@@ -142,17 +138,17 @@ export function Rail({
       aria-label="Views"
       data-tour="rail"
       className={cn(
-        "relative z-40 flex h-full shrink-0 flex-col gap-1 overflow-hidden bg-transparent px-2 py-2.5 transition-[width] duration-200 ease-out motion-reduce:transition-none",
-        expanded ? "w-[220px]" : "w-14",
+        "relative z-40 flex h-full shrink-0 flex-col gap-0.5 overflow-hidden bg-transparent px-3 py-4 transition-[width] duration-200 ease-out motion-reduce:transition-none",
+        expanded ? "w-[220px]" : "w-16",
       )}
     >
-      <div className="mb-2.5 flex h-10 items-center gap-3 pl-1">
-        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-brand">
+      <div className="mb-5 flex h-10 items-center gap-3 pl-1">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground shadow-brand">
           <Zap aria-hidden className="size-[18px]" />
         </span>
         <span className={cn("min-w-0 leading-tight transition-opacity duration-150", expanded ? "opacity-100" : "opacity-0")}>
-          <b className="block truncate text-sm font-semibold">Prosumer Sentinel</b>
-          <span className="block truncate text-[11px] font-medium text-muted-foreground">PPC · grid agent</span>
+          <b className="block truncate text-title tracking-tight">Prosumer Sentinel</b>
+          <span className="block truncate text-caption text-muted-foreground">PPC · grid agent</span>
         </span>
       </div>
 
@@ -175,7 +171,7 @@ export function Rail({
         );
       })}
 
-      <span aria-hidden className="mx-1 my-2 h-px bg-border" />
+      <span aria-hidden className="mx-1 my-3 h-px bg-border" />
       <RailItem
         active={summaryOpen}
         expanded={expanded}
@@ -188,7 +184,7 @@ export function Rail({
 
       <div className="flex-1" />
 
-      <div className={cn("flex items-center gap-1.5 border-t border-border pt-2.5", expanded ? "pl-1.5" : "flex-col")}>
+      <div className={cn("flex items-center gap-1.5 border-t border-border pt-3", expanded ? "pl-1.5" : "flex-col")}>
         {expanded ? (
           <div className="min-w-0 flex-1">
             <RailReplayStatus runLabel={label} />
@@ -199,7 +195,7 @@ export function Rail({
           onClick={onHelp}
           aria-label="Show the tour"
           title="Show the tour: how to read this screen"
-          className="grid size-8 shrink-0 place-items-center rounded-md text-text-secondary transition-colors duration-fast hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors duration-fast hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           <CircleHelp aria-hidden className="size-[18px]" />
         </button>
@@ -208,7 +204,7 @@ export function Rail({
           onClick={onToggle}
           aria-label={expanded ? "Collapse the menu" : "Expand the menu"}
           title={expanded ? "Collapse the menu" : "Expand the menu"}
-          className="grid size-8 shrink-0 place-items-center rounded-md text-text-secondary transition-colors duration-fast hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors duration-fast hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         >
           {expanded ? <PanelLeftClose aria-hidden className="size-[18px]" /> : <PanelLeftOpen aria-hidden className="size-[18px]" />}
         </button>

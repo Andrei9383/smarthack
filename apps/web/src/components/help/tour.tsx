@@ -19,9 +19,9 @@ import { cn } from "@/lib/utils";
  * Elements the tour points at. The shell marks them with `data-tour="…"` (see README.md):
  * rail = mode navigation · map = map canvas · inspector = right-hand details panel ·
  * timeline = bottom dock (play / scrubber) · policy = Baseline/Sentinel toggle ·
- * demo = Demo menu button · kpis = top-bar KPI strip.
+ * demo = Demo menu button.
  */
-export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy" | "demo" | "kpis";
+export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy" | "demo";
 
 export type TourStep = {
   id: string;
@@ -341,7 +341,7 @@ export function Tour({
             ref={nextRef}
             type="button"
             onClick={next}
-            className="h-9 rounded-lg bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-colors duration-150 hover:bg-brand-700 focus-visible:ring-[3px] focus-visible:ring-ring/25 focus-visible:outline-none"
+            className="h-9 rounded-lg bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/85 focus-visible:ring-[3px] focus-visible:ring-ring/25 focus-visible:outline-none"
           >
             {last ? "Start exploring" : index === 0 ? "Show me around" : "Next"}
           </button>

@@ -10,7 +10,7 @@ import { PROVENANCE_TEXT, type Provenance } from "./mode-copy";
 // synthetic = dashed ring (simulated), real RO = solid LED, non-RO = hollow ring (real, elsewhere).
 const MARK: Record<Provenance, { kind: StatusKind; tone: string }> = {
   synthetic: { kind: "forecast", tone: "text-status-unknown" },
-  real: { kind: "ok", tone: "text-primary" },
+  real: { kind: "ok", tone: "text-status-ok" },
   non: { kind: "unknown", tone: "text-status-forecast" },
 };
 
@@ -25,7 +25,7 @@ export function ProvenanceBadge({ sources, className }: { sources: [Provenance, 
     <div
       tabIndex={0}
       className={cn(
-        "group relative flex cursor-default items-center gap-2 rounded-lg bg-card px-3 text-xs font-medium whitespace-nowrap min-[1600px]:px-3.5 text-foreground shadow-floating outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "group relative flex cursor-default items-center gap-2 rounded-xl bg-card px-3 text-xs font-medium whitespace-nowrap min-[1600px]:px-3.5 text-foreground shadow-floating outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         className,
       )}
     >
@@ -38,7 +38,7 @@ export function ProvenanceBadge({ sources, className }: { sources: [Provenance, 
       <span className="min-[1600px]:hidden">{PROVENANCE_TEXT[kinds[0] ?? "synthetic"].label}{kinds.length > 1 ? ` +${kinds.length - 1}` : ""}</span>
       <div
         role="tooltip"
-        className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-50 w-[300px] -translate-y-1 rounded-lg bg-popover p-3.5 whitespace-normal opacity-0 shadow-overlay transition-[opacity,transform] duration-200 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none absolute top-[calc(100%+8px)] right-0 z-50 w-[300px] -translate-y-1 rounded-xl bg-popover p-3.5 whitespace-normal opacity-0 shadow-overlay transition-[opacity,transform] duration-200 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100 motion-reduce:transition-none"
       >
         <span className="mb-1 block section-label">
           Where this view's data comes from

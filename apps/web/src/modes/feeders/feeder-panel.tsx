@@ -16,6 +16,7 @@ import { stepToTs, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
 import { orpc } from "@/utils/orpc";
+import { VerdictCard } from "@/panels/judge/verdict-card";
 
 import { BASELINE_SERIES, LIMIT_SERIES, SENTINEL_SERIES, SOC_SERIES } from "./colors";
 import {
@@ -28,6 +29,7 @@ import {
   yAxisFor,
 } from "./ui";
 import { GridRow } from "./grid-section";
+import { LiveRow } from "./live-section";
 import { NoticeRow } from "./notice-section";
 import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
@@ -58,7 +60,7 @@ function bucharestWallClock(ts: string) {
 
 // Status text classes (team/contracts/ui-style.md §2). Red only for a value over its limit now.
 const OVER_TONE = "text-status-critical";
-const SENTINEL_TONE = "text-brand-700";
+const SENTINEL_TONE = "text-status-ok";
 
 function Value({ value, unit, className }: { value: string; unit?: string; className?: string }) {
   return (
@@ -336,7 +338,7 @@ export function FeederPanel() {
                 <td className="w-[5.5rem] py-1.5 text-right font-semibold text-foreground">
                   <span className="inline-flex items-baseline gap-1.5">
                     {row.delta ? (
-                      <span className="rounded-full bg-brand-50 px-1.5 text-[10px] leading-4 font-semibold text-brand-700 tabular-nums">
+                      <span className="rounded-full bg-status-ok/10 px-1.5 text-[10px] leading-4 font-semibold text-status-ok tabular-nums">
                         {row.delta}
                       </span>
                     ) : null}
@@ -384,8 +386,11 @@ export function FeederPanel() {
           </div>
         </section>
 
+        {feederId ? <VerdictCard assetId={feederId} className="mt-2" /> : null}
+
         <div className="mt-2 border-t border-border pb-2">
           <NoticeRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
+          <LiveRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
           <GridRow feederId={feederId} feederName={name} />
           <RowButton
             onClick={() => setDetailsOpen(true)}

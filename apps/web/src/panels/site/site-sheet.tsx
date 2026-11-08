@@ -17,6 +17,7 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { Fold, Metric, MetricRow } from "@/panels/disclosure";
+import { VerdictCard } from "@/panels/judge/verdict-card";
 import { STEP_MINUTES, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { orpc } from "@/utils/orpc";
@@ -331,7 +332,7 @@ function SiteView({ assetId }: { assetId: string }) {
       <div className="flex flex-col px-5 pt-4 pb-6">
         {/* The one sentence: what this home's owner is told right now. */}
         <section className="border-l-2 border-brand-500 pl-3">
-          <h3 className="text-[11px] font-semibold tracking-[0.06em] text-brand-700 uppercase">
+          <h3 className="section-title text-status-ok">
             What the customer sees
           </h3>
           <p className="mt-0.5 text-[14px] leading-snug text-foreground">{tip}</p>
@@ -423,6 +424,8 @@ function SiteView({ assetId }: { assetId: string }) {
             </p>
           ) : null}
         </section>
+
+        <VerdictCard assetId={assetId} className="mt-4" />
 
         <Fold
           title="Fault and money at risk"

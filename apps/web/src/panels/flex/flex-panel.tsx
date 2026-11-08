@@ -225,7 +225,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             label="Committed"
             value={committed == null ? "—" : committed.toFixed(1)}
             unit={committed == null ? undefined : "kW"}
-            tone="text-brand-900"
+            tone="text-status-ok"
             sub="(1−h)·P10"
             popTitle="From nominal to what we sell"
             pop={
@@ -380,7 +380,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               {(feeders.data ?? []).map((f) => (
                 <tr
                   key={f.feederId}
-                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-brand-50 font-medium text-brand-900 shadow-[inset_2px_0_0_var(--primary)]" : "hover:bg-surface-raised"}`}
+                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-surface-raised font-medium text-foreground shadow-[inset_2px_0_0_var(--primary)]" : "hover:bg-surface-raised"}`}
                   onClick={() => {
                     void setFeeder(f.feederId);
                     setPoolOpen(false);

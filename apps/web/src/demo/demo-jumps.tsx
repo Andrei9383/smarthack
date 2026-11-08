@@ -127,7 +127,7 @@ export function DemoPopover() {
         aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          "flex items-center gap-2 rounded-lg bg-card px-3.5 text-[13px] font-semibold text-foreground shadow-floating transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+          "flex items-center gap-2 rounded-xl bg-card px-3.5 text-dense font-semibold text-foreground shadow-floating transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           open && "bg-surface-raised",
         )}
       >
@@ -161,7 +161,7 @@ export function DemoPopover() {
               onClick={() => run(index)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-150",
-                current ? "bg-brand-50" : "hover:bg-surface-raised",
+                current ? "bg-surface-raised" : "hover:bg-surface-raised",
               )}
             >
               <span
@@ -170,7 +170,7 @@ export function DemoPopover() {
                   current
                     ? "border-primary bg-primary text-primary-foreground"
                     : done
-                      ? "border-brand-100 bg-card text-brand-700"
+                      ? "border-status-ok/30 bg-card text-status-ok"
                       : "border-border bg-card text-foreground",
                 )}
               >
@@ -189,7 +189,7 @@ export function DemoPopover() {
             type="button"
             tabIndex={open ? 0 : -1}
             onClick={() => run(next)}
-            className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors duration-150 hover:bg-brand-700"
+            className="inline-flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/85"
           >
             Run step {next + 1}
             <ChevronRight aria-hidden className="size-4" />

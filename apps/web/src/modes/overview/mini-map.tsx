@@ -36,7 +36,7 @@ export function MiniMap({ onOpen, className }: { onOpen: () => void; className?:
         <button
           type="button"
           onClick={onOpen}
-          className="inline-flex items-center gap-0.5 rounded-md text-[13px] font-medium text-brand-700 transition-colors duration-150 hover:text-brand-900 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+          className="inline-flex items-center gap-0.5 rounded-md text-[13px] font-medium text-foreground transition-colors duration-150 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
         >
           Open map
           <ChevronRight aria-hidden className="size-3.5" />

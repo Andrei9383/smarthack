@@ -9,26 +9,18 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { useShowOwnPill } from "@/components/shell/inspector-embedded";
-import { StatusMark } from "@/components/brand/status-mark";
-import { DetailsSheet, Metric, MetricRow, RowButton, SheetSection } from "@/panels/disclosure";
+import { DetailsSheet, LABEL, Metric, MetricRow, SectionHeader, SheetSection, StatusPill } from "@/panels/disclosure";
 
 import { hhmm, wallClock } from "@/panels/site/time";
 
-import {
-  AXIS_MARGIN,
-  ChartAxes,
-  ChartLegend,
-  EmptyNote,
-  ProvenancePill,
-  SECTION_LABEL,
-  SectionHeader,
-  yAxisFor,
-} from "../feeders/ui";
+import { AXIS_MARGIN, ChartAxes, ChartLegend, EmptyNote, ProvenancePill, yAxisFor } from "../feeders/ui";
 import { DEMAND_SERIES, rampColor } from "./colors";
 import { byStress, formatPower, type Zone } from "./data";
 import { useDemandData, useSelectedZone } from "./use-demand-data";
 
 const TOP_FEEDERS = 5;
+/** Zones on the glance; the full ranking is behind "See all". */
+const TOP_ZONES = 5;
 
 /** Stress in words: P90 demand over what the zone's cables can carry. */
 function stressWords(stress: number) {
@@ -61,11 +53,15 @@ function ZoneList({
   zones,
   selectedId,
   onSelect,
+  compact = false,
 }: {
   zones: Zone[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Glance version: name and stress only, no peak column. */
+  compact?: boolean;
 }) {
+  const cols = compact ? "grid-cols-[1.25rem_minmax(0,1fr)_5.5rem]" : "grid-cols-[1.25rem_minmax(0,1fr)_6rem_4.5rem]";
   return (
     <ol className="-mx-2">
       {zones.map((zone, index) => {
@@ -76,15 +72,17 @@ function ZoneList({
               type="button"
               onClick={() => onSelect(zone.id)}
               aria-current={isSelected || undefined}
-              className={`grid w-full grid-cols-[1.25rem_minmax(0,1fr)_6rem_4.5rem] items-center gap-x-3 rounded-sm px-2 py-2 text-left text-[13px] transition-colors duration-150 focus-visible:outline-none ${
-                isSelected ? "bg-brand-50 text-brand-900" : "hover:bg-muted focus-visible:bg-muted"
+              className={`grid w-full ${cols} items-center gap-x-3 rounded-lg px-2 py-2 text-left text-dense transition-colors duration-150 focus-visible:outline-none ${
+                isSelected ? "bg-surface-raised font-medium text-foreground" : "hover:bg-surface-raised focus-visible:bg-surface-raised"
               }`}
             >
               <span className="text-xs text-muted-foreground tabular-nums">{index + 1}</span>
               <span className="truncate font-medium">{zone.name}</span>
-              <span className="text-right text-xs whitespace-nowrap text-text-secondary tabular-nums">{peakLabel(zone)}</span>
+              {compact ? null : (
+                <span className="text-right text-xs whitespace-nowrap text-text-secondary tabular-nums">{peakLabel(zone)}</span>
+              )}
               <span className="flex items-center gap-1.5">
-                <StressMeter stress={zone.peakStress} className="w-8" />
+                <StressMeter stress={zone.peakStress} className={compact ? "w-10" : "w-8"} />
                 <span className="text-xs font-medium text-foreground tabular-nums">
                   {zone.peakStress.toFixed(2)}
                 </span>
@@ -100,9 +98,9 @@ function ZoneList({
 function ListHeader({ title }: { title: string }) {
   return (
     <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_6rem_4.5rem] items-end gap-x-3">
-      <h3 className={`col-span-2 ${SECTION_LABEL}`}>{title}</h3>
-      <span className="text-right text-[11px] text-muted-foreground">Peak</span>
-      <span className="text-[11px] text-muted-foreground">Stress</span>
+      <h3 className={`col-span-2 ${LABEL}`}>{title}</h3>
+      <span className="text-right text-caption text-muted-foreground">Peak</span>
+      <span className="text-caption text-muted-foreground">Stress</span>
     </div>
   );
 }
@@ -162,14 +160,14 @@ export function DemandPanel() {
   return (
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto overscroll-contain rounded-xl bg-card text-card-foreground shadow-floating">
       <header className="px-5 pt-4">
-        <nav className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" aria-label="Zone">
-          <button type="button" className="transition-colors duration-150 hover:text-brand-700" onClick={() => setSelected(null)}>
+        <nav className="flex flex-wrap items-center gap-1 text-caption text-muted-foreground" aria-label="Zone">
+          <button type="button" className="transition-colors duration-150 hover:text-foreground" onClick={() => setSelected(null)}>
             Romania
           </button>
           {trail.map((zone) => (
             <span key={zone.id} className="flex items-center gap-1">
               <span aria-hidden>›</span>
-              <button type="button" className="transition-colors duration-150 hover:text-brand-700" onClick={() => setSelected(zone.id)}>
+              <button type="button" className="transition-colors duration-150 hover:text-foreground" onClick={() => setSelected(zone.id)}>
                 {zone.name}
               </button>
             </span>
@@ -182,16 +180,9 @@ export function DemandPanel() {
           )}
         </nav>
         <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          <h2 className="text-xl leading-tight font-semibold tracking-tight">{shown ? shown.name : "Demand"}</h2>
+          <h2 className="text-title leading-tight tracking-tight">{shown ? shown.name : "Demand"}</h2>
           {shown && (
-            <span
-              className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                selected ? "text-text-secondary" : "text-status-warn"
-              }`}
-            >
-              {selected ? null : <StatusMark kind="warn" size="sm" />}
-              {selected ? shown.level : "most stressed county"}
-            </span>
+            <StatusPill status={selected ? "unknown" : "warn"}>{selected ? shown.level : "Most stressed county"}</StatusPill>
           )}
           {showPill ? (
             <span className="ml-auto">
@@ -209,12 +200,12 @@ export function DemandPanel() {
         )
       ) : (
         <div className="flex flex-col px-5 pb-2">
-          <p className="pt-3 pb-3 text-[14px] leading-snug text-foreground">
-            {shown.name} peaks at {hhmm(wallClock(shown.peakTs))} with {formatPower(shown.peakMw)}, {stressWords(shown.peakStress)}.
-            {now ? ` Right now it draws ${formatPower(now.q50Mw)}.` : ""}
+          {/* Words only: the numbers sit in the metrics below. */}
+          <p className="pt-3 text-body leading-snug text-text-secondary">
+            Today&apos;s peak is {stressWords(shown.peakStress)}.
           </p>
 
-          <MetricRow className="border-y border-border py-2">
+          <MetricRow className="mt-4 py-1">
             <Metric
               label="Stress now"
               value={stressNow?.toFixed(2) ?? "—"}
@@ -228,7 +219,7 @@ export function DemandPanel() {
                   {stressNow !== undefined ? (
                     <div className="space-y-1">
                       <StressMeter stress={stressNow} />
-                      <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
+                      <div className="flex justify-between text-caption text-muted-foreground tabular-nums">
                         <span>now {stressNow.toFixed(2)}</span>
                         <span>peak {shown.peakStress.toFixed(2)}</span>
                       </div>
@@ -241,15 +232,20 @@ export function DemandPanel() {
             <Metric label="Peak today" value={peakValue} sub={formatPower(shown.peakMw)} />
           </MetricRow>
 
-          <section className="space-y-2 pt-3.5">
-            <SectionHeader title={`Demand today, ${unit}`}>
-              <ChartLegend
-                items={[
-                  { label: "P50", color: DEMAND_SERIES },
-                  { label: "P10–P90", color: DEMAND_SERIES, dashed: true },
-                ]}
-              />
-            </SectionHeader>
+          <section className="mt-5 space-y-1">
+            <SectionHeader
+              as="h3"
+              lead="Demand today,"
+              title={unit}
+              aside={
+                <ChartLegend
+                  items={[
+                    { label: "P50", color: DEMAND_SERIES },
+                    { label: "P10–P90", color: DEMAND_SERIES, dashed: true },
+                  ]}
+                />
+              }
+            />
             <div className="relative">
               <LineChart
                 data={fan}
@@ -267,21 +263,33 @@ export function DemandPanel() {
             </div>
           </section>
 
-          {children.length > 0 || feeders.length > 0 ? (
-            <div className="mt-2 border-t border-border">
-              <RowButton
-                onClick={() => setListOpen(true)}
+          {children.length > 0 ? (
+            <section className="mt-5">
+              <SectionHeader
+                as="h3"
+                title={listTitle}
                 aside={
-                  children[0] ? (
-                    <span>
-                      top: {children[0].name} {children[0].peakStress.toFixed(2)}
-                    </span>
+                  children.length > TOP_ZONES || feeders.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setListOpen(true)}
+                      className="rounded-md px-1.5 py-0.5 text-caption font-medium text-foreground underline-offset-2 transition-colors duration-150 hover:bg-surface-raised hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                    >
+                      See all
+                    </button>
                   ) : null
                 }
-              >
-                <span className="font-medium">{listTitle}</span>
-              </RowButton>
-            </div>
+              />
+              <ZoneList zones={children.slice(0, TOP_ZONES)} selectedId={selectedId} onSelect={select} compact />
+            </section>
+          ) : feeders.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setListOpen(true)}
+              className="mt-4 self-start rounded-md px-1.5 py-0.5 text-caption font-medium text-foreground underline-offset-2 hover:underline"
+            >
+              Top stressed feeders
+            </button>
           ) : null}
 
           <DetailsSheet

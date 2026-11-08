@@ -13,6 +13,7 @@ Changing a file here is a team event: `lab announce` it and add a line to `team/
 | [replay.md](replay.md) | Which SQLite table each action and replay output lands in | Drizzle schema (#38) | yolooo332 + Tudor |
 | app.md | Drizzle schema, oRPC signatures, ModeConfig | `packages/db`, `packages/api/src/contract` | Tudor (#38) |
 | [notify.md](notify.md) | Congestion level per feeder-day + household emails via Resend (`notify.*` oRPC) | `packages/api/src/notify`, `packages/api/src/contract/notify.ts` | yolooo332 (#120) |
+| [live.md](live.md) | EXPERIMENT #128: live 15-min feed SQLite (readings, next-step forecasts, errors) for the live view #130 | `sentinel/live/` | yolooo332 (#128) |
 
 Python contracts are stdlib only (`from sentinel.contracts import ...` works without numpy/torch).
 Tests: `pytest tests/test_contracts.py`.

@@ -153,7 +153,7 @@ export function SectionHeader({ title, children }: { title: ReactNode; children?
 
 function provenanceDot(label: string) {
   if (/non-ro/i.test(label)) return "bg-status-forecast";
-  if (/real/i.test(label)) return "bg-primary";
+  if (/real/i.test(label)) return "bg-status-ok";
   return "bg-status-unknown";
 }
 

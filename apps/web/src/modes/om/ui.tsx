@@ -56,7 +56,7 @@ export function ProvenancePill({ label }: { label: string }) {
     ? "bg-status-forecast"
     : l.includes("synthetic")
       ? "bg-status-unknown"
-      : "bg-primary";
+      : "bg-status-ok";
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 align-middle text-[11px] font-medium whitespace-nowrap text-text-secondary">
       <span className={`inline-block size-1.5 rounded-full ${dot}`} />
@@ -84,7 +84,7 @@ export function Meter({
         className={`relative inline-block h-1.5 ${width} overflow-hidden rounded-full bg-muted`}
       >
         <span
-          className={`absolute inset-y-0 left-0 rounded-full ${tone ? TONE_BG[tone] : "bg-primary"}`}
+          className={`absolute inset-y-0 left-0 rounded-full ${tone ? TONE_BG[tone] : "bg-sentinel"}`}
           style={{ width: `${pct}%` }}
         />
       </span>

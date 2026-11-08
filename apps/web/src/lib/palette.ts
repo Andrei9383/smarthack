@@ -1,7 +1,7 @@
 // Theme-aware RGB mirrors of the tokens in packages/ui/src/styles/globals.css, for deck.gl, MapLibre and
 // canvas code that can't read CSS variables (team/contracts/ui-style.md §2). Keep the three in step.
 //
-// - `paletteFor(theme)` / `usePalette()` give the palette for the current theme (dark = Cockpit, the default).
+// - `paletteFor(theme)` / `usePalette()` give the palette for the current theme (light = Calm, the default).
 // - `MAP_SAFE` holds the status hues drawn on the map. They read on both basemaps (≥ 3:1 against
 //   Positron's white land and our dark land), so layer modules may capture them at import.
 // - `onPaletteTheme()` lets a per-mode colors.ts keep its theme-dependent exports (casings, borders,
@@ -13,26 +13,28 @@ export type Rgb = [number, number, number];
 export type Rgba = [number, number, number, number];
 export type ThemeName = "light" | "dark";
 
-/** The app opens in the Cockpit dark theme (providers.tsx). */
-export const DEFAULT_THEME: ThemeName = "dark";
+/** The app opens in the Calm light theme (providers.tsx). */
+export const DEFAULT_THEME: ThemeName = "light";
 
 const LIGHT = {
-  background: [244, 246, 248],
+  background: [246, 247, 248],
   surface: [255, 255, 255],
-  surfaceRaised: [238, 241, 244],
-  frame: [235, 238, 242],
-  border: [213, 220, 227],
-  borderStrong: [180, 192, 204],
-  foreground: [13, 20, 28],
-  textSecondary: [61, 75, 89],
-  mutedForeground: [95, 110, 124],
-  primary: [11, 127, 72],
+  surfaceRaised: [241, 242, 244],
+  frame: [255, 255, 255],
+  border: [231, 232, 235],
+  borderStrong: [212, 213, 218],
+  foreground: [17, 17, 19],
+  textSecondary: [63, 63, 70],
+  mutedForeground: [107, 107, 116],
+  /** Ink: buttons and active states. Emerald data colour is `sentinel`. */
+  primary: [17, 17, 19],
+  sentinel: [11, 127, 72],
   brand50: [236, 251, 242],
   brand100: [209, 245, 224],
   brand500: [18, 183, 106],
   brand700: [9, 107, 60],
   brand900: [6, 78, 45],
-  ring: [14, 116, 144],
+  ring: [17, 17, 19],
   live: [0, 220, 85],
   statusOk: [11, 127, 72],
   statusWarn: [180, 83, 9],
@@ -41,15 +43,15 @@ const LIGHT = {
   statusSoc: [79, 70, 229],
   statusReview: [124, 58, 237],
   statusUnknown: [100, 116, 139],
-  statusActual: [13, 20, 28],
-  chartGrid: [227, 232, 237],
-  // Basemap tints painted over CARTO Positron by demo/use-basemap.ts.
-  mapSea: [230, 238, 242],
+  statusActual: [17, 17, 19],
+  chartGrid: [238, 239, 241],
+  // Basemap tints painted over CARTO Positron by demo/use-basemap.ts: neutral greys, Romania in white.
+  mapSea: [234, 237, 240],
   mapLand: [255, 255, 255],
-  mapNeighbour: [242, 243, 245],
-  mapBorder: [201, 206, 212],
-  mapFocusBorder: [184, 190, 198],
-  mapCounty: [221, 225, 229],
+  mapNeighbour: [243, 244, 246],
+  mapBorder: [206, 208, 213],
+  mapFocusBorder: [186, 188, 194],
+  mapCounty: [226, 227, 231],
   /** Halo under map lines and gaps cut into them: the land colour, so lines lift off the basemap. */
   mapCasing: [255, 255, 255],
   /** Map line or particle colour for brand green on this basemap. */
@@ -57,22 +59,23 @@ const LIGHT = {
 } as const satisfies Record<string, Rgb>;
 
 const DARK = {
-  background: [16, 23, 32],
-  surface: [24, 35, 48],
-  surfaceRaised: [32, 48, 65],
-  frame: [13, 17, 23],
-  border: [43, 58, 73],
-  borderStrong: [61, 81, 102],
-  foreground: [237, 243, 247],
-  textSecondary: [195, 208, 219],
-  mutedForeground: [166, 183, 197],
-  primary: [61, 214, 140],
+  background: [24, 25, 27],
+  surface: [31, 32, 35],
+  surfaceRaised: [42, 43, 47],
+  frame: [20, 21, 23],
+  border: [46, 47, 51],
+  borderStrong: [63, 64, 70],
+  foreground: [237, 237, 239],
+  textSecondary: [194, 194, 199],
+  mutedForeground: [155, 155, 162],
+  primary: [237, 237, 239],
+  sentinel: [61, 214, 140],
   brand50: [21, 53, 42],
   brand100: [28, 69, 53],
   brand500: [47, 191, 122],
   brand700: [110, 224, 168],
   brand900: [167, 243, 201],
-  ring: [166, 234, 242],
+  ring: [237, 237, 239],
   live: [0, 220, 85],
   statusOk: [61, 214, 140],
   statusWarn: [243, 197, 106],
@@ -80,17 +83,17 @@ const DARK = {
   statusForecast: [105, 212, 228],
   statusSoc: [165, 180, 252],
   statusReview: [196, 181, 253],
-  statusUnknown: [135, 150, 166],
-  statusActual: [237, 243, 247],
-  chartGrid: [31, 44, 58],
-  // Basemap tints painted over CARTO dark-matter: Romania sits a step above the frame, like a panel.
-  mapSea: [11, 18, 25],
-  mapLand: [27, 38, 51],
-  mapNeighbour: [19, 27, 36],
-  mapBorder: [47, 62, 78],
-  mapFocusBorder: [74, 95, 117],
-  mapCounty: [38, 50, 63],
-  mapCasing: [16, 23, 32],
+  statusUnknown: [139, 139, 147],
+  statusActual: [237, 237, 239],
+  chartGrid: [42, 43, 47],
+  // Basemap tints painted over CARTO dark-matter: Romania sits a step above the frame, like a card.
+  mapSea: [17, 18, 20],
+  mapLand: [36, 37, 41],
+  mapNeighbour: [26, 27, 30],
+  mapBorder: [56, 57, 62],
+  mapFocusBorder: [82, 83, 90],
+  mapCounty: [48, 49, 54],
+  mapCasing: [24, 25, 27],
   mapBrand: [61, 214, 140],
 } as const satisfies Record<string, Rgb>;
 

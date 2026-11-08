@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { TriangleAlert, X } from "lucide-react";
 
 import { ProvenancePill } from "@/components/provenance-pill";
+import { Fold } from "@/panels/disclosure";
 
 import { orpc } from "@/utils/orpc";
 
@@ -53,7 +54,7 @@ function ChangeChip({ delta }: { delta: ReturnType<typeof change> }) {
   if (!delta) return null;
   const tone =
     delta.good === true
-      ? "bg-brand-50 text-brand-700"
+      ? "bg-status-ok/10 text-status-ok"
       : delta.good === false
         ? "bg-status-critical/10 text-status-critical"
         : "bg-muted text-text-secondary";
@@ -105,16 +106,16 @@ export function SummaryCard() {
       <div
         aria-hidden
         onClick={() => setOpen(false)}
-        className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-[2px] dark:bg-black/50 animate-in fade-in-0 duration-150"
+        className="fixed inset-0 z-40 bg-scrim backdrop-blur-[2px] animate-in fade-in-0 duration-150"
       />
       <div
         role="dialog"
         aria-label="Results"
-        className="fixed top-[10vh] left-1/2 z-50 max-h-[80vh] w-[720px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-card animate-in fade-in-0 zoom-in-[0.98] duration-150"
+        className="fixed top-[10vh] left-1/2 z-50 max-h-[80vh] w-[720px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-y-auto rounded-2xl bg-card p-7 shadow-overlay animate-in fade-in-0 zoom-in-[0.98] duration-150"
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <h2 className="text-base font-semibold text-foreground">Results</h2>
+            <h2 className="text-page text-foreground">Results</h2>
             {label ? <ProvenancePill label={label} /> : null}
           </div>
           <Button
@@ -135,20 +136,20 @@ export function SummaryCard() {
         ) : null}
 
         {anyKpi ? (
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="mt-6 grid grid-cols-1 gap-y-4 sm:grid-cols-3 sm:divide-x sm:divide-border">
             {HEROES.map((name) => {
               const metric = METRICS.find((m) => m.name === name);
               const baseline = find(name, "baseline");
               const sentinel = find(name, "sentinel");
               const shown = sentinel ?? baseline;
               return (
-                <div key={name} className="rounded-lg border border-border px-4 py-3.5">
-                  <div className="truncate text-xs font-medium text-text-secondary">{metric?.label}</div>
+                <div key={name} className="min-w-0 sm:px-5 sm:first:pl-0">
+                  <div className="truncate text-caption font-medium text-muted-foreground">{metric?.label}</div>
                   <div className="mt-1.5 flex items-center gap-2">
-                    <Value kpi={shown} className="text-[28px] leading-9 font-semibold tracking-tight text-brand-700" />
+                    <Value kpi={shown} className="text-kpi text-foreground" />
                     <ChangeChip delta={change(name, baseline, sentinel)} />
                   </div>
-                  <div className="mt-1 h-4 text-xs text-muted-foreground">
+                  <div className="mt-1.5 h-4 text-caption text-muted-foreground">
                     {baseline && sentinel ? (
                       <>
                         Baseline <Value kpi={baseline} className="text-text-secondary" />
@@ -163,46 +164,46 @@ export function SummaryCard() {
           </div>
         ) : null}
 
-        <table className="mt-5 w-full text-[13px]">
-          <thead className="text-left text-[11px] tracking-[0.04em] text-muted-foreground uppercase">
-            <tr className="border-b border-border">
-              <th className="pb-2 font-medium">Metric</th>
-              <th className="pb-2 text-right font-medium">Baseline</th>
-              <th className="pb-2 text-right font-medium text-brand-700">Sentinel</th>
-              <th className="w-20 pb-2 text-right font-medium">Change</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {METRICS.map(({ name, label: metricLabel }) => {
-              const baseline = find(name, "baseline");
-              const sentinel = find(name, "sentinel");
-              return (
-                <tr key={name}>
-                  <td className="py-2.5 pr-3 whitespace-nowrap text-foreground">{metricLabel}</td>
-                  <td className="py-2.5 pl-3 text-right text-text-secondary">
-                    <Value kpi={baseline} />
-                  </td>
-                  <td className="py-2.5 pl-3 text-right font-semibold text-foreground">
-                    <Value kpi={sentinel} />
-                  </td>
-                  <td className="py-2.5 pl-3 text-right">
-                    <ChangeChip delta={change(name, baseline, sentinel)} />
-                  </td>
+        <div className="mt-7">
+          <Fold title="All metrics, baseline vs Sentinel" aside={`${METRICS.length} metrics`}>
+            <table className="w-full text-dense">
+              <thead className="text-left text-caption text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="pb-2 font-medium">Metric</th>
+                  <th className="pb-2 text-right font-medium">Baseline</th>
+                  <th className="pb-2 text-right font-medium text-status-ok">Sentinel</th>
+                  <th className="w-20 pb-2 text-right font-medium">Change</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        {anyKpi ? (
-          runIds.length > 0 ? (
-            <p className="mt-4 border-t border-border pt-3 text-[11px] text-muted-foreground">
-              Run ID <span className="font-mono text-text-secondary">{runIds.join(" · ")}</span>
-            </p>
-          ) : null
-        ) : (
-          <p className="mt-3 text-xs text-muted-foreground">No logged run yet.</p>
-        )}
+              </thead>
+              <tbody className="divide-y divide-border">
+                {METRICS.map(({ name, label: metricLabel }) => {
+                  const baseline = find(name, "baseline");
+                  const sentinel = find(name, "sentinel");
+                  return (
+                    <tr key={name}>
+                      <td className="py-2.5 pr-3 whitespace-nowrap text-foreground">{metricLabel}</td>
+                      <td className="py-2.5 pl-3 text-right text-text-secondary">
+                        <Value kpi={baseline} />
+                      </td>
+                      <td className="py-2.5 pl-3 text-right font-semibold text-foreground">
+                        <Value kpi={sentinel} />
+                      </td>
+                      <td className="py-2.5 pl-3 text-right">
+                        <ChangeChip delta={change(name, baseline, sentinel)} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {runIds.length > 0 ? (
+              <p className="mt-3 text-caption text-muted-foreground">
+                Run ID <span className="font-mono text-text-secondary">{runIds.join(" · ")}</span>
+              </p>
+            ) : null}
+          </Fold>
+        </div>
+        {anyKpi ? null : <p className="mt-3 text-xs text-muted-foreground">No logged run yet.</p>}
       </div>
     </>
   );
