@@ -1,12 +1,14 @@
-// Sentinel Judge (#151, team/judge-design.md §8): verdicts per asset and the trust ledger per witness.
-// The judge_verdicts / trust / outcomes tables are written by the Judge (J4) and are not in the
-// Drizzle schema, so this reads them with raw SQL. A DB without them returns no data, never an error.
+// Judge: verdicts per asset and the trust ledger per witness, read from the judge_verdicts / trust / outcomes
+// tables with raw SQL. A DB without them returns no data, never an error.
+import { os } from "@orpc/server";
 import type { Database } from "@wattsentry/db";
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { publicProcedure } from "../index";
+import type { Context } from "../context";
 import { emptyIfNoTables } from "./runs";
+
+const publicProcedure = os.$context<Context>();
 
 type Row = Record<string, unknown>;
 const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
@@ -52,7 +54,7 @@ const input = z
   .object({ runId: z.string().optional(), until: z.string().optional(), assetId: z.string().optional() })
   .optional();
 
-export type TrustWitness = {
+type TrustWitness = {
   model: string;
   series: { day: string; trust: number | null; prior: number | null; nEff: number }[];
   alerts: { bucket: string; trust: number | null; prior: number | null; message: string | null; since: string }[];
@@ -109,7 +111,7 @@ export const judgeRouter = {
     }),
   ),
 
-  // Trust over the week per witness (mean over its context buckets per day) and its open health alerts (§6.5).
+  // Trust over the week per witness (mean over its context buckets per day) and its open health alerts.
   trustBoard: publicProcedure.input(input).handler(async ({ context: { db }, input }) => {
     const runId = await judgeRun(db, "trust", input?.runId);
     if (!runId) return { runId: null, witnesses: [] as TrustWitness[] };

@@ -1,8 +1,8 @@
-// Live view (card #130): the #128 15-min loop's feeder rows, or the replay day when there is no feed.
-// Contract and the provisional live table: packages/api/src/contract/live.ts.
+// Live view: the 15-min live loop's feeder rows, or the replay day when there is no feed.
+// Contract and the live table: contract/live.ts.
 import { call, implement } from "@orpc/server";
 import { createDb, type Database } from "@wattsentry/db";
-import { feeders } from "@wattsentry/db/schema/sentinel";
+import { feeders } from "@wattsentry/db/schema/replay";
 import { eq, sql } from "drizzle-orm";
 
 import type { Context } from "../context";
@@ -78,7 +78,7 @@ async function fromLiveFeed(feederId: string): Promise<LiveFeeder | { stale: str
     writtenAt,
     ageSec,
     speed,
-    forecastLabel: "next-15-min forecast (#128 loop)",
+    forecastLabel: "next-15-min forecast (live loop)",
     points,
   };
 }
@@ -94,7 +94,7 @@ export const liveRouter = os.router({
       return { ...live, limitKw: feeder?.limitKw ?? 0 };
     }
     // No live feed, or a stopped one: the replay day stands in (actual = baseline export,
-    // forecast = #120's day-ahead feeder export quantiles).
+    // forecast = the congestion notice's day-ahead feeder export quantiles).
     const notice = await call(notifyRouter.getForecast, input, { context });
     if (!notice) return null;
     return {

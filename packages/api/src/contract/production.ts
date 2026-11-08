@@ -1,13 +1,12 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-export const productionRunSchema = z.object({
+const productionRunSchema = z.object({
   runId: z.string(),
   label: z.string(), // 'synthetic RO' | 'real RO' | 'non-RO': shown on screen
 });
-export type ProductionRun = z.infer<typeof productionRunSchema>;
 
-export const parkItemSchema = z.object({
+const parkItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   county: z.string(),
@@ -18,7 +17,7 @@ export const parkItemSchema = z.object({
 });
 export type ParkItem = z.infer<typeof parkItemSchema>;
 
-export const parkForecastItemSchema = z.object({
+const parkForecastItemSchema = z.object({
   parkId: z.string(),
   ts: z.string(),
   p10Mw: z.number().nullable().optional(),
@@ -30,7 +29,7 @@ export const parkForecastItemSchema = z.object({
 });
 export type ParkForecastItem = z.infer<typeof parkForecastItemSchema>;
 
-export const countyTotalItemSchema = z.object({
+const countyTotalItemSchema = z.object({
   county: z.string(),
   lat: z.number(),
   lon: z.number(),
@@ -38,11 +37,10 @@ export const countyTotalItemSchema = z.object({
   solarMwh: z.number(),
   windMwh: z.number(),
 });
-export type CountyTotalItem = z.infer<typeof countyTotalItemSchema>;
 
 // One hour of one county: mean MW over the hour. Solar sums the county's rooftop homes
 // (asset_steps); wind sums the county's turbines' measured output (measurements.act_pwt_kw).
-export const countySeriesPointSchema = z.object({
+const countySeriesPointSchema = z.object({
   ts: z.string(), // hour start, ISO-8601 UTC
   solarActualMw: z.number().nullable(),
   solarP10Mw: z.number().nullable(),
@@ -52,14 +50,14 @@ export const countySeriesPointSchema = z.object({
 });
 export type CountySeriesPoint = z.infer<typeof countySeriesPointSchema>;
 
-export const countySeriesItemSchema = z.object({
+const countySeriesItemSchema = z.object({
   county: z.string(),
   points: z.array(countySeriesPointSchema),
 });
 export type CountySeriesItem = z.infer<typeof countySeriesItemSchema>;
 
-// W3 (#166): what the park sold day-ahead vs what it made, with the forecast band. MWh per 15 min.
-export const windPositionItemSchema = z.object({
+// What the park sold day-ahead vs what it made, with the forecast band. MWh per 15 min.
+const windPositionItemSchema = z.object({
   parkId: z.string(),
   policy: z.string(),
   ts: z.string(),
@@ -71,10 +69,9 @@ export const windPositionItemSchema = z.object({
   avoidableLei: z.number().nullable(),
   removedTurbines: z.number().nullable(),
 });
-export type WindPositionItem = z.infer<typeof windPositionItemSchema>;
 
-// W5 (#168): park battery per variant (none | rule | lp). MWh per 15 min.
-export const parkBatteryItemSchema = z.object({
+// Park battery per variant (none | rule | lp). MWh per 15 min.
+const parkBatteryItemSchema = z.object({
   parkId: z.string(),
   variant: z.string(),
   ts: z.string(),
@@ -86,7 +83,6 @@ export const parkBatteryItemSchema = z.object({
   avoidableLei: z.number().nullable(),
   avoidableNoneLei: z.number().nullable(),
 });
-export type ParkBatteryItem = z.infer<typeof parkBatteryItemSchema>;
 
 const windowInput = z.object({
   parkId: z.string().optional(),
@@ -121,7 +117,7 @@ export const productionContract = {
         .optional(),
     )
     .output(z.array(countyTotalItemSchema)),
-  // Hourly buckets per county for the map sparklines (#137); same run selection as getCountyTotals.
+  // Hourly buckets per county for the map sparklines; same run selection as getCountyTotals.
   getCountySeries: oc
     .input(
       z

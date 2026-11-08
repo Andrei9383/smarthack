@@ -6,10 +6,9 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Calm style (team/contracts/ui-style.md, design notes team/design/calm.md).
-   Two themes with the same roles: `:root` (light, the default) and `.dark` (charcoal).
+/* Calm style. Two themes with the same roles: `:root` (light, the default) and `.dark` (charcoal).
    Ink is the action colour (buttons, active states); emerald (--sentinel) only carries data meaning:
-   Sentinel's series, ok status, real data. Hex values live here, in apps/web/src/lib/palette.ts,
+   the sentinel policy's series, ok status, real data. Hex values live here, in apps/web/src/lib/palette.ts,
    apps/web/src/components/brand/colors.ts and the per-mode colors.ts modules only. */
 
 :root {
@@ -51,7 +50,7 @@
   /* Dims the page behind the tour spotlight and modal surfaces. */
   --scrim: rgb(17 17 19 / 0.4);
 
-  /* Sentinel / brand emerald: data meaning only (Sentinel series, ok, real data), never buttons. */
+  /* Brand emerald: data meaning only (sentinel series, ok, real data), never buttons. */
   --sentinel: #0b7f48;
   --brand-50: #ecfbf2;
   --brand-100: #d1f5e0;

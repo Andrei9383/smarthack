@@ -14,8 +14,7 @@
     "@better-auth/drizzle-adapter": "1.7.12",
     "@wattsentry/db": "*",
     "better-auth": "1.7.12",
-    "drizzle-orm": "1.0.0-rc.5",
-    "zod": "^4.5.4"
+    "drizzle-orm": "1.0.0-rc.5"
   },
   "devDependencies": {
     "@wattsentry/config": "*",
