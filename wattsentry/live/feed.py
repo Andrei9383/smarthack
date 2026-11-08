@@ -1,10 +1,9 @@
-"""LiveFeed: one 15-min tick = one transaction (card #128, team/contracts/live.md).
+"""LiveFeed: one 15-min tick = one transaction.
 
 At tick T the step r = T - 15 min has just ended: its readings arrive, the prediction made for r gets its actual and
-error, and a prediction for T (the next 15 min) is stored with t0 = T. Ticks are keyed by (run_id, ts), so a restart
-resumes after the last committed tick and never writes one twice. In real-time mode the wall clock is mapped onto the
-world's week by whole weeks; steps missed while the process was down are backfilled as `missed` ticks (readings,
-no prediction: nobody predicted them at the time).
+error, and a prediction for T is stored with t0 = T. Ticks are keyed by (run_id, ts), so a restart resumes after the
+last committed tick. In real-time mode the wall clock is mapped onto the world's week by whole weeks; steps missed
+while the process was down are backfilled as `missed` ticks (readings, no prediction).
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 from . import store
@@ -37,7 +36,7 @@ class LiveFeed:
                  clock: str = "realtime", dayahead: Optional[DayAhead] = None, notes: str = "",
                  agent: Any = None):
         self.src, self.con, self.run_id = source, con, run_id
-        self.agent = agent  # #129: LiveAgent stepped through each handled step (decisions as the readings arrive)
+        self.agent = agent  # LiveAgent stepped through each handled step (decisions as the readings arrive)
         self.da = dayahead or DayAhead(source.world, source.sites())
         feeders = [{"feeder_id": f, "limit_kw": round(float(x.spec.g_kw), 3),
                     "site_ids": [s for s in x.site_ids if s in source.sites()]} for f, x in source.feeders().items()]
@@ -53,12 +52,10 @@ class LiveFeed:
             for r in con.execute("SELECT * FROM live_readings WHERE run_id = ? AND ts = ?", (run_id, iso(self.last))):
                 self.prev[r["site_id"]] = Reading(r["site_id"], r["feeder_id"], r["pv_kw"], r["load_kw"],
                                                   r["batt_kw"], r["soc"], r["net_kw"])
-            if hasattr(source, "restore"):
-                socs = {sid: soc for sid, soc in con.execute(
-                    "SELECT site_id, soc FROM live_readings WHERE run_id = ? AND soc IS NOT NULL AND ts = ("
-                    "SELECT MAX(ts) FROM live_readings r2 WHERE r2.run_id = live_readings.run_id AND "
-                    "r2.site_id = live_readings.site_id AND r2.soc IS NOT NULL)", (run_id,))}
-                source.restore(socs)
+            source.restore({sid: soc for sid, soc in con.execute(
+                "SELECT site_id, soc FROM live_readings WHERE run_id = ? AND soc IS NOT NULL AND ts = ("
+                "SELECT MAX(ts) FROM live_readings r2 WHERE r2.run_id = live_readings.run_id AND "
+                "r2.site_id = live_readings.site_id AND r2.soc IS NOT NULL)", (run_id,))})
 
     # -- one tick ------------------------------------------------------------------------------------------------
     def tick(self, r: int, *, missed: bool = False) -> dict[str, Any]:
@@ -81,9 +78,7 @@ class LiveFeed:
                 T = r + STEP_S
                 rows: list[dict] = []
                 for sid, site in self.src.sites().items():
-                    last = got.get(sid)
-                    e = self.src.e.get(sid, 0.0) if hasattr(self.src, "e") else 0.0
-                    rows += site_rows(self.da, sid, site, T, last, e)
+                    rows += site_rows(self.da, sid, site, T, got.get(sid), self.src.e.get(sid, 0.0))
                 rows += feeder_rows(rows, self.src.feeders(), T)
                 n_pred = store.insert_many(con, "live_predictions", store.PRED_COLS,
                                            [{**x, "run_id": self.run_id} for x in rows])

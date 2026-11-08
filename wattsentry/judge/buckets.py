@@ -1,6 +1,4 @@
-"""Context buckets of the trust ledger (team/judge-design.md §6.1).
-
-A bucket key is the six conditions joined by "|", in the design's order:
+"""Context buckets of the trust ledger. A key is the six conditions joined by "|":
 
     kind | seen | battery | season | quality | ood        e.g. "site|unseen|batt|warm|clean|ood_lo"
 
@@ -15,7 +13,6 @@ import datetime as _dt
 
 CONDITIONS = ("kind", "seen", "battery", "season", "quality", "ood")
 ROOT = "*"
-N_LEVELS = len(CONDITIONS) + 1  # level 6 = full bucket ... level 0 = root
 
 
 def season_of(month: int) -> str:

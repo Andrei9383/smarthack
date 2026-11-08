@@ -1,23 +1,12 @@
-"""The Grader: compare every prediction with what actually happened (team/judge-design.md §5.1-5.7).
+"""The Grader: compare every prediction with what actually happened.
 
-`grade(predictions, obs, reports, run_id=...)` takes a replay's predictions (Prediction envelopes) and observations
-(SiteDay / TurbineDay packed into a `ReplayObs`) plus the crew / audit reports, and returns `outcomes` rows (§8):
-
-    run_id, model, model_version, asset_id, day, score_name, score, weight, source, observed_at, gated,
-    kind, seen, battery, season, quality, ood_high
-
-- `day` is the local (Europe/Bucharest) date of the graded day; `observed_at` a UTC ISO time (sortable as text): the
-  moment the outcome could first be known (§5.5). Telemetry scores arrive at d+1, reports at the visit, M7 at the
-  failure or d+14.
-- `gated` = 1: the asset-day failed the physics-only gate (§5.4); `score` is None and the row is ungraded.
-- Bucket columns (§6.1): kind (site|turbine|zone|park), seen (bool), battery (bool), season (warm|cold),
-  quality (clean|gappy: >10 % missing steps), ood_high (bool, prediction OOD above the model's threshold).
-- Scores (§5.3): forecasts `calibration`, `sharpness` (interval-score skill vs the substitute) and `norm_err`
-  (10 quantiles of the day's normalised errors, for the ledger's band scale, §6.4; not in 0..1); detectors
-  `alarm_precision` / `miss_score`; M7 `hit` (+ `brier` detail); M8 `flag` / `miss_score`.
-
-Truth never enters here: the grader reads telemetry, pvlib physics, reports (CrewReport) and observable events only.
-Scoring is vectorised over [asset-days, 96]; the only Python loops run over predictions, assets or reports.
+`grade(predictions, obs, reports, run_id=...)` takes a replay's Prediction envelopes, its observations (`ReplayObs`)
+and the crew / audit reports and returns `outcomes` rows (OUTCOME_COLUMNS). `day` is the local graded day,
+`observed_at` the UTC moment the outcome could first be known (telemetry d+1, reports at the visit, M7 at the failure
+or d+14); `gated = 1` rows failed the physics-only gate and carry no score. Scores: forecasts `calibration`,
+`sharpness` (interval-score skill vs the substitute), `norm_err` (10 quantiles of the normalised errors, for the band
+scale); detectors `alarm_precision` / `miss_score`; M7 `hit` (+ `brier`); M8 `flag` / `miss_score`.
+Truth never enters here: only telemetry, pvlib physics, reports and observable events.
 """
 
 from __future__ import annotations
@@ -40,10 +29,9 @@ STEP_H = 0.25
 
 OUTCOME_COLUMNS = ("run_id", "model", "model_version", "asset_id", "day", "score_name", "score", "weight", "source",
                    "observed_at", "gated", "kind", "seen", "battery", "season", "quality", "ood_high")
-BUCKET_COLUMNS = ("kind", "seen", "battery", "season", "quality", "ood_high")
 
-# witness -> substitutes in order of preference (§3); substitutes are graded against their witness
-# model ids as in models/judge_priors.json (#147): lgbm_pv, lgbm_load, persistence_load, persistence_zone, ...
+# witness -> substitutes in order of preference (model ids as in models/judge_priors.json); substitutes are graded
+# against their witness
 SUBSTITUTES = {"pvnet": ("lgbm_pv", "lgbm", "pvlib", "persistence_pv"),
                "loadnet": ("lgbm_load", "lgbm", "persistence_load", "persistence"),
                "demandnet": ("persistence_zone", "persistence"), "windpower": ("binned_curve", "persistence_park")}
@@ -54,15 +42,15 @@ WITNESS_TARGET = {"pvnet": "pv", "loadnet": "load", "demandnet": "zone", "windpo
 SITE_DETECTORS = ("sitehealth", "threshold_cusum")
 TURBINE_DETECTORS = ("windnbm", "windmon_rules")
 CLIM_VERSION, CLIM_DAYS = "grader-clim7", 7  # internal substitute when none is given: model persistence_<target>
-OOD_DEFAULT = 3.0  # #26 thresholds: ood_max
-GAPPY = 0.10  # §6.1 data quality
+OOD_DEFAULT = 3.0  # qualify thresholds: ood_max
+GAPPY = 0.10  # missing-step share above which a day is "gappy"
 PROD_FRAC = 0.02  # production step: pvlib clear-sky above 2 % of recorded kWp
-RESID_LO, RESID_HI, RESID_DAYS = 0.80, 1.30, 3  # §5.3 residual check: 3-day energy vs pvlib x shared-sky index
+RESID_LO, RESID_HI, RESID_DAYS = 0.80, 1.30, 3  # residual check: 3-day energy vs pvlib x shared-sky index
 RESID_FAIL3, RESID_FAIL1 = 0.60, 0.75  # fail: 3-day ratio below 0.6 and the claimed day itself below 0.75
 REPORT_WINDOW_DAYS = 3  # an alarm is confirmed / a healthy call passed by a report within 3 days
 M7_HORIZON_DAYS = 14
 FAULT_STOP_CODE, CURTAIL_CODE = 211, 40  # observable status codes (SCADA / operator curtailment log)
-NORM_ERR_Q = (np.arange(10) + 0.5) / 10  # 10 quantiles of the day's normalised errors per asset-day (J2 #147)
+NORM_ERR_Q = (np.arange(10) + 0.5) / 10  # 10 quantiles of the day's normalised errors per asset-day
 
 
 # ------------------------------------------------------------------------------------------ observations
@@ -144,7 +132,7 @@ class ReplayObs:
                          self.zone_index)}[target]
 
     def residual_pass(self) -> np.ndarray:
-        """§5.3 residual check per site-day [S, H + D] over days d..d+2: 1 pass, 0 fail, NaN unknown.
+        """Residual check per site-day [S, H + D] over days d..d+2: 1 pass, 0 fail, NaN unknown.
 
         Expected PV = pvlib clear-sky (recorded metadata) x the locality-day clear-sky index (median measured /
         clear-sky energy of the ungated sites under the same sky, >= 3 sites). Never reads a witness (not PVNet's
@@ -346,7 +334,7 @@ def _climatology(y: np.ndarray, hist: int, days: int) -> np.ndarray:
 
 
 def _norm_err(q: np.ndarray, y: np.ndarray, valid: np.ndarray) -> np.ndarray:
-    """[P, 10] quantiles of e = (q50 - y)/(q50 - q10) below the median, (y - q50)/(q90 - q50) above (J2, #147)."""
+    """[P, 10] quantiles of e = (q50 - y)/(q50 - q10) below the median, (y - q50)/(q90 - q50) above."""
     q10, q50, q90 = q[:, 0], q[:, 1], q[:, 2]
     with np.errstate(invalid="ignore", divide="ignore"):
         lo = (q50 - y) / np.maximum(q50 - q10, 1e-6)
@@ -541,7 +529,7 @@ def _grade_detectors(claims: Mapping[tuple, _Claim], kind: str, obs: ReplayObs, 
                 t, ob, sc, src, w = min(cands, key=lambda x: (x[0], x[1], x[2]))
                 ev = (sc, ob, src, w)
         if ev is None and not gated:
-            continue  # no outcome: ungraded, trust unchanged (§11)
+            continue  # no outcome: ungraded, trust unchanged
         inf = info[aid]
         cols["model"].append(m)
         cols["model_version"].append(v)
@@ -674,51 +662,4 @@ def grade(predictions: Iterable[Any], obs: ReplayObs, reports: Sequence[Any] = (
         _grade_m8(gis_flags, gis_version, reports, obs, info, rows)
     out = rows.rows()
     out.sort(key=lambda r: (r["observed_at"], r["model"], r["asset_id"], r["score_name"]))
-    return out
-
-
-def grade_world(world: Any, predictions: Iterable[Any], *, run_id: str = "replay", crew_visits: Iterable = (),
-                audit: bool = True, audit_weights: Optional[Callable[[int], Mapping[str, float]]] = None,
-                hist: int = CLIM_DAYS, obs: Optional[ReplayObs] = None, **kw: Any) -> list[dict[str, Any]]:
-    """Convenience: observations from the world, crew reports for `crew_visits` [(asset_id, visit_ts)] (action
-    visits, weight 0.5), the Judge's audit checks for each day, M8 flags, then `grade`. Simulator truth is only
-    reached through `world.crew_report` (anti-goal §2)."""
-    obs = obs if obs is not None else obs_from_world(world, hist=hist)
-    reports = [world.crew_report(a, t) for a, t in crew_visits]
-    if audit:
-        for d in range(world.days):
-            reports += world.audit_checks(d, weights=audit_weights(d) if audit_weights else None)
-    kw.setdefault("gis_flags", world.gis_flags())
-    return grade(predictions, obs, reports, run_id=run_id, **kw)
-
-
-def bucket_days(rows: Iterable[Mapping[str, Any]], as_of: Optional[str] = None,
-                skip: Sequence[str] = ("norm_err",)) -> list[dict[str, Any]]:
-    """§5.7: average the asset-day scores of one day within a context bucket into one bucket-day.
-
-    Only ungated, scored rows with observed_at <= as_of (UTC ISO) are used, so calling it per day is causal.
-    Bucket-day score = weight-weighted mean; weight = mean row weight (IPW / action down-weighting carried over);
-    n = asset-days; observed_at = the latest contributing row.
-    """
-    acc: dict[tuple, list[float]] = {}
-    last: dict[tuple, str] = {}
-    for r in rows:
-        if r["gated"] or r["score"] is None or r["score_name"] in skip:
-            continue
-        if as_of is not None and r["observed_at"] > as_of:
-            continue
-        k = (r["model"], r["model_version"], r["score_name"], *(r[c] for c in BUCKET_COLUMNS), r["day"])
-        a = acc.setdefault(k, [0.0, 0.0, 0])
-        w = float(r["weight"])
-        a[0] += w * float(r["score"])
-        a[1] += w
-        a[2] += 1
-        if last.get(k, "") < r["observed_at"]:
-            last[k] = r["observed_at"]
-    out = []
-    for k, (sw, w, n) in acc.items():
-        d = dict(zip(("model", "model_version", "score_name", *BUCKET_COLUMNS, "day"), k))
-        d.update(score=sw / w if w > 0 else None, weight=w / n, n=n, observed_at=last[k])
-        out.append(d)
-    out.sort(key=lambda r: (r["day"], r["model"], r["score_name"]))
     return out

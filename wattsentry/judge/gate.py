@@ -1,19 +1,8 @@
-"""Independent data-quality gate (team/judge-design.md §5.4).
+"""Independent data-quality gate: which asset-days may grade anyone.
 
-The gate decides which asset-days may grade anyone. It uses **physics and the asset's own history only**: measured
-telemetry, the asset's recorded metadata (never `*_true`), pvlib clear-sky and the asset's own past daily energy.
-No function here takes a prediction, so a broken witness can never have its misses thrown out as "bad data".
-
-Everything is vectorised over [assets, days, 96]; a day that fails any check is gated (= ungraded, §5.4).
-
-Checks (reason bit -> rule):
-- PV_RANGE    PV < 0 or > 1.2 x kWp (recorded)
-- PV_NIGHT    PV clearly above 0 while pvlib clear-sky is 0 (interior night steps)
-- LOAD_FUSE   load above the connection's fuse limit
-- FROZEN      the same non-zero PV value for >= 8 steps while pvlib clear-sky changes
-- UNIT_JUMP   daily energy outside 0.2-5 x the asset's own median of the previous <= 30 days (>= 3 such days)
-- GAP         fewer than 25 % of the day's steps were reported (a long outage is ungraded, §11)
-- TURB_RANGE  turbine power > 1.1 x rated (or clearly negative)
+Physics and the asset's own history only (measured telemetry, recorded metadata, pvlib clear-sky, own past energy);
+no function takes a prediction, so a broken witness can never have its misses thrown out as "bad data".
+Vectorised over [assets, days, 96]; a day that fails any check is gated (ungraded). Codes are bit masks.
 """
 
 from __future__ import annotations
@@ -23,23 +12,17 @@ from typing import Mapping, Optional, Sequence
 import numpy as np
 
 PV_RANGE, PV_NIGHT, LOAD_FUSE, FROZEN, UNIT_JUMP, GAP, TURB_RANGE = (1 << i for i in range(7))
-REASONS = {PV_RANGE: "pv_range", PV_NIGHT: "pv_night", LOAD_FUSE: "load_fuse", FROZEN: "frozen",
-           UNIT_JUMP: "unit_jump", GAP: "gap", TURB_RANGE: "turbine_range"}
 
-PV_MAX_FRAC = 1.2  # x kWp
+PV_MAX_FRAC = 1.2  # x kWp (recorded)
 NIGHT_TOL_FRAC = 0.05  # x kWp allowed at night (sensor offset)
 NIGHT_MAX_STEPS = 2  # more violating night steps than this -> gated
-FROZEN_STEPS = 8
-JUMP_LO, JUMP_HI = 0.2, 5.0
+FROZEN_STEPS = 8  # same non-zero PV value this long while clear-sky changes
+JUMP_LO, JUMP_HI = 0.2, 5.0  # daily energy vs the asset's own recent median
 JUMP_HISTORY_DAYS = 30
 JUMP_MIN_HISTORY = 3
-MIN_REPORTED = 0.25  # share of steps
+MIN_REPORTED = 0.25  # share of steps reported; a long outage is ungraded
 TURB_MAX_FRAC = 1.1
 DEFAULT_FUSE_KW = 3 * 230 * 32 / 1000  # 3-phase 32 A connection, 22 kW, when the row has no `fuse_kw`
-
-
-def reasons(code: int) -> list[str]:
-    return [name for bit, name in REASONS.items() if int(code) & bit]
 
 
 # ------------------------------------------------------------------------------------------ pvlib clear-sky
@@ -123,18 +106,6 @@ def own_history_jump(energy: np.ndarray, hist_days: int = JUMP_HISTORY_DAYS,
     ok = (cnt >= min_hist) & np.isfinite(med) & (med > 0) & np.isfinite(energy)
     out[ok] = (energy[ok] < JUMP_LO * med[ok]) | (energy[ok] > JUMP_HI * med[ok])
     return out
-
-
-class _quiet:
-    def __enter__(self):
-        import warnings
-
-        self._w = warnings.catch_warnings()
-        self._w.__enter__()
-        warnings.simplefilter("ignore", RuntimeWarning)
-
-    def __exit__(self, *a):
-        return self._w.__exit__(*a)
 
 
 # ------------------------------------------------------------------------------------------ gates

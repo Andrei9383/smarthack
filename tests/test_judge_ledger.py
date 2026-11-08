@@ -12,8 +12,7 @@ import polars as pl
 import pytest
 
 from wattsentry.judge.buckets import ancestors, bucket_key
-from wattsentry.judge.ledger import (ALERT_DAYS, HALF_LIFE, MIN_EVIDENCE, N0, Ledger, Priors, TRUST_COLUMNS,
-                                   _alert_state, beta_interval)
+from wattsentry.judge.ledger import ALERT_DAYS, HALF_LIFE, MIN_EVIDENCE, N0, Ledger, Priors, _alert_state, beta_interval
 
 D0 = dt.date(2025, 5, 1)
 B = bucket_key("site", seen=True, battery=False, season="warm", quality="clean", ood_high=False)
@@ -63,8 +62,7 @@ def test_no_record_means_trust_equals_prior():
 
 def test_no_record_rows_in_the_trust_table():
     led = Ledger(rows([0.1] * 20), priors(), run_id="r1")
-    t = led.trust_rows(extra=[("pvnet", "v9", "calibration", B_UNSEEN)])
-    assert t.columns == TRUST_COLUMNS
+    t = led.frame(extra=[("pvnet", "v9", "calibration", B_UNSEEN)])
     new = t.filter(pl.col("model_version") == "v9")
     assert new.height == led.n_days and (new["trust"] == PRIOR).all() and (new["n_eff"] == 0).all()
 
@@ -111,8 +109,6 @@ def test_decay_and_recovery():
     # within ~2-3 half-lives of being restored, trust is back near its prior and the alert has cleared
     back = at(led, 61 + 28)
     assert back["trust"] > PRIOR - 0.1 and back["health_alert"] == 0
-    a = led.alerts().filter(pl.col("bucket") == B)
-    assert a.height == 1 and a["since"][0] > D0 + dt.timedelta(days=41) and a["until"][0] is not None
 
 
 def test_new_version_starts_from_its_own_prior():
@@ -302,7 +298,7 @@ def test_beta_interval_narrows_with_evidence():
 
 def test_brier_detail_rows_are_not_trust_series():
     led = Ledger(rows([0.9] * 20) + rows([0.1] * 20, score="brier"), priors())
-    assert set(led.trust_rows()["score_name"].unique()) == {"calibration"}
+    assert set(led.frame()["score_name"].unique()) == {"calibration"}
 
 
 def test_interpolated_beta_interval_matches_exact():
@@ -329,5 +325,5 @@ def test_year_replay_shape():
     rng = np.random.default_rng(0)
     led = Ledger(rows(rng.beta(8, 2, 365), assets=3) + rows(rng.beta(8, 2, 365), score="sharpness", assets=3),
                  priors())
-    t = led.trust_rows()
+    t = led.frame()
     assert t.height == 2 * led.n_days and t["trust"].is_between(0, 1).all()

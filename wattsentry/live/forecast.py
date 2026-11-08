@@ -1,21 +1,16 @@
-"""Next-15-min forecasts per home and feeder (card #128, team/contracts/live.md).
+"""Next-15-min forecasts per home and feeder.
 
-Model check (#128 thread [294], [317]): M1 pvnet_fc and M2 LoadNet in forecast mode are reused as they are, no
-retraining. The replay asks them once per home per local day (t0 = local midnight, inputs = history before the
-day + forecast weather), so the step we need is a slice of that day-ahead envelope: it reads no reading at or after
-t0 of its day. Never the nowcast (pv_now): it reads actual weather for the target step.
-
-The nets are not autoregressive, so 15 min ahead they are day-ahead quality. Three methods are stored every tick:
+M1 pvnet_fc and M2 LoadNet are reused as in the replay: asked once per home per local day (t0 = local midnight,
+history before the day + forecast weather), then sliced per step, so no reading at or after t0 is used (never the
+pv_now nowcast, which reads actual weather). Three methods are stored every tick:
 - `model`:       the day-ahead envelope's step for the target ts.
 - `persistence`: PV = last reading x clear-sky-index ratio (cos zenith), load = last reading.
 - `corrected`:   model + ALPHA x last residual (actual - model q50 at the step that just ended), the headline.
-  Spike [317] (F07, demo week): feeder net nMAE model 0.097, persistence 0.062, corrected 0.051. ALPHA = 0.9 is the
-  spike's value, not fit on cal days yet.
 A home whose last reading is missing falls back to `model` for the other two methods.
 
-Net (export after the battery rule, + = export) per quantile: the self-consumption rule applied from the current
-battery state to (pv q10, load q90), (pv q50, load q50), (pv q90, load q10). Feeder rows sum the homes: q50 is the
-sum of q50; summed q10/q90 is a conservative band, not a feeder quantile.
+Net (export after the battery rule, + = export) per quantile: the self-consumption rule from the current battery
+state on (pv q10, load q90), (pv q50, load q50), (pv q90, load q10). Feeder rows sum the homes: summed q10/q90 is a
+conservative band, not a feeder quantile.
 """
 
 from __future__ import annotations
@@ -29,13 +24,11 @@ from wattsentry.contracts.opt import self_consumption_step
 
 from .source import STEP_S, Reading
 
-ALPHA = 0.9
-METHODS = ("corrected", "model", "persistence")
-QUANTITIES = ("pv", "load", "net")
+ALPHA = 0.9  # residual weight of the `corrected` method (not fit on calibration days)
 NIGHT_CZ = 0.02  # cos zenith below this: no PV
 MAX_CSI_RATIO = 3.0
 
-# one-step version of #120's grades (team/contracts/notify.md, packages/api/src/notify/forecast.ts THRESHOLDS)
+# one-step version of the notification grades (packages/api/src/notify/forecast.ts THRESHOLDS)
 SEVERE_PEAK_RATIO = 1.3
 WATCH_RATIO = 0.9
 

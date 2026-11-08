@@ -1,15 +1,7 @@
-"""Judge inputs (team/judge-design.md §7.3): one row per witness prediction (witness, asset, local day).
-
-Two layers, shared by training (wattsentry.judge.rows) and the live loop (J4, #149), so both see the same numbers:
-
-1. **Raw row** (`RAW_COLUMNS`): plain scalars about one prediction, its substitute, the asset's recent telemetry and
-   the ledger's snapshot for its bucket. Built with `prediction_row(pred, ...)` from a contract `Prediction`
-   envelope, or in bulk from arrays with the `summarize_*` helpers (what the row generator does). Any column may be
-   missing or NaN: LightGBM handles missing values natively, and `build()` fills absent columns with NaN.
-2. **Feature matrix** (`build(rows, family)`): the numeric columns the LightGBM family model reads, in a fixed
-   order (`FEATURES[family]`).
-
-`reasons_for()` turns LightGBM feature contributions into up to 3 plain-word reasons (§7.7).
+"""Judge inputs: one row per witness prediction (witness, asset, local day), shared by training (`judge.rows`) and
+the live loop (`judge.slot`). Raw rows are plain scalars (built in bulk with the `summarize_*` helpers; any column may
+be NaN); `build(rows, family)` turns them into the LightGBM feature matrix (`FEATURES[family]`, fixed order), and
+`reasons_for()` turns feature contributions into up to 3 plain-word reasons.
 Units: energies in kWh over the local day (96 x 15 min), bands relative to the day's mean q50.
 """
 
@@ -28,34 +20,15 @@ EPS = 1e-6
 # --------------------------------------------------------------------------------------------- witnesses
 FAMILY_OF = {"pvnet": "forecast", "loadnet": "forecast", "demandnet": "forecast", "windpower": "forecast",
              "sitehealth": "detector", "windnbm": "detector"}
-LEDGER_ONLY = ("windfailure", "gridtwin")  # §7.4: too few graded outcomes; P(valid) = ledger trust
+LEDGER_ONLY = ("windfailure", "gridtwin")  # too few graded outcomes; P(valid) = ledger trust
 FAMILIES = ("forecast", "detector")
 WITNESS_CODE = {"pvnet": 0, "loadnet": 1, "demandnet": 2, "windpower": 3, "sitehealth": 10, "windnbm": 11}
-KIND_OF = {"pvnet": "site", "loadnet": "site", "sitehealth": "site", "windnbm": "turbine", "windpower": "park",
-           "demandnet": "zone", "windfailure": "turbine", "gridtwin": "feeder"}
 # Detector classes: PvFault (M4) codes 0-7, WindAnomaly (M6) codes 20-27 (same order as the contracts).
 PV_CLASSES = ["healthy", "soiling", "shading", "string_outage", "clipping", "overvoltage_trip", "battery_fade",
               "sensor_fault"]
 WIND_CLASSES = ["normal", "fault_stop", "curtailment", "icing", "underperformance", "overheating",
                 "anemometer_fault", "data_gap"]
 CLASS_CODE = {**{c: i for i, c in enumerate(PV_CLASSES)}, **{f"wind:{c}": 20 + i for i, c in enumerate(WIND_CLASSES)}}
-
-# ------------------------------------------------------------------------------------------- raw columns
-ID_COLUMNS = ["model", "model_version", "asset_id", "day", "kind", "family", "bucket"]
-CONTEXT_COLUMNS = ["battery", "seen", "month", "sky"]
-OWN_COLUMNS = ["ood_score", "ood_thr", "member_std", "energy_q50", "band_rel", "is_fallback", "telemetry_age_h",
-               "in_gap_frac", "in_frozen", "in_unit_jump", "energy_yday", "energy_scale"]
-DETECTOR_COLUMNS = ["alarm", "p_fault", "p_fault_std", "p_top", "top_class", "abn_share", "resid_yday",
-                    "park_consensus"]
-SUB_COLUMNS = ["sub_model", "sub_energy", "sub_band_rel"]
-LEDGER_COLUMNS = ["trust_cal", "trust_sharp", "trust_ap", "trust_ms", "trust_main", "prior_main", "n_eff",
-                  "trust_lo80", "trust_trend3", "band_scale", "health_alert", "sub_trust_main", "sub_n_eff"]
-# the witness's own recent outputs for this asset (drift shows as a jump against them before any outcome arrives):
-# medians over the previous 7 days and over days 8-28 back, and whether today's output repeats yesterday's exactly
-HISTORY_COLUMNS = ["hist_band_rel7", "hist_band_rel28", "hist_energy7", "hist_energy28", "hist_p_fault7",
-                   "hist_p_fault28", "hist_alarm7", "repeat_prev"]
-RAW_COLUMNS = ID_COLUMNS + CONTEXT_COLUMNS + OWN_COLUMNS + DETECTOR_COLUMNS + SUB_COLUMNS + LEDGER_COLUMNS + \
-    HISTORY_COLUMNS
 
 # ------------------------------------------------------------------------------------------- features
 COMMON = ["witness", "battery", "seen", "month_sin", "month_cos", "sky", "ood_score", "ood_ratio", "is_fallback",
@@ -151,7 +124,7 @@ def summarize_forecast(q10, q50, q90, kind: str) -> dict[str, np.ndarray]:
 
 def input_quality(y_prev: np.ndarray, valid_prev: Optional[np.ndarray] = None,
                   energy_ref: Optional[np.ndarray] = None) -> dict[str, np.ndarray]:
-    """Quality flags of the INPUT window (the day before the prediction), physics/own-history only (§5.4 spirit):
+    """Quality flags of the INPUT window (the day before the prediction), physics and own history only:
     in_gap_frac (missing or invalid share), in_frozen (same non-zero value >= 8 steps in a row), in_unit_jump
     (daily energy outside 0.2-5 x the asset's own reference energy)."""
     y = np.atleast_2d(np.asarray(y_prev, float))
@@ -230,84 +203,6 @@ def _nanstat(w: np.ndarray, fn, n: int) -> np.ndarray:
     return res
 
 
-# ----------------------------------------------------------------------------------- one envelope -> row
-def prediction_row(pred: Any, *, day: str, context: Optional[Mapping[str, Any]] = None,
-                   substitute: Any = None, ledger: Optional[Mapping[str, Any]] = None,
-                   telemetry_prev: Optional[Mapping[str, Any]] = None,
-                   thresholds: Optional[Mapping[str, Any]] = None,
-                   history: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
-    """Raw row for one contract `Prediction` (what J4's loop slot calls per prediction).
-
-    context:   battery (bool), seen (bool), month (1-12), sky (0/1/2, `sky_class`), bucket (ledger key), kind,
-               energy_scale (kWp x 1 h for PV, the asset's mean daily kWh for load, rated kW x 1 h for turbines),
-               telemetry_age_h, resid_yday (measured / expected PV yesterday - 1), park_consensus (M6).
-    substitute: the substitute's `Prediction` (same asset/day) or None.
-    ledger:    the ledger snapshot for (witness, bucket) as a dict with LEDGER_COLUMNS names (missing -> NaN).
-    telemetry_prev: {"y": [96] measured kW of the previous day, "valid": [96] 0/1, "energy_ref": kWh} or None.
-    thresholds: the witness's calibration `thresholds` ({ood, p_fault, ...}).
-    history:   this witness's earlier rows for the same asset, oldest first, one per day up to yesterday (up to 28):
-               {"energy_q50": [...], "band_rel": [...]} for forecasts, {"p_fault": [...], "alarm": [...]} for
-               detectors (the same-named columns of earlier `prediction_row` results), plus "q50_prev" (yesterday's
-               [96] q50) or "p_fault_prev" to flag a frozen repeat. Missing -> NaN (the model was trained with it).
-    """
-    ctx = dict(context or {})
-    th = dict(thresholds or {})
-    model = str(pred.model)
-    fam = family_of(model) or ("ledger_only" if model in LEDGER_ONLY else "")
-    kind_pv = "pv" if model in ("pvnet", "sitehealth") else "other"
-    s = summarize_forecast(pred.q10, pred.q50, pred.q90, kind_pv)
-    extra = dict(getattr(pred, "extra", None) or {})
-    row: dict[str, Any] = {
-        "model": model, "model_version": str(pred.model_version), "asset_id": str(pred.asset_id), "day": str(day),
-        "kind": ctx.get("kind", KIND_OF.get(model, "site")), "family": fam, "bucket": ctx.get("bucket"),
-        "battery": float(bool(ctx.get("battery", False))), "seen": float(bool(ctx.get("seen", True))),
-        "month": float(ctx.get("month", np.nan)), "sky": float(ctx.get("sky", np.nan)),
-        "ood_score": float(pred.ood_score), "ood_thr": float(th.get("ood") or np.nan),
-        "member_std": float(pred.member_std), "energy_q50": float(s["energy_q50"][0]),
-        "band_rel": float(s["band_rel"][0]), "is_fallback": float(extra.get("is_fallback", 0) or 0),
-        "telemetry_age_h": float(ctx.get("telemetry_age_h", np.nan)),
-        "energy_scale": float(ctx.get("energy_scale", np.nan)),
-        "resid_yday": float(ctx.get("resid_yday", np.nan)), "park_consensus": float(ctx.get("park_consensus", np.nan)),
-    }
-    if telemetry_prev is not None and telemetry_prev.get("y") is not None:
-        valid, eref = telemetry_prev.get("valid"), telemetry_prev.get("energy_ref")
-        q = input_quality(np.asarray(telemetry_prev["y"], float)[None],
-                          None if valid is None else np.asarray(valid)[None],
-                          None if eref is None else np.array([float(eref)]))
-        row.update({k: float(v[0]) for k, v in q.items()})
-    if pred.fault_probs:
-        probs = np.array([[pred.fault_probs.get(c, 0.0) for c in PV_CLASSES]])
-        d = detector_summary(probs, float(extra.get("p_fault_threshold") or th.get("p_fault") or 0.5),
-                             p_fault_std=np.array([extra.get("p_fault_std", np.nan)], float))
-        row.update({k: (v[0] if k == "top_class" else float(v[0])) for k, v in d.items()})
-    elif model == "windnbm":
-        cls = list(extra.get("step_classes") or [])
-        abn = [c for c in cls if c != "normal"]
-        row.update({"alarm": float(bool(pred.anomaly_class and pred.anomaly_class != "normal")),
-                    "p_fault": float(pred.anomaly_score or 0.0), "p_top": float(pred.anomaly_score or 0.0),
-                    "top_class": f"wind:{pred.anomaly_class or 'normal'}",
-                    "abn_share": (len(abn) / len(cls)) if cls else np.nan})
-    if substitute is not None:
-        ss = summarize_forecast(substitute.q10, substitute.q50, substitute.q90, kind_pv)
-        row.update({"sub_model": str(substitute.model), "sub_energy": float(ss["energy_q50"][0]),
-                    "sub_band_rel": float(ss["band_rel"][0])})
-    for c in LEDGER_COLUMNS:
-        if ledger is not None and c in ledger and ledger[c] is not None:
-            row[c] = float(ledger[c])
-    if history:
-        daily = {k: np.asarray(history[k], float)[None] for k in ("energy_q50", "band_rel", "p_fault", "alarm")
-                 if history.get(k) is not None and len(history[k])}
-        n_days = max([v.shape[1] for v in daily.values()], default=0)
-        daily = {k: np.pad(v, ((0, 0), (n_days - v.shape[1], 0)), constant_values=np.nan) for k, v in daily.items()}
-        row.update({k: float(v[0]) for k, v in history_features(daily, n_days).items()})
-        if history.get("q50_prev") is not None:
-            row["repeat_prev"] = float(repeats(np.asarray(pred.q50, float)[None],
-                                               np.asarray(history["q50_prev"], float)[None])[0])
-        elif history.get("p_fault_prev") is not None and "p_fault" in row:
-            row["repeat_prev"] = float(abs(row["p_fault"] - float(history["p_fault_prev"])) < 1e-9)
-    return row
-
-
 def repeats(today: np.ndarray, prev: np.ndarray) -> np.ndarray:
     """1 where today's output equals the previous day's step for step (a frozen witness), 0 otherwise, [N, ...]."""
     a, b = np.asarray(today, float), np.asarray(prev, float)
@@ -315,15 +210,6 @@ def repeats(today: np.ndarray, prev: np.ndarray) -> np.ndarray:
     same = np.all(np.abs(np.nan_to_num(a) - np.nan_to_num(b)) < 1e-9, axis=ax) if a.ndim > 1 else np.abs(a - b) < 1e-9
     nonzero = np.any(np.abs(np.nan_to_num(a)) > 1e-6, axis=ax) if a.ndim > 1 else np.abs(a) > 1e-6
     return (same & nonzero).astype(float)
-
-
-def rows_frame(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
-    """List of raw-row dicts -> DataFrame with every RAW_COLUMNS column present (NaN / None where missing)."""
-    df = pd.DataFrame(list(rows))
-    for c in RAW_COLUMNS:
-        if c not in df.columns:
-            df[c] = np.nan
-    return df
 
 
 # ------------------------------------------------------------------------------------------- reasons

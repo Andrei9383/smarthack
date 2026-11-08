@@ -1,41 +1,9 @@
-"""Judge priors (team/judge-design.md §6.2): what each model version and substitute achieved on its 2024
-validation year, per context bucket, with the §5.3 scores. "No record -> trust the model" reads these numbers.
+"""Judge priors: what each model version and substitute achieved on its 2024 validation year, per context bucket
+(the trust used when the ledger has no record yet). Forecasts get calibration / sharpness, detectors alarm_precision /
+miss_score, scored on the synthetic fleet; M6, M3, M7, M8 come from their reports (source stated in the JSON).
 
-    python -m wattsentry.judge.priors --out DIR [--quick] [--sites 120 --days 30]   # lab: --run eval
+    python -m wattsentry.judge.priors --out DIR [--quick] [--sites 120 --days 30]
     python -m wattsentry.judge.priors --apply RUN_OUTPUT_DIR_OR_SAVED_LOG             # install into models/
-
-Scored here on the synthetic RO fleet (#11 + #12 faults), validation year 2024, half seen / half unseen sites:
-- forecasts, one score per asset-day:
-  - `calibration` = 1 - |hit - 0.80| / 0.80; hit = share of steps with q10 <= y <= q90, over daylight steps for PV
-    (measured PV or yesterday's PV > 10 W, model-independent) and all steps for load.
-  - `sharpness` = clip(1 - IS_model / IS_ref, 0, 1), IS = interval (Winkler) score, alpha = 0.2, mean over the same
-    steps. References (the next source down the substitute chain):
-    pvnet -> lgbm_pv, lgbm_pv -> pvlib, pvlib -> day-ahead persistence (yesterday's measured PV, zero-width band);
-    loadnet -> lgbm_load, lgbm_load -> persistence_load, persistence_load -> week-ahead persistence (same step last
-    week; the zero-width band of yesterday would be persistence_load itself).
-- detectors (sitehealth, threshold_cusum) on the #12-injected copy of the same site-days:
-  - `alarm_precision` on alarm days (p_fault >= threshold): 1 if the called class is the active fault, 0.5 if another
-    fault is active, 0 if healthy;
-  - `miss_score` on healthy-call days: 0 if a fault is active that day, else 1.
-  The labels (fault_labels) are used here only: this is offline prior estimation, never the live loop (§5.1).
-- Buckets (wattsentry.judge.buckets): kind=site, seen = split == "train", battery = battery_kwh > 0, season from the
-  day, quality gappy if > 10 % of the day's measured steps are missing, ood_high = ood_score > the model's
-  thresholds.ood (False for substitutes, which have no OOD score). Every ancestor key down to the root "*" gets the
-  mean score and n (asset-days).
-
-Not scored on data here (source stated in the JSON):
-- M6 windnbm / windmon_rules: `"source": "report"` from models/reports/r135-windnbm.report.json (event-level
-  metrics on the synthetic wind parks; windnbm: validation split, seen parks, held-out park WP2; windmon: test).
-  alarm_precision ~ precision x (0.5 + 0.5 x class-correct recall) (a right alert with the wrong class scores 0.5);
-  miss_score ~ 1 - missed actionable episodes per turbine-day / normal-call turbine-days.
-- M3 demandnet: #44 report (insights, real RO 2025): calibration from 10-90 coverage 0.74, sharpness ~ 1 - nMAE /
-  persistence nMAE (0.039 / 0.067). persistence_zone: zero-width band -> calibration 0, sharpness 0 (it is the
-  reference). M7 windfailure / residual_trend: results.md row 12 (train#379, syn RO). M8 gridtwin: results.md row 10
-  (replay#506) flag precision; gis_recorded never flags -> default 0.5.
-
-Outputs in --out: a copy of every promoted calibration JSON with a `priors` key added (pvnet.s0-s3 share the nowcast
-ensemble's priors, loadnet.s0-s3 likewise), windnbm.priors.json (M6 has no calibration JSON), judge_priors.json
-(substitutes + ledger-only models), and `LAB_METRIC prior_<model>_<score>=v` for each root prior.
 """
 
 from __future__ import annotations
@@ -52,11 +20,11 @@ import pandas as pd
 
 from wattsentry.infra.metrics import emit
 from wattsentry.judge.buckets import ROOT, bucket_key, season_of, truncate
+from wattsentry.judge.rows import interval_score
 
 VAL_YEAR = 2024
 H = 96
 HIST_DAYS = 14
-ALPHA = 0.2
 TARGET = 0.80
 SPLIT = f"val-{VAL_YEAR}"
 REPO = Path(__file__).resolve().parents[2]
@@ -70,12 +38,6 @@ LOAD_REF = {"loadnet": "lgbm_load", "lgbm_load": "persistence_load", "persistenc
 
 
 # ---------------------------------------------------------------- scores (vectorised over [cases, 96])
-
-def interval_score(q10: np.ndarray, q90: np.ndarray, y: np.ndarray, alpha: float = ALPHA) -> np.ndarray:
-    """Per-step Winkler score: width + 2/alpha x distance outside the band (NaN where y is NaN)."""
-    lo, hi = np.minimum(q10, q90), np.maximum(q10, q90)
-    return (hi - lo) + (2 / alpha) * np.clip(lo - y, 0, None) + (2 / alpha) * np.clip(y - hi, 0, None)
-
 
 def _masked_mean(x: np.ndarray, m: np.ndarray) -> np.ndarray:
     m = m & np.isfinite(x)
@@ -173,8 +135,8 @@ def wind_priors(report_path: Path) -> tuple[dict, dict, str]:
 
 def ledger_only_priors(run: str) -> dict[str, dict]:
     """M3, M7, M8 and their substitutes (overall priors, source stated)."""
-    cov, nmae, nmae_p = 0.74, 0.039, 0.067  # #44, team/insights.md (real RO load, test 2025)
-    flag_prec = (0.833 * 54 + 16) / (0.833 * 54 / 0.692 + 16)  # results.md row 10: phase + feeder flags
+    cov, nmae, nmae_p = 0.74, 0.039, 0.067  # DemandNet on real RO load, test 2025
+    flag_prec = (0.833 * 54 + 16) / (0.833 * 54 / 0.692 + 16)  # phase + feeder flag precision of M8
     fa_days = lambda fa_per_year: fa_per_year * 14 / 365  # a false alarm stays raised ~14 days  # noqa: E731
     return {
         "demandnet": dict(model_version="demandnet-44", source="report",
@@ -353,7 +315,7 @@ def score_validation(args) -> tuple[dict, dict]:
 # ---------------------------------------------------------------- main
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Judge priors on the 2024 validation year (§6.2)")
+    ap = argparse.ArgumentParser(description="Judge priors on the 2024 validation year")
     ap.add_argument("--out", type=Path, help="output directory (required unless --apply)")
     ap.add_argument("--apply", type=Path, help="install a run's priors (output dir or saved log) into --models")
     ap.add_argument("--models", type=Path, default=REPO / "models")

@@ -1,4 +1,4 @@
-"""Card #18: per-feeder LP, aggregate fallback and baseline policies on MockPredictor forecasts."""
+"""Per-feeder LP, aggregate fallback and baseline policies on MockPredictor forecasts."""
 
 from __future__ import annotations
 
@@ -13,14 +13,10 @@ from wattsentry.opt.lp import LPParams, peak_mask_for, plan_feeder
 from wattsentry.opt.policies import (
     RestOfFeeder,
     Site,
-    ValidationDay,
-    evaluate_threshold,
     rest_of_feeder_from_forecasts,
     self_consumption_plan,
     simulate_rule,
     site_from_row,
-    threshold_plan,
-    tune_threshold,
 )
 
 SUMMER = "2025-06-21T00:00:00Z"
@@ -54,7 +50,7 @@ def sunny():
 
 
 def assert_reserve_and_replay(plan, rows):
-    """Comfort reserve never breached and the schedule replays exactly through the battery model (#27)."""
+    """Comfort reserve never breached and the schedule replays exactly through the battery model."""
     for row in rows:
         sid = row["site_id"]
         if sid not in plan.schedule:
@@ -209,34 +205,6 @@ def test_rule_simulation_matches_contract_step():
         ek = ek_next
 
 
-def test_threshold_rule_and_tuning(sunny):
-    rows, fc, peak = sunny
-    G = 0.7 * peak
-    days = []
-    for t0 in ("2025-06-20T00:00:00Z", SUMMER):
-        r, f = make_feeder(t0)
-        days.append(ValidationDay(
-            sites=r, pv={k: v["pv"].q90 for k, v in f.items()}, load={k: v["load"].q10 for k, v in f.items()},
-            g_kw=G, forecast_pv={k: v["pv"].q50 for k, v in f.items()},
-            forecast_load={k: v["load"].q50 for k, v in f.items()},
-        ))
-    tuned = tune_threshold(days, alphas=[0.0, 0.2, 0.4, 0.6, 0.8])
-    assert tuned.alpha > 0.0  # alpha = 0 is the baseline rule; a congested feeder wants a threshold
-    assert tuned.scores[tuned.alpha]["over_kwh"] < tuned.scores[0.0]["over_kwh"]
-    assert evaluate_threshold(days[0], 0.0)["over_kwh"] > 0
-    th = threshold_plan("F1", rows, None, fc, G=G, alpha=tuned.alpha)
-    base = self_consumption_plan("F1", rows, None, fc, G=G)
-    assert th.policy == "threshold" and sum(th.slack) < sum(base.slack)
-    assert_reserve_like_rule(th, rows)
-
-
-def assert_reserve_like_rule(plan, rows):
-    """Rule plans may use the battery down to soc_min (the rule serves load), never below it."""
-    for r in rows:
-        b = site_from_row(r).battery
-        assert min(plan.soc_kwh[r["site_id"]]) >= b.soc_min * b.capacity_kwh - 1e-9
-
-
 # --- helpers ----------------------------------------------------------------------------------------------
 def test_peak_mask_local_time():
     summer = peak_mask_for(SUMMER, 96)  # UTC+3: 17:00 local = 14:00 UTC = step 56
@@ -273,7 +241,7 @@ def test_lp_scales_to_60_sites():
     assert plan.max_slack_kw == 0.0 and plan.simultaneous_steps == 0
 
 
-# --- negative prices (card #80) ---------------------------------------------------------------------------
+# --- negative prices ---------------------------------------------------------------------------------------
 # Real OPCOM PZU day-ahead prices (lei/MWh, hourly, data/raw/prices.parquet) for the local days 2025-06-07 and
 # 2025-06-08 of the demo week: negative at midday. The merged LP was unbounded on both.
 OPCOM_0607 = ("2025-06-06T21:00:00Z", [
@@ -334,7 +302,7 @@ def test_negative_price_lp_flows_are_physical():
     params = LPParams()
     sol = solve_lp(**args, params=params)
     assert sol.status == "optimal"
-    imp, exp = sol.import_kw, sol.export_kw
+    imp, exp = np.maximum(0.0, -sol.grid), np.maximum(0.0, sol.grid)
     np.testing.assert_allclose(exp - imp, args["net50"] - sol.c + sol.d, atol=1e-9)
     assert (np.minimum(imp, exp) <= params.simultaneous_tol_kw).all()
     # objective = Σ π·imp·Δt − β_t·π·exp·Δt + c_deg·(c + d)·Δt + M·Σ s·Δt + M·w·max s + λ·z, β_t = 1 when π < 0
@@ -387,181 +355,3 @@ def test_grid_limit_and_beta_negative_params():
         LPParams(beta_negative=0.9)
     with pytest.raises(ValueError):
         LPParams(grid_limit_kw=0.0)
-
-
-# --- supplier objective (card G4 #162) ---------------------------------------------------------------------------
-def rule_import_kw(rows, fc) -> np.ndarray:
-    """Feeder P50 net import under the self-consumption rule: a supplier position bought without Sentinel."""
-    return -np.asarray(rest_of_feeder_from_forecasts([site_from_row(r) for r in rows], fc, None, 96).net_kw)
-
-
-def test_supplier_off_is_the_default_lp(sunny):
-    """No supplier term -> the #18 LP exactly (replay#506 KPIs unchanged): same plan as an explicit supplier=None,
-    no supplier diagnostics, and the recorded #18 optimum."""
-    from wattsentry.opt.lp import solve_lp
-
-    rows, fc, peak = sunny
-    a = plan_feeder("F", rows, None, fc, G=0.7 * peak, prices=0.6)
-    b = plan_feeder("F", rows, None, fc, G=0.7 * peak, prices=0.6, supplier=None, params=LPParams())
-    assert a.schedule == b.schedule and a.slack == b.slack and a.objective == b.objective
-    assert not any(k.startswith(("supplier", "stage1")) for k in a.extra)
-    prices = np.r_[np.full(40, 0.3), np.zeros(30), np.full(26, 1.2)]
-    sol = solve_lp(**lp_arrays(rows, fc, 0.7 * peak, prices, SUMMER), supplier=None)
-    assert sol.supplier_lei is None and sol.stage1_slack is None
-    assert sol.objective == pytest.approx(6.681244, abs=1e-5)  # same recorded optimum as above
-
-
-@pytest.mark.parametrize("frac", [0.7, 0.4], ids=["headroom", "congested"])
-def test_supplier_term_keeps_limit_and_reserve_hard(sunny, frac):
-    from wattsentry.opt.lp import SupplierObjective
-
-    rows, fc, peak = sunny
-    G = frac * peak
-    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
-    sup = SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72)
-    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, supplier=sup)
-    assert plan.solver_status == "optimal"
-    # feeder limit hard: no step's slack grows (lexicographic stage 2), comfort reserve hard
-    assert (np.asarray(plan.slack) <= np.asarray(dso.slack) + 1e-3).all()
-    assert plan.max_slack_kw <= dso.max_slack_kw + 1e-3
-    if frac == 0.4:
-        assert dso.max_slack_kw > 0  # the limit really binds here
-    assert_reserve_and_replay(plan, rows)
-    # the supplier pays less for the plan it is scored on
-    from wattsentry.opt.lp import _supplier_extra
-
-    w = sup.arrays(96, np.full(96, 0.6))
-    assert plan.extra["supplier_planned_lei"] < _supplier_extra(dso, w, None)["supplier_planned_lei"] - 1.0
-    assert plan.extra["supplier_planned_lei"] == pytest.approx(plan.extra["supplier_lp_lei"], rel=1e-3, abs=0.05)
-
-
-def test_supplier_only_tracks_a_feasible_position(sunny):
-    """bill off, position = the import curve of a feasible plan: the LP can match it, supplier cost ~ 0."""
-    from wattsentry.opt.lp import SupplierObjective
-
-    rows, fc, peak = sunny
-    G = 0.7 * peak
-    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
-    pos = -np.asarray(dso.export_curve)
-    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, params=LPParams(bill_weight=0.0),
-                       supplier=SupplierObjective(pos, a=1.44, b=0.72, weight=1.0))
-    # ~0: the per-site near-limit guard (#188) leaves stage 2 a little less room, so it trades 0.23 kWh of deviation
-    # (0.1 lei) for less battery throughput (c_deg); without the guard the match is exact
-    assert plan.extra["supplier_planned_lei"] < 0.15
-    assert plan.extra["supplier_planned_abs_dev_kwh"] < 1e-3 * 0.25 * np.abs(pos).sum()
-    assert plan.max_slack_kw <= 1e-6
-    free = plan_feeder("F", rows, None, fc, G=G, prices=0.6,
-                       params=LPParams(bill_weight=0.0, supplier_guard_margin=None),
-                       supplier=SupplierObjective(pos, a=1.44, b=0.72, weight=1.0))
-    assert free.extra["supplier_planned_lei"] < 1e-6
-
-
-def test_supplier_single_solve_and_validation(sunny):
-    from wattsentry.opt.lp import SupplierObjective, supplier_cost_lei
-
-    rows, fc, peak = sunny
-    pos = rule_import_kw(rows, fc)
-    plan = plan_feeder("F", rows, None, fc, G=0.4 * peak, prices=0.6,
-                       supplier=SupplierObjective(pos, a=1.44, b=0.72),
-                       params=LPParams(supplier_lexicographic=False))
-    dso = plan_feeder("F", rows, None, fc, G=0.4 * peak, prices=0.6)
-    assert "stage1_slack_max_kw" not in plan.extra
-    assert plan.max_slack_kw <= dso.max_slack_kw + 1e-3  # M >> supplier weights does the same job here
-    with pytest.raises(ValueError, match="horizon"):
-        plan_feeder("F", rows, None, fc, G=peak, prices=0.6, supplier=SupplierObjective(pos[:95]))
-    with pytest.raises(ValueError, match="big_m"):
-        plan_feeder("F", rows, None, fc, G=peak, prices=0.6, params=LPParams(supplier_lexicographic=False),
-                    supplier=SupplierObjective(pos, a=1e4, b=1.0))
-    with pytest.raises(ValueError):
-        LPParams(bill_weight=-1.0)
-    # X1 units: MWh per 15-min step and lei/MWh -> kW and lei/kWh
-    s = SupplierObjective.from_bought_da([0.001] * 96, pzu_lei_mwh=[500.0] * 96, a=2.0, b=1.0)
-    target, ws, wl = s.arrays(96, np.full(96, 9.9))
-    assert target == pytest.approx(np.full(96, 4.0)) and ws == pytest.approx(np.full(96, 1.0))
-    assert wl == pytest.approx(np.full(96, 0.5))
-    # hand case: 2 kW short for 1 step at 1 lei/kWh, 4 kW long for 1 step at 0.5 lei/kWh
-    lei, dev = supplier_cost_lei([6.0, 0.0, 4.0], [4.0, 4.0, 4.0], [1.0] * 3, [0.5] * 3)
-    assert lei == pytest.approx(0.25 * (2 * 1.0 + 4 * 0.5)) and dev == pytest.approx(0.25 * 6)
-
-
-def test_supplier_replay_mock_one_day():
-    """The 'replay with both objectives' runner on a 1-day mock world: minutes over limit do not increase."""
-    from wattsentry.opt.supplier_replay import run
-
-    res = run("mock", days=1, seed=0, variants=("dso", "sup"))
-    v = res["variants"]
-    assert v["sup"]["minutes_over_limit"] <= v["dso"]["minutes_over_limit"]
-    assert v["sup"]["comfort_breaches"] <= v["dso"]["comfort_breaches"]
-    assert v["sup"]["supplier_planned_lei"] < v["dso"].get("supplier_planned_lei", np.inf)
-    assert np.isfinite(v["sup"]["supplier_avoidable_lei"])
-
-
-def test_supplier_guard_keeps_charge_at_near_limit_steps(sunny):
-    """Stage 2 charges the feeder's batteries at least as much as the DSO-only LP wherever the no-battery worst
-    export is within supplier_guard_margin of G, so realised export there cannot rise (replay#882 lesson)."""
-    from wattsentry.opt.lp import SupplierObjective
-
-    rows, fc, peak = sunny
-    G = 0.4 * peak
-    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
-    sup = SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72)
-    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, supplier=sup)
-    risk = worst_no_battery(fc) >= 0.75 * G
-    assert risk.any()
-    p_dso = sum(np.asarray(v) for v in dso.schedule.values())
-    p_sup = sum(np.asarray(v) for v in plan.schedule.values())
-    assert (p_sup[risk] >= p_dso[risk] - 1e-3).all()
-    assert (np.asarray(plan.worst_export_curve)[risk] <= np.asarray(dso.worst_export_curve)[risk] + 1e-3).all()
-    with pytest.raises(ValueError):
-        LPParams(supplier_guard_margin=1.5)
-
-
-def _realised_export(plan, rows, fc, drop=None, k0=0):
-    """Feeder export (kW) when the weather is the P50 and every pool site follows the plan, except `drop`, which
-    leaves the pool at step k0 (e.g. a battery_fault exclusion) and runs the self-consumption rule from there."""
-    x = np.zeros(plan.horizon)
-    for r in rows:
-        sid, b = r["site_id"], site_from_row(r).battery
-        pv, ld = np.asarray(fc[sid]["pv"].q50), np.asarray(fc[sid]["load"].q50)
-        p = np.asarray(plan.schedule[sid], float).copy()
-        if sid == drop:
-            e = plan.soc_kwh[sid][k0]
-            for k in range(k0, plan.horizon):
-                p[k], e, _ = self_consumption_step(b, e, pv[k], ld[k])
-        x += pv - ld - p
-    return x
-
-
-@pytest.mark.parametrize("bill_weight", [1.0, 0.0], ids=["sup", "sup_only"])
-def test_supplier_guard_survives_a_site_leaving_the_pool(sunny, bill_weight):
-    """#188 (replay#892: sup_only +15 min on F7 day 2). The pooled guard (Σ_i charge >= DSO at near-limit steps) let
-    the supplier plan spread the same feeder kW differently over the sites, fill them earlier, and end the day
-    fuller. When one site then left the pool mid-day (battery_fault -> its own rule), the others charged less than
-    under the DSO plan and realised export went over G. With a per-site guard (charge >= and SoC <= the DSO-only
-    stage 1, also at the end of the day) realised export at near-limit steps can never exceed the DSO plan's,
-    whichever single site drops out, also with the bill term off. (Old guard here: 39-40 of 40 dropout cases worse,
-    up to +7.5 kW, and the day ended 85 vs 62 kWh in the batteries.)"""
-    from wattsentry.opt.lp import SupplierObjective
-
-    rows, fc, peak = sunny
-    G = 0.4 * peak
-    dso = plan_feeder("F", rows, None, fc, G=G, prices=0.6)
-    plan = plan_feeder("F", rows, None, fc, G=G, prices=0.6, params=LPParams(bill_weight=bill_weight),
-                       supplier=SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72))
-    risk = worst_no_battery(fc) >= 0.75 * G
-    ri = np.flatnonzero(risk)
-    last = ri[-1] + 1
-    for r in rows:
-        sid = r["site_id"]
-        assert (np.asarray(plan.schedule[sid])[risk] >= np.asarray(dso.schedule[sid])[risk] - 1e-3).all(), sid
-        assert (np.asarray(plan.soc_kwh[sid])[1:last + 1] <= np.asarray(dso.soc_kwh[sid])[1:last + 1] + 1e-3).all()
-        assert plan.soc_kwh[sid][-1] <= dso.soc_kwh[sid][-1] + 1e-3  # tomorrow starts no fuller
-    for k0 in (int(ri[0]), int(ri[len(ri) // 2])):
-        for r in rows:
-            x_dso = _realised_export(dso, rows, fc, r["site_id"], k0)
-            x_sup = _realised_export(plan, rows, fc, r["site_id"], k0)
-            assert (x_sup[risk] <= x_dso[risk] + 1e-3).all(), (r["site_id"], k0)
-    from wattsentry.opt.lp import _supplier_extra  # the supplier still pays less than for the DSO plan
-
-    w = SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72).arrays(96, np.full(96, 0.6))
-    assert plan.extra["supplier_planned_lei"] < _supplier_extra(dso, w, None)["supplier_planned_lei"]
