@@ -15,6 +15,7 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { Fold, Metric, MetricRow } from "@/panels/disclosure";
+import { VerdictCard } from "@/panels/judge/verdict-card";
 import { timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { dayName, wallClock } from "@/panels/site/time";
@@ -396,6 +397,8 @@ function TurbineView({ assetId }: { assetId: string }) {
             </p>
           )}
         </section>
+
+        <VerdictCard assetId={assetId} className="mt-4" />
 
         {order ? (
           <Fold
