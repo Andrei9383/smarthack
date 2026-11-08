@@ -104,3 +104,20 @@ Earlier runs: 322 (interim weights, LP fallback on 10 days) 2880 min / P10 83.4 
 
 Reproduce: `make replay-demo` builds the caches in `.lab-out/reproduce/` (~6 min) and runs replay#506's commands
 (~20 s); its KPIs match #506. It refuses to overwrite `demo/sentinel.sqlite` unless `PROMOTE=1`.
+
+## Feature G grid documents: `demo/grid/` (card #193)
+`feeders.getGrid` reads `SENTINEL_GRID_DIR`, then the writers' default `--out` dirs, then `demo/grid/`. The three files
+are the exact outputs of **replay#1092** (card #193, worker laptop, commit `359d88fe5e`, Rust kernels), copied out of
+the run log with `scripts/demo_data_load.py` (sha256 checked against the log markers):
+`lab submit 193 --run replay --needs gpu --cmd ".venv/bin/python scripts/demo_data_dump.py grid"` = G3
+`python -m sentinel.eval.dso_value --world sim --build-caches --run-g1` (G1 hosting capacity in the same run) and
+G2 `python -m sentinel.gridtwin.voltage --world sim`. Same week and world as replay#506; `demo/sentinel.sqlite` is not
+touched, so the KPIs above are unchanged.
+
+| file | what | numbers (run 1092) |
+|---|---|---|
+| `hosting_capacity.json` | G1, synthetic RO, 15 fleet feeders, seed 0 | +151 homes at 30 min/week (255 -> 406), +132 at 0 min; without batteries +93 / +86; Sentinel never below baseline. F3/F6/F7 (already over the limit today) take 0 under every policy |
+| `dso_value.json` | G3 deferred capex (proxy: placeholder 500k lei per feeder, r 7 %, growth 15 %/yr) + GridTwin | 488,005 lei on G1's +151; DEO basis other-operator; gis_recovery_rate 0.871; moved home 1425 F7 -> F11 |
+| `voltage.json` | G2, topology non-RO (IEEE European LV feeder), homes synthetic RO | busbar 1.03 pu: 118 -> 79 steps over 253 V, inverter trips 858 -> 472 kWh. `run_id` added by hand (voltage.py writes it only after the file) |
+
+Without `voltage.json` the Feeders grid sheet leaves the voltage section out.

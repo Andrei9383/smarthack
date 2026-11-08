@@ -1,47 +1,47 @@
 {
  "model": "windnbm",
- "model_version": "windnbm-r135",
+ "model_version": "windnbm-r674-lf",
  "priors": {
   "version": 1,
   "split": "val-2024",
-  "source_run": "train#135",
+  "source_run": "train#674",
   "source": "report",
-  "note": "event metrics from r135 report: validation split (*, turbine), seen parks test (turbine|seen), held-out park WP2 test (turbine|unseen)",
+  "note": "event metrics from r674 report (#202, sentinel.judge.priors.wind_priors): validation split (*, turbine), seen parks test (turbine|seen), held-out park WP2 test (turbine|unseen); #22 ERA5 parks",
   "scores": {
    "alarm_precision": {
     "*": {
-     "prior": 0.76349,
-     "n": 974
+     "prior": 0.87279,
+     "n": 782
     },
     "turbine": {
-     "prior": 0.76349,
-     "n": 974
+     "prior": 0.87279,
+     "n": 782
     },
     "turbine|seen": {
-     "prior": 0.79108,
-     "n": 3574
+     "prior": 0.88527,
+     "n": 1908
     },
     "turbine|unseen": {
-     "prior": 0.71363,
-     "n": 1250
+     "prior": 0.78498,
+     "n": 969
     }
    },
    "miss_score": {
     "*": {
-     "prior": 0.98963,
-     "n": 974
+     "prior": 0.99192,
+     "n": 782
     },
     "turbine": {
-     "prior": 0.98963,
-     "n": 974
+     "prior": 0.99192,
+     "n": 782
     },
     "turbine|seen": {
-     "prior": 0.97594,
-     "n": 3574
+     "prior": 0.99615,
+     "n": 1908
     },
     "turbine|unseen": {
-     "prior": 0.97392,
-     "n": 1250
+     "prior": 0.99096,
+     "n": 969
     }
    }
   }
