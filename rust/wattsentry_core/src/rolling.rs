@@ -1,4 +1,4 @@
-//! Causal NaN-aware rolling mean along axis 0 (K4). Python reference:
+//! Causal NaN-aware rolling mean along axis 0. Python reference:
 //! `wattsentry.kernels.rolling.rolling_mean_py` (source of truth).
 //!
 //! x is row-major [t, m]. With prefix sums S (finite values, NaN/inf -> +0.0) and N (finite counts), S[0] = N[0] = 0:

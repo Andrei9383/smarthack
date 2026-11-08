@@ -1,4 +1,4 @@
-"""Schedule fault episodes per site, apply them, re-simulate the battery, write labels (data.md fault_labels).
+"""Schedule fault episodes per site, apply them, re-simulate the battery, write fault_labels rows.
 
 Episodes on one site never overlap (one PvFault class at a time, so a site-day has exactly one label), and an
 episode that turns out to have no visible effect (e.g. shading in a sector the sun never reaches that season) is
@@ -93,8 +93,8 @@ def _resimulate_battery(arrays, rows, starts, cf, pf, bp: BatteryParams) -> None
     soc0, batt0 = arrays["soc"][rows].astype(float), arrays["batt_w"][rows].astype(float)
     cap = bp.capacity_kwh[rows]
     e = np.nan_to_num(soc0[:, t0 - 1]) * cap if t0 > 0 else 0.5 * cap
-    # The per-step loop (capacity/power derating + apply_power, original series kept before each row's onset) is
-    # kernel K7: numpy reference wattsentry.kernels.battery_resim_py, Rust copy when built (#134).
+    # Per-step loop (capacity/power derating + apply_power, original series kept before each row's onset):
+    # numpy reference wattsentry.kernels.battery_resim_py, Rust copy when built.
     batt, soc = kernels.battery_resim(pv - load, soc0, batt0, cf[rows], pf[rows], start, e, cap, bp.p_max_kw[rows],
                                       bp.eta_charge[rows], bp.eta_discharge[rows], bp.soc_min[rows],
                                       bp.soc_max[rows], t0, 0.25)
@@ -125,7 +125,8 @@ def inject_batch(ts: pd.DatetimeIndex, arrays: dict[str, np.ndarray], sites: pd.
             snap = {k: v[i0:i1].copy() for k, v in cols.items()}
             ep = Episode(ts, cols, site, i0, i1, rng)
             if kind == "overvoltage_trip":
-                ep.extra["threshold_v"] = overvoltage_threshold(cols["inv_voltage_v"][i0:i1], cols["pv_ac_w"][i0:i1], rng)
+                ep.extra["threshold_v"] = overvoltage_threshold(cols["inv_voltage_v"][i0:i1], cols["pv_ac_w"][i0:i1],
+                                                                rng)
                 if ep.extra["threshold_v"] is None:
                     continue
             params, severity = APPLY[kind](ep)

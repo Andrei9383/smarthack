@@ -1,32 +1,23 @@
-"""OPCOM intraday (PI) trades -> volume-weighted price per 15-min delivery interval (#171, spec I step 1b).
+"""OPCOM intraday (PI) trades -> volume-weighted price per 15-min delivery interval.
 
     python -m wattsentry.data.opcom_pi                    # test year 2025 -> data/raw/prices_pi.parquet + MANIFEST
     python -m wattsentry.data.opcom_pi --offline          # rebuild from the response cache only, no network
     python -m wattsentry.data.opcom_pi --cache DIR        # keep raw responses somewhere else (default data/.cache)
 
-OPCOM has no export for PI, so this reads the public "Tranzactii PI" page: one form POST per trading date for
-the 15-min product (`tip=15`), and `tip=60` only where that page is empty. The committed Parquet is the product:
-`make reproduce` never runs this.
-Terms (opcom.ro/disclaimer/133/ro, checked 2026-11-07): public data may be downloaded for internal,
-non-commercial use with the source credited (OPCOM); republishing or redistributing it needs OPCOM's written
-consent. robots.txt allows every path. So: polite (6 s idle between requests by default, a 403 stops the run,
-a descriptive User-Agent, every response cached so the year is downloaded once), and the data stays inside the
-private repo.
+OPCOM has no PI export, so this POSTs the public "Tranzactii PI" form once per trading date (`tip=15`, and `tip=60`
+only where that page is empty). The committed Parquet is the product: `make reproduce` never runs this.
+Terms (opcom.ro/disclaimer/133/ro): internal, non-commercial use with OPCOM credited; no redistribution. Hence
+polite: 6 s between requests, a 403 stops the run, every response cached, data stays in the private repo.
 
-The page lists the trades *concluded on* the chosen date. A label without a prefix (`14-15_XB`,
-`14:15-14:30_XB`) is delivery on that date; `T14-T15` is the next day and `TT00` the boundary after it. So a
-delivery day D needs the pages of D-1 and D. Labels are CET/CEST, the SIDC market time, not Romanian time:
-on 30 Mar 2025 the skipped hour is `02`, which only CET skips (EET skips 03:00). The Romanian delivery day
-starts at 23:00 CET of the day before, so the year also needs the page of 30 Dec of the previous year.
-Each row is one RO participant's side of a trade (`cumparare` = buy, `vanzare` = sell), price lei/MWh.
+Labels: the page lists trades *concluded on* the date. `14-15_XB` / `14:15-14:30_XB` deliver that date, `T14-T15`
+the next day, `TT00` the boundary after it, so delivery day D needs the pages of D-1 and D. Labels are CET/CEST
+(SIDC market time; on 30 Mar 2025 the skipped hour is `02`), and the RO delivery day starts at 23:00 CET the day
+before, so the year also needs 30 Dec of the previous year. Rows are one RO participant's side of a trade
+(`cumparare` = buy, `vanzare` = sell), price lei/MWh. Volume is labelled MWh but traded in 0.1 MW steps, so it is
+read as MW: energy per quarter = volume x 0.25 MWh (affects only the `*_volume_mwh` columns, not VWAP).
 
-Volume: OPCOM labels the column MWh, but both products trade in 0.1 steps (the SIDC MW granularity), so the
-number is read as MW of contracted power: energy in one quarter = volume x 0.25 MWh for either product.
-VWAP is unaffected by this choice; only the `*_volume_mwh` columns are.
-
-The HTML is treated as untrusted data: it is tokenised with the stdlib HTMLParser (no execution, no eval) and
-every number is validated. The table is malformed (continuation rows close `</tr>` without opening one), so
-cells are read in document order instead of row by row.
+The HTML is untrusted: tokenised with the stdlib HTMLParser and every number validated. The table is malformed
+(continuation rows close `</tr>` without opening one), so cells are read in document order.
 """
 
 from __future__ import annotations
@@ -58,7 +49,7 @@ RO_TZ = zoneinfo.ZoneInfo("Europe/Bucharest")  # the delivery year / grid
 LABEL_TZ = zoneinfo.ZoneInfo("Europe/Brussels")  # CET/CEST: time zone of the PI labels
 UTC = dt.timezone.utc
 TEST_YEAR = 2025
-MIN_GAP_S = 6.0  # idle seconds between requests (card: >= 1 s; OPCOM answered 403 after ~37 pages at 1.5 s)
+MIN_GAP_S = 6.0  # idle seconds between requests (OPCOM answered 403 after ~37 pages at 1.5 s)
 SIDES = {"cumparare": "buy", "vanzare": "sell"}
 LABEL = re.compile(r"^(T*)(\d{1,2})(?::(\d{2}))?-(T*)(\d{1,2})(?::(\d{2}))?(?:_(\w+))?$")
 SCHEMA_COLS = ["ts", "pi_vwap_lei_mwh", "pi_volume_mwh", "pi_trades", "pi_product",
@@ -297,10 +288,11 @@ class Client:
             try:
                 if self.token is None:
                     self._refresh()
-                body = urllib.parse.urlencode(dict(_token=self.token, ziua=day.strftime("%d/%m/%Y"), buton="Refresh",
-                                                   action="trading_for", limba="ro", tip=tip)).encode()
+                body = urllib.parse.urlencode(dict(_token=self.token, ziua=day.strftime("%d/%m/%Y"),
+                                                   buton="Refresh", action="trading_for", limba="ro",
+                                                   tip=tip)).encode()
                 html = self._open(body)
-                caption, trades = parse_page(html)
+                caption, _ = parse_page(html)
                 if page_date(caption) != day:  # stale token / session: the site re-renders today's page
                     raise PermissionError(f"caption {caption!r}")
                 p.parent.mkdir(parents=True, exist_ok=True)

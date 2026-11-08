@@ -32,7 +32,7 @@ class BatteryParams:
 
     @classmethod
     def from_sites(cls, sites: pd.DataFrame) -> "BatteryParams":
-        """From a `sites` table (data.md column names, the same fields as BatterySpec)."""
+        """From a `sites` table (the same fields as BatterySpec)."""
         return cls(
             capacity_kwh=sites.battery_kwh.to_numpy(float),
             p_max_kw=sites.battery_kw.to_numpy(float),
@@ -50,6 +50,7 @@ class BatteryParams:
     @property
     def e_max_kwh(self) -> np.ndarray:
         return self.soc_max * self.capacity_kwh
+
 
 def apply_power(p: BatteryParams, e_kwh: np.ndarray, batt_w: np.ndarray, dt_h: float) -> tuple[np.ndarray, np.ndarray]:
     """Clip a requested battery power to power and energy limits (BatterySpec.step, vectorised).

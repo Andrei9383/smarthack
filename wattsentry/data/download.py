@@ -1,11 +1,11 @@
-"""Download every raw input once and commit it as zstd Parquet under data/raw/ (#9).
+"""Download every raw input once and commit it as zstd Parquet under data/raw/.
 
     python -m wattsentry.data.download                 # everything (Open-Meteo needs ~1 h because of its rate limit)
     python -m wattsentry.data.download --only prices,grid_ro
     python -m wattsentry.data.download --list
 
 Every HTTP response is cached under data/.cache/ (gitignored), so re-runs resume / only rebuild Parquet. No keys.
-Sources, licences and RO / non-RO labels: data/README.md. Columns follow team/contracts/data.md.
+Sources, licences and RO / non-RO labels: data/README.md.
 """
 
 from __future__ import annotations
@@ -35,10 +35,10 @@ CACHE = REPO / "data" / ".cache"
 UA = "prosumer-sentinel/0.1 (SmartHack 2026; research use)"
 RO_TZ = zoneinfo.ZoneInfo("Europe/Bucharest")
 # OPCOM PZU (and PI) intervals are numbered in CET/CEST, the SDAC/SIDC market time, not Romanian time: delivery
-# day D runs 00:00-24:00 CET = 01:00-01:00 Romanian time (#183).
+# day D runs 00:00-24:00 CET = 01:00-01:00 Romanian time.
 OPCOM_TZ = zoneinfo.ZoneInfo("Europe/Brussels")
 
-YEARS = (2022, 2025)  # train 2022-23, val 2024, test 2025 (plan §4)
+YEARS = (2022, 2025)  # train 2022-23, val 2024, test 2025
 PRICE_START = dt.date(2023, 1, 1)
 GRID_YEAR, GRID_STEP = 2025, 0.5  # coarse RO wind field (degrees): test year only (size + rate limit)
 ZSTD = dict(compression="zstd", compression_level=19)
@@ -123,7 +123,8 @@ def open_meteo(lat: float, lon: float, start: dt.date, end: dt.date, variables, 
                 reason = e.read()[:200].decode(errors="replace")
                 wait = 600 if "Hourly" in reason else 65 if "Minutely" in reason or e.code == 429 else 10
                 if "Daily" in reason:
-                    raise RuntimeError(f"open-meteo daily limit reached; re-run tomorrow (cache keeps progress): {reason}")
+                    raise RuntimeError(
+                        f"open-meteo daily limit reached; re-run tomorrow (cache keeps progress): {reason}")
                 print(f"  open-meteo HTTP {e.code}: {reason.strip()} -> retry in {wait}s", file=sys.stderr)
                 time.sleep(wait)
             except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
@@ -177,7 +178,7 @@ def weather_table(points: list[dict], start: dt.date, end: dt.date, variables) -
                .sort("point_id", "ts"))
 
 
-# Public park data (plan §4). Coordinates are approximate and refined from OSM turbine positions when available.
+# Public park data. Coordinates are approximate and refined from OSM turbine positions when available.
 WIND_PARKS = [
     dict(park_id="fantanele_cogealac", name="Fântânele-Cogealac-Grădina", county="Constanța", operator="CEZ",
          lat=44.59, lon=28.57, n_turbines=240, rated_mw=2.5, source="CEZ Romania public data (to verify)"),
@@ -267,7 +268,7 @@ def job_weather() -> None:
     parks = pl.read_parquet(RAW / "wind_parks.parquet").to_dicts() if (RAW / "wind_parks.parquet").exists() \
         else WIND_PARKS
     sys.path.insert(0, str(REPO))
-    from wattsentry.sim.fleet.localities import LOCALITIES  # #11 owns the list; we download exactly these points
+    from wattsentry.sim.fleet.localities import LOCALITIES  # download exactly the simulated fleet's localities
     points = ([dict(point_id=f"loc:{l.id}", kind="locality", name=l.name, county=l.county, lat=l.lat, lon=l.lon)
                for l in LOCALITIES] + [dict(point_id=f"park:{p['park_id']}", kind="park", name=p["name"],
                                             county=p["county"], lat=p["lat"], lon=p["lon"]) for p in parks])
@@ -296,7 +297,7 @@ EC_SERIES = {  # Energy-Charts production type -> entsoe_ro series name (contrac
 
 
 def job_energy_charts() -> None:
-    """Real-RO national load + generation by type (Energy-Charts, ENTSO-E-derived; replaces the ENTSO-E API)."""
+    """Real-RO national load + generation by type (Energy-Charts, ENTSO-E-derived)."""
     frames = []
     for year in range(YEARS[0], YEARS[1] + 1):
         d = json.loads(fetch(f"https://api.energy-charts.info/public_power?country=ro"
@@ -327,7 +328,7 @@ def _opcom_day(day: dt.date) -> list[dict]:
 def _parse_opcom_pzu(day: dt.date, text: str) -> list[dict]:
     """Rows of one OPCOM PZU CSV export. Column 1 is the interval number of delivery day `day`, counted from
     00:00 CET/CEST (OPCOM_TZ). Checked against the ENTSO-E/energy-charts RO day-ahead price (UTC) on the DST days
-    of Oct 2024, Mar 2025 and Oct 2025: identical prices only with CET (#183)."""
+    of Oct 2024, Mar 2025 and Oct 2025: identical prices only with CET."""
     rows = [r for r in csv.reader(io.StringIO(text)) if r and r[0] == "Romania"]
     if not rows:
         return []
@@ -354,7 +355,7 @@ def job_prices() -> None:
     write(df, "prices.parquet")
 
 
-# PVDAQ systems used for the non-RO validation (R13): two small NREL reference systems (Golden, CO) and two
+# PVDAQ systems used for the non-RO validation: two small NREL reference systems (Golden, CO) and two
 # ~50 kW commercial rooftops (Maryland). One full year each, AC power only.
 PVDAQ = {4: 2022, 10: 2022, 1199: 2019, 1200: 2019}
 S3 = "https://oedi-data-lake.s3.amazonaws.com"
@@ -415,14 +416,16 @@ def job_pvdaq() -> None:
     systems, power_frames, weather_frames = [], [], []
     for sid, year in PVDAQ.items():
         meta = json.loads(fetch(f"{S3}/pvdaq/csv/system_metadata/{sid}_system_metadata.json"))
-        metrics = pl.read_parquet(io.BytesIO(fetch(f"{S3}/pvdaq/parquet/metrics/metrics__system_{sid}__part000.parquet")))
+        metrics_url = f"{S3}/pvdaq/parquet/metrics/metrics__system_{sid}__part000.parquet"
+        metrics = pl.read_parquet(io.BytesIO(fetch(metrics_url)))
         # "ac_power" is often a calculated metric with no stored rows; some systems log a metered total instead
         totals = (metrics.filter(pl.col("sensor_name").str.contains(r"^ac_power(_metered.*)?$"))
                          .sort(pl.col("sensor_name") != "ac_power")["metric_id"].to_list())
         inverters = metrics.filter(pl.col("sensor_name").str.contains(r"^inv\d+_ac_power$"))["metric_id"].to_list()
         days = [dt.date(year, 1, 1) + dt.timedelta(d) for d in range(365 + (year % 4 == 0))]
         with cf.ThreadPoolExecutor(16) as ex:
-            parts = [f for f in ex.map(_pvdaq_day, [(sid, d, totals, inverters) for d in days]) if f is not None and f.height]
+            parts = [f for f in ex.map(_pvdaq_day, [(sid, d, totals, inverters) for d in days])
+                     if f is not None and f.height]
         raw = pl.concat(parts).rename({"value": "ac_w"}).with_columns(pl.col("ac_w").cast(pl.Float64))
         site, mount = meta["Site"], next(iter(meta["Mount"].values()))
         lat, lon = float(site["latitude"]), float(site["longitude"])
@@ -440,7 +443,8 @@ def job_pvdaq() -> None:
                           "n_samples")
                   .sort("ts"))
         power_frames.append(q15)
-        wx = add_land_snow(wx, [dict(point_id=f"pvdaq:{sid}", lat=lat, lon=lon)], dt.date(year, 1, 1), dt.date(year, 12, 31))
+        wx = add_land_snow(wx, [dict(point_id=f"pvdaq:{sid}", lat=lat, lon=lon)],
+                           dt.date(year, 1, 1), dt.date(year, 12, 31))
         weather_frames.append(wx.filter(pl.col("ts").dt.year() == year))
         systems.append(dict(system_id=f"pvdaq:{sid}", name=meta["System"]["public_name"], lat=lat, lon=lon,
                             elevation_m=float(site["elevation"]), kwp=float(meta["System"]["power"]),

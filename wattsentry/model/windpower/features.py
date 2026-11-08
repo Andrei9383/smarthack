@@ -1,13 +1,9 @@
-"""M5 WindPower inputs (card #164, ported from #42): per-step, per-turbine features (numpy only).
+"""M5 WindPower inputs: per-step, per-turbine features (numpy only).
 
-Spec W step 2 inputs: hub wind (the meteo hub wind; else ERA5/NWP 100 m wind sheared to hub height), air-density
-normalised speed v_norm = v_hub (rho / rho0)^(1/3), direction (sin/cos; the park uses 30 deg sectors), turbulence
-proxy (rolling std / mean of the meteo wind over 5 steps), season and hour (sin/cos), hub height, rated power, plus
-the generic class curve at v_norm (`cf`, the residual prior) and the park-layout Jensen wake deficit for the current
-direction (generalises to an unseen park). The turbine and model embeddings are added by the net.
-
-Everything is built from plain arrays (`build`), so the predict API works on NWP inputs without a WindData;
-`build_data` is the WindData convenience used in training."""
+Hub wind (meteo, else 100 m wind sheared to hub height), density-normalised v_norm, direction sin/cos, turbulence
+proxy, season and hour sin/cos, hub height, rated power, the class curve at v_norm (`cf`, the residual prior) and the
+layout's Jensen wake deficit for the current direction. `build` works on plain arrays (NWP inputs); `build_data` on
+a WindData (training)."""
 
 from __future__ import annotations
 

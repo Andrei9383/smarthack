@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from wattsentry.data.splits import SPLITS, make_splits, unseen_park
+from wattsentry.data.splits import SPLITS, make_splits
 
 DAYS = pd.date_range("2022-01-01", "2025-12-30", freq="D", tz="UTC")
 
@@ -35,10 +35,6 @@ def test_small_series_fallback_nonempty():
     sp = make_splits(pd.date_range("2024-01-01", periods=120, freq="D", tz="UTC"), ["train"] * 7 + ["unseen"] * 3)
     assert all(len(sp.days[k]) for k in SPLITS)
 
-
-def test_wind_park_holdout():
-    parks = ["WPA"] * 50 + ["WPB"] * 23 + ["WPC"] * 47
-    assert unseen_park(parks) == "WPB"
 
 
 def test_window_cache_deterministic(tmp_path, monkeypatch):

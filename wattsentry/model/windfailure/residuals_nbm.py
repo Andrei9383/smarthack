@@ -1,13 +1,13 @@
 """Temperature residuals from M6's WindNBM GRU, trained in-process (torch; `--residuals nbm`).
 
-Reuses wattsentry.model.wind (M6, #41) as a library: `nbm_inputs` (inputs / targets), `WindNBM` (GRU with turbine
+Reuses wattsentry.model.wind (M6) as a library: `nbm_inputs` (inputs / targets), `WindNBM` (GRU with turbine
 embedding), `pinball`, `run_nbm` (chunked causal inference). Only the thermal objective is trained (M7 needs the
 expected component temperatures, not power).
 
 Normal selection is LABEL-FREE: a temperature step enters the loss when it is finite and no integral error code is
-present. We deliberately do NOT pass the injector labels (M6's default masks with labels == normal, which Stefan's
-review on #41 flagged as optimistic) and do NOT use #70's temperature drift mask (it would drop the slow drifts M7
-must detect). The held-out park runs with turbine embedding 0 (unknown turbine), as in M6.
+present. We deliberately do NOT pass the injector labels (M6's default masks with labels == normal, which is
+optimistic) and do NOT use normal_select's temperature drift mask (it would drop the slow drifts M7 must detect).
+The held-out park runs with turbine embedding 0 (unknown turbine), as in M6.
 
 The trained net is exported to ONNX with M6's signature (x, tid) → (pq, pstd, tq), so predictor.py can run it with
 onnxruntime only.
@@ -99,7 +99,7 @@ def nbm_residuals(data, sp, train_t: np.ndarray, args, log=print, out: Path | No
             break
     model.load_state_dict(best_state)
     model.eval()
-    del Xg, Yg, Mg, val_batches
+    Xg = Yg = Mg = val_batches = None  # free GPU memory (`batch` is not called again)
 
     def fn(xb, tb):
         with torch.no_grad():

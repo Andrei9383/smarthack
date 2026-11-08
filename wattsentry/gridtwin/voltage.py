@@ -1,31 +1,17 @@
-"""Voltage rise and inverter trips on the IEEE European LV test feeder, baseline vs Sentinel (card #160, Spec G step 2).
+"""Voltage rise and inverter trips on the IEEE European LV test feeder, baseline vs Sentinel.
 
-    python -m wattsentry.gridtwin.voltage [--world sim|mock] [--days 7] [--v-source 1.00,1.03,1.05] [--out DIR]
+    python -m wattsentry.gridtwin.voltage [--world sim|mock] [--days 7] [--v-source 1.03,1.00,1.05] [--out DIR]
 
-What it does:
-  1. Replays the world once per policy (self-consumption baseline, Sentinel) through the agent loop
-     (`wattsentry.agent.loop.run_policy`, the same code as replay.py) and rebuilds every home's 15-min net export from
-     the physics (pv - load - executed battery power), see `home_net_kw`.
-  2. Puts the simulated homes on the 55 single-phase loads of the IEEE European LV test feeder (pandapower
-     `ieee_european_lv_asymmetric`, 906 LV buses, one 0.8 MVA 11/0.4 kV transformer), hero feeder first.
-  3. Computes a voltage sensitivity matrix once (finite differences of a full 3-phase power flow around a midday
-     export operating point) and estimates every bus / phase voltage of every step at once (one matrix product).
-  4. Checks the estimate against a full pandapower 3-phase power flow on a random 5 % of the steps (max error
-     reported) and replaces the estimate by the full power flow wherever it lands within 1 % of the 253 V limit.
-  5. Counts steps with any bus above 253 V (1.10 pu of 230 V), the PV production of homes whose own connection point
-     is above 253 V in that step (their inverter disconnects: `inverter_trip_kwh`) and its value at the OPCOM PZU
-     price (`inverter_trip_lei`).
+Replays the world once per policy through the agent loop and rebuilds every home's 15-min net export
+(pv - load - executed battery). The homes go on the feeder's 55 single-phase loads (hero feeder first); bus voltages
+come from a linear sensitivity around a midday export point, checked against full 3-phase power flows on a random
+5 % of steps and replaced by the full power flow within 1 % of the 253 V limit. A home whose own connection point is
+above the limit loses its PV for that step (`inverter_trip_kwh`, valued at OPCOM PZU: `inverter_trip_lei`).
 
-Labels: topology non-RO (IEEE European LV test feeder, a generic UK-style network, not a Romanian street); homes and
-their batteries synthetic RO (the world's label); prices real RO (OPCOM PZU). Every metric line says so.
-
-Modelling choices (stated, not hidden):
-  - The IEEE network is rebased from 0.416 kV to a 230/400 V nominal (LV bus vn_kv and transformer vn_lv_kv = 0.4)
-    and the no-load LV busbar voltage is set by `v_source_pu` (ext grid, nominal tap). The IEEE default (1.05 pu
-    on 0.416 kV = 252 V at no load) leaves no headroom at all, so the run reports a small grid of busbar settings.
-  - Homes inject at unity power factor (q = 0); the net export of a home goes on the phase of its IEEE load.
-  - Trips are first-order: a tripped inverter is counted as lost for the whole 15-min step and its disconnection does
-    not lower its neighbours' voltage (no cascade / reconnect dynamics), for both policies alike.
+Modelling: the network is rebased from 0.416 kV to 400 V with the no-load busbar at `v_source_pu` (the IEEE default
+leaves no headroom, so a few settings are reported); homes inject at unity power factor; trips are first-order (a
+tripped inverter is lost for the whole step and does not lower its neighbours' voltage). Labels: topology non-RO,
+homes synthetic RO, prices real RO.
 """
 
 from __future__ import annotations
@@ -46,8 +32,7 @@ V_LIMIT = 253.0  # inverter over-voltage trip, V phase-neutral (EN 50549 / RO 1.
 V_NOMINAL = 230.0
 V_BASE = 400.0 / math.sqrt(3.0)  # pu base of the rebased network (0.4 kV line-line)
 N_LOADS = 55
-P_REF_KW = 2.0  # linearisation point: every home exporting this much (on replay#506's week this gave the smallest
-#                 error both overall and near the limit; 3-4 kW doubles it, the top-decile mean export is no better)
+P_REF_KW = 2.0  # linearisation point: every home exporting this much (smallest error overall and near the limit)
 DP_KW = 1.0  # finite-difference step
 NEAR_LIMIT = 0.01  # full power flow where the estimated max voltage is within 1 % of the limit
 VALIDATE_FRAC = 0.05
@@ -237,8 +222,8 @@ def home_net_kw(world: Any, policies: Sequence[str] = ("baseline", "sentinel"), 
 
 # ============================================================================================ prices
 def pzu_lei_kwh(ts: np.ndarray, fallback_lei_mwh: Optional[np.ndarray] = None) -> tuple[np.ndarray, str]:
-    """OPCOM PZU price (lei/kWh) at each 15-min ts. The one place G2 reads prices: switch to wattsentry.data.prices
-    (card #158 X1) here once it lands. Hourly rows cover their four quarters. Missing -> the world's own prices."""
+    """OPCOM PZU price (lei/kWh) at each 15-min ts; hourly rows cover their four quarters. Missing -> the world's
+    own prices (`fallback_lei_mwh`), with the reason in the returned source label."""
     ts = np.asarray(ts, np.int64)
     try:
         import polars as pl
@@ -369,7 +354,7 @@ def print_metrics(res: dict[str, Any], primary: float) -> None:
     print(f"# G2 voltage: {res['label']}; {res['steps']} steps, {res['n_unique_homes']} distinct homes on "
           f"{N_LOADS} IEEE loads (hero {res['hero_feeder']} first); limit {V_LIMIT:.0f} V")
     for pol, v in res.get("world_minutes_over_limit", {}).items():
-        print(f"LAB_METRIC world_minutes_over_limit_{pol}={v:.4g}")  # same replay as replay.py: ties G2 to it
+        print(f"LAB_METRIC world_minutes_over_limit_{pol}={v:.4g}")  # same replay as replay.py
     for key, r in res["by_v_source"].items():
         suffix = "" if abs(r["v_source_pu"] - primary) < 1e-9 else f"_vs{key.replace('.', '')}"
         print(f"# busbar {r['v_source_pu']:.2f} pu = {r['v_busbar_noload_v']} V no-load; estimate vs full PF on "
@@ -397,9 +382,9 @@ def main(argv: Optional[Sequence[str]] = None) -> dict[str, Any]:
     ap.add_argument("--world", default="sim", choices=["sim", "mock"])
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--start", default=None, help="first local day YYYY-MM-DD (default: the world's, replay#506 week)")
-    ap.add_argument("--hero", default=None, help="sim: fleet id of the hero feeder (replay#506: F06); keeps the same "
-                                                 "5 feeders / 118 homes when --start moves")
+    ap.add_argument("--start", default=None, help="first local day YYYY-MM-DD (default: the world's)")
+    ap.add_argument("--hero", default=None, help="sim: fleet id of the hero feeder; keeps the same feeders / homes "
+                                                 "when --start moves")
     ap.add_argument("--v-source", default="1.03,1.00,1.05",
                     help="no-load busbar settings in pu of 230.9 V; the first one is the headline")
     ap.add_argument("--validate-frac", type=float, default=VALIDATE_FRAC)
@@ -420,8 +405,8 @@ def main(argv: Optional[Sequence[str]] = None) -> dict[str, Any]:
     res = run(world, vs, out_dir=Path(a.out), validate_frac=a.validate_frac, seed=a.seed)
     res["run_id"] = os.environ.get("LAB_RUN_ID", "local")
     print_metrics(res, vs[0])
-    print(f"# G2 voltage: {res['seconds']}s total (replay {json.dumps({k: round(v, 1) for k, v in res['replay_seconds'].items()})})",
-          file=sys.stderr)
+    replay_s = json.dumps({k: round(v, 1) for k, v in res["replay_seconds"].items()})
+    print(f"# G2 voltage: {res['seconds']}s total (replay {replay_s})", file=sys.stderr)
     return res
 
 

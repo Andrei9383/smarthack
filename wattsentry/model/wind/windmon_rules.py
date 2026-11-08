@@ -1,4 +1,4 @@
-"""Import shim for #41: WindMon's rules now live in wattsentry.eval.baselines.wind.windmon_rules (card #24)."""
+"""Re-export of WindMon's rules, which live in wattsentry.eval.baselines.wind.windmon_rules."""
 
 from wattsentry.eval.baselines.wind.windmon_rules import (  # noqa: F401
     FROZEN_STEPS,

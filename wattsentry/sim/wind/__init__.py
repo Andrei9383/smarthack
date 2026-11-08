@@ -1,7 +1,7 @@
 """Wind simulator: ERA5-driven telemetry for three RO parks in the PPC SCADA schema, with labelled faults.
 
     python -m wattsentry.sim.wind [--out DIR] [--force] [--no-plots]
-    # -> $WATTSENTRY_WIND_DIR or ~/.cache/wattsentry/data-v{N}/wind/
+    # -> $WATTSENTRY_WIND_DIR or $WATTSENTRY_CACHE/data-v{N}/wind/
 
 Deterministic and cached by a digest of both configs, the data/raw inputs and the simulator source; bump
 WIND_DATA_VERSION when the output changes meaning or shape. Inputs (committed): data/raw/weather.parquet (ERA5 at

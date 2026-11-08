@@ -1,6 +1,6 @@
-"""K7 self-consumption: the fleet simulator's home-battery rule over a year of 15-min steps (#135).
+"""Self-consumption: the fleet simulator's home-battery rule over a year of 15-min steps.
 
-Source of truth: ``wattsentry.sim.fleet.battery.simulate_self_consumption`` (Andrei, #11); the Rust copy
+Source of truth: ``wattsentry.sim.fleet.battery.simulate_self_consumption``; the Rust copy
 ``wattsentry._core.self_consumption`` reproduces it bit for bit (same IEEE operations in numpy's order, numpy's
 min/max/clip semantics for NaN and signed zeros). Same signature as the reference, so the call site is a drop-in:
 

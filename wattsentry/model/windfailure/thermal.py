@@ -1,6 +1,6 @@
 """Physics stand-in for M6's thermal path: a linear normal-behaviour model of component temperatures.
 
-Thermal relation (plan §4, first-order lag):  T_c = lag_tau(T_amb + base + offset + rise · load^γ).
+Thermal relation (first-order lag):  T_c = lag_tau(T_amb + base + offset + rise · load^γ).
 Because the lag is linear, the rise over ambient is a linear combination of lagged load^γ and lagged ambient. With
 tau and γ unknown we regress on a bank of them:
 
@@ -12,10 +12,10 @@ is not modelled here; features.py removes it with each turbine's own lagged base
 
 Normal selection: label-free. A step is used for fitting when the temperature, power and ambient are finite, no
 integral error code is present and the last gap is >= 12 h back. No labels, and NO drift mask (a mask that drops
-slowly drifting temperatures would hide exactly the precursor M7 must see; coordinator note on #70's
-select_normal). The few drifting steps in training barely move a 25-coefficient fleet-level fit.
+slowly drifting temperatures, like wind.normal_select's, would hide exactly the precursor M7 must see). The few
+drifting steps in training barely move a 25-coefficient fleet-level fit.
 
-Caveat (R13): the regressor structure mirrors the simulator's thermal model, so this residual is near-ideal on
+Caveat: the regressor structure mirrors the simulator's thermal model, so this residual is near-ideal on
 synthetic data. The `nbm` residual source (M6's GRU, residuals_nbm.py) is the non-circular alternative.
 """
 
@@ -119,7 +119,7 @@ def residuals(model: dict, sensors: dict, err: np.ndarray, rated: np.ndarray, is
     T, N = err.shape
     r = np.full((T, N, len(COMPONENTS)), np.nan, np.float32)
     for j in range(N):
-        X, amb, bad = _turbine_inputs(sensors, err, rated, j)
+        X, amb, _ = _turbine_inputs(sensors, err, rated, j)
         co = model["coef"][str(int(is_large[j]))]
         for ci, c in enumerate(COMPONENTS):
             if c not in co:

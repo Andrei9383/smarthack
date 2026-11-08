@@ -1,8 +1,8 @@
 """Feeder physics: passive households, per-phase net export, feeder export vs limit, inverter voltage.
 
 Voltage at a site = feeder base (MV side, slow daily wander) + rise from net export on its TRUE phase (and a bit
-from the other phases), scaled by its position along the feeder, + noise. That is the signal the grid-twin (#13)
-uses to recover phases and feeders that the GIS records wrongly.
+from the other phases), scaled by its position along the feeder, + noise. That is the signal the grid twin uses
+to recover phases and feeders that the GIS records wrongly.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""onnxruntime-only M6 predictor (no torch): returns the contract `Prediction` envelope for replay (#17).
+"""onnxruntime-only M6 predictor (no torch): returns the contract `Prediction` envelope for replay.
 
 Artifacts (from `wattsentry.model.wind.train`, in one directory): windnbm.onnx, windnbm_clf.txt (LightGBM),
 windnbm_thresholds.json (calibration + frozen class thresholds), manifest.json.
@@ -54,10 +54,8 @@ class WindNBMPredictor:
         self.tindex = self.cal["turbine_index"]
         self.offsets = self.cal["quantile_offsets"]["all"]
 
-    # ----------------------------------------------------------------------------------------------------------
     def _onnx(self, xb, tb):
-        pq, ps, tq = self.sess.run(None, {"x": xb, "tid": tb})
-        return pq, ps, tq
+        return self.sess.run(None, {"x": xb, "tid": tb})
 
     def score_park(self, turbines, ts, telemetry, meteo, weather=None, err=None) -> dict[str, np.ndarray]:
         """Per-step outputs for every turbine of one park over the whole provided span."""
@@ -85,7 +83,7 @@ class WindNBMPredictor:
         if names != self.cal["feature_names"]:
             raise RuntimeError("feature list differs from the one the classifier was trained on")
         probs = self.booster.predict(F.reshape(-1, F.shape[-1])).reshape(T, n, K).astype(np.float32)
-        # same curtailment rule as training / eval (#99): common ceiling OR park consensus on p_curtailment
+        # same curtailment rule as training / eval: common ceiling OR park consensus on p_curtailment
         cls = decide(probs, self.cal["class_thresholds"], self.cal["min_run"], self.cal["merge"],
                      curtail_mask=curtail_ok(F, names))
         return {"ts": ts, "rated": rated, "pq": pq, "pstd": pstd, "tq": tq, "ood": ood, "probs": probs, "cls": cls,
@@ -98,6 +96,7 @@ class WindNBMPredictor:
         if i0 + horizon > len(s["ts"]):
             raise ValueError("arrays do not cover [t0, t0 + horizon)")
         sl = slice(i0, i0 + horizon)
+        last = i0 + horizon - 1
         out = {}
         for j, t in enumerate(turbines):
             r = s["rated"][j]
@@ -131,7 +130,7 @@ class WindNBMPredictor:
                     "class_steps": {CLASSES[c]: int(counts[c]) for c in range(K) if counts[c]},
                     "actionable": ac in ACTIONABLE,
                     "lost_kwh": round(lost, 2),
-                    "temps_q50_last": {k: float(s["tq"][i0 + horizon - 1, j, i, 1]) for i, k in enumerate(TEMP_SENSORS)},
+                    "temps_q50_last": {k: float(s["tq"][last, j, i, 1]) for i, k in enumerate(TEMP_SENSORS)},
                     "seen_turbine": t["turbine_id"] in self.tindex,
                     "history_steps": i0,
                 },

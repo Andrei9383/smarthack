@@ -7,9 +7,9 @@ temperature with heating/cooling degree hours (hourly and 24 h mean), the nation
 
 Target = load / the zone's mean load over the previous 7 local days (trees cannot extrapolate a level trend, and
 one model then fits any zone size); predictions are multiplied back. The 10-90 % interval is split-conformal
-(CQR) calibrated on the validation year so that it covers ~80 % (plan decision 13:52: 78-82 %).
+(CQR) calibrated on the validation year to cover ~80 %.
 
-Baselines (plan §2 row 9): persistence day (y[t−24h]), persistence week (y[t−168h]) and national-shape scaling
+Baselines: persistence day (y[t−24h]), persistence week (y[t−168h]) and national-shape scaling
 (shape(t) × the zone's level over the previous 7 local days).
 """
 
@@ -183,7 +183,7 @@ def peak_hour_error(y: np.ndarray, p: np.ndarray, local_day: np.ndarray, hour: n
 # --- the model -------------------------------------------------------------------------------------------
 
 def default_split(ts: np.ndarray) -> dict[str, np.ndarray]:
-    """Plan §4: train 2022–2023, validate 2024, test 2025 when the data covers them; else 60/20/20 by time."""
+    """Train 2022–2023, validate 2024, test 2025 when the data covers them; else 60/20/20 by time."""
     years = ts.astype("datetime64[Y]").astype(int) + 1970
     tr, va, te = years <= 2023, years == 2024, years == 2025
     if tr.sum() > 24 * 60 and va.sum() > 24 * 30 and te.sum() > 24 * 30:
@@ -277,24 +277,6 @@ class DemandNet:
                 "national_shape": self.shape.table.round(5).tolist() if self.shape is not None else None}
         (out / "demandnet_meta.json").write_text(json.dumps(meta))
         return files + ["demandnet_meta.json"]
-
-    @classmethod
-    def load(cls, out_dir: str | Path) -> "DemandNet":
-        import lightgbm as lgb
-
-        out = Path(out_dir)
-        meta = json.loads((out / "demandnet_meta.json").read_text())
-        m = cls(model_version=meta["model_version"])
-        m.shape = NationalShape(np.array(meta["national_shape"])) if meta.get("national_shape") else None
-        m.cqr_offset = {k: float(v) for k, v in meta.get("cqr_offset", {}).items()}
-        for z in meta["zones"]:
-            m.boosters[z], m.best_iters[z] = {}, {}
-            for a in meta["quantiles"]:
-                b = lgb.Booster(model_file=str(out / f"demandnet_{z.replace('/', '_')}_q{int(round(a * 100)):02d}.txt"))
-                m.boosters[z][a] = b
-                m.best_iters[z][a] = b.current_iteration()
-        return m
-
 
 def evaluate_zone(series: LoadSeries, model: DemandNet, *, shape: Optional[NationalShape] = None,
                   split: Optional[dict[str, np.ndarray]] = None) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 """Static world: feeders in real localities and prosumer sites on them.
 
-Columns prefixed `true_` are hidden ground truth (for evaluation and the fault/grid-twin labels). Models, pvlib and
-the agent may only use the recorded columns (`tilt_deg`, `azimuth_deg`, `kwp`, `feeder_id`, `phase`).
+Columns prefixed `true_` / suffixed `_true` are hidden ground truth (for evaluation and the fault / grid-twin labels).
+Models, pvlib and the agent may only use the recorded columns (`*_recorded`, `gis_feeder_id`, `gis_phase`).
 """
 
 from __future__ import annotations
@@ -87,7 +87,8 @@ def _sites(cfg: FleetConfig, feeders: pd.DataFrame, rng) -> pd.DataFrame:
 
     phase = rng.choice(np.array(list("ABC")), n)
     phase_gis = np.where(rng.random(n) < cfg.gis_wrong_phase_share,
-                         np.array(list("ABC"))[(np.searchsorted(list("ABC"), phase) + rng.integers(1, 3, n)) % 3], phase)
+                         np.array(list("ABC"))[(np.searchsorted(list("ABC"), phase) + rng.integers(1, 3, n)) % 3],
+                         phase)
     feeder_ids = feeders.feeder_id.to_numpy()
     f_gis = f_idx.copy()
     wrong_f = rng.random(n) < cfg.gis_wrong_feeder_share
@@ -98,11 +99,11 @@ def _sites(cfg: FleetConfig, feeders: pd.DataFrame, rng) -> pd.DataFrame:
         "site_id": [f"S{i + 1:04d}" for i in range(n)],
         "locality_id": feeders.locality_id.to_numpy()[f_idx],
         "locality": feeders.locality.to_numpy()[f_idx],
-        "siruta": pd.array([None] * n, dtype="Int32"),  # RO locality code: unknown here (nullable in data.md)
+        "siruta": pd.array([None] * n, dtype="Int32"),  # RO locality code: unknown here (nullable)
         "county": feeders.county.to_numpy()[f_idx],
         "lat": (flat + rng.normal(0, 0.006, n)).round(5),
         "lon": (flon + rng.normal(0, 0.008, n)).round(5),
-        # Physical connection (truth) and what the GIS records (data.md: consumers must read gis_*)
+        # Physical connection (truth) and what the GIS records (consumers must read gis_*)
         "feeder_id": feeder_ids[f_idx],
         "phase": phase,
         "gis_feeder_id": feeder_ids[f_gis],
@@ -156,5 +157,5 @@ def _set_feeder_limits(cfg: FleetConfig, feeders: pd.DataFrame, sites: pd.DataFr
     feeders["prosumer_ac_kw"] = ac.round(1)
     feeders["g_max_kw"] = g.round(1)
     feeders["g_conservative_kw"] = (g * rng.uniform(0.75, 0.85, nf)).round(1)
-    feeders["tau"] = 1.0  # trust in the GIS; the grid-twin (#13) estimates it
+    feeders["tau"] = 1.0  # trust in the GIS; the grid twin estimates it
     feeders["n_sites"] = sites.groupby("feeder_id").size().reindex(feeders.feeder_id).to_numpy().astype("int32")

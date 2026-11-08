@@ -11,7 +11,7 @@ from scipy.signal import lfilter
 STEPS_PER_H = 4
 DT_H = 0.25
 
-# Component temperatures, first-order thermal model (plan §4):
+# Component temperatures, first-order thermal model:
 #   T_c = lag_tau( T_amb + base + offset_turbine + rise · load^gamma ) + noise
 # sensor -> (base rise °C, full-load rise °C, time constant h, load exponent)
 THERMAL: dict[str, tuple[float, float, float, float]] = {

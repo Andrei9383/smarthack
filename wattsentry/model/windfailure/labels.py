@@ -1,4 +1,4 @@
-"""Failure episodes from `fault_labels` (#23 injector truth) → daily targets per turbine-component.
+"""Failure episodes from `fault_labels` (injector truth) → daily targets per turbine-component.
 
 A *failure* is a `fault_stop` episode whose `params.cause` is `failure_after_overheating[:<component>]`; it starts
 exactly where a gearbox / generator-bearing degradation drift (an `overheating` episode, 3–21 days) ends. Trips
@@ -98,7 +98,7 @@ def day_grid(ts: np.ndarray) -> np.ndarray:
 
 
 def daily_targets(failures: list[Failure], days: np.ndarray, n_turbines: int, horizons=(7, 14)):
-    """→ y {H: uint8 [D, N, C]}, down bool [D, N], fail_day int [D, N, C] (index of the next failure's day or -1)."""
+    """→ y {H: uint8 [D, N, C]}, down bool [D, N] (turbine-days overlapping a failure stop)."""
     D, C = len(days), len(COMPONENTS)
     ends = days + DAY.astype("timedelta64[m]")
     y = {h: np.zeros((D, n_turbines, C), np.uint8) for h in horizons}

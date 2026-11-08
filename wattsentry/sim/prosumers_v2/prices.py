@@ -5,8 +5,8 @@ after). Local days the file does not cover (2022) take the price of the same loc
 weeks later (371 days), labelled ``proxy_shift_371d``. Strategies only use the daily rank and median, so the
 2023 shape stands in for 2022 (the 2022 crisis price level is not reproduced: stated in the manifest).
 
-Self-contained on purpose (deterministic for the cache digest); the shared 15-min module is X1 #158
-(wattsentry/data/prices.py) and gives the same pzu values for 2023-2025.
+Self-contained on purpose (deterministic for the cache digest); wattsentry/data/prices.py gives the same pzu values
+for 2023-2025.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def _raw_15min(path: Path) -> pd.Series:
 def pzu_15min(ts_utc: pd.DatetimeIndex, path: Path = PRICES) -> pd.DataFrame:
     """ts (UTC, 15-min) -> DataFrame(ts, pzu_lei_mwh, price_source) with no gaps (proxy fill, see module doc)."""
     if not path.exists():
-        raise FileNotFoundError(f"{path}: OPCOM PZU prices (#9) are needed for data-v2")
+        raise FileNotFoundError(f"{path}: OPCOM PZU prices are needed for data-v2")
     raw = _raw_15min(path)
     ts_utc = pd.DatetimeIndex(ts_utc).tz_convert("UTC").as_unit("ns")
     p = raw.reindex(ts_utc).to_numpy(dtype=np.float64, copy=True)

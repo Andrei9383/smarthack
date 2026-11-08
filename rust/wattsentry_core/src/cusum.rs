@@ -1,4 +1,4 @@
-//! Two-sided CUSUM (K3). Python reference: `wattsentry.kernels.cusum.cusum_two_sided_py` (source of truth).
+//! Two-sided CUSUM. Python reference: `wattsentry.kernels.cusum.cusum_two_sided_py` (source of truth).
 //! No cap = `cap` +inf (min with +inf is exact).
 
 use rayon::prelude::*;

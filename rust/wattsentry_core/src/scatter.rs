@@ -1,4 +1,4 @@
-//! Telemetry scatter into [sensor, step, turbine] bin means (K5). Python reference:
+//! Telemetry scatter into [sensor, step, turbine] bin means. Python reference:
 //! `wattsentry.kernels.scatter.scatter_telemetry_py` (source of truth).
 //!
 //! Codes overwrite err[t, j] in row order (last wins). Then, in parallel over sensors k, one pass in row order adds

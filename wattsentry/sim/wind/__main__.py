@@ -10,7 +10,8 @@ from .build import build
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="python -m wattsentry.sim.wind", description=__doc__)
-    ap.add_argument("--out", type=Path, help="output dir (default $WATTSENTRY_WIND_DIR or ~/.cache/wattsentry/data-vN/wind)")
+    ap.add_argument("--out", type=Path,
+                    help="output dir (default $WATTSENTRY_WIND_DIR or $WATTSENTRY_CACHE/data-vN/wind)")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--no-plots", action="store_true")
     a = ap.parse_args(argv)

@@ -1,20 +1,11 @@
 """Wind dataset container, PPC long-format conversion, loader and splits for M6 (numpy + polars, no torch).
 
-`WindData` holds the wide per-turbine view (plan §3.4 / team/contracts/wind.md: "Wide per-turbine view, not a
-contract") as float32 arrays [T, N]. Conversion to and from the contract's long table `wind_telemetry`
-(`ts, tag, value, is_code`) is lossless, so #22/#23 output drops in through `from_long()`.
+`WindData` holds the wide per-turbine view (not a contract) as float32 arrays [T, N]. Conversion to and from the
+contract's long table `wind_telemetry` (`ts, tag, value, is_code`) is lossless (`to_long` / `from_long`).
 
-Loader order (`load_wind`):
-  1. `$WATTSENTRY_WIND_DIR`, else `~/.cache/wattsentry/data-v{N}/wind/` written by `python -m wattsentry.sim.wind`
-     (#22 ERA5-driven simulator + #23 fault injector; N = wattsentry.sim.wind.WIND_DATA_VERSION, else the newest), with
-     `wind_telemetry.parquet` + `turbines.parquet` (+ optional `meteo_wind.parquet` = 5-min meteo per TURBINE
-     `ts, turbine_id, wind_ms, wdir_deg?`, `weather.parquet` with `point_id` = park id for rh / precip / pressure,
-     `fault_labels.parquet`);
-  2. otherwise the deterministic stand-in generator `wattsentry.model.wind.synth` (quick fallback, no ERA5).
-
-Step labels from `fault_labels`: mode "effective" (default; $WATTSENTRY_WIND_LABELS=episode switches) labels
-curtailment / icing only where #23 recorded that power was actually cut (`params.cut_onset..cut_end`); "episode"
-labels their whole span. See `label_span`.
+`load_wind` reads the simulator output (`python -m wattsentry.sim.wind`, see `external_wind_dir`) when present, else
+generates the deterministic stand-in `wattsentry.model.wind.synth`. Step labels come from `fault_labels`; see
+`label_span` for the "effective" (default) vs "episode" mode ($WATTSENTRY_WIND_LABELS).
 """
 
 from __future__ import annotations
@@ -24,7 +15,9 @@ import hashlib
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, field
+from datetime import timezone
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -47,7 +40,7 @@ PRIORITY = {
     "fault_stop": 6,
     "data_gap": 7,
 }
-# Classes that should reach an O&M queue (curtailment is logged, never a work order: plan §3.5 Qualify).
+# Classes that should reach an O&M queue (curtailment is logged, never a work order).
 ACTIONABLE = [c for c in CLASSES if c not in ("normal", "curtailment")]
 
 POWER = "act_pwt"
@@ -142,7 +135,7 @@ def _to_naive_utc(t):
     if isinstance(t, np.datetime64):
         return t
     if hasattr(t, "tzinfo") and t.tzinfo is not None:
-        t = t.astimezone(tz=__import__("datetime").timezone.utc).replace(tzinfo=None)
+        t = t.astimezone(tz=timezone.utc).replace(tzinfo=None)
     if isinstance(t, str):
         t = t.replace("Z", "").replace("+00:00", "")
     return np.datetime64(t, "m")
@@ -174,7 +167,7 @@ def _params(e: dict) -> dict:
 def label_span(e: dict, mode: str = "effective"):
     """(onset, end) used for step labels, or None to skip the row.
 
-    #23 labels curtailment and icing as whole episodes and stores in `params` whether power was actually cut
+    The injector labels curtailment and icing as whole episodes and stores in `params` whether power was actually cut
     (`power_cut`, `cut_onset`, `cut_end`). mode "effective": use the cut span and drop episodes that never bit (a
     cap above the available power leaves no trace in SCADA); mode "episode": the whole onset..end span. Rows
     without these params (other classes, older data) always use onset..end."""
@@ -251,7 +244,7 @@ def _iso(t: np.datetime64) -> str:
 
 
 # --------------------------------------------------------------------------------------------------------------
-# Long format (team/contracts/wind.md) <-> wide
+# Long format (contract) <-> wide
 # --------------------------------------------------------------------------------------------------------------
 def _not_integral(v: np.ndarray, sensor: str) -> np.ndarray:
     """Readings must never look like PPC error codes (integral floats): nudge integral readings by 1e-3.
@@ -401,7 +394,7 @@ def _dict_codes(col):
 
 def _scatter_telemetry(tel, tids, tmeta, t0, T):
     """Long telemetry → sensors [T, N] (mean of the readings in each 15-min bin) + err [T, N] (last code in the
-    bin; a code masks that bin's readings for the turbine). Binning is the scatter_telemetry kernel (#103)."""
+    bin; a code masks that bin's readings for the turbine). Binning is the scatter_telemetry kernel."""
     import polars as pl
 
     from wattsentry.kernels import scatter_telemetry
@@ -424,7 +417,7 @@ def _scatter_telemetry(tel, tids, tmeta, t0, T):
     is_code = tel["is_code"].fill_null(False).to_numpy().astype(bool)
     scale = np.ones((len(SENSORS), N))
     scale[sidx[POWER]] = [float(t.get("power_scale") or 1.0) for t in tmeta]
-    sens, err = scatter_telemetry(ti, tj, sk, v, is_code, scale, T)  # wattsentry.kernels (Rust if built)
+    sens, err = scatter_telemetry(ti, tj, sk, v, is_code, scale, T)
     sensors = {s: sens[k] for s, k in sidx.items()}
     return sensors, err
 
@@ -544,8 +537,8 @@ def from_long(
 # Loader
 # --------------------------------------------------------------------------------------------------------------
 def external_wind_dir() -> Optional[Path]:
-    """Where #22/#23 write their output: $WATTSENTRY_WIND_DIR, else ~/.cache/wattsentry/data-v{N}/wind/ for the current
-    simulator version (wattsentry.sim.wind.WIND_DATA_VERSION), else the newest data-v*/wind/ that exists."""
+    """Simulator output dir: $WATTSENTRY_WIND_DIR, else $WATTSENTRY_CACHE (default ~/.cache/sentinel)/data-v{N}/wind/
+    for the current WIND_DATA_VERSION, else the newest data-v*/wind/ holding wind_telemetry + turbines parquet."""
     env = os.environ.get("WATTSENTRY_WIND_DIR")
     cands = [Path(env)] if env else []
     base = Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
@@ -580,7 +573,7 @@ def read_wind_dir(d: Path, label_mode: Optional[str] = None, log=print) -> WindD
         cols = pq.read_schema(f).names
         return pl.from_arrow(pq.read_table(f, read_dictionary=[c for c in dict_cols if c in cols]))
 
-    t0 = __import__("time").perf_counter()
+    t0 = time.perf_counter()
     data = from_long(
         read("wind_telemetry.parquet", ("tag",)),
         pl.read_parquet(d / "turbines.parquet"),
@@ -590,13 +583,13 @@ def read_wind_dir(d: Path, label_mode: Optional[str] = None, log=print) -> WindD
         source=f"external:{d}",
         label_mode=label_mode,
     )
-    log(f"[windnbm] read {d} in {__import__('time').perf_counter() - t0:.1f}s "
+    log(f"[windnbm] read {d} in {time.perf_counter() - t0:.1f}s "
         f"({len(data.turbines)} turbines, {data.n_steps} steps, labels={resolve_label_mode(label_mode)})")
     return data
 
 
 def load_wind(prefer_external: bool = True, synth_config: Any = None, log=print) -> WindData:
-    """Prefer #22/#23 output (`python -m wattsentry.sim.wind`, ERA5-driven) when present; otherwise the deterministic
+    """Simulator output (`python -m wattsentry.sim.wind`, ERA5-driven) when present; otherwise the deterministic
     stand-in generator `synth.py` (no ERA5 needed; quick fallback for tests and `train --synth`)."""
     if prefer_external:
         d = external_wind_dir()
@@ -606,13 +599,13 @@ def load_wind(prefer_external: bool = True, synth_config: Any = None, log=print)
     from .synth import SynthConfig, generate
 
     cfg = synth_config or SynthConfig()
-    log(f"[windnbm] no #22/#23 output found (run `python -m wattsentry.sim.wind`); generating stand-in synthetic RO "
+    log(f"[windnbm] no simulator output found (run `python -m wattsentry.sim.wind`); generating stand-in synthetic RO "
         f"wind ({cfg.describe()})")
     return generate(cfg)
 
 
 # --------------------------------------------------------------------------------------------------------------
-# Splits (plan §4): time split + one whole park held out of training
+# Splits: time split + one whole park held out of training
 # --------------------------------------------------------------------------------------------------------------
 @dataclass
 class Splits:
@@ -637,7 +630,8 @@ class Splits:
         }
 
 
-def make_splits(data: WindData, holdout_park: Optional[str] = None, val_from_day: int = 22, train_to_day: int = 19) -> Splits:
+def make_splits(data: WindData, holdout_park: Optional[str] = None, val_from_day: int = 22,
+                train_to_day: int = 19) -> Splits:
     years = data.ts.astype("datetime64[Y]").astype(int) + 1970
     test_year = int(years.max())
     if (years < test_year).sum() == 0:  # single-year data: last 25% is test

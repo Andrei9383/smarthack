@@ -1,6 +1,6 @@
 """Generate data-v2: homes with contracts, meters and battery strategies, their 15-min truth, and the
-meter layer PPC sees. PV and household load come from the fleet simulator's physics (unchanged, called on new
-homes); batteries run the K8 strategies kernel (wattsentry.kernels.battery_strategies)."""
+meter layer PPC sees. PV and household load come from the fleet simulator's physics (called on new homes);
+batteries run the strategies kernel (wattsentry.kernels.battery_strategies)."""
 
 from __future__ import annotations
 
@@ -30,6 +30,15 @@ from .homes import BATTERY_HIDDEN, PUBLIC_COLUMNS, build_homes, initial_soc_kwh,
 from .prices import PRICES, prices_key, pzu_15min
 
 PQ = dict(compression="zstd", compression_level=6)
+AGG = ("import", "export", "pv", "load", "batt")  # per-group truth curves in truth/portfolio
+WRITE_SLICE = 100  # homes per write call: keeps each process's Arrow buffers small (output bytes unchanged)
+_TS = pa.timestamp("ns", tz="UTC")
+_TRUTH_SCHEMA = pa.schema([("ts", _TS), ("home_id", pa.string()), ("pv_kw", pa.float32()), ("load_kw", pa.float32()),
+                           ("batt_kw", pa.float32()), ("soc_kwh", pa.float32()), ("import_kwh", pa.float32()),
+                           ("export_kwh", pa.float32())])
+_METER_SCHEMA = pa.schema([("ts", _TS), ("home_id", pa.string()), ("import_kwh", pa.float32()),
+                           ("export_kwh", pa.float32()), ("available_at", _TS)])
+_CTX: dict = {}  # simulation context shared with the chunk workers (set by generate / _init_worker)
 
 
 def _pq(names: list[str]) -> dict:
@@ -38,10 +47,12 @@ def _pq(names: list[str]) -> dict:
     ts = [c for c in names if c in ("ts", "available_at")]
     return dict(compression="zstd", compression_level=3, use_dictionary=[c for c in names if c not in ts],
                 column_encoding={c: "DELTA_BINARY_PACKED" for c in ts})
+
+
 TRAINING_FILES = ["homes_public.parquet", "meter_observed", "meter_monthly.parquet", "settlement",
                   "prices.parquet", "weather.parquet", "standard_profile.parquet"]
 HIDDEN_FILES = ["homes.parquet", "truth/home_15min", "truth/portfolio"]
-# Columns that must never appear in a training file (spec I step 3 + the battery parameters).
+# Columns that must never appear in a training file (physical truth + the battery parameters).
 FORBIDDEN_COLUMNS = {"pv_kw", "load_kw", "batt_kw", "soc_kwh", "strategy", *BATTERY_HIDDEN, "pv_ac_w", "load_w",
                      "batt_w", "soc"}
 
@@ -168,9 +179,11 @@ def generate(cfg: ProsumerConfig, out_dir: Path | None = None, force: bool = Fal
     seconds = time.perf_counter() - t0
     share_18_21 = {s: (a / b if b > 0 else None) for s, (a, b) in summer.items()}
     stats = {
-        "share_battery": float(homes.has_battery.mean()), "share_maxcontrol": float((homes.contract == "maxcontrol").mean()),
+        "share_battery": float(homes.has_battery.mean()),
+        "share_maxcontrol": float((homes.contract == "maxcontrol").mean()),
         "share_smart_meter": float(smart.mean()),
-        "share_battery_declared_of_battery": float(homes.battery_declared[homes.has_battery].mean()) if has_batt.any() else None,
+        "share_battery_declared_of_battery":
+            float(homes.battery_declared[homes.has_battery].mean()) if has_batt.any() else None,
         "strategy_counts": homes.strategy.value_counts().to_dict(),
         "summer_export_share_18_21": share_18_21,
         "price_source_counts": prices.price_source.value_counts().to_dict(),
@@ -205,16 +218,9 @@ def generate(cfg: ProsumerConfig, out_dir: Path | None = None, force: bool = Fal
     return out
 
 
-AGG = ("import", "export", "pv", "load", "batt")
-_CTX: dict = {}
-
-
 def _default_workers() -> int:
     env = os.environ.get("WATTSENTRY_PV2_WORKERS")
     return int(env) if env else max(1, min(4, (os.cpu_count() or 2) // 4))
-
-
-WRITE_SLICE = 100  # homes per write call: keeps each process's Arrow buffers small (output bytes unchanged)
 
 
 def _init_worker(ctx: dict) -> None:
@@ -331,11 +337,3 @@ def _summer_export(acc: dict, export: np.ndarray, strat: np.ndarray, cal: dict) 
         if rows.any():
             acc[s][0] += float(export[rows][:, eve].sum())
             acc[s][1] += float(export[rows][:, jja].sum())
-
-
-_TS = pa.timestamp("ns", tz="UTC")
-_TRUTH_SCHEMA = pa.schema([("ts", _TS), ("home_id", pa.string()), ("pv_kw", pa.float32()), ("load_kw", pa.float32()),
-                           ("batt_kw", pa.float32()), ("soc_kwh", pa.float32()), ("import_kwh", pa.float32()),
-                           ("export_kwh", pa.float32())])
-_METER_SCHEMA = pa.schema([("ts", _TS), ("home_id", pa.string()), ("import_kwh", pa.float32()),
-                           ("export_kwh", pa.float32()), ("available_at", _TS)])

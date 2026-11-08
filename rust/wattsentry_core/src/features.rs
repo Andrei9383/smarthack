@@ -1,4 +1,4 @@
-//! K4 fused feature build. Python reference: `wattsentry.model.features.pv_arrays` / `load_arrays` (numpy, float32),
+//! Fused feature build. Python reference: `wattsentry.model.features.pv_arrays` / `load_arrays` (numpy, float32),
 //! wrapped by `wattsentry.kernels.features`.
 //!
 //! numpy builds each feature as a separate [B, ...] temporary (~40 passes over the batch); here every window b is

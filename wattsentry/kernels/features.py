@@ -1,18 +1,18 @@
-"""K4 fused feature build: the heavy part of ``wattsentry.model.features.pv_inputs`` / ``load_inputs`` (#94) and
-``site_inputs`` (#102: ``site_features(raw) -> seq [B,96,18], summ [B,14,8]``, reference ``site_arrays``; the
-degraded mode without telemetry history uses the reference).
+"""Fused feature build: the heavy part of ``wattsentry.model.features.pv_inputs`` / ``load_inputs`` / ``site_inputs``.
 
-The source of truth is the numpy code in ``wattsentry.model.features`` (``pv_arrays``, ``load_arrays``); the Python
-references here call it. numpy builds ~40 [B, ...] temporaries per batch; the Rust copy (``wattsentry._core``) makes
-one pass per window over its 14-day history and 96 target steps, windows in parallel with rayon, GIL released.
+The source of truth is the numpy code in ``wattsentry.model.features`` (``pv_arrays``, ``load_arrays``,
+``site_arrays``); the Python references here call it. The Rust copy (``wattsentry._core``) makes one pass per window
+over its 14-day history and 96 target steps, windows in parallel. ``site_features`` without telemetry history
+(degraded mode) always uses the reference.
 
 Parity: sums replicate numpy's float32 reductions (pairwise along a row, sequential across days) and max/min/clip
 propagate NaN like numpy, so every channel is bit-identical except the trig ones (cos/sin of zenith/azimuth, the
 hour from atan2), which may differ by 1 ulp (numpy has its own SIMD float32 sin/cos).
 
-    from wattsentry.kernels import pv_features, load_features
+    from wattsentry.kernels import load_features, pv_features, site_features
     seq, ref, summ, night = pv_features(wx, geom, pvclear, pvlib, hist_pv, kwp)  # [B,96,17] [B,168] [B,14,5] [B,96]
     seq, ref, summ, scale = load_features(wx, cal, hist_load)                     # [B,96,14] [B,168] [B,14,4] [B]
+    seq, summ = site_features(raw)                                                # [B,96,18] [B,14,8]
 
 wx [B,96,7], geom [B,96,3], cal [B,96,8], pvclear / pvlib [B,96], hist_pv [B, >=14*96], hist_load [B, 14*96], kwp [B];
 any float dtype (cast to float32). Other shapes fall back to the reference.

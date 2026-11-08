@@ -1,4 +1,4 @@
-//! Exact medians for the WindNBM label-free normal selection (card #136). Python references (source of truth):
+//! Exact medians for the WindNBM label-free normal selection. Python references (source of truth):
 //! `wattsentry.kernels.median.rolling_median_py` (pandas `rolling(w, center=True, min_periods).median()`) and
 //! `wattsentry.kernels.median.binned_median_mad_py` (per-bin `np.median` + MAD).
 //!

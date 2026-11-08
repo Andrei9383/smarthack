@@ -1,4 +1,4 @@
-//! K2 window gather. Python reference: `wattsentry.kernels.windows.window_gather_py` (numpy fancy-index gather).
+//! Window gather. Python reference: `wattsentry.kernels.windows.window_gather_py` (numpy fancy-index gather).
 //! Source is a C-contiguous (R, W) array; window b is the contiguous slice src[rows[b], starts[b]*step + offset ..]
 //! [..length]. Bounds are re-checked here so a bad call cannot read out of range.
 

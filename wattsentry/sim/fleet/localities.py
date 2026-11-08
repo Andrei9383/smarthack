@@ -1,7 +1,7 @@
 """Real Romanian localities where the synthetic prosumers live.
 
 Mostly peri-urban communes around big cities, where residential PV is concentrated. Coordinates are approximate
-locality centres (WGS84). #9 can import LOCALITIES to download ERA5 / Open-Meteo weather for exactly these points.
+locality centres (WGS84); the weather download uses the same points.
 """
 
 from __future__ import annotations

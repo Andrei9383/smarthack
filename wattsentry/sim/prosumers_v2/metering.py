@@ -1,4 +1,4 @@
-"""Metering layer: what PPC actually sees (spec I step 3).
+"""Metering layer: what PPC actually sees.
 
 - `smart` homes: the 15-min import/export curve, available the next day (``available_at`` = local D+1 00:00).
 - `profile` homes: only monthly import/export totals.
@@ -8,8 +8,8 @@
 
 The standard profile here is a built-in stand-in (``proxy``): a household load shape (occupancy x darkness x
 season, the fleet's household model without weather) and a clear-sky solar shape for export, both at a central
-RO point. I3 #173 commits the distributor's published profile; pass ``standard_profile="file:<parquet>"`` with
-columns ts, load_coef, solar_coef to use it.
+RO point. To use the distributor's published profile pass ``standard_profile="file:<parquet>"`` with columns ts,
+load_coef, solar_coef.
 """
 
 from __future__ import annotations

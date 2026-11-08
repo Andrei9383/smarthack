@@ -1,4 +1,4 @@
-"""data-v2 configuration (spec I step 2b). Everything that changes the output lives here, so the digest keys the cache.
+"""data-v2 configuration. Everything that changes the output lives here, so the digest keys the cache.
 
 Shares are labelled: `real RO` = from a public RO source (cited), `synthetic` = our assumption, sweepable.
 """
@@ -20,6 +20,7 @@ STEPS_PER_DAY = 96
 
 
 def default_cache_root() -> Path:
+    """$WATTSENTRY_CACHE, else ~/.cache/sentinel (the name the lab's existing caches live under)."""
     return Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
 
 
@@ -31,7 +32,7 @@ class ProsumerConfig:
     start_year: int = 2022                  # local calendar years; splits: train 2022-23, val 2024, test 2025
     end_year: int = 2025
     chunk_homes: int = 500                  # homes simulated together (part of the RNG streams -> in the digest)
-    # --- who has what (spec I §2b)
+    # --- who has what
     share_battery: float = 0.20             # real RO: ANRE ~66,000 batteries / 332,684 prosumers (Apr 2026)
     share_maxcontrol_of_battery: float = 0.25   # synthetic (unknown; sensitivity 0.10 / 0.25 / 0.50)
     share_maxcontrol_no_battery: float = 0.03   # synthetic: MaxControl prosumers without a battery
@@ -51,7 +52,7 @@ class ProsumerConfig:
     maxcontrol_cap_lei_mwh: float = 999.0
     # --- metering
     meter_missing_day_prob: float = 0.003   # synthetic: smart-meter home-days that never arrive (nulls)
-    standard_profile: str = "builtin"       # settlement profile; "builtin" = stand-in (proxy) until I3 commits one
+    standard_profile: str = "builtin"       # settlement profile: "builtin" (proxy) or "file:<parquet>"
     weather_source: str = "auto"            # auto | raw | synthetic (wattsentry.sim.fleet.weather)
 
     @property

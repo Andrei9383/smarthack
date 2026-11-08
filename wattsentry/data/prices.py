@@ -1,10 +1,10 @@
-"""15-min day-ahead (PZU) and intraday (PI) prices, the one price table Wind and Imbalance read (card #158).
+"""15-min day-ahead (PZU) and intraday (PI) prices, the one price table Wind and Imbalance read.
 
 Source: real RO, OPCOM.
-- PZU: ``data/raw/prices.parquet`` (#9). OPCOM moved PZU to 15-min products on 2025-10-01 (local); before that the
+- PZU: ``data/raw/prices.parquet``. OPCOM moved PZU to 15-min products on 2025-10-01 (local); before that the
   file is hourly and **each hourly price is repeated on its 4 quarter-hours** (``pzu_res = 'PT60M_x4'``). Rows are in
   UTC, so DST days just have 92 / 100 quarter-hours.
-- PI: ``data/raw/prices_pi.parquet`` from I1 (#171), picked up automatically when present. Until it lands, or for
+- PI: ``data/raw/prices_pi.parquet`` (wattsentry.data.opcom_pi), used when present. Without it, or for
   quarter-hours with no PI trade, ``pi = pzu`` (``pi_src = 'pzu'``), which makes the intraday term of
   ``wattsentry.eval.imbalance.avoidable_cost`` zero.
 
@@ -26,7 +26,7 @@ RAW = Path(__file__).resolve().parents[2] / "data" / "raw"
 PZU_PATH = RAW / "prices.parquet"
 PI_PATH = RAW / "prices_pi.parquet"
 STEP = "15m"
-# Column names I1 may use for the 15-min PI price, first match wins.
+# Accepted column names for the 15-min PI price, first match wins.
 PI_COLUMNS = ("pi_vwap_lei_mwh", "pi_lei_mwh", "pi_vwap", "price_lei_mwh")
 
 
@@ -53,9 +53,8 @@ def _pzu_15min(path: Path) -> pl.DataFrame:
     out = pl.concat([rep.with_columns(pl.lit("PT60M_x4").alias("pzu_res")),
                      quarter.with_columns(pl.lit("PT15M").alias("pzu_res"))])
     # A native 15-min price wins over a repeated hourly one at the same quarter-hour.
-    out = (out.sort("ts", "pzu_res", descending=[False, True]).unique("ts", keep="first", maintain_order=True)
-           .select("ts", pl.col("price_lei_mwh").alias("pzu_lei_mwh"), "pzu_res"))
-    return out
+    return (out.sort("ts", "pzu_res", descending=[False, True]).unique("ts", keep="first", maintain_order=True)
+            .select("ts", pl.col("price_lei_mwh").alias("pzu_lei_mwh"), "pzu_res"))
 
 
 def _pi_15min(path: Path) -> pl.DataFrame | None:
@@ -135,5 +134,6 @@ def prices_at(ts, *, pzu_path: Path | str = PZU_PATH, pi_path: Path | str = PI_P
 
 if __name__ == "__main__":
     t = load_prices()
-    print(t.group_by("pzu_res", "pi_src").agg(pl.len(), pl.col("ts").min().alias("from"), pl.col("ts").max().alias("to"),
+    print(t.group_by("pzu_res", "pi_src").agg(pl.len(), pl.col("ts").min().alias("from"),
+                                             pl.col("ts").max().alias("to"),
                                              pl.col("pzu_lei_mwh").mean().alias("pzu_mean")).sort("from"))

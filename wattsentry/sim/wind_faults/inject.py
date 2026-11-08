@@ -1,20 +1,13 @@
-"""Wind fault injector (card #23): faults on top of the clean ERA5-driven telemetry, with exact onset/end labels.
+"""Wind fault injector: faults on top of the clean ERA5-driven telemetry, with exact onset/end labels.
 
 Order (physics first, sensors last): underperformance (yaw, power curve) → icing → overheating drift (→ failure
-stop) → park-wide curtailment caps → single-turbine stops → re-render the eight sensors from the faulted power
-(same noise as the clean run, so telemetry differs only from each onset on) → anemometer faults → communication
-gaps + integral error codes.
+stop) → park-wide curtailment → single-turbine stops → re-render the sensors from the faulted power (same noise as
+the clean run, so telemetry differs only from each onset on) → anemometer faults → communication gaps + error codes.
 
-Labels: one `fault_labels` row per episode and turbine (team/contracts/data.md, asset_kind = turbine, fault = a
-WindAnomaly value). `onset` / `end` are exact injector truth on the 15-min grid (`end` exclusive, null = runs to the
-end of the series). Curtailment and icing are labelled as WHOLE episodes: the setpoint / ice is there from onset
-to end whether or not it bites. Whether power was actually cut is stored in `params`:
-  power_cut (bool), cut_steps, cut_onset / cut_end (first / last+1 step where it bit, ISO UTC or null).
-Rationale: the episode is the operational truth (a TSO setpoint, an icing alert) and is what a report should count;
-but a cap above the available power or ice on a parked rotor leaves no trace in SCADA, so a detector cannot be
-expected to see it. wattsentry.model.wind.data therefore builds step labels in two modes: `effective` (default, used
-by M6 training and metrics: cut_onset..cut_end, episodes that never bit are dropped) and `episode` (whole span).
-Every other class changes the telemetry from its onset, so both modes agree on them.
+Labels: one `fault_labels` row per episode and turbine; `onset` / `end` on the 15-min grid (`end` exclusive, null =
+runs to the end). Curtailment and icing are labelled as WHOLE episodes (the operational truth), and `params` records
+whether power was actually cut: power_cut, cut_steps, cut_onset / cut_end. wattsentry.model.wind.data builds step
+labels from those in `effective` mode (default for M6: only where power was cut) or `episode` mode (whole span).
 """
 
 from __future__ import annotations

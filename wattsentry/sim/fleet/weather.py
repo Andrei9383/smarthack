@@ -1,8 +1,8 @@
 """Weather per locality at 15 min.
 
-Source "raw": the committed Open-Meteo / ERA5 Parquet from #9 (see RAW_CANDIDATES; $WATTSENTRY_WEATHER overrides).
+Source "raw": the committed Open-Meteo / ERA5 Parquet (see RAW_CANDIDATES; $WATTSENTRY_WEATHER overrides).
 Source "synthetic": a deterministic stand-in with Romanian climatology (spatially correlated cloud days, seasonal
-and diurnal temperature, snow), so the simulator runs before #9 lands. The manifest records which one was used.
+and diurnal temperature, snow), for when no raw file is present. The manifest records which one was used.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from .localities import Locality
 from .ro_calendar import local_day_index
 
 REPO = Path(__file__).resolve().parents[3]
-# #9's files, first match wins: the data.md weather table (point_id "loc:<Locality.id>"), or the locality-only file.
+# First match wins: the contract weather table (point_id "loc:<Locality.id>"), or the locality-only file.
 RAW_CANDIDATES = [REPO / "data" / "raw" / "weather.parquet", REPO / "data" / "raw" / "weather_localities.parquet"]
-# Old column names -> data.md names (schemas.WEATHER)
+# Legacy column names -> contract names (schemas.WEATHER)
 _RENAME = {"time": "ts", "locality_id": "point_id", "ghi": "ghi_wm2", "temp_air": "temp_c",
            "wind_speed_10m": "wind10_ms", "snow_depth_cm": "snow_cm"}
 _NEED = ("ghi_wm2", "temp_c", "wind10_ms", "snow_cm")
@@ -83,7 +83,7 @@ def _finish(locs, ts, zen, az, ghi, temp, wind, snow, source) -> Weather:
 
 
 def read_raw(path: Path, locality_ids: list[str]) -> pd.DataFrame:
-    """#9's weather in data.md names, actuals only, point_id = Locality.id, for the given localities."""
+    """Raw weather in contract column names, actuals only, point_id = Locality.id, for the given localities."""
     import pyarrow.parquet as pq
 
     names = pq.read_schema(path).names
@@ -111,7 +111,7 @@ def _from_raw(locs: list[Locality], ts: pd.DatetimeIndex, path: Path) -> Weather
             raise ValueError(f"{path.name} has no rows for locality {loc.id}")
         step = g.index.to_series().diff().median()
         if step >= pd.Timedelta("1h"):
-            # #9 stamps hourly radiation at the interval START (mean over [t, t+1h)): centre it before interpolating.
+            # Hourly radiation is stamped at the interval START (mean over [t, t+1h)): centre it before interpolating.
             ghi = g.ghi_wm2.copy()
             ghi.index = ghi.index + step / 2
             g = g.drop(columns="ghi_wm2").join(ghi, how="outer")

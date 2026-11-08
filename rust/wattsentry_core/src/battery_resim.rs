@@ -1,4 +1,4 @@
-//! K7 battery re-simulation for the PV fault injector (#134). Python reference:
+//! Battery re-simulation for the PV fault injector. Python reference:
 //! `wattsentry.kernels.battery_resim.battery_resim_py` (source of truth; the loop from
 //! `wattsentry.sim.faults.inject._resimulate_battery` + `wattsentry.sim.fleet.battery.apply_power`). Float operations
 //! are written in numpy's order, with numpy's NaN semantics, so results are bit-identical.

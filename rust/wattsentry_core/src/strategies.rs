@@ -1,6 +1,6 @@
-//! K8 battery strategies (card #172, spec I step 2c). Python reference: `wattsentry.kernels.strategies.
-//! battery_strategies_py` (source of truth). Floating-point operations are written in numpy's order so the results
-//! are bit-identical. Homes run in parallel (rayon); each home is a loop over time (SoC carries over).
+//! Battery strategies. Python reference: `wattsentry.kernels.strategies.battery_strategies_py` (source of truth).
+//! Floating-point operations are written in numpy's order so the results are bit-identical. Homes run in parallel
+//! (rayon); each home is a loop over time (SoC carries over).
 
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};

@@ -1,6 +1,6 @@
-"""Clean (fault-free) wind telemetry for the three RO parks, driven by real ERA5 100 m wind (card #22).
+"""Clean (fault-free) wind telemetry for the three RO parks, driven by real ERA5 100 m wind.
 
-Per park and 15-min step (plan §3.5, §4):
+Per park and 15-min step:
   v100      = interp(ERA5 hourly 100 m wind at the park point) · (1 + AR(1) park turbulence)
   v_free    = v100 · (h_hub / 100)^alpha(park, season) · terrain speed-up(turbine)        (free stream at hub)
   v_eff     = v_free · (1 − wake(direction, layout)) · (1 + AR(1) turbine turbulence)   (rotor-effective)
@@ -78,7 +78,6 @@ class CleanWind:
         q = self.weather.q15
         return {k: q[k].astype(np.float32) for k in WEATHER_FIELDS}
 
-    # ------------------------------------------------------------------------------------------------------------
     def render(self, power=None, stopped=None, temp_drift=None, nac_factor=None) -> dict[str, np.ndarray]:
         """Eight PPC sensors [T, N] (float32) from a power matrix. Noise is drawn from a fixed stream, so two calls
         differ only where their inputs differ (and, for temperatures, in the thermal lag after that)."""
@@ -112,9 +111,8 @@ class CleanWind:
         )
 
 
-# ----------------------------------------------------------------------------------------------------------------
 def national_wind_cf(year: int) -> float | None:
-    """Real RO wind capacity factor of a year: mean ENTSO-E gen_wind MW / installed GW (data/raw, card #9)."""
+    """Real RO wind capacity factor of a year: mean ENTSO-E gen_wind MW / installed GW (data/raw)."""
     import polars as pl
 
     from .config import RAW

@@ -1,4 +1,4 @@
-"""K8 battery strategies: per-home battery behaviour for data-v2 prosumers (spec I step 2c, card #172).
+"""Battery strategies: per-home battery behaviour for data-v2 prosumers.
 
 Each home runs one strategy, stateful per 15-min step (SoC carries over), so it is a loop over time; it is
 vectorised over homes. The numpy reference ``battery_strategies_py`` is the source of truth and the Rust copy
@@ -13,7 +13,7 @@ Strategies (codes in ``STRATEGY_CODES``), powers in kW, ``s = pv - load`` (house
   ``k_top`` most expensive quarter-hours of the local day it discharges min(P, avail) (exports the rest);
   at prices >= the day's median it covers the house only; below the median it keeps the battery for the
   evening. On days with ``comply[home, day] == False`` it falls back to ``self_consumption``.
-- ``enrolled`` (3, level 3 aggregator): behaves as ``self_consumption`` until a dispatch is planned (I8).
+- ``enrolled`` (3, level 3 aggregator): behaves as ``self_consumption`` in this kernel.
 
 room = max(cap - soc, 0) / (eta * dt), avail = max(soc - reserve * cap, 0) * eta / dt,
 soc' = soc + eta * c * dt - d * dt / eta;  batt = c - d (> 0 charging, < 0 discharging).

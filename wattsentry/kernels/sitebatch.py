@@ -1,14 +1,9 @@
-"""Fast per-batch reads for the window cache build (#133, called from wattsentry.data.windows).
+"""Fast per-batch Parquet reads for the window cache build (``wattsentry.data.windows``); not a dispatched kernel.
 
-``SiteReader.read(ids, cols)`` returns the same arrays as the old pandas path in windows.py
-(``read_table(filters=[site_id in ids]) -> to_pandas -> stable sort by (site_id, ts) -> .loc[ids] -> reshape``), but:
-  * reads only the row groups whose site_id statistics overlap the batch (``read_row_groups``), then keeps the rows
-    of the batch via the dictionary codes of site_id (the dataset ``filters=`` path cost ~8x more per call on
-    the 600-home fleet);
-  * orders rows with a stable ``np.lexsort((ts, position_in_ids))`` (skipped when the rows are already in that
-    order, the usual case: the fault injector writes sites sorted by id, each by ts), instead of pandas
-    sort_values + a non-unique string ``.loc``.
-Values are returned in their Parquet dtype (float32 / int16, nulls -> NaN), as ``DataFrame.to_numpy`` did.
+``SiteReader.read(ids, cols, i0, i1)`` returns ``{col: [len(ids), i1 - i0]}``, rows in ``ids`` order and by ts. It reads
+only the row groups whose site_id statistics overlap the batch, selects the batch's rows via the dictionary codes of
+site_id, and sorts with a stable lexsort only when the rows are not already in (site, ts) order (the usual case).
+Values keep their Parquet dtype (float32 / int16, nulls -> NaN).
 """
 
 from __future__ import annotations

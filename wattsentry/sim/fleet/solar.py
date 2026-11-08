@@ -1,5 +1,5 @@
 """Solar geometry, clear sky, decomposition and transposition in plain numpy (no pvlib on purpose:
-the pvlib baseline in #15 must not share the simulator's physics)."""
+the pvlib baseline must not share the simulator's physics)."""
 
 from __future__ import annotations
 

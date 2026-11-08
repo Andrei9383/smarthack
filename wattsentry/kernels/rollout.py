@@ -1,6 +1,6 @@
-"""K1 battery rollout: replay requested battery power through the battery model with clipping.
+"""Battery rollout: replay requested battery power through the battery model with clipping.
 
-Source of truth: ``wattsentry.opt.commit.rollout`` (#27); the Rust copy ``wattsentry._core.battery_rollout`` matches it
+Source of truth: ``wattsentry.opt.commit.rollout``; the Rust copy ``wattsentry._core.battery_rollout`` matches it
 bit for bit. req (S, T) or (N, S, T) kW (+ charge, - discharge); soc0 (S,) or (N, S) fraction of capacity; battery
 arrays (S,) as in ``BatteryParams``. Returns soc (fraction at the END of each step) and applied power, req's shape.
 """

@@ -1,26 +1,16 @@
-"""M5 WindPower training + evaluation (card #164, ported from #42): per-turbine P10/P50/P90 and park totals, 1-24 h.
+"""M5 WindPower training + evaluation: per-turbine P10/P50/P90 and park totals, 1-24 h.
 
     python train.py --model windpower [--seed 0] [--epochs 8] [--normal m6|labels] [--synth]
 
-Turbine level: MLP (features.FEATS + turbine embedding + model embedding) -> P10/P50/P90 of power / rated, learnt as a
-residual on the generic class curve with pinball loss (reported per turbine class). Trained only on steps M6 calls
-normal: the label-free normal selection M6 (#70/#99/#143) trains on (`normal_mask`, the one place to swap in M6
-verdicts through the Judge adapter later); labels are used only to score. Held-out park turbines use the "unseen"
-embedding (training feeds 15 % of rows to it). Horizon h (1/6/24 h): ERA5 meteo at the target time stands in for the
-NWP (perfect prog, no NWP error model) + the origin residual decayed by beta_h (fitted on validation).
-Park: sum of turbine P50 x availability (turbines in fault_stop at the origin removed: a labels proxy for W2's
-availability) x per-sector wake ratio (training days; pooled for an unseen park); P10/P90 by spread multipliers fitted
-on validation park totals.
+Turbine level: MLP (features.FEATS + turbine and model embeddings) -> P10/P50/P90 of power / rated, a residual on
+the generic class curve with pinball loss, trained only on steps M6's label-free normal selection keeps (labels only
+score). Held-out park turbines use the "unseen" embedding. Horizon h: meteo at the target time stands in for the NWP
+(perfect prog) + the origin residual decayed by beta_h. Park: sum of turbine P50 x availability x per-sector wake ratio;
+P10/P90 by spread multipliers fitted on validation park totals. Baselines on the same masks: manufacturer curve,
+persistence, binned. Real-RO check: hourly fleet capacity factor vs Energy-Charts RO wind, shape only.
 
-Baselines on the same data, masks and availability: manufacturer_curve (generic class curve x NWP hub wind; the
-simulator's own curve, so a strong baseline), persistence (power h ago; day-ahead = 24 h ago), binned (the M5 fallback:
-empirical P10/P50/P90 per 0.5 m/s bin per class, fitted on the same M6-normal steps). Real-RO check: hourly fleet
-capacity factor vs Energy-Charts (ENTSO-E-derived) RO wind generation / installed capacity, test year, shape only.
-
-LAB_METRIC: val_* = validation days x training parks; *_holdout = held-out park x test year. Headline (spec "done
-when"): val_park_nmae (h24) vs baseline_manufacturer_val_park_nmae and baseline_persist_val_park_nmae, and
-park_beats_baselines_val. Artifacts in $LAB_OUTPUT_DIR: windpower.s<seed>.onnx + .json (predict API:
-wattsentry.model.windpower.WindPowerModel), eval_report.json.
+LAB_METRIC val_* = validation days x training parks, *_holdout = held-out park x test year. Artifacts in
+$LAB_OUTPUT_DIR: windpower.s<seed>.onnx + .json (WindPowerModel), eval_report.json.
 """
 
 from __future__ import annotations
@@ -249,7 +239,7 @@ def real_ro(data, fleet: dict[str, np.ndarray]) -> dict:
 def parse_args(argv):
     ap = argparse.ArgumentParser(prog="python train.py --model windpower", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--synth", action="store_true", help="#41's stand-in generator instead of #22/#23 output")
+    ap.add_argument("--synth", action="store_true", help="stand-in generator (model.wind.synth) instead of the wind simulator's output")
     ap.add_argument("--synth-days", type=int, default=731)
     ap.add_argument("--synth-scale", type=float, default=1.0)
     ap.add_argument("--holdout-park", default=None)
@@ -395,7 +385,7 @@ def main(argv=None) -> dict:
         tr_rows = sp.train_t[:, None] & ok & (np.arange(P) != holdout_p)[None]
         park_res, mult, headline = {}, {}, {}
         for h, s in steps_h.items():
-            avail = (~shift(lab == CLASS_INDEX["fault_stop"], s)).astype(np.float64)  # labels proxy for W2 availability
+            avail = (~shift(lab == CLASS_INDEX["fault_stop"], s)).astype(np.float64)  # labels proxy for availability
             sysq = {}
             raw = np.stack([park_aggregate(qh[h][:, po == p] * rated[po == p][None, :, None], avail[:, po == p],
                                            ratio[p, sec[:, p]], (1.0, 1.0)) / caps[p] for p in range(P)], 1)  # [T, P, 3]

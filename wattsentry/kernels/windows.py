@@ -1,6 +1,6 @@
-"""K2 window gather: copy fixed-length time windows out of a memmapped [rows, T(, C)] array (#10's window cache).
+"""Window gather: copy fixed-length time windows out of a memmapped [rows, T(, C)] array (the window cache).
 
-Reference (source of truth) = the numpy fancy-index gather of the model data path (#14 ``features.gather``)::
+Reference (source of truth) = the numpy fancy-index gather of the model data path (``features.gather``)::
 
     np.asarray(arr[rows[:, None], starts[:, None] + np.arange(offset, offset + length)[None]], dtype)
 

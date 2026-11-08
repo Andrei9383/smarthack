@@ -1,24 +1,24 @@
-"""WindMon's data-quality layer on the PPC wind schema, rewritten on polars (plan §10, card #22).
+"""WindMon-style data-quality layer on the PPC wind schema (polars).
 
-WindMon (Andrei's PPC HackITall project) tags every turbine reading OK / DEGRADED / SUSPECT before its anomaly
-rules run. Its six rules are not spelled out in this repo, so they are defined here (WindMon's names where known)
-and applied per turbine and 15-min step on the wide view (one row per `ts, turbine_id`, one column per sensor):
+Tags every turbine reading OK / DEGRADED / SUSPECT, per turbine and 15-min step on the wide view (one row per
+`ts, turbine_id`, one column per sensor). Rules (flag in brackets):
 
-| rule | fires when | flag |
-|---|---|---|
-| MISSING | a sensor is null (communication gap) | SUSPECT on act_pwt / wd_spd, else DEGRADED |
-| ERROR_CODE | a sensor carries an integral PPC error code (`is_code`, see wattsentry.contracts.wind) | SUSPECT |
-| OUT_OF_RANGE | physically impossible value: act_pwt outside [-10 %, +110 %] of rated, wd_spd outside [0, 150] km/h, component temps outside [-40, 150] °C, ambient outside [-40, 55] °C | SUSPECT on act_pwt / wd_spd, else DEGRADED |
-| FROZEN | the same value for >= 8 consecutive steps (2 h): wd_spd and temps always, act_pwt only when abs(value) > 1 kW (a parked turbine may report a constant 0) | SUSPECT on act_pwt / wd_spd, else DEGRADED |
-| POWER_WITHOUT_WIND | act_pwt > 10 % of rated while the nacelle wind is < 2.5 m/s (9 km/h): one of the two is wrong | SUSPECT |
-| WIND_WITHOUT_POWER | nacelle wind 15-25 m/s (54-90 km/h, above rated, below cut-out) and abs(act_pwt) < 1 % of rated. A stopped or curtailed turbine looks like this too, so the row is usable but flagged | DEGRADED |
+- MISSING: a sensor is null (communication gap) [SUSPECT on act_pwt / wd_spd, else DEGRADED]
+- ERROR_CODE: a sensor carries an integral PPC error code (`is_code`, wattsentry.contracts.wind) [SUSPECT]
+- OUT_OF_RANGE: act_pwt outside [-10 %, +110 %] of rated, wd_spd outside [0, 150] km/h, component temps outside
+  [-40, 150] °C, ambient outside [-40, 55] °C [SUSPECT on act_pwt / wd_spd, else DEGRADED]
+- FROZEN: the same value for >= 8 consecutive steps (2 h); act_pwt only when abs(value) > 1 kW, since a parked
+  turbine may report a constant 0 [SUSPECT on act_pwt / wd_spd, else DEGRADED]
+- POWER_WITHOUT_WIND: act_pwt > 10 % of rated while nacelle wind < 2.5 m/s (9 km/h) [SUSPECT]
+- WIND_WITHOUT_POWER: nacelle wind 15-25 m/s (54-90 km/h, above rated, below cut-out) and abs(act_pwt) < 1 % of
+  rated; a stopped or curtailed turbine looks like this too [DEGRADED]
 
-Flag per row: SUSPECT if any SUSPECT-level rule fires, else DEGRADED if any rule fires, else OK. SUSPECT rows are
-what M6 / the qualifier must not trust (plan §3.5: sensor fault / data gap → excluded); DEGRADED rows are usable
-with care. Error-code values never enter the sensor columns (they are nulled and counted by ERROR_CODE).
+Row flag: SUSPECT if any SUSPECT-level rule fires (sensor fault / data gap: downstream models must not trust it),
+else DEGRADED if any rule fires, else OK. Error-code values never enter the sensor columns (nulled, counted by
+ERROR_CODE).
 
-Entry points: `wide_from_arrays(WindData)` (simulator / M6 view), `apply_rules(wide, turbines)` → adds `q_<rule>`
-booleans + `quality`, `flag_counts(flagged)`.
+Entry points: `wide_from_arrays(WindData)`, `apply_rules(wide, turbines)` (adds `q_<rule>` + `quality`),
+`flag_counts(flagged)`.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _code_col(s: str) -> str:
 
 def wide_from_arrays(data, turbine_idx=None) -> pl.DataFrame:
     """wattsentry.model.wind.data.WindData (sensors [T, N], err [T, N]) → the same wide frame. An error code in
-    `err` marks every sensor of that step as coded (that is how #23 writes them)."""
+    `err` marks every sensor of that step as coded (that is how the simulator writes them)."""
     ti = np.arange(len(data.turbines)) if turbine_idx is None else np.asarray(turbine_idx)
     T = len(data.ts)
     ts = np.tile(data.ts.astype("datetime64[us]"), len(ti))
@@ -64,7 +64,8 @@ def wide_from_arrays(data, turbine_idx=None) -> pl.DataFrame:
     return df.with_columns([pl.Series(_code_col(s), coded) for s in SENSORS])
 
 
-def apply_rules(wide: pl.DataFrame, turbines: pl.DataFrame | None = None, rated_kw: float | None = None) -> pl.DataFrame:
+def apply_rules(wide: pl.DataFrame, turbines: pl.DataFrame | None = None,
+                rated_kw: float | None = None) -> pl.DataFrame:
     """Add `q_missing … q_wind_without_power` (bool), `q_suspect_rules` / `q_degraded_rules` (counts) and
     `quality` (OK / DEGRADED / SUSPECT). Rated power comes from `turbines.rated_kw` (else `rated_kw`)."""
     df = wide.sort(["turbine_id", "ts"])

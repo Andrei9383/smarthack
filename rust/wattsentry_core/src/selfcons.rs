@@ -1,4 +1,4 @@
-//! K7 self-consumption battery rule over time (#135). Python reference (source of truth):
+//! Self-consumption battery rule over time. Python reference (source of truth):
 //! `wattsentry.sim.fleet.battery.simulate_self_consumption` / `apply_power`. Every floating-point operation is
 //! written in numpy's order, and min/max/clip follow numpy's semantics (NaN propagates; on ties, including
 //! -0.0 vs +0.0, `maximum(a, b)` / `minimum(a, b)` return `b`), so the f32 outputs are bit-identical.
@@ -89,7 +89,7 @@ pub fn run(pv: &[f32], load: &[f32], n: usize, t: usize, p: &Params, e0: &[f64],
 /// self_consumption(pv f32[n, t], load f32[n, t], cap, pmax_kw, eta_c, eta_d, e_lo, e_hi, inv_cap, e0: f64[n], dt,
 ///                  batt f32[n, t] (out), soc f32[n, t] (out)) -> e_end f64[n]
 ///
-/// K7: the fleet simulator's self-consumption battery rule; see `selfcons.rs`. The wrapper
+/// The fleet simulator's self-consumption battery rule; see `selfcons.rs`. The wrapper
 /// `wattsentry.kernels.selfcons.self_consumption_rust` allocates the outputs.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]

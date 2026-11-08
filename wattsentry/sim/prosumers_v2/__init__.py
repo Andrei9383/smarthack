@@ -1,4 +1,4 @@
-"""data-v2: PPC prosumers with contracts, meters and hidden battery strategies, next to the (unchanged) fleet.
+"""data-v2: PPC prosumers with contracts, meters and hidden battery strategies (alongside the fleet dataset).
 
     from wattsentry.sim.prosumers_v2 import ProsumerConfig, generate, load_training, load_truth
     out = generate(ProsumerConfig())        # cached at $WATTSENTRY_CACHE/prosumers-v2/v1-<digest>

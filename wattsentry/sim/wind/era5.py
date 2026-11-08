@@ -1,8 +1,8 @@
-"""Real ERA5 (Open-Meteo, card #9) at each park: hourly table, 15-min interpolation, shear fit.
+"""Real ERA5 (Open-Meteo) at each park: hourly table, 15-min interpolation, shear fit.
 
 ERA5 values are hourly instantaneous fields on a 0.25° grid. The simulator interpolates them to 15 min (linear for
 scalars, on the unit circle for direction) and adds the sub-hourly variability ERA5 cannot resolve as AR(1)
-noise in generate.py. Shear (plan §3.5): alpha per park and meteorological season, fitted on the calendar year of
+noise in generate.py. Shear: alpha per park and meteorological season, fitted on the calendar year of
 the first simulated step (2024 = the training year) from ERA5's own 10 m / 100 m wind (median of ln(v100/v10)/ln 10
 over hours with v100 > 4 m/s, clipped to 0.08-0.30); "fixed" uses 0.14.
 """

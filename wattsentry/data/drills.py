@@ -20,7 +20,6 @@ import copy
 from typing import Callable
 
 import numpy as np
-import pandas as pd
 
 DAY = 96
 POWER_KEYS = ("reference", "history")  # past pv_ac_w and load_w in the Window
@@ -134,7 +133,7 @@ def forecast_noise(asset, window, rng):
         chans = list((window.meta or {}).get("weather_channels", []))
         irr = [i for i, c in enumerate(chans) if any(s in str(c).lower() for s in ("ghi", "dni", "dhi", "irr"))]
         temp = [i for i, c in enumerate(chans) if "temp" in str(c).lower()]
-        if not chans:  # unknown layout: assume data.md order ghi, dni, dhi, temp first
+        if not chans:  # unknown layout: assume the contract order ghi, dni, dhi, temp first
             irr, temp = [0, 1, 2][: w.shape[1]], [3] if w.shape[1] > 3 else []
         factor = float(np.exp(rng.normal(0, 0.3)))
         shift = int(rng.integers(-3, 4))

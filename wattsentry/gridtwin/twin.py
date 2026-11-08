@@ -1,19 +1,10 @@
-"""Grid-twin (M8, card #13): check the GIS feeder / phase of every site against its own voltage, score how far we
-trust each feeder's records (tau), and give the LP its effective export limit G = tau*G_max + (1-tau)*G_cons.
+"""Grid-twin (M8): check each site's GIS feeder / phase against its own inverter voltage, score how far each
+feeder's records can be trusted (tau), and give the LP its export limit G = tau*G_max + (1-tau)*G_cons.
 
-Physics it relies on (fleet/grid.py, real LV feeders behave the same): a site's inverter voltage = MV base of its
-feeder + a rise driven by the net export on its own phase (and a little from the other phases) + noise. So:
-  - remove each feeder's common MV component (median across its sites per step);
-  - at night (PV off) sites on the same phase then share the remaining load-driven signal: starting from the GIS
-    phases (90 % right), assign every site to the phase centroid it correlates with best, iterate -> a site that
-    ends on another phase is a phase flag;
-  - a site whose raw voltage follows another feeder's MV base better than its GIS feeder's -> a feeder flag.
-Flags are review requests with a score ("likely L2 of F07, GIS says L1 of F06, 0.83"), never silent corrections.
-Phase flags need a higher score than feeder flags (0.98 vs 0.7) and one assignment pass over 180 nights (#214): on the
-600-home fleet (#211, ~8 sites per phase) the iterated assignment drifted near-transformer homes, whose phase signal is
-weak, onto other phases (precision 0.37). Now 0.68 there and 0.91 on the default fleet (was 0.69).
-tau per feeder = share of its sites whose record agrees with the data (scored), times a decay since the last field
-verification; low trust only ever tightens the limit.
+A site's voltage = its feeder's MV base + a rise driven by net export on its own phase + noise. A site whose voltage
+follows another feeder's MV base better is a feeder flag; at night (PV off), after removing the feeder median, sites on
+one phase share the load signal, so a site closest to another phase's centroid is a phase flag. Flags are review
+requests with a score, never silent corrections; low trust only ever tightens the limit.
 """
 
 from __future__ import annotations
@@ -37,12 +28,12 @@ class TwinResult:
     feeders: pd.DataFrame      # feeder_id, tau, g_max_kw, g_conservative_kw, g_kw, n_flags
 
 
-DAYS = 180  # nights of voltage the twin reads (#214: 60 left phase flags noisy)
+DAYS = 180  # nights of voltage the twin reads (fewer leave phase flags noisy)
 PHASE_THRESHOLD = 0.98  # phase flags; feeder flags keep run_twin's `threshold`
 
 
 def load_voltages(fleet_dir: Path, start: str = "2024-05-01", days: int = DAYS) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(sites, voltage matrix [site x step]) for a window of daytime steps from a fleet dataset."""
+    """(sites, voltage matrix [site x step]) over `days` from `start`; v.attrs["night"] marks PV-off steps."""
     fleet_dir = Path(fleet_dir)
     sites = pd.read_parquet(fleet_dir / "sites.parquet")
     t0 = pd.Timestamp(start, tz="UTC")
@@ -97,13 +88,12 @@ def _phase_features(vm: np.ndarray, night: np.ndarray | None) -> np.ndarray:
 
 
 def recover_phases(sites: pd.DataFrame, v: pd.DataFrame, feeder_col: str = "likely_feeder_id",
-                   seed: int = 0, night: np.ndarray | None = None, iters: int = 1) -> pd.DataFrame:
-    """Per feeder, GIS-seeded centroid assignment: each phase's centroid = mean normalised profile of the sites the
-    current assignment puts on it (starting from the GIS, ~90 % right); every site moves to the centroid it
-    correlates with best (its own profile left out); repeat. Averaging ~10+ sites per centroid removes most of
-    the measurement noise, which pairwise clustering cannot. One pass by default (#214): repeating it lets
-    centroids on small feeders drift with the weak near-transformer homes. Score = how significant the margin of the best phase
-    over the GIS phase is (correlation difference in units of its standard error)."""
+                   night: np.ndarray | None = None, iters: int = 1) -> pd.DataFrame:
+    """Per feeder, GIS-seeded centroid assignment: each phase's centroid = mean normalised profile of the sites
+    assigned to it (starting from the GIS, ~90 % right); every site moves to the centroid it correlates with best
+    (its own profile left out). Averaging many sites per centroid removes most measurement noise. One pass by
+    default: iterating lets centroids on small feeders drift with weak near-transformer homes. Score = significance
+    of the best phase's margin over the GIS phase (correlation difference in units of its standard error)."""
     out = []
     vm_all = v.to_numpy(float)
     for f, idx in sites.groupby(feeder_col).indices.items():
@@ -153,7 +143,7 @@ def run_twin(sites: pd.DataFrame, v: pd.DataFrame, feeders: pd.DataFrame, thresh
              days_since_verified: pd.Series | None = None, phase_threshold: float = PHASE_THRESHOLD) -> TwinResult:
     fr = recover_feeders(sites, v)
     s = sites[["site_id", "gis_feeder_id", "gis_phase", "lat", "lon"]].merge(fr, on="site_id")
-    pr = recover_phases(s, v.loc[s.site_id.to_numpy()], seed=0, night=v.attrs.get("night"))  # rows aligned with s
+    pr = recover_phases(s, v.loc[s.site_id.to_numpy()], night=v.attrs.get("night"))  # rows aligned with s
     s = s.merge(pr, on="site_id")
     s["feeder_flag"] = (s.likely_feeder_id != s.gis_feeder_id) & (s.feeder_score >= threshold)
     s["phase_flag"] = (s.likely_phase != s.gis_phase) & (s.phase_score >= phase_threshold) & ~s.feeder_flag
