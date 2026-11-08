@@ -13,24 +13,29 @@ import { StatusMark } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
 import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 import { stepToTs, timeLabel } from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
-import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
+import { useReplayStep } from "@/demo/use-replay";
+import { ProvenancePill } from "@/components/provenance-pill";
+import {
+  type Delta,
+  DetailsSheet,
+  Fold,
+  Metric,
+  MetricRow,
+  RowButton,
+  SectionHeader,
+  SheetSection,
+  StatusPill,
+} from "@/panels/disclosure";
+import { useVerdicts } from "@/panels/judge/use-judge";
 import { orpc } from "@/utils/orpc";
 import { VerdictCard } from "@/panels/judge/verdict-card";
 
 import { BASELINE_SERIES, LIMIT_SERIES, SENTINEL_SERIES, SOC_SERIES } from "./colors";
-import {
-  AXIS_MARGIN,
-  ChartAxes,
-  ChartLegend,
-  EmptyNote,
-  ProvenancePill,
-  SectionHeader,
-  yAxisFor,
-} from "./ui";
+import { FeederRanking } from "./feeder-ranking";
 import { GridRow } from "./grid-section";
 import { LiveRow } from "./live-section";
-import { NoticeRow } from "./notice-section";
+import { LEVEL, NoticeRow, useNotice } from "./notice-section";
+import { AXIS_MARGIN, ChartAxes, ChartLegend, EmptyNote, yAxisFor } from "./ui";
 import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
@@ -58,32 +63,29 @@ function bucharestWallClock(ts: string) {
   );
 }
 
-// Status text classes (team/contracts/ui-style.md §2). Red only for a value over its limit now.
+// Status text class (team/contracts/ui-style.md §2). Red only for a value over its limit now.
 const OVER_TONE = "text-status-critical";
-const SENTINEL_TONE = "text-status-ok";
 
-function Value({ value, unit, className }: { value: string; unit?: string; className?: string }) {
-  return (
-    <span className={`inline-flex items-baseline justify-end gap-0.5 whitespace-nowrap tabular-nums ${className ?? ""}`}>
-      <span>{value}</span>
-      {unit && <span className="text-[11px] font-normal text-muted-foreground">{unit}</span>}
-    </span>
-  );
+/**
+ * Sentinel against the baseline as a delta chip: "−40%" in green when Sentinel is lower (less time
+ * over the limit, a lower peak), neutral when equal; none without a baseline to compare with.
+ * `neutral` keeps the chip grey (export now: more export is only bad over the limit).
+ */
+function deltaVs(baseline: number | undefined, sentinel: number | undefined, neutral = false): Delta | undefined {
+  if (baseline == null || sentinel == null || baseline < 1) return undefined;
+  const change = Math.round((sentinel / baseline - 1) * 100);
+  if (change === 0) return { text: "same", good: null };
+  return { text: `${change > 0 ? "+" : "−"}${Math.abs(change)}%`, good: neutral ? null : change < 0 };
 }
 
-function PolicyHeader({ name, active }: { name: string; active: boolean }) {
+/** Judge verdicts (#192) for this feeder, folded on the glance; nothing when the DB has no Judge rows. */
+function JudgeFold({ feederId }: { feederId: string }) {
+  const { data } = useVerdicts(feederId);
+  if (!data?.length) return null;
   return (
-    <th
-      scope="col"
-      className={`pb-1.5 text-right text-[11px] font-medium tracking-[0.04em] uppercase ${
-        active ? "text-foreground" : "text-muted-foreground"
-      }`}
-    >
-      <span className="inline-flex items-center gap-1.5">
-        {active && <StatusMark kind="live" size="xs" label="shown on map" />}
-        {name}
-      </span>
-    </th>
+    <Fold title="Can we trust the models?" aside={`${data.length} ${data.length === 1 ? "model" : "models"}`}>
+      <VerdictCard assetId={feederId} className="border-0 bg-transparent p-0 shadow-none" />
+    </Fold>
   );
 }
 
@@ -125,7 +127,6 @@ function nowSentence({
 }
 
 export function FeederPanel() {
-  const [policy] = usePolicy();
   const [step] = useReplayStep();
   const [selected, setSelected] = useSelectedFeeder();
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -206,47 +207,11 @@ export function FeederPanel() {
   const nowDate = bucharestWallClock(nowTs);
 
   const limitKw = Math.round(feeder?.limitKw ?? 0);
-  const cut = baselineOver > 0 ? Math.round((1 - sentinelOver / baselineOver) * 100) : 0;
   const overNow = (value?: number) => (now && (value ?? 0) > now.limit ? OVER_TONE : undefined);
-  const rows = [
-    {
-      label: (
-        <>
-          Minutes over <Term id="feeder-limit">limit</Term>
-        </>
-      ),
-      key: "minutes",
-      baseline: { value: String(baselineOver), unit: "min" },
-      sentinel: {
-        value: String(sentinelOver),
-        unit: "min",
-        className: sentinelOver < baselineOver ? SENTINEL_TONE : undefined,
-      },
-      delta: cut > 0 ? `−${cut}%` : null,
-    },
-    {
-      label: "Peak export today",
-      key: "peak",
-      baseline: { value: String(Math.round(statFor("baseline")?.peakExportKw ?? 0)), unit: "kW" },
-      sentinel: { value: String(Math.round(statFor("sentinel")?.peakExportKw ?? 0)), unit: "kW" },
-      delta: null,
-    },
-    {
-      label: `Export at ${timeLabel(step)}`,
-      key: "now",
-      baseline: {
-        value: now ? String(Math.round(now.baseline_export)) : "—",
-        unit: now ? "kW" : undefined,
-        className: overNow(now?.baseline_export),
-      },
-      sentinel: {
-        value: now ? String(Math.round(now.sentinel_export)) : "—",
-        unit: now ? "kW" : undefined,
-        className: overNow(now?.sentinel_export),
-      },
-      delta: null,
-    },
-  ];
+  const baselinePeak = statFor("baseline")?.peakExportKw;
+  const sentinelPeak = statFor("sentinel")?.peakExportKw;
+  const { data: notice } = useNotice(feederId, window.from, window.to);
+  const level = notice ? LEVEL[notice.level] : null;
 
   if (!feeder) {
     return (
@@ -272,27 +237,40 @@ export function FeederPanel() {
   return (
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto overscroll-contain rounded-xl bg-card text-card-foreground shadow-floating">
       <header className="space-y-1.5 px-5 pt-4">
-        <h2 className="text-base font-semibold">
-          <span className="relative inline-flex items-center">
-            <select
-              aria-label="Feeder"
-              value={feederId}
-              onChange={(event) => setSelected(event.target.value)}
-              className="h-9 cursor-pointer appearance-none rounded-lg bg-card py-1 pr-9 pl-3 text-base font-semibold text-foreground shadow-raised transition-[background-color,box-shadow] duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {feeders?.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.id} · {f.name.startsWith(`${f.id} `) ? f.name.slice(f.id.length + 1) : f.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              aria-hidden
-              className="pointer-events-none absolute right-3 size-4 text-muted-foreground"
-            />
-          </span>
-        </h2>
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-text-secondary">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-title">
+            <span className="relative inline-flex items-center">
+              <select
+                aria-label="Feeder"
+                value={feederId}
+                onChange={(event) => setSelected(event.target.value)}
+                className="h-9 cursor-pointer appearance-none rounded-lg bg-card py-1 pr-9 pl-3 text-title text-foreground shadow-raised transition-[background-color,box-shadow] duration-150 outline-none hover:bg-surface-raised focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {feeders?.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.id} · {f.name.startsWith(`${f.id} `) ? f.name.slice(f.id.length + 1) : f.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden
+                className="pointer-events-none absolute right-3 size-4 text-muted-foreground"
+              />
+            </span>
+          </h2>
+          {level ? (
+            <StatusPill status={level.pill} className="shrink-0">
+              <span className="sr-only">Congestion level: </span>
+              {level.label}
+            </StatusPill>
+          ) : null}
+          {showPill ? (
+            <span className="ml-auto">
+              <ProvenancePill label={label ?? "no run"} />
+            </span>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-caption text-text-secondary">
           <span>{feeder.county}</span>
           <span aria-hidden>·</span>
           <span className="tabular-nums">{limitKw} kW limit</span>
@@ -305,62 +283,64 @@ export function FeederPanel() {
           ) : (
             <span>GIS trust {feeder.gisTrust ?? "unknown"}</span>
           )}
-          {showPill ? (
-            <span className="ml-auto">
-              <ProvenancePill label={label ?? "no run"} />
-            </span>
-          ) : null}
         </div>
       </header>
 
       <div className="flex flex-col px-5">
-        <p className="pt-3.5 pb-3 text-[14px] leading-snug text-foreground">{sentence}</p>
+        <p className="pt-3 pb-4 leading-snug text-foreground">{sentence}</p>
 
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr>
-              <th scope="col" className="pb-1.5 text-left">
-                <span className="sr-only">Metric</span>
-              </th>
-              <PolicyHeader name="Baseline" active={policy === "baseline"} />
-              <PolicyHeader name="Sentinel" active={policy === "sentinel"} />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border border-t border-border">
-            {rows.map((row) => (
-              <tr key={row.key}>
-                <th scope="row" className="py-1.5 pr-2 text-left font-normal whitespace-nowrap text-text-secondary">
-                  {row.label}
-                </th>
-                <td className="w-[4.5rem] py-1.5 text-right text-text-secondary">
-                  <Value {...row.baseline} />
-                </td>
-                <td className="w-[5.5rem] py-1.5 text-right font-semibold text-foreground">
-                  <span className="inline-flex items-baseline gap-1.5">
-                    {row.delta ? (
-                      <span className="rounded-full bg-status-ok/10 px-1.5 text-[10px] leading-4 font-semibold text-status-ok tabular-nums">
-                        {row.delta}
-                      </span>
-                    ) : null}
-                    <Value {...row.sentinel} />
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {/* Three tiles: Sentinel's value, its change against the baseline, the baseline underneath. */}
+        <MetricRow className="border-y border-border py-3">
+          <Metric
+            label={
+              <>
+                Minutes over <Term id="feeder-limit">limit</Term>
+              </>
+            }
+            value={String(sentinelOver)}
+            unit="min"
+            delta={deltaVs(baselineOver, sentinelOver)}
+            sub={`Baseline ${baselineOver} min`}
+          />
+          <Metric
+            label="Peak export today"
+            value={String(Math.round(sentinelPeak ?? 0))}
+            unit="kW"
+            delta={deltaVs(baselinePeak, sentinelPeak)}
+            sub={`Baseline ${Math.round(baselinePeak ?? 0)} kW`}
+          />
+          <Metric
+            label={`Export at ${timeLabel(step)}`}
+            value={now ? String(Math.round(now.sentinel_export)) : "—"}
+            unit={now ? "kW" : undefined}
+            tone={overNow(now?.sentinel_export)}
+            delta={deltaVs(
+              now?.baseline_export,
+              now?.sentinel_export,
+              !(now && now.baseline_export > now.limit),
+            )}
+            sub={
+              now ? (
+                <span className={overNow(now.baseline_export)}>Baseline {Math.round(now.baseline_export)} kW</span>
+              ) : undefined
+            }
+          />
+        </MetricRow>
 
-        <section className="space-y-2 pt-4 pb-1">
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-            <SectionHeader title="Export today, kW" />
-            <ChartLegend
-              items={[
-                { label: "Baseline", color: BASELINE_SERIES },
-                { label: "Sentinel", color: SENTINEL_SERIES },
-                { label: "Limit", color: LIMIT_SERIES, dashed: true },
-              ]}
-            />
-          </div>
+        <section className="space-y-2 pt-5">
+          <SectionHeader
+            as="h3"
+            title="Export today, kW"
+            aside={
+              <ChartLegend
+                items={[
+                  { label: "Baseline", color: BASELINE_SERIES },
+                  { label: "Sentinel", color: SENTINEL_SERIES },
+                  { label: "Limit", color: LIMIT_SERIES, dashed: true },
+                ]}
+              />
+            }
+          />
           <div className="relative">
             <LineChart
               data={exportData}
@@ -386,10 +366,13 @@ export function FeederPanel() {
           </div>
         </section>
 
-        {feederId ? <VerdictCard assetId={feederId} className="mt-2" /> : null}
+        <FeederRanking selected={feederId} onSelect={(id) => void setSelected(id)} />
 
-        <div className="mt-2 border-t border-border pb-2">
-          <NoticeRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
+        <div className="mt-4 pb-2">
+          {feederId ? <JudgeFold feederId={feederId} /> : null}
+          <div className="border-t border-border">
+            <NoticeRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
+          </div>
           <LiveRow feederId={feederId} feederName={name} from={window.from} to={window.to} />
           <GridRow feederId={feederId} feederName={name} />
           <RowButton
@@ -474,16 +457,16 @@ export function FeederPanel() {
           )}
         </SheetSection>
 
-        <SheetSection title="Homes that absorbed the surplus" aside={<span className="text-xs text-muted-foreground tabular-nums">{(sites ?? []).length} homes</span>}>
+        <SheetSection title="Homes that absorbed the surplus" aside={<span className="text-caption text-muted-foreground tabular-nums">{(sites ?? []).length} homes</span>}>
           {(sites ?? []).length === 0 ? (
             <EmptyNote icon={Sun}>No absorption needed on this feeder today.</EmptyNote>
           ) : (
-            <ul className="divide-y divide-border text-[13px]">
+            <ul className="divide-y divide-border text-dense">
               {sites?.map((site) => (
                 <li key={site.assetId} className="flex justify-between py-2">
                   <span>Site {site.assetId}</span>
                   <span className="text-text-secondary tabular-nums">
-                    {site.absorbedKwh.toFixed(1)} <span className="text-[11px] text-muted-foreground">kWh</span>
+                    {site.absorbedKwh.toFixed(1)} <span className="text-caption text-muted-foreground">kWh</span>
                   </span>
                 </li>
               ))}

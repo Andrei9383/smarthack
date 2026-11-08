@@ -12,12 +12,13 @@ import { useMemo, useState } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
+import { PROVENANCE_PILL_CLASS } from "@/components/provenance-pill";
 import { stepToTs } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
 import { orpc } from "@/utils/orpc";
 
-import { LIMIT_SERIES } from "./colors";
+import { ACTUAL_SERIES, FORECAST_SERIES, LIMIT_SERIES } from "./colors";
 import { LiveChart } from "./live-chart";
 import { ChartLegend, EmptyNote } from "./ui";
 
@@ -51,10 +52,7 @@ function SimPill({ feed, fetchedAt }: { feed: LiveFeeder; fetchedAt: number }) {
       ? `simulated${feed.speed && feed.speed > 1 ? ` ×${Math.round(feed.speed)}` : ""} · ${age != null ? ageText(age) : "age unknown"}`
       : "simulated · replay clock";
   return (
-    <span
-      title={feed.sourceNote}
-      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-text-secondary"
-    >
+    <span title={feed.sourceNote} className={PROVENANCE_PILL_CLASS}>
       <StatusMark kind={feed.source === "live" ? "live" : "unknown"} size="xs" pulse={feed.source === "live"} />
       {text}
     </span>
@@ -81,7 +79,10 @@ function missText(t: LiveTick) {
   return `${hm(t.ts)}: predicted ${kw(t.predictedKw)} kW, got ${kw(t.actualKw)} kW`;
 }
 
-/** One hairline row in the feeder inspector: the next 15 min and a warning mark; details in a sheet. */
+/**
+ * One hairline row in the feeder inspector: a warning mark in words; the next-15-min forecast and the
+ * misses are in the sheet (Calm: no numbers in the row).
+ */
 export function LiveRow({
   feederId,
   feederName,
@@ -96,7 +97,6 @@ export function LiveRow({
   const [open, setOpen] = useState(false);
   const { feed, view, isLoading } = useLive(feederId, from, to);
   const warn = view ? WARN[view.warning.level] : null;
-  const next = view?.next?.q50Kw;
   return (
     <>
       <RowButton
@@ -106,13 +106,10 @@ export function LiveRow({
           isLoading ? (
             <span>…</span>
           ) : view && warn ? (
-            <>
-              {next != null ? <span>next 15 min {kw(next)} kW</span> : null}
-              <span className={`inline-flex items-center gap-1 font-medium ${warn.text}`}>
-                <StatusMark kind={warn.kind} size="sm" pulse={view.warning.level === "severe"} />
-                {view.warning.level === "none" ? null : warn.label}
-              </span>
-            </>
+            <span className={`inline-flex items-center gap-1 font-medium ${warn.text}`}>
+              <StatusMark kind={warn.kind} size="sm" pulse={view.warning.level === "severe"} />
+              {warn.label}
+            </span>
           ) : (
             <span>no data</span>
           )
@@ -163,39 +160,39 @@ export function LiveSection({
   return (
     <>
       <SheetSection title="Now" aside={<SimPill feed={feed} fetchedAt={dataUpdatedAt} />}>
-        <p className={`flex items-start gap-1.5 text-[14px] leading-snug ${view.warning.level === "none" ? "text-foreground" : warn.text}`}>
+        <p className={`flex items-start gap-1.5 text-body leading-snug ${view.warning.level === "none" ? "text-foreground" : warn.text}`}>
           <StatusMark kind={warn.kind} size="sm" className="mt-1" />
           <span>{sentence}</span>
         </p>
-        <dl className="grid grid-cols-3 divide-x divide-border text-[12px]">
+        <dl className="grid grid-cols-3 divide-x divide-border text-caption">
           <div className="pr-3">
             <dt className="text-text-secondary">Next 15 min{next ? ` (${hm(next.ts)})` : ""}</dt>
-            <dd className="text-[15px] font-semibold tabular-nums">
+            <dd className="text-title tabular-nums">
               {next?.q50Kw != null ? `${kw(next.q50Kw)} kW` : "—"}
             </dd>
             {next?.q10Kw != null && next.q90Kw != null ? (
-              <dd className="text-[11px] text-muted-foreground tabular-nums">
+              <dd className="text-caption text-muted-foreground tabular-nums">
                 <Term id="p90">P10–P90</Term> {kw(next.q10Kw)}–{kw(next.q90Kw)}
               </dd>
             ) : null}
           </div>
           <div className="px-3">
             <dt className="text-text-secondary">Last tick{last ? ` (${hm(last.ts)})` : ""}</dt>
-            <dd className={`text-[15px] font-semibold tabular-nums ${last?.flagged ? "text-status-warn" : ""}`}>
+            <dd className={`text-title tabular-nums ${last?.flagged ? "text-status-warn" : ""}`}>
               {last ? `${last.errorKw >= 0 ? "+" : "−"}${kw(Math.abs(last.errorKw))} kW` : "—"}
             </dd>
             {last ? (
-              <dd className="text-[11px] text-muted-foreground tabular-nums">
+              <dd className="text-caption text-muted-foreground tabular-nums">
                 said {kw(last.predictedKw)}, got {kw(last.actualKw)}
               </dd>
             ) : null}
           </div>
           <div className="pl-3">
             <dt className="text-text-secondary">Mean miss</dt>
-            <dd className="text-[15px] font-semibold tabular-nums">
+            <dd className="text-title tabular-nums">
               {view.meanAbsErrorKw != null ? `${kw(view.meanAbsErrorKw)} kW` : "—"}
             </dd>
-            <dd className="text-[11px] text-muted-foreground tabular-nums">
+            <dd className="text-caption text-muted-foreground tabular-nums">
               {view.misses.length} big {view.misses.length === 1 ? "miss" : "misses"}
             </dd>
           </div>
@@ -207,15 +204,15 @@ export function LiveSection({
         aside={
           <ChartLegend
             items={[
-              { label: "Measured", color: "var(--foreground)" },
-              { label: "P50 forecast", color: "var(--status-forecast)", dashed: true },
+              { label: "Measured", color: ACTUAL_SERIES },
+              { label: "P50 forecast", color: FORECAST_SERIES, dashed: true },
               { label: "Limit", color: LIMIT_SERIES, dashed: true },
             ]}
           />
         }
       >
         <LiveChart view={view} limitKw={limit} />
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           Shaded band ahead of now = P10–P90. Dashed line behind now = what was predicted for each step.
           Forecast: {feed.forecastLabel}. Source: {feed.sourceNote}.
         </p>
@@ -225,7 +222,7 @@ export function LiveSection({
         {view.misses.length === 0 ? (
           <p className="text-xs text-text-secondary">No big misses so far today.</p>
         ) : (
-          <ul className="divide-y divide-border text-[13px]">
+          <ul className="divide-y divide-border text-dense">
             {view.misses.slice(0, 5).map((t) => (
               <li key={t.ts} className="flex items-center gap-2 py-1.5">
                 <StatusMark kind="warn" size="xs" />

@@ -8,10 +8,8 @@ import { scaleLinear, scaleTime } from "d3-scale";
 import { area, line } from "d3-shape";
 import { useMemo } from "react";
 
-import { LIMIT_SERIES } from "./colors";
+import { ACTUAL_SERIES as ACTUAL, FORECAST_SERIES as FORECAST, LIMIT_SERIES } from "./colors";
 
-const FORECAST = "var(--status-forecast)";
-const ACTUAL = "var(--foreground)";
 const W = 400;
 const H = 150;
 const M = { left: 34, right: 8, top: 14, bottom: 20 };
@@ -85,8 +83,8 @@ export function LiveChart({ view, limitKw, pastSteps = 24 }: { view: LiveView; l
     >
       {geom.yTicks.map((v) => (
         <g key={v}>
-          <line x1={M.left} x2={W - M.right} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeWidth={1} />
-          <text x={M.left - 6} y={y(v)} dy="0.32em" textAnchor="end" className="fill-muted-foreground text-[10px] tabular-nums">
+          <line x1={M.left} x2={W - M.right} y1={y(v)} y2={y(v)} stroke="var(--chart-grid)" strokeWidth={1} />
+          <text x={M.left - 6} y={y(v)} dy="0.32em" textAnchor="end" className="fill-muted-foreground text-caption tabular-nums">
             {v}
           </text>
         </g>
@@ -97,12 +95,12 @@ export function LiveChart({ view, limitKw, pastSteps = 24 }: { view: LiveView; l
           x={x(t)}
           y={H - M.bottom + 14}
           textAnchor="middle"
-          className="fill-muted-foreground text-[10px] tabular-nums"
+          className="fill-muted-foreground text-caption tabular-nums"
         >
           {HM.format(t)}
         </text>
       ))}
-      <text x={M.left - 6} y={M.top - 6} textAnchor="end" className="fill-muted-foreground text-[9px] font-medium">
+      <text x={M.left - 6} y={M.top - 6} textAnchor="end" className="fill-muted-foreground text-caption font-medium">
         kW
       </text>
 
@@ -122,12 +120,12 @@ export function LiveChart({ view, limitKw, pastSteps = 24 }: { view: LiveView; l
       <path d={geom.aheadPath} fill="none" stroke={FORECAST} strokeWidth={2} strokeDasharray="5 3" />
 
       <line x1={M.left} x2={W - M.right} y1={geom.limitY} y2={geom.limitY} stroke={LIMIT_SERIES} strokeWidth={1.5} strokeDasharray="6 4" />
-      <text x={W - M.right} y={geom.limitY - 4} textAnchor="end" className="fill-status-critical text-[10px] font-semibold tabular-nums">
+      <text x={W - M.right} y={geom.limitY - 4} textAnchor="end" className="fill-status-critical text-caption font-semibold tabular-nums">
         {Math.round(limitKw)} kW limit
       </text>
 
       <line x1={geom.nowX} x2={geom.nowX} y1={M.top} y2={H - M.bottom} stroke="var(--foreground)" strokeOpacity={0.45} strokeDasharray="2 2" />
-      <text x={geom.nowX} y={M.top - 4} textAnchor="middle" className="fill-foreground font-mono text-[9px] font-medium">
+      <text x={geom.nowX} y={M.top - 4} textAnchor="middle" className="fill-foreground font-mono text-caption font-medium">
         now
       </text>
       {geom.next ? <circle cx={geom.next.x} cy={geom.next.y} r={3.5} fill={FORECAST} stroke="var(--card)" strokeWidth={1.5} /> : null}

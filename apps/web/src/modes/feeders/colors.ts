@@ -1,5 +1,5 @@
 // Raw colour values for MapLibre paint and SVG charts, which can't read Tailwind classes.
-// Mirrors team/contracts/ui-style.md (Cockpit, dark + light); the RGB source is apps/web/src/lib/palette.ts.
+// Mirrors team/contracts/ui-style.md (Calm, light + charcoal); the RGB source is apps/web/src/lib/palette.ts.
 // Components must not hold hex literals of their own.
 import { hex, MAP_SAFE, onPaletteTheme, rgba } from "@/lib/palette";
 
@@ -18,11 +18,14 @@ onPaletteTheme((palette) => {
   LOW_TRUST_GAP = hex(palette.mapCasing);
 });
 
-// Charts: Sentinel is always --primary, the baseline always --chart-baseline (foreground at 55%).
+// Charts: Sentinel is always --sentinel, the baseline always --chart-baseline (ink at 45%).
 export const SENTINEL_SERIES = "var(--sentinel)";
 export const BASELINE_SERIES = "var(--chart-baseline)";
 export const LIMIT_SERIES = "var(--status-critical)";
 export const SOC_SERIES = "var(--status-soc)";
+// Live chart (#130): measured readings in ink, the forecast in the forecast blue.
+export const ACTUAL_SERIES = "var(--foreground)";
+export const FORECAST_SERIES = "var(--status-forecast)";
 
 // Map motion (#115): emerald charging ripples and the light flow dashes on an over-limit (red) line.
 export const CHARGE_RIPPLE = hex(MAP_SAFE.brand);

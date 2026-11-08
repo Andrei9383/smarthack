@@ -31,13 +31,23 @@ const HM = new Intl.DateTimeFormat("en-GB", {
 const hm = (ts: string) => HM.format(new Date(ts));
 const DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD, as the server logs it
 
-// Status = shape-coded mark + word (ui-style §7), no pill.
-const LEVEL: Record<CongestionLevelValue, { label: string; kind: StatusKind; text: string }> = {
-  severe: { label: "Severe", kind: "critical", text: "text-status-critical" },
-  congested: { label: "Congested", kind: "warn", text: "text-status-warn" },
-  watch: { label: "Watch", kind: "forecast", text: "text-status-forecast" },
-  none: { label: "No congestion", kind: "ok", text: "text-status-ok" },
+// Status = shape-coded mark + word in rows; the inspector header shows the same word as a StatusPill.
+export const LEVEL: Record<
+  CongestionLevelValue,
+  { label: string; kind: StatusKind; text: string; pill: "critical" | "warn" | "forecast" | "ok" }
+> = {
+  severe: { label: "Severe", kind: "critical", text: "text-status-critical", pill: "critical" },
+  congested: { label: "Congested", kind: "warn", text: "text-status-warn", pill: "warn" },
+  watch: { label: "Watch", kind: "forecast", text: "text-status-forecast", pill: "forecast" },
+  none: { label: "No congestion", kind: "ok", text: "text-status-ok", pill: "ok" },
 };
+
+/** The day-ahead congestion forecast for one feeder (shared cache with the notices row and sheet). */
+export function useNotice(feederId: string, from: string, to: string) {
+  return useQuery(
+    orpc.notify.getForecast.queryOptions({ input: { feederId, from, to }, enabled: Boolean(feederId) }),
+  );
+}
 
 const LOAD_SOURCE: Record<string, string> = {
   yesterday: "yesterday's load",
@@ -54,7 +64,7 @@ function HomeRow({ home, onPreview }: { home: HouseholdItem; onPreview: () => vo
       <button
         type="button"
         onClick={onPreview}
-        className="flex w-full items-center gap-2 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted focus-visible:outline-none"
+        className="flex w-full items-center gap-2 py-2 text-left transition-colors hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline-none"
       >
         <span className="font-medium">Home {home.assetId}</span>
         <span className="flex items-center gap-1 text-muted-foreground">
@@ -62,7 +72,7 @@ function HomeRow({ home, onPreview }: { home: HouseholdItem; onPreview: () => vo
           {home.hasEv && <Car className="size-3.5" aria-label="electric car" />}
         </span>
         <span className="ml-auto text-text-secondary tabular-nums">
-          {kwh(home.exportWindowKwh)} <span className="text-[11px] text-muted-foreground">kWh surplus</span>
+          {kwh(home.exportWindowKwh)} <span className="text-caption text-muted-foreground">kWh surplus</span>
         </span>
         <Mail className="size-3.5 text-muted-foreground" aria-hidden />
       </button>
@@ -86,9 +96,7 @@ export function NoticeRow({
   to: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { data: notice, isLoading } = useQuery(
-    orpc.notify.getForecast.queryOptions({ input: { feederId, from, to }, enabled: Boolean(feederId) }),
-  );
+  const { data: notice, isLoading } = useNotice(feederId, from, to);
   const level = notice ? LEVEL[notice.level] : null;
   const window =
     notice?.windowFrom && notice.windowTo ? `${hm(notice.windowFrom)}–${hm(notice.windowTo)}` : null;
@@ -182,14 +190,14 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
           </span>
         }
       >
-      <div className="space-y-1.5 text-[13px] leading-snug">
+      <div className="space-y-1.5 text-dense leading-snug">
         <p className="text-foreground">
           {notice.level === "none"
             ? "No notice needed: "
             : `Forecast the evening before: `}
           <span className="text-text-secondary">{notice.reason}.</span>
         </p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           PVNet P50/P90 solar ({notice.modelVersion.split(":").pop()}) minus {LOAD_SOURCE[notice.loadSource]}.
           {" "}
           {notice.actualStepsOver > 0
@@ -201,7 +209,7 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
 
       {notice.level !== "none" && homes.length > 0 && (
         <SheetSection title="Homes to notify" aside={<span className="text-xs text-muted-foreground tabular-nums">{homes.length} homes · click one to preview</span>}>
-          <ul className="divide-y divide-border border-y border-border text-[13px]">
+          <ul className="divide-y divide-border border-y border-border text-dense">
             {shown.map((home) => (
               <HomeRow key={home.assetId} home={home} onPreview={() => setPreviewId(home.assetId)} />
             ))}
@@ -225,7 +233,7 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
               <Send data-icon="inline-start" />
               {send.isPending ? "Sending…" : `Email all ${homes.length} homes`}
             </Button>
-            <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+            <p className="flex items-start gap-1.5 text-caption leading-snug text-muted-foreground">
               <ShieldCheck className="mt-px size-3.5 shrink-0" aria-hidden />
               {!sendable
                 ? "Watch level: shown here, no email. Emails go out at congested or severe."
@@ -248,7 +256,7 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
       <Sheet open={Boolean(previewId)} onOpenChange={(open) => (open ? null : setPreviewId(null))}>
         <SheetContent
           side="right"
-          className="w-full gap-0 border-0 bg-card text-[13px] text-foreground shadow-overlay data-[side=right]:border-l-0 data-[side=right]:sm:max-w-xl"
+          className="w-full gap-0 border-0 bg-card text-dense text-foreground shadow-overlay data-[side=right]:border-l-0 data-[side=right]:sm:max-w-xl"
         >
           <SheetHeader className="border-b border-border">
             <SheetTitle>Notice for home {previewId}</SheetTitle>
