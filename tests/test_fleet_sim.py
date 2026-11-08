@@ -1,4 +1,4 @@
-"""Fleet simulator (#11, #52): contract columns, physics invariants, battery == contracts.opt, RO calendar."""
+"""Fleet simulator: contract columns, physics invariants, battery == contracts.opt, RO calendar."""
 
 from __future__ import annotations
 
@@ -80,7 +80,8 @@ def test_battery_matches_contract():
                              eta_charge=float(rng.uniform(0.9, 0.98)), eta_discharge=float(rng.uniform(0.9, 0.98)),
                              soc_min=float(rng.uniform(0, 0.2)), soc_max=float(rng.uniform(0.85, 1.0)),
                              comfort_reserve_kwh=0.0) for _ in range(n)]
-    p = BatteryParams.from_specs(specs)
+    p = BatteryParams(*(np.array([getattr(s, k) for s in specs], float) for k in (
+        "capacity_kwh", "p_max_kw", "eta_charge", "eta_discharge", "soc_min", "soc_max", "comfort_reserve_kwh")))
     e = np.array([s.capacity_kwh * rng.uniform(s.soc_min, s.soc_max) for s in specs])
     for _ in range(50):
         pv_kw, load_kw = rng.uniform(0, 8, n), rng.uniform(0, 6, n)
@@ -142,7 +143,7 @@ def test_raw_weather(tmp_path, monkeypatch, fmt):
 
 
 def test_raw_weather_interval_start(tmp_path, monkeypatch):
-    """#9 stamps hourly means at interval start: a GHI symmetric around solar noon must stay centred on it."""
+    """stamps hourly means at interval start: a GHI symmetric around solar noon must stay centred on it."""
     from wattsentry.sim.fleet import solar
     from wattsentry.sim.fleet import weather as wmod
     from wattsentry.sim.fleet.localities import BY_ID

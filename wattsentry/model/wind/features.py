@@ -1,6 +1,6 @@
 """M6 feature code shared by training and the onnxruntime predictor (numpy only, no torch).
 
-- `nbm_inputs`: per-step NBM inputs [N, T, F_IN] and targets (density-normalised winds per plan §3.5).
+- `nbm_inputs`: per-step NBM inputs [N, T, F_IN] and targets (density-normalised winds).
 - `run_nbm`: chunked causal inference through any backend (torch in train, onnxruntime in the predictor).
 - `clf_features`: residual + park-context features for the anomaly classifier, one park at a time.
 - `curtail_ok` / `decide`: per-class thresholds + park-wide curtailment rule (common ceiling or park consensus)
@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import itertools
+import warnings
 from typing import Callable, Optional
 
 import numpy as np
@@ -121,7 +122,7 @@ MIN_HISTORY_STEPS = BASELINE_STEPS + BASELINE_LAG  # 28 days: full per-turbine t
 
 
 def rmean(x: np.ndarray, w: int) -> np.ndarray:
-    """Causal NaN-aware rolling mean over the last w steps along axis 0 (0 where no data); Rust kernel #95."""
+    """Causal NaN-aware rolling mean over the last w steps along axis 0 (0 where no data)."""
     return rolling_mean(x, w)
 
 
@@ -217,7 +218,7 @@ def clf_features(
         x = sensors[s].astype(np.float64)
         tr_raw = x - tq[:, :, k, 1]
         # the turbine's own baseline (21 days ending 7 days ago): unseen turbines that run hot by design are
-        # not "overheating"; only a residual rising above the turbine's own baseline is (plan §3.5)
+        # not "overheating"; only a residual rising above the turbine's own baseline is
         base = shift(rmean(tr_raw, BASELINE_STEPS), BASELINE_LAG)
         tr = tr_raw - base
         tw = np.maximum(tq[:, :, k, 2] - tq[:, :, k, 0], 0.5)
@@ -234,8 +235,6 @@ def clf_features(
     feats.update(dir_sin=_nan0(np.sin(d)), dir_cos=_nan0(np.cos(d)))
     # park context
     with np.errstate(all="ignore"):
-        import warnings
-
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             med_p = np.nanmedian(np.where(valid, p, np.nan), axis=1)
@@ -295,7 +294,7 @@ DEFAULT_MERGE = {"fault_stop": 4, "curtailment": 4, "icing": 8, "underperformanc
 
 
 CURTAIL_MIN_PARK_FRAC = 0.15
-# Park consensus (#99): a cap to 0 % leaves noisy near-zero power with no common ceiling, so the ceiling test alone
+# Park consensus: a cap to 0 % leaves noisy near-zero power with no common ceiling, so the ceiling test alone
 # turns a park-wide cap the classifier is sure about into "normal". Curtailment is therefore also allowed where at
 # least this share of the park's reporting turbines has p_curtailment >= θ_curtailment in the same step ...
 CURTAIL_CONSENSUS_FRAC = 0.5
@@ -303,7 +302,7 @@ CURTAIL_CONSENSUS_FRAC = 0.5
 CURTAIL_CONSENSUS_MIN_TURBINES = 2
 # A vote needs p_curtailment >= max(θ_curtailment, this). The consensus lifts the veto without any physical
 # ceiling, so it only counts confident turbines: once the veto stops binding, the tuner lowers θ_curtailment to
-# 0.15-0.25 (#99 train#554-557), and votes that weak would let a diffuse weather-driven signal form a consensus.
+# ~0.15-0.25, and votes that weak would let a diffuse weather-driven signal form a consensus.
 CURTAIL_CONSENSUS_MIN_P = 0.5
 
 # What `curtail_ok` returns: one park's curtailment context per step and turbine. Structured so that the masks of
@@ -316,7 +315,7 @@ _park_ids = itertools.count()
 def curtail_ok(F: np.ndarray, names: list[str]) -> np.ndarray:
     """Curtailment context [T, n] (dtype CURTAIL_CTX) for the turbines of ONE park, F as from `clf_features`.
 
-    Curtailment is park-wide by definition (plan §3.5). `decide` allows it where `ceiling` holds (>= 15 % of the
+    Curtailment is park-wide by definition. `decide` allows it where `ceiling` holds (>= 15 % of the
     park sits at one ceiling below its expected power, park_cap_frac over the last hour) OR where the park agrees
     (>= CURTAIL_CONSENSUS_FRAC of the `reporting` turbines, i.e. those with a valid power reading, have
     p_curtailment >= max(θ_curtailment, CURTAIL_CONSENSUS_MIN_P); only voting turbines on steps the ceiling rule

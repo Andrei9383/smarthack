@@ -1,5 +1,5 @@
-"""Features for the battery model (card #174, spec I step 5): expected PV / load, per-home strategy features over the
-last 28 days of meter data, and per-step rows for the quantile LightGBM.
+"""Features for the battery model: expected PV / load, per-home strategy features over the last 28 days of meter
+data, and per-step rows for the quantile LightGBM.
 
 Day-ahead information rule: the forecast for local day D is issued on D-1 (before the PZU gate). Smart-meter data
 of day X arrives at local X+1 00:00, so the newest complete meter day is D-2; monthly totals of month M arrive at
@@ -11,7 +11,6 @@ the battery model its "M1 P50" and "M2 P50": PV = M1's physics prior (``wattsent
 the PVWatts-style inverter on the RECORDED kWp / tilt / azimuth with the locality's weather), load = the standard
 (settlement) load profile shape scaled per home so it reproduces the home's previous-month metered import.
 Labels: proxy (physics / profile stand-ins for M1 / M2), on synthetic RO homes with real RO ERA5 weather.
-Swap the body for C1-adapter output when a data-v2 M1 / M2 exists.
 """
 
 from __future__ import annotations
@@ -35,7 +34,7 @@ EXTRA_FEATURES = ["share_exp_top_price", "exp_nosun_per_kwp", "exp_ratio", "imp_
 PUBLIC_FEATURES = ["kwp", "contract_maxcontrol", "battery_declared", "enrolled", "smart"]
 CLS_FEATURES = SPEC_FEATURES + EXTRA_FEATURES + PUBLIC_FEATURES
 
-# Per-step row features (quantile LightGBM, spec 5a) + a few per-home behaviour features from past meters.
+# Per-step row features (quantile LightGBM) + a few per-home behaviour features from past meters.
 ROW_FEATURES = ["pv_exp", "load_exp", "net_fo", "pzu", "price", "day_rank", "qh", "dow", "month", "off_day",
                 "kwp", "contract_maxcontrol", "battery_declared", "enrolled",
                 "lag2_net", "lag7_net", "lag2_exp", "lag7_exp",

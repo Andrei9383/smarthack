@@ -1,6 +1,6 @@
 """Wind physics shared by the stand-in simulator, M6 features and the predictor (numpy only).
 
-Plan §3.5 "Wind normalisation":
+Wind normalisation:
     v_hub  = v_100 · (h_hub / 100)^α          α ≈ 0.14
     ρ      = p / (R_d · T)                     R_d = 287.05 J/(kg·K), p in Pa, T in K
     v_norm = v_hub · (ρ / 1.225)^(1/3)         IEC 61400-12-1 density correction
@@ -35,10 +35,6 @@ def density_normalise(v_hub, rho):
     return np.asarray(v_hub, dtype=np.float64) * (np.asarray(rho, dtype=np.float64) / RHO_REF) ** (1.0 / 3.0)
 
 
-def v_norm_from(v_hub, pressure_hpa, temp_c):
-    return density_normalise(v_hub, air_density(pressure_hpa, temp_c))
-
-
 @dataclass(frozen=True)
 class TurbineClass:
     """Generic turbine class (not a vendor curve)."""
@@ -50,15 +46,13 @@ class TurbineClass:
     cut_in_ms: float = 3.0
     cut_out_ms: float = 25.0
     cp: float = 0.43
-    rot_min_rpm: float = 5.0
-    rot_max_rpm: float = 14.0
 
     @property
     def area_m2(self) -> float:
         return float(np.pi * (self.rotor_d_m / 2) ** 2)
 
     def power_frac(self, v_norm):
-        """Fraction of rated power at density-normalised hub wind (m/s). Soft knee, zero below cut-in / above cut-out."""
+        """Fraction of rated power at density-normalised hub wind (m/s); soft knee, 0 below cut-in / above cut-out."""
         v = np.asarray(v_norm, dtype=np.float64)
         vc = np.clip(v, 0.0, None)
         aero = 0.5 * RHO_REF * self.area_m2 * self.cp * (vc**3 - self.cut_in_ms**3) / (self.rated_kw * 1000.0)
@@ -68,30 +62,9 @@ class TurbineClass:
         frac = np.where((v < self.cut_in_ms) | (v >= self.cut_out_ms), 0.0, frac)
         return frac
 
-    def rated_wind_ms(self) -> float:
-        """Wind speed at which the curve reaches 99% of rated."""
-        vs = np.linspace(self.cut_in_ms, self.cut_out_ms, 2201)
-        return float(vs[np.argmax(self.power_frac(vs) >= 0.99)])
-
-    def rotor_rpm(self, v_norm, producing):
-        v = np.asarray(v_norm, dtype=np.float64)
-        vr = self.rated_wind_ms()
-        x = np.clip((v - self.cut_in_ms) / (vr - self.cut_in_ms), 0.0, 1.0)
-        rpm = self.rot_min_rpm + (self.rot_max_rpm - self.rot_min_rpm) * x
-        return np.where(producing, rpm, 0.0)
-
-    def pitch_deg(self, v_norm, frac_of_available):
-        """Blade pitch: ~0 in partial load, rises above rated wind; extra pitch when shedding power (curtailment)."""
-        v = np.asarray(v_norm, dtype=np.float64)
-        vr = self.rated_wind_ms()
-        p = np.clip(1.6 * (v - vr), 0.0, 30.0)
-        shed = np.clip(1.0 - np.asarray(frac_of_available, dtype=np.float64), 0.0, 1.0)
-        return np.clip(p + 25.0 * shed, 0.0, 90.0)
-
-
-# Generic classes used by the stand-in parks (plan §4: 2.5 MW and 6.1 MW class).
-CLASS_2500 = TurbineClass("generic-2.5MW", 2500.0, 100.0, 85.0, rot_min_rpm=5.0, rot_max_rpm=14.0)
-CLASS_6100 = TurbineClass("generic-6.1MW", 6100.0, 158.0, 120.0, cp=0.42, rot_min_rpm=4.0, rot_max_rpm=10.5)
+# Generic classes used by the stand-in parks (2.5 MW and 6.1 MW class).
+CLASS_2500 = TurbineClass("generic-2.5MW", 2500.0, 100.0, 85.0)
+CLASS_6100 = TurbineClass("generic-6.1MW", 6100.0, 158.0, 120.0, cp=0.42)
 CLASSES = {c.name: c for c in (CLASS_2500, CLASS_6100)}
 
 
@@ -106,6 +79,4 @@ def class_for(rated_kw: float, rotor_d_m: float | None = None, hub_height_m: flo
         float(rotor_d_m or best.rotor_d_m * np.sqrt(rated_kw / best.rated_kw)),
         float(hub_height_m or best.hub_height_m),
         cp=best.cp,
-        rot_min_rpm=best.rot_min_rpm,
-        rot_max_rpm=best.rot_max_rpm,
     )

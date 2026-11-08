@@ -1,17 +1,15 @@
-"""Exact medians for the WindNBM label-free normal selection (card #136).
+"""Exact medians for the WindNBM label-free normal selection.
 
     from wattsentry.kernels import rolling_median, binned_median_mad
     r = rolling_median(x, window, min_periods)             # x (T, ...) -> float64 (T, ...), centred, NaN/inf skipped
     med, mad = binned_median_mad(b, x, ok, n_bins, min_n)  # b/x/ok (T, ...) -> (n_bins, ...) each
 
 Both work down axis 0 (time), independently for every column.
-``rolling_median_py`` is pandas ``DataFrame.rolling(window, center=True, min_periods=...).median()`` (what
-``normal_select`` called once per turbine); ``binned_median_mad_py`` is ``normal_select``'s per-bin median + MAD of
-``x[ok]`` grouped by the bin index ``b`` (NaN where a bin has fewer than ``min_n`` values), looped over columns.
-The Rust copies (rust/wattsentry_core/src/median.rs) keep a sorted window per column / counting-sort the values by bin,
-in parallel over blocks of columns, reading the row-major input in place. They pick the same order statistics and
-average the two middle values the same way, so the outputs are bit-identical.
-#136 profile of ``select_normal`` (117 turbines x 70,176 steps): pandas rolling medians 75 %, binned medians 5 %.
+``rolling_median_py`` is pandas ``DataFrame.rolling(window, center=True, min_periods=...).median()``;
+``binned_median_mad_py`` is the per-bin median + MAD of ``x[ok]`` grouped by the bin index ``b`` (NaN where a bin has
+fewer than ``min_n`` values), looped over columns. The Rust copies (rust/wattsentry_core/src/median.rs) keep a sorted
+window per column / counting-sort the values by bin, in parallel over blocks of columns. They pick the same order
+statistics and average the two middle values the same way, so the outputs are bit-identical.
 """
 
 from __future__ import annotations

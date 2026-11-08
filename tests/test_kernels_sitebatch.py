@@ -1,4 +1,4 @@
-"""#133 SiteReader == the old pandas batch read in wattsentry.data.windows (filters -> sort -> .loc -> reshape)."""
+"""SiteReader == the old pandas batch read in wattsentry.data.windows (filters -> sort -> .loc -> reshape)."""
 
 import numpy as np
 import pandas as pd

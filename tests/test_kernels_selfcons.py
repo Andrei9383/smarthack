@@ -1,5 +1,5 @@
 """K7 fleet self-consumption: Python reference == wattsentry.sim.fleet.battery.simulate_self_consumption, Rust == Python
-bit for bit (compared as raw bits, so -0.0 vs +0.0 and NaN payloads count) (#135)."""
+bit for bit (compared as raw bits, so -0.0 vs +0.0 and NaN payloads count)."""
 
 import numpy as np
 import pytest

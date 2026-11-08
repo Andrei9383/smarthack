@@ -1,4 +1,4 @@
-"""Small self-contained run harness for #14 (mirrors team/infra.md §5 until wattsentry/infra lands).
+"""Run harness for the M1 / M2 / M4 trainers.
 
 RunContext: seeds, device + AMP dtype (bf16 on CUDA when supported, else fp16; fp32 on CPU), $LAB_OUTPUT_DIR
 (default ./.lab-out), `emit()` -> `LAB_METRIC name=value` + metrics.json, `stage()` -> `LAB_METRIC t_<stage>_s`
@@ -8,6 +8,7 @@ with peak CUDA memory, manifest.json (git sha, config, versions, data digest), O
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import math
 import os
@@ -16,6 +17,7 @@ import random
 import subprocess
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -50,9 +52,8 @@ class RunContext:
         self.metrics: dict[str, float] = {}
         self.stages: dict[str, dict] = {}
         self.sha = _git_sha()
-        run_id = os.environ.get("LAB_RUN_ID") or os.environ.get("LAB_RUN") or self.sha[:7]
-        self.run_id = run_id
-        self.model_version = f"{model}-{run_id}-s{seed}"
+        self.run_id = os.environ.get("LAB_RUN_ID") or os.environ.get("LAB_RUN") or self.sha[:7]
+        self.model_version = f"{model}-{self.run_id}-s{seed}"
         self._seed_all(seed)
         self.torch = None
         try:
@@ -162,7 +163,7 @@ class RunContext:
 
 
 class GpuSampler:
-    """Background GPU utilisation sampler (#140): torch.cuda.utilization() (pynvml) if it works, else nvidia-smi.
+    """Background GPU utilisation sampler: torch.cuda.utilization() (pynvml) if it works, else nvidia-smi.
     `mean()` = mean % busy over the samples taken between start() and stop(); NaN when no GPU / no tool."""
 
     def __init__(self, interval: float = 0.5):
@@ -218,7 +219,7 @@ class GpuSampler:
 
 
 class Throughput:
-    """Train-loop accounting (#140): data wait (blocked on the loader) vs compute (H2D + forward/backward/step) vs
+    """Train-loop accounting: data wait (blocked on the loader) vs compute (H2D + forward/backward/step) vs
     per-epoch validation, samples/s and GPU utilisation. With sync=True (--profile) each compute block ends with a
     cuda synchronize, so the split is exact (costs a little throughput); otherwise compute is the CPU-side time and
     the GPU tail shows up in the next wait/val block.
@@ -299,8 +300,7 @@ def resolve_compile(mode: str | None) -> str:
 
 
 def compile_net(net, mode: str = "off"):
-    """torch.compile(net) (a module or a bound forward) for the train forward only; eval / export / state_dict keep
-    using `net` (shared weights).
+    """torch.compile(net) for the train forward only; eval / export / state_dict keep using `net` (shared weights).
     Falls back to eager (and says so) if the compiler is unavailable on this worker."""
     mode = resolve_compile(mode)
     if mode == "off":
@@ -326,22 +326,18 @@ def pin(t):
 
 
 def _json_default(o):
-    if isinstance(o, (np.floating,)):
+    if isinstance(o, np.floating):
         return float(o)
-    if isinstance(o, (np.integer,)):
+    if isinstance(o, np.integer):
         return int(o)
     if isinstance(o, np.ndarray):
         return o.tolist()
-    if isinstance(o, Path):
-        return str(o)
     return str(o)
 
 
 def export_onnx(module, inputs: dict, path: Path, output_names: list[str], atol: float = 2e-3) -> dict:
     """Export an eval-mode fp32 module (opset 17, dynamic batch) and check onnxruntime parity on `inputs`."""
     import torch
-
-    import copy
 
     module = copy.deepcopy(module).float().eval().cpu()  # never move the caller's (possibly CUDA) module
     names = list(inputs)
@@ -350,8 +346,6 @@ def export_onnx(module, inputs: dict, path: Path, output_names: list[str], atol:
     with torch.no_grad():
         ref = module(*args)
     ref = ref if isinstance(ref, (tuple, list)) else (ref,)
-    import warnings
-
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         torch.onnx.export(module, args, str(path), input_names=names, output_names=output_names,

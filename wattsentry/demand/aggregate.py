@@ -1,6 +1,6 @@
-"""M3 DemandNet v1: zone demand from household load scenarios (plan §3.2 M3, §3.5 "same scenarios feed M3 v1").
+"""M3 DemandNet v1: zone demand from household load scenarios.
 
-Input: load scenarios `[S, N_sites, T]` in kW (from #27's rollout, or `scenarios_from_quantiles` on any load
+Input: load scenarios `[S, N_sites, T]` in kW (from a rollout, or `scenarios_from_quantiles` on any load
 envelope) + the site -> feeder -> locality -> county mapping. Each scenario is summed per zone first and the
 quantiles are taken across the scenario sums, NOT summed site quantiles (that would overstate the zone's P90 because
 independent households do not all peak high together).
@@ -24,16 +24,13 @@ from wattsentry.contracts import (
     Action,
     ActionType,
     AuditRecord,
-    ModelId,
-    Prediction,
     input_hash,
 )
 
 from .calendar import local_hour, parse_ts, to_bucharest, utc_iso
+from .data import LABEL_SYNTHETIC
 
 LEVELS = ("feeder", "locality", "county")
-LABEL_SYNTHETIC = "synthetic RO"
-LABEL_REAL = "real RO"
 V1_VERSION = "demandnet-v1-agg"
 DEFAULT_SITE_KW = 4.0  # capacity proxy per household when a feeder has no g_max_kw
 DEFAULT_STRESS_THRESHOLD = 0.8  # peak_stress >= this -> zone status "stressed" in the audit record
@@ -75,7 +72,6 @@ class ZoneDemand:
     q10_mw: list[float]
     q50_mw: list[float]
     q90_mw: list[float]
-    mean_mw: list[float]
     peak_step: int  # argmax of q50
     peak_t: str  # UTC ISO start of peak step
     peak_mw: float  # q50 at the peak step
@@ -95,32 +91,12 @@ class ZoneDemand:
         """Stress clipped to 0..1 for the UI red scale (zone_demand.peak_stress)."""
         return float(min(1.0, max(0.0, self.stress)))
 
-    def to_prediction(self) -> Prediction:
-        """The zone as a standard prediction envelope (unit MW, model demandnet)."""
-        return Prediction(
-            asset_id=self.zone_id,
-            model=ModelId.DEMANDNET.value,
-            model_version=self.model_version,
-            t0=self.t0,
-            horizon=len(self.q50_mw),
-            q10=self.q10_mw,
-            q50=self.q50_mw,
-            q90=self.q90_mw,
-            unit="MW",
-            step_minutes=self.step_minutes,
-            extra={"level": self.level, "peak_t": self.peak_t, "peak_hour_local": self.peak_hour_local,
-                   "stress": self.stress, "capacity_mw": self.capacity_mw, "label": self.label},
-        )
-
 
 @dataclass
 class DemandAggregate:
     zones: list[ZoneDemand]
     zone_scenarios: dict[str, np.ndarray]  # zone_id -> [S, T] MW scenario sums (kept for checks / M3 stress)
     times: np.ndarray  # datetime64[s] UTC step starts
-
-    def by_id(self) -> dict[str, ZoneDemand]:
-        return {z.zone_id: z for z in self.zones}
 
     def level(self, level: str) -> list[ZoneDemand]:
         return [z for z in self.zones if z.level == level]
@@ -134,7 +110,7 @@ def build_hierarchy(
     capacity: str | Mapping[str, float] = "g_max",
     default_site_kw: float = DEFAULT_SITE_KW,
 ) -> tuple[list[str], list[Zone]]:
-    """Zones for feeder -> locality -> county from `sites` (+ optional `feeders` table, data.md).
+    """Zones for feeder -> locality -> county from `sites` (+ optional `feeders` table).
 
     `sites`: rows with `site_id`, `feeder_key` (default `feeder_id`, the simulator truth; pass
     `gis_feeder_id` to aggregate as the GIS records it) and `locality`/`county` (used when the feeder row lacks them).
@@ -256,7 +232,7 @@ def aggregate_scenarios(
         cap = z.capacity_mw
         out.append(ZoneDemand(
             zone_id=z.zone_id, level=z.level, name=z.name, parent_id=z.parent_id, t0=utc_iso(start),
-            q10_mw=q10.tolist(), q50_mw=q50.tolist(), q90_mw=q90.tolist(), mean_mw=zs.mean(axis=0).tolist(),
+            q10_mw=q10.tolist(), q50_mw=q50.tolist(), q90_mw=q90.tolist(),
             peak_step=k, peak_t=utc_iso(times[k]), peak_mw=float(q50[k]), peak_hour_local=int(hours[k]),
             p90_peak_mw=p90_peak, capacity_mw=cap, stress=float(p90_peak / cap) if cap > 0 else float("inf"),
             n_sites=int(len(z.site_idx)), n_missing_sites=int(missing_site[z.site_idx].sum()),
@@ -276,7 +252,7 @@ def scenarios_from_quantiles(
     time_corr: float = 0.97,
     common: float = 0.0,
 ) -> np.ndarray:
-    """Sample [S, N, T] scenarios from per-site quantile curves [N, T] (stand-in until #27's `make_scenarios`).
+    """Sample [S, N, T] scenarios from per-site quantile curves [N, T].
 
     Each site draws a Gaussian-copula level per scenario, AR(1) over time (`time_corr`), with an optional shared
     component (`common` = correlation between sites, e.g. weather). The level maps through the piecewise-linear
@@ -307,7 +283,7 @@ def scenarios_from_quantiles(
 
 def mock_load_scenarios(sites: Any, t0: str, n_scenarios: int = 200, *, seed: int = 0, horizon: int = 96,
                         **kw: Any) -> np.ndarray:
-    """[S, N, T] kW scenarios from MockPredictor('load') envelopes (tests / demos until #27 lands)."""
+    """[S, N, T] kW scenarios from MockPredictor('load') envelopes (tests / demos)."""
     from wattsentry.contracts import MockPredictor
 
     mock = MockPredictor("load")
@@ -318,21 +294,21 @@ def mock_load_scenarios(sites: Any, t0: str, n_scenarios: int = 200, *, seed: in
     return scenarios_from_quantiles(q10, q50, q90, n_scenarios, seed=seed, **kw)
 
 
-# --- outputs for #17 (SQLite rows + agent actions) -------------------------------------------------------
+# --- outputs (SQLite rows + agent actions) ---------------------------------------------------------------
 
 ROW_FIELDS = (
     "run_id", "zone_type", "level", "zone_id", "zone_name", "parent_zone_id", "ts", "t", "step",
-    "q10_mw", "q50_mw", "q90_mw", "p10_mw", "p50_mw", "p90_mw", "stress", "peak_stress", "is_peak_hour", "label", "model_version",
+    "q10_mw", "q50_mw", "q90_mw", "p10_mw", "p50_mw", "p90_mw", "stress", "peak_stress", "is_peak_hour", "label",
+    "model_version",
 )
 
 
 def zone_demand_rows(agg: DemandAggregate | Sequence[ZoneDemand], run_id: str) -> list[dict[str, Any]]:
-    """One row per zone per step for the `zone_demand` table (schema draft from #30 / replay.md).
+    """One row per zone per step for the `zone_demand` table.
 
-    `ts` = UTC ISO step start, `t` = unix seconds (draft schema), `step` = 0..95 index in the Europe/Bucharest
-    local day. `stress` = q90 at this step / capacity (drives the 24 h slider); `peak_stress` = zone peak stress
-    clipped 0..1 (same on every row of a zone). `zone_type`/`level` and `q*_mw`/`p*_mw` carry the same values
-    (#38 schema names first, older draft names until #38 merges; #17 inserts only the columns the schema has).
+    `ts` = UTC ISO step start, `t` = unix seconds, `step` = 0..95 index in the Europe/Bucharest local day.
+    `stress` = q90 at this step / capacity (drives the 24 h slider); `peak_stress` = zone peak stress clipped 0..1
+    (same on every row of a zone). `zone_type`/`level` and `q*_mw`/`p*_mw` are aliases carrying the same values.
     """
     zones = agg.zones if isinstance(agg, DemandAggregate) else list(agg)
     rows: list[dict[str, Any]] = []
@@ -356,10 +332,10 @@ def zone_demand_rows(agg: DemandAggregate | Sequence[ZoneDemand], run_id: str) -
                 "ts": utc_iso(times[k]),
                 "t": int(times[k].astype("datetime64[s]").astype(np.int64)),
                 "step": int(steps[k]),
-                "q10_mw": z.q10_mw[k],  # final #38 schema names
+                "q10_mw": z.q10_mw[k],
                 "q50_mw": z.q50_mw[k],
                 "q90_mw": z.q90_mw[k],
-                "p10_mw": z.q10_mw[k],  # older draft names, kept until #38 merges
+                "p10_mw": z.q10_mw[k],  # alias of q10_mw
                 "p50_mw": z.q50_mw[k],
                 "p90_mw": z.q90_mw[k],
                 "stress": z.q90_mw[k] / z.capacity_mw if z.capacity_mw > 0 else None,
@@ -384,7 +360,7 @@ def zone_demand_actions(
     levels: Iterable[str] = LEVELS,
     stress_threshold: float = DEFAULT_STRESS_THRESHOLD,
 ) -> list[Action]:
-    """One `zone_demand` Action per zone (actions.md), with an audit record pinning the scenario input."""
+    """One `zone_demand` Action per zone, with an audit record pinning the scenario input."""
     levels = set(levels)
     out: list[Action] = []
     for z in agg.zones:

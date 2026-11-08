@@ -1,4 +1,4 @@
-"""Card #185: the M4 batch builder must not copy whole arrays per batch, and the cached site metadata must match.
+"""The M4 batch builder must not copy whole arrays per batch, and the cached site metadata must match.
 
 Runs under the lab check (requirements.txt only, no torch).
 """

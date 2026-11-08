@@ -1,4 +1,4 @@
-//! wattsentry._core: Rust kernels (team/infra.md §1-4). Each has a Python twin in `wattsentry/kernels` (the source of
+//! wattsentry._core: Rust kernels. Each has a Python twin in `wattsentry/kernels` (the source of
 //! truth, which also validates and reshapes inputs). The GIL is released; work is parallel over rows with rayon.
 
 use numpy::ndarray::{Array2, Array3};
@@ -17,7 +17,6 @@ mod rolling;
 mod scatter;
 mod strategies;
 mod selfcons;
-mod scenarios;
 mod windows;
 
 /// cusum_two_sided(x f64[m, n], k, h, cap=None) -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
@@ -85,7 +84,7 @@ fn battery_rollout<'py>(
     Ok((soc, batt))
 }
 
-/// K2 window gathers: out[b] = conv(src[rows[b], starts[b]*step + offset ..][..length]); the Python wrapper
+/// Window gathers: out[b] = conv(src[rows[b], starts[b]*step + offset ..][..length]); the Python wrapper
 /// `wattsentry.kernels.windows.window_gather_rust` views arrays as bytes (same dtype) or float16 bits.
 macro_rules! window_gather {
     ($name:ident, $src:ty, $out:ty, $conv:expr) => {
@@ -173,7 +172,7 @@ fn k4_len(name: &str, len: usize, n: usize) -> PyResult<()> {
 /// pv_features(wx f32[b, H*7], geom f32[b, H*3], pvclear f32[b, H], pvlib f32[b, H], hist f32[b, hh>=14*H],
 ///             kwp f32[b], seq f32[b, H*17], ref f32[b, 168], summ f32[b, 14*5], night u8[b, H])
 ///
-/// K4: fills the output buffers. The wrapper `wattsentry.kernels.features.pv_features_rust` allocates and reshapes.
+/// Fills the output buffers. The wrapper `wattsentry.kernels.features.pv_features_rust` allocates and reshapes.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 fn pv_features<'py>(
@@ -213,7 +212,7 @@ fn pv_features<'py>(
 /// load_features(wx f32[b, H*7], cal f32[b, H*8], hist f32[b, 14*H], seq f32[b, H*14], ref f32[b, 168],
 ///               summ f32[b, 14*4], scale f32[b])
 ///
-/// K4: fills the output buffers. The wrapper `wattsentry.kernels.features.load_features_rust` allocates and reshapes.
+/// Fills the output buffers. The wrapper `wattsentry.kernels.features.load_features_rust` allocates and reshapes.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 fn load_features<'py>(
@@ -322,7 +321,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
     m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
     m.add_function(wrap_pyfunction!(strategies::battery_strategies, m)?)?;
-    m.add_function(wrap_pyfunction!(scenarios::park_scenarios, m)?)?;
     m.add_function(wrap_pyfunction!(num_threads, m)?)?;
     Ok(())
 }

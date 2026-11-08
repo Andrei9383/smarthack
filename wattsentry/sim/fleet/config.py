@@ -10,13 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Bump when the generated data changes meaning or shape; the cache key is data-v{DATA_VERSION}.
-DATA_VERSION = 4  # v3: DST-safe local day index; v4: 0.1 V voltage noise
+DATA_VERSION = 4
 
 DT_H = 0.25  # 15-min steps
 STEPS_PER_DAY = 96
 
 
 def default_cache_root() -> Path:
+    """$WATTSENTRY_CACHE, else ~/.cache/sentinel (the name the lab's existing caches live under)."""
     return Path(os.environ.get("WATTSENTRY_CACHE", Path.home() / ".cache" / "sentinel"))
 
 

@@ -10,7 +10,7 @@ members, `extra["members"]` = per-member quantiles (and fault_probs for SiteHeal
 `ood_score` = robust z of the Mahalanobis distance of the model embedding vs the TRAIN set
 ((D - median_train) / (1.4826 MAD_train), clipped at 0; threshold 3.0), averaged over members.
 
-Window fields used (team/contracts/model.md):
+Window fields used (wattsentry.contracts.Window):
   PV (pvnet): weather [T,C] (channels in window.meta["weather_channels"], default physics.WEATHER_CHANNELS;
     T = 96 at 15 min or 24 hourly), solar_geometry [T,3] (computed from t0 + lat/lon when None), reference = the
     site's past pv_ac_w, 7-14 days (W unless window.meta["power_unit"] == "kW").
@@ -89,11 +89,11 @@ def _weather(window: Window, n=H):
     for i, c in enumerate(ph.WEATHER_CHANNELS):
         if c in names:
             out[:, i] = w[:, names.index(c)]
-    return out, names
+    return out
 
 
-def _fill_cloud(wx: np.ndarray, names: list[str], geom: np.ndarray) -> np.ndarray:
-    """Cloud channel derived exactly like #10's windows (the training data) do, from the daily clear-sky index:
+def _fill_cloud(wx: np.ndarray, geom: np.ndarray) -> np.ndarray:
+    """Cloud channel derived exactly like the training windows do, from the daily clear-sky index:
     cloud = clip(100 (1.05 - k) / 0.95, 0, 100). Applied even when a cloud column is given (eval.py takes ERA5
     cloud_pct, which is inconsistent with the synthetic GHI), so serving inputs match training inputs."""
     ci = ph.WEATHER_CHANNELS.index("cloud")
@@ -104,7 +104,7 @@ def _fill_cloud(wx: np.ndarray, names: list[str], geom: np.ndarray) -> np.ndarra
 
 
 def _status(code, pv_kw, inverter_kw):
-    """Raw inverter codes (0 ok, 37 overvoltage) -> #10's training encoding: 0 off, 1 producing, 2 limiting,
+    """Raw inverter codes (0 ok, 37 overvoltage) -> the training encoding: 0 off, 1 producing, 2 limiting,
     3 overvoltage trip. Already-encoded inputs (values in 0..3) pass through."""
     code = np.nan_to_num(np.asarray(code, np.float64))
     if code.size and np.isin(code, (0, 1, 2, 3)).all() and (code > 0).any():
@@ -166,14 +166,13 @@ class ForecastPredictor:
         v0 = self.members[0].calib.get("model_version", f"{model}-onnx")
         self.model_version = v0 if len(self.members) == 1 else f"{v0}x{len(self.members)}"
 
-    # raw window for this asset ------------------------------------------------------------------------
     def raw(self, asset: Mapping[str, Any], window: Window) -> dict:
         meta = _site_meta(asset)
         times = ph.times_utc(window.t0, H)
-        wx, names = _weather(window)
+        wx = _weather(window)
         geom = (_to_steps(window.solar_geometry) if window.solar_geometry is not None
                 else ph.solar_geometry(times, meta["lat"], meta["lon"]))
-        wx = _fill_cloud(wx, names, geom)
+        wx = _fill_cloud(wx, geom)
         cal = ph.calendar_features(times)
         unit = 1.0 if window.meta.get("power_unit", "W") == "kW" else 1e-3
         raw = {k: np.array([v], np.float32) for k, v in meta.items()}
@@ -216,13 +215,6 @@ class ForecastPredictor:
             raise ValueError(f"{self.model} predicts horizon {H}")
         qs, oods, _ = self.quantiles(self.raw(asset, window))
         return _envelope(self, asset, window, qs, oods)
-
-    def embed(self, asset, window) -> np.ndarray:
-        """OOD hook: per-member embeddings [n_members, d]."""
-        inp = F.build(self.kind, self.raw(asset, window))
-        feeds = {k: inp[k] for k in ("seq", "ref", "summ", "stat")}
-        feeds["mask"] = (~inp["night"]).astype(np.float32)
-        return np.concatenate([m.run(feeds)[1] for m in self.members])
 
 
 class LoadPredictor(ForecastPredictor):

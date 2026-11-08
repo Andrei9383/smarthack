@@ -1,7 +1,7 @@
-"""M5 WindPower (card #164): per-turbine P10/P50/P90 of power, 15-min steps, and park totals.
+"""M5 WindPower: per-turbine P10/P50/P90 of power on 15-min steps, and park totals.
 
-Predict API: `WindPowerModel` (wattsentry/model/windpower/model.py). Training: `python train.py --model windpower`
-(wattsentry/model/windpower/train.py). Fallback: binned empirical curve per turbine class (binned.py)."""
+Training: `python train.py --model windpower` (train.py); predict API: `WindPowerModel` (model.py); baseline: binned
+empirical curve per turbine class (binned.py)."""
 
 from .model import WindPowerModel, park_aggregate
 

@@ -13,7 +13,7 @@ from .generate import generate
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m wattsentry.sim.fleet", description=__doc__)
     ap.add_argument("--quick", action="store_true", help="small world, one year (smoke test)")
-    ap.add_argument("--out", type=Path, help="output dir (default ~/.cache/wattsentry/data-vN/fleet-<digest>)")
+    ap.add_argument("--out", type=Path, help="output dir (default $WATTSENTRY_CACHE/data-vN/fleet-<digest>)")
     ap.add_argument("--force", action="store_true", help="regenerate even if cached")
     ap.add_argument("--no-plots", action="store_true")
     for f in dataclasses.fields(FleetConfig):

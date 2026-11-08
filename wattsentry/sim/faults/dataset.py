@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import time
@@ -23,10 +24,9 @@ ROUND = {"pv_ac_w": 1, "inv_voltage_v": 0.1, "soc": 0.001, "batt_w": 1, "load_w"
 
 
 def _read_sites(f: Path, ids: list[str]) -> pa.Table:
-    """Rows of `ids` from one telemetry file, ordered by (position in ids, ts): the order a stable sort on
-    (site_id, ts) followed by .loc[ids] gives, without the pandas round trip (#134). The fleet files are already in
-    that order, so usually nothing is reordered. Only row groups whose site_id min/max can hold one of `ids` are
-    decoded: read_table(filters=...) decoded about the whole file for every batch, quadratic in fleet size."""
+    """Rows of `ids` from one telemetry file, ordered by (position in ids, ts). The fleet files are already in that
+    order, so usually nothing is reordered. Only row groups whose site_id min/max can hold one of `ids` are decoded
+    (read_table(filters=...) decodes about the whole file for every batch, quadratic in fleet size)."""
     pf = pq.ParquetFile(f)
     col = pf.schema_arrow.get_field_index("site_id")
     lo, hi = min(ids), max(ids)
@@ -44,8 +44,6 @@ def _read_sites(f: Path, ids: list[str]) -> pa.Table:
 
 
 def default_out(fleet_dir: Path, cfg: FaultConfig) -> Path:
-    import hashlib
-
     key = hashlib.sha256(json.dumps({"fleet": fleet_dir.name, **cfg.to_json()}, sort_keys=True).encode()).hexdigest()
     return fleet_dir.parent / f"faults-{key[:12]}"
 
@@ -75,8 +73,8 @@ def inject_dataset(fleet_dir: Path, cfg: FaultConfig = FaultConfig(), out_dir: P
             writers[path].write_table(table, row_group_size=n * 32)
 
     # One writer thread: zstd encoding releases the GIL, so batch k is written while batch k+1 is read and injected
-    # (same tables, same order, so the files are byte-identical to writing inline; #134).
-    # A second thread reads batch k+1 while batch k is injected.
+    # (same tables, same order, so the files are byte-identical to writing inline). A second thread reads batch k+1
+    # while batch k is injected.
     pool, reader, pending = ThreadPoolExecutor(1), ThreadPoolExecutor(1), None
     read = lambda b: [_read_sites(f, list(sites.site_id.iloc[b:b + batch])) for f in files]  # noqa: E731
     nxt = reader.submit(read, 0)
@@ -91,12 +89,14 @@ def inject_dataset(fleet_dir: Path, cfg: FaultConfig = FaultConfig(), out_dir: P
             ts = pd.DatetimeIndex(
                 np.concatenate([p.column("ts").slice(0, n).to_numpy() for p, n in zip(parts, lengths)])
             ).tz_localize("UTC")
-            arrays = {c: np.concatenate([p.column(c).to_numpy().reshape(len(ids), n) for p, n in zip(parts, lengths)],
-                                        1).astype(np.int16 if c == "inv_status" else np.float64) for c in TELEMETRY_COLS}
+            arrays = {
+                c: np.concatenate([p.column(c).to_numpy().reshape(len(ids), n) for p, n in zip(parts, lengths)], 1)
+                .astype(np.int16 if c == "inv_status" else np.float64)
+                for c in TELEMETRY_COLS}
             labels += inject_batch(ts, arrays, sb, cfg)
             o, tables = 0, []
             for f, p, n in zip(files, parts, lengths):
-                # large_string: the type pa.array() gave the pandas site_id column before #134 (keeps files identical)
+                # large_string keeps the files identical to the earlier pandas-based writer
                 cols = {"ts": p.column("ts").cast(pa.timestamp("ns", tz="UTC")),
                         "site_id": p.column("site_id").cast(pa.large_string())}
                 for c in TELEMETRY_COLS:

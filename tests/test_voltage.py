@@ -1,4 +1,4 @@
-"""G2 voltage / inverter trips on the IEEE European LV feeder (card #160)."""
+"""G2 voltage / inverter trips on the IEEE European LV feeder."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def test_trips_counts_only_homes_above_limit():
 
 
 def test_pzu_prices_lei_kwh():
-    ts = np.array([1748898000, 1748898900])  # 2025-06-02 21:00 / 21:15 UTC (replay#506 week)
+    ts = np.array([1748898000, 1748898900])  # 2025-06-02 21:00 / 21:15 UTC (demo replay week)
     p, src = V.pzu_lei_kwh(ts)
     assert "OPCOM" in src and p.shape == (2,) and np.all((p > -5) & (p < 10))
 

@@ -1,6 +1,6 @@
 """Run simulator + fault injector and write the contract tables (zstd Parquet) to the wind cache.
 
-Files (team/contracts/wind.md, data.md):
+Files (wind and data contracts):
   wind_telemetry.parquet  long `ts, tag, value, is_code` (15 min; codes are integral floats with is_code = true)
   turbines.parquet        `turbine_id, park_id, model, rated_kw, hub_height_m, rotor_d_m, lat, lon, county,
                           power_unit, power_scale` (+ osm_id, park_name, era5_point)
@@ -171,7 +171,7 @@ def build(cfg: WindSimConfig | None = None, fcfg=None, out_dir: Path | None = No
     fault_labels_table(data).write_parquet(tmp / "fault_labels.parquet")
     t_write = time.perf_counter() - t0 - t_sim
 
-    # stats --------------------------------------------------------------------------------------------------
+    # stats
     rated = clean.rated
     years = clean.ts.astype("datetime64[Y]").astype(int) + 1970
     cf = {}
@@ -185,7 +185,8 @@ def build(cfg: WindSimConfig | None = None, fcfg=None, out_dir: Path | None = No
         cols = np.flatnonzero(clean.park_of == p)
         parks.append({
             "park_id": lay.park.park_id, "name": lay.park.name, "county": lay.park.county,
-            "turbines": int(lay.n), "class": lay.park.tclass.name, "rated_mw": round(float(rated[cols].sum()) / 1000, 1),
+            "turbines": int(lay.n), "class": lay.park.tclass.name,
+            "rated_mw": round(float(rated[cols].sum()) / 1000, 1),
             "lat": round(float(lay.lat.mean()), 4), "lon": round(float(lay.lon.mean()), 4),
             "era5_point": lay.era5_point, "era5_dist_km": round(lay.era5_dist_km, 1),
             "shear_alpha": clean.weather.alpha_table[lay.park.park_id],

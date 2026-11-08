@@ -1,4 +1,4 @@
-"""Fault injector configuration (card #23). Rates are per turbine-year unless marked per park-year."""
+"""Wind fault injector configuration. Rates are per turbine-year unless marked per park-year."""
 
 from __future__ import annotations
 

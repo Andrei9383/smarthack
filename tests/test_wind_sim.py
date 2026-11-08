@@ -1,4 +1,4 @@
-"""Card #22 wind simulator: determinism, contract tables, physics numbers, real inputs, splits (requirements.txt only).
+"""Wind simulator: determinism, contract tables, physics numbers, real inputs, splits (requirements.txt only).
 
 Small worlds only (5 turbines per park, a few weeks) so the whole file runs in a few seconds.
 """

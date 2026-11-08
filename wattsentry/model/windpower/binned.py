@@ -1,14 +1,10 @@
-"""M5 fallback (spec W step 2): binned empirical power curve per turbine class (model key), P10/P50/P90 of
-power / rated per 0.5 m/s bin of density-normalised hub wind, fitted on the steps M6 calls normal only.
-
-Same bins and fill rule as #24's BinnedCurve (wattsentry.eval.baselines.wind.curve), but the fit mask is passed in
-(M6 normal selection, not injector labels) and only the meteo / NWP wind is used, so it forecasts from weather alone."""
+"""M5 binned baseline: empirical power curve per turbine class, P10/P50/P90 of power / rated per 0.5 m/s bin of
+density-normalised hub wind, fitted on the steps M6 calls normal. Same bins and fill rule as
+wattsentry.eval.baselines.wind.curve, but the fit mask is passed in and only meteo / NWP wind is used."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -33,15 +29,6 @@ class BinnedPower:
             c = self.curves[self.key_for(t)]
             out[:, j] = np.stack([_interp(self.edges, c[k], v_norm[:, j]) for k in ("q10", "q50", "q90")], -1)
         return np.sort(out, -1)
-
-    def save(self, path) -> Path:
-        Path(path).write_text(json.dumps(asdict(self)))
-        return Path(path)
-
-    @classmethod
-    def load(cls, path) -> "BinnedPower":
-        return cls(**json.loads(Path(path).read_text()))
-
 
 def fit_binned(turbines: Sequence[Mapping], v_norm: np.ndarray, y_frac: np.ndarray, mask: np.ndarray,
                min_n: int = 30) -> BinnedPower:

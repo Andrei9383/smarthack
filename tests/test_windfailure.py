@@ -1,4 +1,4 @@
-"""Card #43 M7 WindFailure: feature determinism / causality, no leakage across splits, metrics, predictor shape,
+"""M7 WindFailure: feature determinism / causality, no leakage across splits, metrics,
 CARE scorer. Needs requirements.txt only (lightgbm); the M6-GRU residual source is torch-gated."""
 
 import os
@@ -12,11 +12,10 @@ import json
 import numpy as np
 import pytest
 
-from wattsentry.contracts.envelope import Prediction, Window
 from wattsentry.model.wind.synth import SynthConfig, generate
 from wattsentry.model.windfailure import COMPONENTS, thermal
 from wattsentry.model.windfailure.features import FEATURES, daily_features, feature_index
-from wattsentry.model.windfailure.labels import Failure, daily_targets, day_grid, failures_from_episodes
+from wattsentry.model.windfailure.labels import Failure, daily_targets, day_grid
 from wattsentry.model.windfailure.metrics import evaluate_alarms
 from wattsentry.model.windfailure.train import day_folds
 
@@ -128,7 +127,7 @@ def trained(tmp_path_factory, small):
     return out, rep
 
 
-@pytest.mark.slow  # trains LightGBM on 400 synthetic days (#179: run in rustcheck)
+@pytest.mark.slow  # trains LightGBM on 400 synthetic days
 def test_pipeline_artifacts_and_no_heldout_training(trained, small):
     out, rep = trained
     for f in ("windfailure_7d.txt", "windfailure_14d.txt", "windfailure_thresholds.json", "windfailure_report.json",
@@ -151,25 +150,6 @@ def test_pipeline_artifacts_and_no_heldout_training(trained, small):
     assert m["coef"] == cal["residual_model"]["coef"]
     # training rows end > 14 days before the test year, so no test failure is ever inside a training label window
     assert np.flatnonzero(test_d).min() > np.flatnonzero(fold >= 0).max() + 14
-
-
-@pytest.mark.slow  # trains LightGBM on 400 synthetic days (#179: run in rustcheck)
-def test_predictor_output_shape(trained, small):
-    from wattsentry.model.windfailure.predictor import WindFailurePredictor
-
-    out, _ = trained
-    p = WindFailurePredictor(out)
-    cols = np.flatnonzero(small.park_of == 1)
-    sub = small.subset(cols, slice(0, 90 * 96))
-    risks = p.risk_park(sub.turbines, sub.ts, sub.sensors, sub.err)
-    assert set(risks) == set(sub.turbine_ids)
-    r0 = risks[sub.turbine_ids[0]]
-    assert 0 <= r0["risk"] <= 1 and set(r0["p_fail_14d"]) == set(COMPONENTS) and r0["risk_component"] in COMPONENTS
-    assert isinstance(r0["shipped"], bool) and r0["day"] == "2024-03-30"
-    pc = {"turbines": sub.turbines, "ts": sub.ts, "telemetry": sub.sensors, "err": sub.err}
-    pred = p.predict(sub.turbines[0], Window(t0="2024-03-20T00:00:00Z", horizon=1, park_context=pc))
-    assert isinstance(pred, Prediction) and pred.model == "windfailure" and pred.horizon == 1
-    assert pred.extra["day"] == "2024-03-19" and pred.q50[0] == pytest.approx(pred.extra["risk"])
 
 
 def test_care_score_and_skip(monkeypatch, tmp_path):

@@ -1,4 +1,4 @@
-"""K7 fault-injector battery resim (#134): Rust == Python reference bit for bit, incl. NaN and onset edge cases."""
+"""K7 fault-injector battery resim: Rust == Python reference bit for bit, incl. NaN and onset edge cases."""
 
 import numpy as np
 import pytest

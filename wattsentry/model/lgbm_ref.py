@@ -1,10 +1,10 @@
-"""#15's LightGBM quantile baseline, trained and scored inside a #14 run on the SAME windows, split and mask.
+"""Reference LightGBM quantile baseline, trained and scored inside an M1 / M2 run on the SAME windows, split and mask.
 
-Uses #15's own code (wattsentry.eval.baselines.pv.lgbm: features, params, train, predict_bulk) on a duck-typed
-FleetArrays built from the WindowSource arrays, so "M1 vs LGBM" differs only in the model:
-same sites (#10 split column), same days (#10 splits), same weather (actual for nowcast, forecast for forecast
-mode), same pvlib-with-recorded-metadata channel, same 7-day reference. Train: #15's defaults (healthy daylight
-steps, 400k sampled rows, 300 rounds) on up to `max_train_sites` train sites over the train days.
+Runs wattsentry.eval.baselines.pv.lgbm (its own features, params, train, predict_bulk) on a duck-typed FleetArrays
+built from the window-source arrays, so "M1 vs LGBM" differs only in the model: same sites and days (shared splits),
+same weather (actual for nowcast, forecast for forecast mode), same pvlib-with-recorded-metadata channel, same 7-day
+reference. Training uses the baseline's defaults (healthy daylight steps, 400k sampled rows, 300 rounds) on up to
+`max_train_sites` train sites over the train days.
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def fit(src, splits, kind: str, mode: str = "nowcast", max_train_sites: int = 15
 def predict(bundle, src, sites: np.ndarray, day_idx: np.ndarray, mode: str = "nowcast", chunk_sites: int = 200):
     """q [N, 96, 3] kW for windows (site, day) (day-aligned, t0 = 00:00 UTC).
 
-    Same features / post-processing as #15's predict_bulk, but only the requested (site, day) rows (and for PV only
+    Same features / post-processing as lgbm.predict_bulk, but only the requested (site, day) rows (and for PV only
     daylight steps) go through the booster, so scoring a sampled eval set doesn't cost the full sites x days grid."""
     from wattsentry.eval.baselines.pv import lgbm
     from wattsentry.eval.baselines.pv.features import stack

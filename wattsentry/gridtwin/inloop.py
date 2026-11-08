@@ -1,46 +1,30 @@
-"""GridTwin (M8) in the loop (card G3 #161, team/features/grid.md step 4): does checking the map change the decision?
+"""Grid-twin (M8) in the loop: does checking the map change the decision? Three measurements on the replay world:
 
-Three measurements, all on the replay world (synthetic RO fleet; label every number "synthetic RO" + run id):
+1. `recovery`: share of the simulator's corrupted GIS records (wrong phase / wrong feeder) that M8 flags and puts
+   back on the right feeder or phase (same definitions as `run.score`, pooled over both kinds).
+2. `tau_effect`: the replay week with the LP limit G = tau*G_max + (1-tau)*G_cons and with tau = 1 (map taken as-is).
+   Over-limit minutes / kWh are counted against both G_max and the tau limit, so the yardstick does not move.
+3. `moved_home_case`: one home the GIS puts on the wrong feeder, which M8 moves. The hero feeder's day-ahead plan is
+   solved on the GIS and on the corrected membership; both are played against the physical feeder.
 
-1. `recovery(...)`: gis_recovery_rate, the share of the corrupted GIS records (~10 % wrong phase + ~3 % wrong feeder,
-   injected by the simulator) that M8 flags *and* puts back on the right feeder (feeder errors) or phase (phase
-   errors). Same definitions as `run.score`, pooled over both kinds.
-2. `tau_effect(...)`: the same replay week with the LP limit G = tau*G_max + (1-tau)*G_cons (M8's trust) and with
-   tau = 1 (G = G_max, map taken as-is). Minutes / kWh over the limit are counted against both the physical cable
-   limit G_max and the tau limit, so the comparison does not move the goalposts.
-3. `moved_home_case(...)`: one home the GIS puts on the wrong feeder, which M8 moves. The hero feeder's (F7)
-   day-ahead plan is solved twice, on the GIS membership and on the M8-corrected one, and both plans are played
-   against the physical feeder (truth membership, actual PV / load). Output: the plan diff and the over-limit result.
-
-M8 outputs are read through the C1 adapter (wattsentry/judge/adapter.py, #157): a flag the Judge says "dont_use" is
-not applied, and a feeder tau it says "dont_use" becomes 0 (the conservative limit). Until #157 merges a pass-through
-shim with the same signature stands in, so the swap is the import below.
+M8 outputs are read through the judge adapter: a flag judged "dont_use" is not applied, and a feeder tau judged
+"dont_use" becomes 0 (the conservative limit).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 
 from wattsentry.contracts.opt import FeederSpec, self_consumption_step
+from wattsentry.judge.adapter import validated as _validated
 
 DT = 0.25
 STEPS = 96
 MODEL = "gridtwin"
-
-try:  # C1 #157: every model read goes through the adapter
-    from wattsentry.judge.adapter import validated as _validated
-    ADAPTER = "wattsentry.judge.adapter"
-except ImportError:  # pragma: no cover - until #157 merges: pass-through with the adapter's signature
-    ADAPTER = "pass-through shim (C1 #157 not on main yet)"
-
-    def _validated(asset_id: Any, model: str, day: Any, *, raw: Any, substitutes: Any = None, judge: Any = None):
-        get = raw.get if isinstance(raw, Mapping) else (lambda k, d=None: getattr(raw, k, d))
-        return SimpleNamespace(known=raw is not None, verdict="use", rule="no_judge", reasons=(),
-                               cls=None if raw is None else get("cls"), score=None if raw is None else get("score"))
+ADAPTER = "wattsentry.judge.adapter"
 
 
 # ============================================================================================ 1. recovery
@@ -56,13 +40,13 @@ def recovery(sites_res, truth) -> dict[str, Any]:
     rec_f, rec_p = int((ok_feeder & wrong_feeder).sum()), int((ok_phase & wrong_phase).sum())
     n_f, n_p = int(wrong_feeder.sum()), int(wrong_phase.sum())
     n_bad = n_f + n_p
-    correct_flags = int((ok_feeder & wrong_feeder).sum() + (ok_phase & wrong_phase).sum())
     return {
         "gis_recovery_rate": round((rec_f + rec_p) / n_bad, 4) if n_bad else 1.0,
-        "gis_flag_precision": round(correct_flags / int(flagged.sum()), 4) if flagged.any() else 1.0,
+        "gis_flag_precision": round((rec_f + rec_p) / int(flagged.sum()), 4) if flagged.any() else 1.0,
         "n_records": int(len(s)), "n_corrupted": n_bad, "corrupted_share": round(n_bad / max(1, len(s)), 4),
         "n_wrong_feeder": n_f, "n_wrong_phase": n_p, "recovered_feeder": rec_f, "recovered_phase": rec_p,
-        "n_flags": int(flagged.sum()), "false_flags_on_clean": int((flagged & ~(wrong_feeder | (s.gis_phase != s.phase))).sum()),
+        "n_flags": int(flagged.sum()),
+        "false_flags_on_clean": int((flagged & ~(wrong_feeder | (s.gis_phase != s.phase))).sum()),
     }
 
 
@@ -207,8 +191,8 @@ def apply_moves(members: Mapping[str, Sequence[str]], moves: Sequence[Mapping[st
 def pick_case(flags: Sequence[Mapping[str, Any]], truth_feeder: Mapping[str, str], hero: str = "F7"
               ) -> Optional[dict[str, Any]]:
     """The demo case: a correct M8 feeder move involving the hero feeder. Prefer a home the GIS wrongly puts ON the
-    hero feeder (grid.md: "placed wrongly on F7, M8 moves it to F3"), else one it wrongly puts elsewhere; highest
-    score first. Only moves that match the truth qualify (we show a recovery, not a false alarm)."""
+    hero feeder, else one it wrongly puts elsewhere; highest score first. Only moves that match the truth qualify
+    (a recovery, not a false alarm)."""
     ok = [f for f in flags if f.get("suggested_feeder") != f.get("recorded_feeder")
           and truth_feeder.get(f["site_id"]) == f["suggested_feeder"]]
     for want in ("recorded_feeder", "suggested_feeder"):
@@ -322,7 +306,8 @@ def moved_home_case(world, comps=None, d: int = 2, hero: str = "F7", case: Optio
         "site_battery_kwh": None if b is None else b.capacity_kwh, "site_kwp": world.sites[sid].row.get("kwp_recorded"),
         "limit_kw": round(spec.g_kw, 2), "tau": spec.tau,
         "pool_gis": len(pool_gis), "pool_m8": len(pool_fix),
-        "planned_peak_gis_kw": round(max(p_gis.export_curve), 2), "planned_peak_m8_kw": round(max(p_fix.export_curve), 2),
+        "planned_peak_gis_kw": round(max(p_gis.export_curve), 2),
+        "planned_peak_m8_kw": round(max(p_fix.export_curve), 2),
         "physical_gis": {k: v for k, v in phys_gis.items() if k != "export_kw"},
         "physical_m8": {k: v for k, v in phys_fix.items() if k != "export_kw"},
         "export_kw_gis": phys_gis["export_kw"], "export_kw_m8": phys_fix["export_kw"],

@@ -5,7 +5,8 @@
 Pipeline in one run (so any worker can reproduce it): train M1 PVNet and M2 LoadNet briefly (or load
 --m1-ckpt / --m2-ckpt from earlier runs), predict expected PV / load for every site-day, then train M4 on 24 h windows
 ending at any quarter-hour. Baselines on the same windows: a threshold rule (energy ratio vs scaled pvlib, frozen
-meter, trip codes) and CUSUM on the scaled-pvlib residual. Thresholds frozen on validation at a 5% healthy-window false-alarm rate.
+meter, trip codes) and CUSUM on the scaled-pvlib residual. Thresholds frozen on validation at a 5% healthy-window
+false-alarm rate.
 
 LAB_METRIC: val_prauc (macro PR-AUC over the 7 fault classes), val_prauc_binary, test_prauc, hours_to_detect
 (median, test episodes, hourly sliding windows up to 72 h after onset), detect_rate_72h, false alarms per site-day,
@@ -24,7 +25,7 @@ import numpy as np
 from . import features as F
 from . import metrics as M
 from .data import H, make_splits, open_source, window_labels
-from .harness import RunContext, Throughput, compile_net, export_onnx, resolve_compile
+from .harness import RunContext, Throughput, compile_net, export_onnx, pin, resolve_compile
 from .synth import FAULTS
 
 N_CLS = len(FAULTS)
@@ -59,8 +60,8 @@ def parse_args(argv=None):
     ap.add_argument("--no-export", action="store_true")
     ap.add_argument("--tag", default="")
     ap.add_argument("--batt-aug", type=float, default=0.3,
-                    help="#142: share of healthy battery-home train windows given an injected string outage with the "
-                         "battery left as recorded (0 = recipe of train#391)")
+                    help="share of healthy battery-home train windows given an injected string outage with the "
+                         "battery left as recorded (0 = off)")
     ap.add_argument("--promoted", default="models/sitehealth.onnx",
                     help="promoted M4 scored on the same test windows / probe for a before-after ('' = skip)")
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
@@ -68,9 +69,9 @@ def parse_args(argv=None):
     ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
     ap.add_argument("--compile", default="off", choices=["auto", "off", "default", "reduce-overhead",
                                                          "max-autotune-no-cudagraphs"],
-                    help="torch.compile mode for the M4 train forward (t_compile_s logged). Off: reduce-overhead gave NaN "
-                         "val probabilities after epoch 0 (BatchNorm under CUDA graphs, #140 train#749). The upstream "
-                         "M1/M2 runs keep their own default (auto)")
+                    help="torch.compile mode for the M4 train forward (t_compile_s logged). Off by default: "
+                         "reduce-overhead gave NaN val probabilities after epoch 0 (BatchNorm under CUDA graphs). "
+                         "The upstream M1/M2 runs keep their own default (auto)")
     ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
                     help="fused AdamW kernel on CUDA")
     return ap.parse_args(argv)
@@ -119,26 +120,26 @@ def daylight(raw):
 
 def make_inputs(src, sites, starts, m1, m2, aug=None):
     raw = F.gather(src, sites, starts, "site", "nowcast", m1=m1, m2=m2)
-    if aug is not None:  # edits raw PV / labels in place before the feature kernel (#142)
+    if aug is not None:  # edits raw PV / labels in place before the feature kernel
         aug(raw)
     inp = F.site_inputs(raw)
     lab = window_labels(raw["fault"], daylight(raw))
     return raw, inp, lab
 
 
-# --- battery homes (#142) ----------------------------------------------------------------------------------
-# #29 found the interim M4 calling a 50 % string outage a sensor fault on battery homes: when the battery keeps
-# its normal charge/discharge while PV steps down, the only training class with "PV off, rest of the site normal"
-# was sensor_fault (#12 corrupts the reported PV only and keeps the battery physics). Real batteries often do not
-# track PV either (time-of-use schedules, grid charging, telemetry from a separate device), and the demo story
-# (world.py _apply_story) cuts PV without re-simulating the battery. Fix: train on extra string outages injected on
-# healthy battery-home windows with the battery channels left as recorded, and measure it both ways.
+# --- battery homes -----------------------------------------------------------------------------------------
+# Without help, M4 calls a string outage on a battery home a sensor fault: when the battery keeps its normal
+# charge/discharge while PV steps down, the only training class with "PV off, rest of the site normal" is
+# sensor_fault (the fault generator corrupts the reported PV only and keeps the battery physics). Real batteries
+# often do not track PV either (time-of-use schedules, grid charging, separate telemetry), and the demo story
+# (world.py _apply_story) cuts PV without re-simulating the battery. So training adds string outages injected on
+# healthy battery-home windows with the battery channels left as recorded, and the eval measures it both ways.
 SO_IDX, SF_IDX = FAULTS.index("string_outage"), FAULTS.index("sensor_fault")
 PROBE_HOURS = (8, 15, 39, 63)  # outage hours before the window end (18:00 UTC): mid-day, day 1, day 2, day 3
 
 
 def inject_string_outage(raw: dict, rows: np.ndarray, back: np.ndarray, n_strings: np.ndarray) -> None:
-    """In place: string outage on PV only (#12 `apply_string_outage` physics, as world.py's story applies it) for
+    """In place: string outage on PV only (`apply_string_outage` physics, as world.py's story applies it) for
     the last `back[i]` steps of window `rows[i]` (reaching into hist_pv when longer than the window). Battery, SoC,
     load and voltage stay as recorded. Labels the affected window steps string_outage. Vectorised over rows."""
     if not len(rows):
@@ -308,7 +309,6 @@ def run(argv=None):
                                      ("loadnet", args.m2_ckpt, args.m2_minutes, "m2_")):
             if ck:
                 net, stats, mode = _load_ckpt(ck, model, dev)
-                src = None
             else:
                 r = forecast.run(model, common + ["--max-minutes", str(mins), "--epochs", "60"], prefix=pre)
                 net, stats, mode = r["net"], r["stats"], "nowcast"
@@ -317,9 +317,9 @@ def run(argv=None):
             ups[model] = (net, stats, mode)
         src = open_source(args.data, args.synth_sites)
         sp = make_splits(src)
-        m1 = upstream_predictions(src, "pvnet", *ups["pvnet"][:2], ups["pvnet"][2], dev, amp)
-        # contiguous once: a strided [..., 1] view made features.gather copy all of m2 (168 MB) per batch (#185)
-        m2 = np.ascontiguousarray(upstream_predictions(src, "loadnet", *ups["loadnet"][:2], ups["loadnet"][2], dev, amp)[..., 1])
+        m1 = upstream_predictions(src, "pvnet", *ups["pvnet"], dev, amp)
+        # contiguous once: a strided [..., 1] view would make features.gather copy all of m2 on every batch
+        m2 = np.ascontiguousarray(upstream_predictions(src, "loadnet", *ups["loadnet"], dev, amp)[..., 1])
 
     n_days = src.n_days
     tr_s, tr_d = sp.site_days("train")
@@ -358,13 +358,15 @@ def run(argv=None):
         stats = F.fit_stats(probe)
         dims = {k: probe[0][k].shape[-1] for k in ("seq", "summ", "stat")}
         # class priors: natural (uniform windows) vs our sampling mix -> logit adjustment at inference
-        nat = np.concatenate([make_inputs(src, tr_s[i], np.clip(tr_d[i] * H + rng.integers(0, H, len(i)), lo, hi) - H + 1, m1, m2)[2]
-                              for i in [rng.integers(0, len(tr_s), 4096) for _ in range(3)]])
+        nat = np.concatenate([
+            make_inputs(src, tr_s[i], np.clip(tr_d[i] * H + rng.integers(0, H, len(i)), lo, hi) - H + 1, m1, m2)[2]
+            for i in [rng.integers(0, len(tr_s), 4096) for _ in range(3)]])
         mix = np.concatenate([make_inputs(src, *sample_train(4096), m1, m2, aug)[2] for _ in range(3)])
         p_nat = (np.bincount(nat, minlength=N_CLS) + 1) / (len(nat) + N_CLS)
         p_mix = (np.bincount(mix, minlength=N_CLS) + 1) / (len(mix) + N_CLS)
         logit_bias = np.log(p_nat / p_mix).astype(np.float32)
-        alpha = torch.tensor(np.clip((1 / p_mix) / (1 / p_mix).mean(), 0.25, 4.0) ** 0.5, dtype=torch.float32, device=dev)
+        alpha = torch.tensor(np.clip((1 / p_mix) / (1 / p_mix).mean(), 0.25, 4.0) ** 0.5, dtype=torch.float32,
+                             device=dev)
 
     net = SiteHealthNet(dims["seq"], dims["summ"], dims["stat"], width=args.width, drop=args.dropout).to(dev)
     ctx.emit("n_params", n_params(net))
@@ -387,8 +389,7 @@ def run(argv=None):
                 raw, inp, lab = make_inputs(src, sites[k:k + batch], starts[k:k + batch], m1, m2)
                 with ctx.autocast():
                     lg, emb = net(*to_t(inp))
-                lg = lg.float().cpu().numpy() + logit_bias
-                P.append(np.exp(lg - lg.max(1, keepdims=True)) / np.exp(lg - lg.max(1, keepdims=True)).sum(1, keepdims=True))
+                P.append(_softmax(lg.float().cpu().numpy() + logit_bias))
                 E.append(emb.float().cpu().numpy())
                 L.append(lab)
                 R.append(raw)
@@ -397,7 +398,7 @@ def run(argv=None):
     vs, vst = daily("val", limit=args.eval_limit or 8000)
     deadline = args.max_minutes * 0.8
     best, best_state, bad, history = -math.inf, None, 0, []
-    with ctx.stage("valcache"):  # fixed per-epoch val windows: inputs built once and kept on the device (#140)
+    with ctx.stage("valcache"):  # fixed per-epoch val windows: inputs built once and kept on the device
         vcache = []
         for k in range(0, len(vs), 2048):
             _, inp, lab = make_inputs(src, vs[k:k + 2048], vst[k:k + 2048], m1, m2)
@@ -412,13 +413,9 @@ def run(argv=None):
                 with ctx.autocast():
                     lg, _ = net(*t)
                 P.append(lg.float())
-        lg = torch.cat(P).cpu().numpy() + logit_bias
-        e = np.exp(lg - lg.max(1, keepdims=True))
-        return e / e.sum(1, keepdims=True), vlab
+        return _softmax(torch.cat(P).cpu().numpy() + logit_bias), vlab
 
     fwd = compile_net(net, args.compile)
-    from .forecast import loader_workers
-    from .harness import pin
 
     def make_batch(s, st):
         _, inp, lab = make_inputs(src, s, st, m1, m2, aug)
@@ -428,9 +425,8 @@ def run(argv=None):
         x = F.normalise(inp, stats)  # in the worker, with pinned tensors: the main thread only issues async copies
         return [pin(torch.from_numpy(np.ascontiguousarray(a))) for a in (x["seq"], x["summ"], x["stat"], lab)]
 
-    # M4's loop is data-bound (site windows): 8 threads 12.8 ms/step, 21 % wait (train#842); 3 threads 18.8 ms/step,
-    # 72 % wait (train#862)
-    n_workers = args.loader_workers or loader_workers()
+    # M4's loop is data-bound (site windows): more loader threads cut the data wait substantially
+    n_workers = args.loader_workers or forecast.loader_workers()
     pool = ThreadPoolExecutor(max_workers=n_workers)
     ctx.emit("loader_workers", n_workers)
     tp = Throughput(ctx.emit, dev, sync=args.profile)
@@ -469,9 +465,10 @@ def run(argv=None):
                 P, L = val_probs()
                 mac, _ = M.prauc_macro(P, L)
                 binp = M.ap(L > 0, 1 - P[:, 0])
-            history.append({"epoch": ep, "loss": float(torch.stack(losses).mean()), "val_prauc": mac, "val_prauc_binary": binp,
+            ep_loss = float(torch.stack(losses).mean())
+            history.append({"epoch": ep, "loss": ep_loss, "val_prauc": mac, "val_prauc_binary": binp,
                             "sec": round(time.time() - t_ep, 1)})
-            print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_prauc {mac:.4f} binary {binp:.4f} "
+            print(f"[train] ep {ep} loss {ep_loss:.4f} val_prauc {mac:.4f} binary {binp:.4f} "
                   f"({time.time() - t_ep:.1f}s, {ctx.elapsed_min():.1f} min)", flush=True)
             score = mac if not np.isnan(mac) else -1
             if score > best + 1e-4:
@@ -499,15 +496,10 @@ def run(argv=None):
         best_k, best_ap, cus = None, -1, None
         for k in (0.02, 0.05, 0.1):
             c = cusum_all(src, factor, k)
-            sc = np.concatenate([baseline_scores(r, c, vst[i * 2048:(i + 1) * 2048], vs[i * 2048:(i + 1) * 2048], factor)[1]
-                                 for i, r in enumerate(vR)])
-            a = M.ap(vL > 0, sc)
+            a = M.ap(vL > 0, _batched_baselines(vR, c, vst, vs, factor)[1])
             if a > best_ap:
                 best_k, best_ap, cus = k, a, c
-        thr_v = np.concatenate([baseline_scores(r, cus, vst[i * 2048:(i + 1) * 2048], vs[i * 2048:(i + 1) * 2048], factor)[0]
-                                for i, r in enumerate(vR)])
-        cus_v = np.concatenate([baseline_scores(r, cus, vst[i * 2048:(i + 1) * 2048], vs[i * 2048:(i + 1) * 2048], factor)[1]
-                                for i, r in enumerate(vR)])
+        thr_v, cus_v = _batched_baselines(vR, cus, vst, vs, factor)
         # thresholds frozen on validation at a fixed false-alarm budget on healthy windows (same for all methods)
         hv = vL == 0
         th = {"model": float(np.quantile(1 - vP[hv, 0], 1 - args.fa_budget)),
@@ -526,10 +518,7 @@ def run(argv=None):
 
         ts, tst = daily("test")
         tP, tE, tL, tR = infer(ts, tst)
-        thr_t = np.concatenate([baseline_scores(r, cus, tst[i * 2048:(i + 1) * 2048], ts[i * 2048:(i + 1) * 2048], factor)[0]
-                                for i, r in enumerate(tR)])
-        cus_t = np.concatenate([baseline_scores(r, cus, tst[i * 2048:(i + 1) * 2048], ts[i * 2048:(i + 1) * 2048], factor)[1]
-                                for i, r in enumerate(tR)])
+        thr_t, cus_t = _batched_baselines(tR, cus, tst, ts, factor)
         mac_t, per_t = M.prauc_macro(tP, tL)
         ctx.emit("test_prauc", mac_t)
         ctx.emit("test_prauc_binary", M.ap(tL > 0, 1 - tP[:, 0]))
@@ -549,7 +538,7 @@ def run(argv=None):
               "threshold": float((thr_t[healthy] > th["threshold"]).mean()),
               "cusum": float((cus_t[healthy] > th["cusum"]).mean())}
         report["false_alarms_per_healthy_site_day"] = fa
-        # #142: battery vs no-battery homes, this model and the promoted one on the same windows
+        # battery vs no-battery homes, this model and the promoted one on the same windows
         batt = src.site_meta("battery_kwh")[ts] > 0
         report["battery_split"] = bs = battery_split(tP, tL, batt, seen)
         old_sess, old_cal = promoted_session(args.promoted, dims) if args.promoted else (None, None)
@@ -572,7 +561,8 @@ def run(argv=None):
 
     with ctx.stage("detect"):
         test_days = set(sp.days["test"].tolist())
-        eps_te = [e for e in src.episodes if (e["onset"] // H) in test_days and e["onset"] + DETECT_HORIZON_H * 4 < src.n_steps]
+        eps_te = [e for e in src.episodes
+                  if (e["onset"] // H) in test_days and e["onset"] + DETECT_HORIZON_H * 4 < src.n_steps]
         if args.max_episodes and len(eps_te) > args.max_episodes:
             eps_te = [eps_te[i] for i in sorted(rng.choice(len(eps_te), args.max_episodes, replace=False))]
         hrs = np.arange(1, DETECT_HORIZON_H + 1)
@@ -584,10 +574,7 @@ def run(argv=None):
             ends = np.concatenate([e["onset"] + hrs * 4 - 1 for e in chunk])
             starts = ends - H + 1
             P, _, _, R = infer(s, starts)
-            thr = np.concatenate([baseline_scores(r, cus, starts[i * 2048:(i + 1) * 2048], s[i * 2048:(i + 1) * 2048], factor)[0]
-                                  for i, r in enumerate(R)])
-            cu = np.concatenate([baseline_scores(r, cus, starts[i * 2048:(i + 1) * 2048], s[i * 2048:(i + 1) * 2048], factor)[1]
-                                 for i, r in enumerate(R)])
+            thr, cu = _batched_baselines(R, cus, starts, s, factor)
             scores = {"model": 1 - P[:, 0], "threshold": thr, "cusum": cu}
             for j, e in enumerate(chunk):
                 active = hrs * 4 <= (e["end"] - e["onset"]) + H  # stop searching a day after the episode ended
@@ -626,8 +613,9 @@ def run(argv=None):
                           f"flagged {v['flagged']:.2f} (n={v['n']})", flush=True)
     for name, b in (("model", bs), ("promoted", report.get("battery_split_promoted"))):
         for g, v in (b or {}).items():
-            print(f"[battery] {name:8s} {g:13s} n={v['n']:6d} prauc {v['prauc']:.3f} string_outage n={v['n_string_outage']:5d} "
-                  f"recall {v['so_recall']:.2f} ->sensor_fault {v['so_to_sf']:.3f} row {v['string_outage_pred']}", flush=True)
+            print(f"[battery] {name:8s} {g:13s} n={v['n']:6d} prauc {v['prauc']:.3f} "
+                  f"string_outage n={v['n_string_outage']:5d} recall {v['so_recall']:.2f} "
+                  f"->sensor_fault {v['so_to_sf']:.3f} row {v['string_outage_pred']}", flush=True)
     print("[analysis] test confusion (rows=true, cols=pred): " + " ".join(f[:6] for f in FAULTS), flush=True)
     for f, row in zip(FAULTS, cm):
         print(f"[analysis]   {f:17s} " + " ".join(f"{v:6d}" for v in row), flush=True)
@@ -665,6 +653,18 @@ def run(argv=None):
     ctx.finish({"data_root": str(src.root), "data_digest": src.index.get("digest")})
 
 
+def _softmax(lg: np.ndarray) -> np.ndarray:
+    e = np.exp(lg - lg.max(1, keepdims=True))
+    return e / e.sum(1, keepdims=True)
+
+
+def _batched_baselines(raws, cus, starts, sites, factor, batch=2048):
+    """baseline_scores over infer()'s per-batch raw windows -> (threshold-rule scores, CUSUM scores)."""
+    parts = [baseline_scores(r, cus, starts[i * batch:(i + 1) * batch], sites[i * batch:(i + 1) * batch], factor)
+             for i, r in enumerate(raws)]
+    return np.concatenate([p[0] for p in parts]), np.concatenate([p[1] for p in parts])
+
+
 def _probs(net, to_t, ctx, inp, logit_bias, batch=2048):
     """Softmax probabilities (with the logit adjustment) of the torch model for built inputs."""
     import torch
@@ -675,9 +675,7 @@ def _probs(net, to_t, ctx, inp, logit_bias, batch=2048):
         for i in range(0, len(inp["seq"]), batch):
             with ctx.autocast():
                 lg, _ = net(*to_t({k: inp[k][i:i + batch] for k in ("seq", "summ", "stat")}))
-            lg = lg.float().cpu().numpy() + logit_bias
-            e = np.exp(lg - lg.max(1, keepdims=True))
-            out.append(e / e.sum(1, keepdims=True))
+            out.append(_softmax(lg.float().cpu().numpy() + logit_bias))
     return np.concatenate(out)
 
 

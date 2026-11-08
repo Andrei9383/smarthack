@@ -1,9 +1,8 @@
-"""K7 battery re-simulation for the PV fault injector (#12, #134): re-run the self-consumption rule for faulty rows
-from their fault onset, with per-step capacity / power derating (battery_fade).
+"""Battery re-simulation for the PV fault injector: re-run the self-consumption rule for faulty rows from their fault
+onset, with per-step capacity / power derating (battery_fade).
 
-Source of truth: ``battery_resim_py`` below, the time loop moved verbatim out of
-``wattsentry.sim.faults.inject._resimulate_battery`` (#134). The Rust copy ``wattsentry._core.battery_resim`` matches it
-bit for bit (same float operations in numpy's order, numpy NaN semantics for maximum/minimum/clip).
+Source of truth: ``battery_resim_py`` (the time loop of ``wattsentry.sim.faults.inject._resimulate_battery``). The Rust
+copy ``wattsentry._core.battery_resim`` matches it bit for bit (numpy's operation order and NaN semantics).
 
 Inputs, all float64 C-contiguous, m rows x T steps unless noted:
   surplus    pv_ac_w - load_w (W)

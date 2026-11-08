@@ -3,7 +3,7 @@
 Each `apply_<kind>(ep)` gets an Episode with the site's arrays (`ep.cols`, 15-min, length T) and the step range
 [i0, i1) the fault is active, and returns the params / severity to put in the label. Physical faults change
 `pv_ac_w` (and battery capacity); the battery and grid are re-simulated afterwards by inject.py. Sensor faults
-only corrupt what is reported. Signatures (what M4 has to learn, what the tests check):
+only corrupt what is reported. Signatures (what the fault model has to learn, what the tests check):
 
   soiling           PV loss ramps up linearly from 0 at onset, gone after the cleaning rain at the end
   shading           PV loss only while the sun is inside an azimuth sector and below an elevation
@@ -23,7 +23,7 @@ import pandas as pd
 
 from ..fleet import solar
 
-INV_OVERVOLTAGE = 37  # inverter code "grid voltage too high" (0 = ok, data.md)
+INV_OVERVOLTAGE = 37  # inverter code "grid voltage too high" (0 = ok)
 STEPS_PER_DAY = 96
 
 

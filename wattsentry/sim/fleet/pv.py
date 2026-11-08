@@ -9,7 +9,7 @@ import pandas as pd
 from . import solar
 from .weather import Weather
 
-INV_OK = 0  # data.md: 0 = ok, anything else is an inverter code (the fault injector #12 sets them)
+INV_OK = 0  # 0 = ok, anything else is an inverter code (set by wattsentry.sim.faults)
 
 
 def simulate_pv(sites: pd.DataFrame, w: Weather) -> tuple[np.ndarray, np.ndarray]:

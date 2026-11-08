@@ -1,7 +1,7 @@
-"""M3 DemandNet (card #44): zone demand P10/P50/P90, peak hour and stress, feeder -> locality -> county.
+"""M3 DemandNet: zone demand P10/P50/P90, peak hour and stress, feeder -> locality -> county.
 
-v1 `aggregate_scenarios` (scenario sums of household load, no new model) -> `zone_demand_rows` / `zone_demand_actions`.
-v2 `DemandNet` (LightGBM quantile per county) with RO calendar features; `python -m wattsentry.demand` trains it.
+v1 `aggregate_scenarios` (scenario sums of household load) -> `zone_demand_rows` / `zone_demand_actions`.
+v2 `DemandNet` (LightGBM quantile per zone) with RO calendar features; `python -m wattsentry.demand` trains it.
 """
 
 from .aggregate import (

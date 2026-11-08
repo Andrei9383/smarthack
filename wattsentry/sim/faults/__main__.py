@@ -1,4 +1,4 @@
-"""python -m wattsentry.sim.faults [--quick] [--fleet DIR] [--out DIR] [--force] [--seed N] [--share 0.15] [--plots]"""
+"""python -m wattsentry.sim.faults [--quick] [--fleet DIR] [--out DIR] [--force] [--seed N] [--share 0.15]"""
 
 from __future__ import annotations
 
@@ -20,15 +20,10 @@ def main() -> None:
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--seed", type=int, default=FaultConfig.seed)
     ap.add_argument("--share", type=float, default=FaultConfig.faulty_share, help="target faulty site-day share")
-    ap.add_argument("--plots", type=Path, nargs="?", const=Path(__file__).parent / "plots",
-                    help="write one explainer plot per fault class (default: wattsentry/sim/faults/plots)")
     a = ap.parse_args()
     fleet = a.fleet or generate(FleetConfig(**(QUICK if a.quick else {})), plots=False)
     cfg = dataclasses.replace(FaultConfig(), seed=a.seed, faulty_share=a.share)
-    out = inject_dataset(fleet, cfg, out_dir=a.out, force=a.force)
-    if a.plots:
-        from .plots import explainer_plots
-        explainer_plots(fleet, out, a.plots)
+    inject_dataset(fleet, cfg, out_dir=a.out, force=a.force)
 
 
 if __name__ == "__main__":

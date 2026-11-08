@@ -1,7 +1,7 @@
 """python -m wattsentry.gridtwin.run [--fleet DIR] [--out DIR] [--start 2024-05-01] [--days 180]
 
 Runs the grid-twin on the fleet's inverter voltages, scores it against the simulator's hidden truth and writes
-flags.geojson (review requests), feeders.json (tau, g_kw per feeder) and sites.parquet to the output dir."""
+flags.geojson (review requests), feeders.json (tau, g_kw per feeder), sites.parquet and metrics.json."""
 
 from __future__ import annotations
 

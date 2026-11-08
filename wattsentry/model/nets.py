@@ -120,7 +120,8 @@ class SiteHealthNet(nn.Module):
             nn.Conv1d(w, w, 5, padding=8, dilation=4), nn.GELU(), nn.BatchNorm1d(w),
             nn.Conv1d(w, w, 3, padding=8, dilation=8), nn.GELU(),
         )
-        self.sum = nn.Sequential(nn.Conv1d(c_sum, 32, 3, padding=1), nn.GELU(), nn.Conv1d(32, 32, 3, padding=1), nn.GELU())
+        self.sum = nn.Sequential(nn.Conv1d(c_sum, 32, 3, padding=1), nn.GELU(),
+                                 nn.Conv1d(32, 32, 3, padding=1), nn.GELU())
         self.stat = nn.Sequential(nn.Linear(c_stat, 16), nn.GELU())
         self.head = nn.Sequential(nn.Linear(2 * w + 64 + 16, 96), nn.GELU(), nn.Dropout(drop), nn.Linear(96, n_cls))
 

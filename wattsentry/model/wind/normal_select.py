@@ -1,4 +1,4 @@
-"""Label-free selection of 'normal' steps for WindNBM training (card #70, follow-up to #41).
+"""Label-free selection of 'normal' steps for WindNBM training.
 
 Real SCADA has no fault labels, so the normal-behaviour model cannot be trained on `labels == normal`. This module
 picks normal steps from the telemetry alone, the way an operator would clean a power curve:
@@ -16,8 +16,8 @@ The temperature targets get a lighter mask (as with labels, the thermal path als
 curtailment): gaps, suspect data, temperature spikes, and steps whose temperature rise is far above the turbine's
 own typical rise at that load, or whose 1-day median rise drifts > 3.5 °C above its two-week baseline.
 
-Mild slow drifts (early bearing overheating, losses under ~6 %) still survive. That is the gap #70
-measures: compare the label-free run against the label-masked one with `--normal-select`.
+Mild slow drifts (early bearing overheating, losses under ~6 %) still survive; compare the label-free run against
+the label-masked one with `train --normal-select`.
 """
 
 from __future__ import annotations
@@ -34,10 +34,8 @@ P_EDGES = np.linspace(0.0, 1.1, 12)
 MAD_TO_STD = 1.4826
 N_SECTORS = 16
 
-# All turbines are processed at once (#136): the per-bin medians / MADs and the centred rolling medians go through the
-# dispatched kernels in wattsentry.kernels.median (exact; Rust when built, else the numpy/pandas reference), and
-# `_lookup` gathers each step's bin statistic. The masks are bit-identical to the
-# per-turbine loop this replaced (train#593: normal_sel_precision 0.956275, recall 0.912301).
+# All turbines are processed at once: per-bin medians / MADs and centred rolling medians go through the exact
+# kernels in wattsentry.kernels.median, and `_lookup` gathers each step's bin statistic.
 
 
 def _flat(b: np.ndarray) -> np.ndarray:

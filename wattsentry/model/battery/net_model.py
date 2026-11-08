@@ -1,4 +1,4 @@
-"""Net import per home and quarter-hour, including the battery (card #174, spec I step 5).
+"""Net import per home and quarter-hour, including the battery.
 
 (a) ``NetQuantileModel`` - the fallback: LightGBM quantile (0.1 / 0.5 / 0.9) directly on the home's net import
     (import - export, kWh per 15 min) from ``features.ROW_FEATURES``.
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable, Mapping, Optional
+from typing import Mapping, Optional
 
 import numpy as np
 
@@ -124,61 +124,6 @@ def residual_bias(world: World, steps: np.ndarray, resid: np.ndarray, lookback: 
     ws, wc = cs[:, hi] - cs[:, lo], cc[:, hi] - cc[:, lo]
     bias = np.where(wc >= min_obs, ws / np.maximum(wc, 1), 0.0)
     return bias[:, day, hr].astype(np.float32)
-
-
-def portfolio_behaviour(code: np.ndarray, params: Mapping[str, np.ndarray], price: np.ndarray, rank: np.ndarray,
-                        med: np.ndarray, day: np.ndarray) -> Callable:
-    """A ``behaviour(pv, load, battery, soc0)`` for I5's ``wattsentry.eval.portfolio.set_behaviour`` on data-v2:
-    pv / load (..., n, T) scenarios -> net import kW, same shape, with each home's GUESSED strategy and parameters.
-    soc0 is a fraction of capacity (I5's convention) or None. I5 calls it per chunk of homes with
-    ``fleet.battery.take(slice)``: when n < N the chunk is located by matching ``battery.capacity_kwh`` /
-    ``p_max_kw`` against ``guessed_battery_arrays`` (build I5's Fleet with those, see BatteryModel.portfolio_inputs)."""
-    code = np.asarray(code, np.int8)
-    N = len(code)
-    cap_enc, p_enc = guessed_battery_arrays(code, params)[:2]
-    state = {"next": 0}
-
-    def offset(n: int, battery) -> int:
-        if n == N:
-            return 0
-        if battery is None:
-            raise ValueError(f"behaviour: got {n} homes of {N} and no battery arrays to locate them")
-        cb, pb = np.asarray(battery[0], float), np.asarray(battery[1], float)
-        hint = state["next"] if state["next"] + n <= N else 0
-        for o in (hint, *range(0, N - n + 1)):
-            if np.array_equal(cap_enc[o:o + n], cb) and np.array_equal(p_enc[o:o + n], pb):
-                state["next"] = (o + n) % N
-                return o
-        raise ValueError("behaviour: home chunk not found; build the Fleet's battery with guessed_battery_arrays")
-
-    def fn(pv, load, battery=None, soc0=None):
-        pv = np.asarray(pv, np.float64)
-        load = np.broadcast_to(np.asarray(load, np.float64), pv.shape)
-        n, T = pv.shape[-2:]
-        o = offset(n, battery)
-        sl = slice(o, o + n)
-        lead = pv.shape[:-2]
-        K = int(np.prod(lead)) if lead else 1
-        tile = lambda a: np.tile(np.asarray(a)[sl], K)  # noqa: E731
-        prm = {k: tile(params[k]) for k in ("cap_kwh", "p_kw", "reserve_frac", "k_top")}
-        s0 = None
-        if soc0 is not None:
-            frac = np.broadcast_to(np.asarray(soc0, float), lead + (n,)).reshape(K * n)
-            s0 = frac * prm["cap_kwh"]
-        net, _ = simulate(pv.reshape(K * n, T), load.reshape(K * n, T), tile(code), prm, price, rank, med, day, s0)
-        return net.reshape(pv.shape)
-
-    return fn
-
-
-def guessed_battery_arrays(code: np.ndarray, params: Mapping[str, np.ndarray]) -> tuple[np.ndarray, ...]:
-    """I5's BatteryArrays fields (capacity, p_max, eta_c, eta_d, e_lo, e_hi) from the GUESS (capacity 0 = no battery
-    guessed), so I5's Fleet, warm_soc0 and chunking work unchanged on data-v2."""
-    code = np.asarray(code)
-    cap = np.where(code > 0, np.asarray(params["cap_kwh"], float), 0.0)
-    p = np.where(code > 0, np.asarray(params["p_kw"], float), 0.0)
-    eta = np.full(len(code), PRIOR["eta"])
-    return cap, p, eta, eta.copy(), np.asarray(params["reserve_frac"], float) * cap, cap.copy()
 
 
 # ============================================================================================ (a) quantile LightGBM

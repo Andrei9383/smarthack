@@ -1,9 +1,7 @@
-"""Robustness drills (card #28): corrupted variants of the test inputs. The agent must keep working or say "not
-sure" (human review), never crash and never commit flexibility it cannot deliver.
+"""Robustness drills: corrupted variants of the test inputs. The agent must keep working or say "not sure"
+(human review), never crash and never commit flexibility it cannot deliver.
 
-Two forms of the same drills:
-  DRILLS[name](asset, window, rng) -> (asset, window)   per prediction window; eval.py --drills scores them
-  telemetry_drill(df, name, rng) -> df                  on long telemetry (ts, site_id, pv_ac_w, ...), for replay
+DRILLS[name](asset, window, rng) -> (asset, window), per prediction window; eval.py --drills scores them.
 
 Drills
   gaps_10 / gaps_40     10 % / 40 % of past readings missing (isolated + short runs)
@@ -22,7 +20,6 @@ import copy
 from typing import Callable
 
 import numpy as np
-import pandas as pd
 
 DAY = 96
 POWER_KEYS = ("reference", "history")  # past pv_ac_w and load_w in the Window
@@ -136,7 +133,7 @@ def forecast_noise(asset, window, rng):
         chans = list((window.meta or {}).get("weather_channels", []))
         irr = [i for i, c in enumerate(chans) if any(s in str(c).lower() for s in ("ghi", "dni", "dhi", "irr"))]
         temp = [i for i, c in enumerate(chans) if "temp" in str(c).lower()]
-        if not chans:  # unknown layout: assume data.md order ghi, dni, dhi, temp first
+        if not chans:  # unknown layout: assume the contract order ghi, dni, dhi, temp first
             irr, temp = [0, 1, 2][: w.shape[1]], [3] if w.shape[1] > 3 else []
         factor = float(np.exp(rng.normal(0, 0.3)))
         shift = int(rng.integers(-3, 4))
@@ -160,45 +157,3 @@ DRILLS: dict[str, Callable] = {
     "telemetry_dropout": telemetry_dropout,
     "forecast_noise": forecast_noise,
 }
-
-
-# --- telemetry form (long tables), for replay and the data checks ---------------------------------------------
-POWER_COLS = ("pv_ac_w", "load_w", "batt_w", "grid_w")
-
-
-def telemetry_drill(df: pd.DataFrame, name: str, rng, sites: list[str] | None = None,
-                    delivery_hour_utc: int = 8) -> pd.DataFrame:
-    """Apply a drill to long telemetry (copy). `sites` limits it to some sites (default: all).
-    telemetry_dropout removes the readings in the 6 h before each day's delivery hour (UTC)."""
-    out = df.copy()
-    pick = out.site_id.astype(str).isin(sites) if sites is not None else pd.Series(True, index=out.index)
-    cols = [c for c in POWER_COLS if c in out]
-    if name in ("gaps_10", "gaps_40"):
-        m = pick.to_numpy() & (rng.random(len(out)) < (0.1 if name == "gaps_10" else 0.4))
-        out.loc[m, cols + [c for c in ("soc", "inv_voltage_v") if c in out]] = np.nan
-    elif name == "missing_day":
-        day = out.ts.dt.floor("D")
-        target = day.iloc[int(rng.integers(0, len(day)))]
-        out.loc[pick & (day == target), cols] = np.nan
-    elif name == "frozen_sensor":
-        for sid, g in out[pick].groupby("site_id", observed=True):
-            g = g.sort_values("ts")
-            d = g[g.pv_ac_w > 0]
-            if d.empty:
-                continue
-            i0 = d.index[len(d) // 2]
-            sel = g.index[g.index.get_loc(i0): g.index.get_loc(i0) + 3 * DAY]
-            out.loc[sel, "pv_ac_w"] = out.at[i0, "pv_ac_w"]
-    elif name in ("units_kw", "units_x1000"):
-        out.loc[pick, cols] = out.loc[pick, cols] * (1e-3 if name == "units_kw" else 1e3)
-    elif name == "telemetry_dropout":
-        h = out.ts.dt.hour
-        before = (h >= (delivery_hour_utc - 6) % 24) & (h < delivery_hour_utc) if delivery_hour_utc >= 6 else \
-            (h >= (delivery_hour_utc - 6) % 24) | (h < delivery_hour_utc)
-        drop = pick & before
-        out = out[~drop]  # not delivered at all: the rows are absent, not null
-    elif name in ("unseen_site_type", "forecast_noise"):
-        pass  # metadata / weather drills: nothing to change in telemetry
-    else:
-        raise KeyError(f"unknown drill {name!r}; one of {list(DRILLS)}")
-    return out

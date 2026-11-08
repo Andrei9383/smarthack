@@ -1,4 +1,4 @@
-"""OPCOM PI parser + aggregation (#171). Offline: a synthetic page in OPCOM's (malformed) table layout."""
+"""OPCOM PI parser + aggregation. Offline: a synthetic page in OPCOM's (malformed) table layout."""
 
 import datetime as dt
 from pathlib import Path

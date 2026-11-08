@@ -1,4 +1,4 @@
-"""data-v2 prosumers (#172, spec I steps 2-3): attributes, strategies, meter layer, settlement, no hidden columns in
+"""data-v2 prosumers: attributes, strategies, meter layer, settlement, no hidden columns in
 training files, and the existing fleet (data-v4) left byte-identical."""
 
 from __future__ import annotations
@@ -177,7 +177,7 @@ def test_deterministic_and_backend_independent(tmp_path, monkeypatch):
 
 # ----------------------------------------------------------------------------- the existing fleet stays as it is
 FLEET_TINY = dict(n_sites=12, n_feeders=2, n_congested=1, start_year=2024, end_year=2024, weather_source="synthetic")
-# Measured on main before #172 (wattsentry.sim.fleet untouched by this card). Sums, so last-ulp platform noise passes.
+# Reference sums of the fleet dataset (data-v2 must leave it unchanged); sums, so last-ulp platform noise passes.
 FLEET_GOLDEN = {"pv_ac_w": 314356850.0, "load_w": 317311693.0, "batt_w": 3377508.0, "grid_w": -6332516.0,
                 "inv_voltage_v": 98585693.38804626, "soc": 82326.93044994771}
 

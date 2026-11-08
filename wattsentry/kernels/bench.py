@@ -2,8 +2,9 @@
 
     python -m wattsentry.kernels.bench [--scale 1.0] [--repeat 3] [--only cusum_two_sided]
 
-Prints LAB_METRIC rust_available, kernel_backend_rust, and per case t_py_<key>_s, t_rust_<key>_s, speedup_<key>,
-parity_<key> (1 = Rust output bit-exact to Python on a slice of the input). Without the extension: Python only.
+Prints LAB_METRIC rust_available, kernel_backend_rust, rust_threads, and per case t_py_<key>_s, t_rust_<key>_s,
+speedup_<key>, parity_<key> (1 = Rust output matches Python on a slice of the input). Without the extension: Python
+only.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import argparse
 import os
 import sys
 import time
+from typing import Any
 
 import numpy as np
 
@@ -57,7 +59,7 @@ def rollout_make(scale, rng):
 
 
 def windows_make(scale, rng):
-    """#10's cache (600 sites x 4 years, float16); batches of 1024 (site, day) windows, as the model reads it."""
+    """Window cache (600 sites x 4 years, float16); batches of 1024 (site, day) windows, as the model reads it."""
     s, days = _sz(600, scale), _sz(4 * 365, scale, 16)
     pv, load = (rng.random((s, days * 96), dtype=np.float32).astype(np.float16) for _ in range(2))
     wx = rng.random((20, days * 96, 7), dtype=np.float32).astype(np.float16)
@@ -84,9 +86,9 @@ def rolling_make(scale, rng):
     return (x,)
 
 
-# ---- telemetry scatter: WindNBM load of WP1 (70 turbines x 70,176 steps x 8 sensors, one row per bin on average; 2%
-# codes, 1% NaN and some rows off the grid / unknown tags).
 def scatter_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """WindNBM load of WP1: 70 turbines x 70,176 steps x 8 sensors, ~one row per bin; 2 % codes, 1 % NaN, some rows
+    off the grid / unknown tags."""
     S, T, N = 8, max(2, int(round(70176 * scale))), max(1, int(round(70 * scale)))
     n = S * T * N
     ti, tj, sk = rng.integers(-2, T + 2, n), rng.integers(-1, N, n), rng.integers(-1, S, n)
@@ -98,12 +100,12 @@ def scatter_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
     return (np.sort(ti), tj, sk, v, is_code, sc, T)
 
 
-# ---- feature build: the model data path's per-batch numpy features (#94) on batches of 256 windows, the way
-# features.build sees them after the gather (float32 [B, 96, C] target-day arrays + 14-day history).
 FEAT_BATCHES, FEAT_B = 40, 256
 
 
 def feat_raw(scale: float, rng: np.random.Generator) -> list[dict]:
+    """Feature-build batches of 256 windows as seen after the gather (float32 [B, 96, C] target day + 14-day
+    history)."""
     b = max(1, int(round(FEAT_B * scale)))
     out = []
     for _ in range(FEAT_BATCHES):
@@ -148,13 +150,14 @@ def load_args(r: dict) -> tuple[Any, ...]:
 
 
 def strategies_make(scale, rng):
-    """K8: one data-v2 chunk-year, 500 homes x 35040 steps (all four strategies), as the generator calls it."""
+    """One data-v2 chunk-year, 500 homes x 35040 steps (all four strategies), as the generator calls it."""
     from wattsentry.kernels.strategies import day_rank_median
 
     n, days = _sz(500, scale), _sz(365, scale)
     t = days * 96
     hod = np.tile(np.arange(96) / 4, days)
-    pv = np.clip(np.sin((hod - 6) / 12 * np.pi), 0, None)[None] * rng.uniform(2, 8, (n, 1)) * rng.uniform(0.3, 1, (n, t))
+    pv = (np.clip(np.sin((hod - 6) / 12 * np.pi), 0, None)[None] * rng.uniform(2, 8, (n, 1))
+          * rng.uniform(0.3, 1, (n, t)))
     strat = (np.arange(n) % 4).astype(np.int8)
     cap = np.where(strat > 0, rng.uniform(5, 15, n), 0.0)
     day = np.repeat(np.arange(days), 96).astype(np.int32)
@@ -164,8 +167,9 @@ def strategies_make(scale, rng):
             np.full(n, 0.95), rng.integers(8, 21, n).astype(np.int32), 0.5 * cap, price, rank, med, day,
             rng.random((n, days)) > 0.1)
 
-# ---- fleet self-consumption (#135): the simulator's battery rule over one year, 600 homes, 45 % with a battery.
+
 def selfcons_make(scale: float, rng: np.random.Generator) -> tuple:
+    """The fleet simulator's battery rule over one year, 600 homes, 45 % with a battery."""
     from wattsentry.sim.fleet.battery import BatteryParams
 
     n, t = _sz(600, scale), _sz(35040, scale, 2)
@@ -186,11 +190,11 @@ def selfcons_sample(a: tuple) -> tuple:
     return (BatteryParams(*(getattr(p, f)[k] for f in p.__dataclass_fields__)), pv[k], load[k], dt)
 
 
-PVAC_CHUNK = 64  # sites per call, as wattsentry.data.windows does per locality (#133)
+PVAC_CHUNK = 64  # sites per call, as wattsentry.data.windows does per locality
 
 
 def pvac_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
-    """#133: 600 sites x 1 year of 15-min steps under one locality's weather (pvlib + clear-sky channels)."""
+    """600 sites x 1 year of 15-min steps under one locality's weather (pvlib + clear-sky channels)."""
     import pandas as pd
 
     from wattsentry.model import physics as ph
@@ -211,8 +215,9 @@ def pvac_run(fn, a):
         fn(*s, ghi, dni, dhi, temp, wind, zen, saz)
         fn(*s, ghi, dni, dhi, 20.0, None, zen, saz)
 
+
 def resim_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
-    """K7 (#134): one fault-injector batch re-simulated: 48 battery sites with a fault x 1 year of 15-min steps,
+    """One fault-injector batch re-simulated: 48 battery sites with a fault x 1 year of 15-min steps,
     onsets spread over the year, battery_fade capacity ramps and underuse steps, 0.1 % NaN surplus."""
     m, T = _sz(48, scale), _sz(35040, scale, 2)
     tod = np.sin(np.arange(T) / 96 * 2 * np.pi)
@@ -231,27 +236,15 @@ def resim_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
             rng.uniform(2, 6, m), np.full(m, 0.95), np.full(m, 0.95), np.full(m, 0.1), np.full(m, 0.95), t0, 0.25)
 
 
-SCEN_DAYS = 40
+MED_W = ((96, 12), (1344, 96), (192, 24))  # (window, min_periods) select_normal uses
 
 
-def scen_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
-    """K9 (#187): W2 forecast stage, per day x 3 parks x 6 policies: 100 scenarios x 96 steps x 39 turbines."""
-    S, H, N = _sz(100, scale), 96, 117
-    rated = np.full(N, 3000.0)
-    p50 = rng.uniform(0, 1, (H, N)) * rated
-    q = np.stack([0.7 * p50, p50, np.minimum(1.3 * p50 + 50, rated)], -1).astype(np.float32)
-    u = rng.uniform(0, 1, (S, H))
-    pu, der = rng.uniform(0, 1, (H, N)), rng.uniform(0.5, 1, (H, N))
-    return q, rated, [np.arange(p, N, 3) for p in range(3)], rng.uniform(0.9, 1, H), u, pu, der
-
-
-def scen_run(fn, a):
-    q, rated, cols, r, u, pu, der = a
-    for d in range(SCEN_DAYS):
-        for c in cols:
-            for kw in ({}, dict(p_up=pu, derate=der), dict(p_up=pu, derate=der, bernoulli=True), dict(p_up=pu),
-                       dict(p_up=pu), dict(p_up=pu)):
-                fn(q, rated, c, r, u, **kw, rng=np.random.default_rng(d))
+def median_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
+    """WindNBM label-free normal selection: 121 turbines x 70,176 steps, residuals with ~20 % NaN."""
+    T, N = _sz(70176, scale, 2), _sz(121, scale)
+    x = np.round(rng.standard_normal((T, N)) * 3, 2)  # rounded: ties, as in real telemetry
+    x[rng.random((T, N)) < 0.2] = np.nan
+    return x, rng.integers(0, 60, (T, N)), rng.random((T, N)) < 0.3
 
 
 # (kernel, key, make(scale, rng), run(fn, args), parity sample(args), description[, parity atol])
@@ -270,44 +263,26 @@ CASES = [
     ("scatter_telemetry", "scatter", scatter_make, lambda fn, a: fn(*a),
      lambda a: (*(x[:200_000] for x in a[:5]), a[5], a[6]),
      "39 M long rows (time-sorted) -> 8 sensors x 70176 steps x 70 turbines, 2% codes, 1% NaN (WindNBM load)"),
-    ("pv_features", "features_pv", lambda sc, rng: (feat_raw(sc, rng),), lambda fn, a: [fn(*pv_args(r)) for r in a[0]],
-     lambda a: pv_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} PV windows (features.pv_inputs)", 1e-6),  # cos/sin: 1 ulp
-    ("load_features", "features_load", lambda sc, rng: (feat_raw(sc, rng),), lambda fn, a: [fn(*load_args(r)) for r in a[0]],
-     lambda a: load_args(a[0][0]), f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
+    ("pv_features", "features_pv", lambda sc, rng: (feat_raw(sc, rng),),
+     lambda fn, a: [fn(*pv_args(r)) for r in a[0]], lambda a: pv_args(a[0][0]),
+     f"{FEAT_BATCHES} batches x {FEAT_B} PV windows (features.pv_inputs)", 1e-6),  # cos/sin: 1 ulp
+    ("load_features", "features_load", lambda sc, rng: (feat_raw(sc, rng),),
+     lambda fn, a: [fn(*load_args(r)) for r in a[0]], lambda a: load_args(a[0][0]),
+     f"{FEAT_BATCHES} batches x {FEAT_B} load windows (features.load_inputs)"),
     ("site_features", "features_site", lambda sc, rng: (site_raw(sc, rng),), lambda fn, a: [fn(r) for r in a[0]],
-     lambda a: (a[0][0],), f"{FEAT_BATCHES} batches x {FEAT_B} M4 site windows (features.site_inputs)", 1e-6),  # cos_zen
+     lambda a: (a[0][0],), f"{FEAT_BATCHES} batches x {FEAT_B} M4 site windows (features.site_inputs)",
+     1e-6),  # cos_zen: 1 ulp
     ("self_consumption", "selfcons", selfcons_make, lambda fn, a: fn(*a), selfcons_sample,
-     "fleet battery rule: 600 homes x 35040 steps (one year), f32 pv/load (#135)"),
-
-
+     "fleet battery rule: 600 homes x 35040 steps (one year), f32 pv/load"),
     ("pv_ac_batch", "pvac", pvac_make, pvac_run,
      lambda a: (*(x[:PVAC_CHUNK] for x in a[0]), *a[1]),
      "600 sites x 35040 steps, measured + clear-sky channel, 64 sites per call (windows.py pvlib channels)",
      1e-9),  # bit-exact where numpy's f64 cos/arccos are libm's; a few ulp on AVX-512 SVML CPUs
     ("battery_resim", "battery_resim", resim_make, lambda fn, a: fn(*a), lambda a: a,
-     "fault injector battery resim (#134): 48 sites x 35040 steps, fade/underuse, 0.1% NaN"),
+     "fault injector battery resim: 48 sites x 35040 steps, fade/underuse, 0.1% NaN"),
     ("battery_strategies", "strategies", strategies_make, lambda fn, a: fn(*a),
      lambda a: (a[0][:40], a[1][:40], *(x[:40] for x in a[2:9]), *a[9:13], a[13][:40]),
-     "500 homes x 35040 steps, 4 strategies (one data-v2 chunk-year, #172)"),
-
-    ("park_scenarios", "park_scenarios", scen_make, scen_run,
-     lambda a: (a[0], a[1], a[2][1], a[3], a[4], a[5], a[6], True, None),  # rng None: same draws per call
-     f"W2 forecast (#187): {SCEN_DAYS} days x 3 parks x 6 policies, 100 scen x 96 steps x 39 turbines, f32 q"),
-]
-
-
-# ---- exact medians (#136): WindNBM label-free normal selection, 121 turbines x 70,176 steps; residuals with ~20 % NaN
-MED_W = ((96, 12), (1344, 96), (192, 24))  # (window, min_periods) select_normal uses
-
-
-def median_make(scale: float, rng: np.random.Generator) -> tuple[Any, ...]:
-    T, N = _sz(70176, scale, 2), _sz(121, scale)
-    x = np.round(rng.standard_normal((T, N)) * 3, 2)  # rounded: ties, as in real telemetry
-    x[rng.random((T, N)) < 0.2] = np.nan
-    return x, rng.integers(0, 60, (T, N)), rng.random((T, N)) < 0.3
-
-
-CASES += [
+     "500 homes x 35040 steps, 4 strategies (one data-v2 chunk-year)"),
     ("rolling_median", "rolling_median", median_make, lambda fn, a: [fn(a[0], w, mp) for w, mp in MED_W],
      lambda a: (a[0][:6000], 1344, 96), f"121 turbines x 70176 steps, f64, 20% NaN, centred, (w, min_periods) {MED_W}"),
     ("binned_median_mad", "binned_median", median_make, lambda fn, a: [fn(a[1], a[0], a[2], 60, 30) for _ in range(4)],

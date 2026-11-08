@@ -1,11 +1,8 @@
-"""National RO load for M3 v2: ENTSO-E RO total load (real RO, from #9) or a labelled synthetic RO fallback.
+"""National RO load for M3 v2: ENTSO-E RO total load ("real RO") or a labelled synthetic fallback.
 
-Expected real file (card #9), first match wins, under `data/raw/`:
-  1. `*entsoe*load*.parquet` with columns `ts` (or `timestamp`/`utc`/`datetime`, UTC) + `load_mw`
-     (or `mw`/`load`/`value`); or
-  2. any `*entsoe*.parquet` in the data.md long format `ts, series, mw` -> rows with series == "load_actual".
-Sub-hourly data (ENTSO-E RO is 15 min since 2025) is averaged to hourly MW. Optional temperature:
-`data/raw/*weather*.parquet` (`ts`, `temp_c`, mean over points); else a synthetic RO climatology, labelled.
+Looks under `data/raw/` for `*entsoe*load*.parquet` (`ts` + `load_mw`, or aliases) or any `*entsoe*.parquet` in long
+format `ts, series, mw` (series == "load_actual"). Sub-hourly data is averaged to hourly MW. Temperature comes from
+`*weather*.parquet` (`ts`, `temp_c`) when present, else a synthetic RO climatology.
 """
 
 from __future__ import annotations
@@ -74,7 +71,7 @@ def _read_entsoe(path: str) -> Optional[tuple[np.ndarray, np.ndarray]]:
     tcol = next((cols[c] for c in _TS_COLS if c in cols), None)
     if tcol is None:
         return None
-    if "series" in cols:  # data.md long format
+    if "series" in cols:  # long format
         df = df.filter(pl.col(cols["series"]) == "load_actual")
         vcol = cols.get("mw")
     else:
@@ -106,7 +103,7 @@ def _read_temperature(data_dir: Path, grid: np.ndarray) -> Optional[np.ndarray]:
             tcol = next((cols[c] for c in _TS_COLS if c in cols), None)
             if tcol is None or "temp_c" not in cols:
                 continue
-            if "source" in cols:  # actuals for training a load model; planning-time forecast noise is #27's job
+            if "source" in cols:  # train on reanalysis actuals, not forecasts
                 df = df.filter(pl.col(cols["source"]).is_in(["era5", "era5_land"])) if df.height else df
             ts, v = _hourly(_ts_numpy(df, tcol), df.get_column(cols["temp_c"]).cast(pl.Float64).to_numpy())
             out = np.full(len(grid), np.nan)
@@ -140,7 +137,7 @@ def synthetic_ro_load(start: str = "2022-01-01", end: str = "2026-01-01", *, see
                       level_mw: float = 6400.0, temp_c: Optional[np.ndarray] = None) -> LoadSeries:
     """Synthetic RO-shaped national load (MW, hourly): ENTSO-E-like daily shape (morning + evening peaks, evening
     later in summer), weekends and RO holidays lower, heating/cooling response to temperature, AR(1) noise.
-    Always labelled "synthetic RO" — it only exercises the code path until #9 commits the ENTSO-E file.
+    Always labelled "synthetic RO" — it only exercises the code path.
     """
     ts = np.arange(np.datetime64(start, "h"), np.datetime64(end, "h"), np.timedelta64(1, "h")).astype("datetime64[s]")
     temp = synthetic_temperature(ts, seed + 1) if temp_c is None else np.asarray(temp_c, dtype=float)
@@ -178,7 +175,7 @@ def synthetic_ro_load(start: str = "2022-01-01", end: str = "2026-01-01", *, see
 
 
 def load_national(data_dir: Optional[str | Path] = None, *, allow_synthetic: bool = True, seed: int = 0) -> LoadSeries:
-    """ENTSO-E RO total load if #9's parquet is present (label "real RO"), else synthetic RO (label "synthetic RO")."""
+    """ENTSO-E RO total load if the parquet is present (label "real RO"), else synthetic RO."""
     d = Path(data_dir) if data_dir else REPO_ROOT / "data" / "raw"
     path = find_entsoe_load(d)
     if path is None:
@@ -201,8 +198,7 @@ def load_national(data_dir: Optional[str | Path] = None, *, allow_synthetic: boo
 def synthetic_county_split(national: LoadSeries, shares: dict[str, float], *, seed: int = 7) -> list[LoadSeries]:
     """County series from the national one: share × national × county temperature sensitivity × own noise.
 
-    Stand-in for per-county targets until #11's synthetic households are aggregated per county; always labelled
-    "synthetic RO" (county load is not published).
+    Always labelled "synthetic RO" (county load is not published).
     """
     rng = np.random.default_rng(seed)
     out = []
@@ -221,10 +217,5 @@ def synthetic_county_split(national: LoadSeries, shares: dict[str, float], *, se
     return out
 
 
-def label_of(*labels: str) -> str:
-    """'real RO' only if every input is real; otherwise 'synthetic RO'."""
-    return LABEL_REAL if labels and all(lbl == LABEL_REAL for lbl in labels) else LABEL_SYNTHETIC
-
-
 __all__ = ["LoadSeries", "load_national", "synthetic_ro_load", "synthetic_temperature", "synthetic_county_split",
-           "find_entsoe_load", "label_of", "LABEL_REAL", "LABEL_SYNTHETIC"]
+           "find_entsoe_load", "LABEL_REAL", "LABEL_SYNTHETIC"]

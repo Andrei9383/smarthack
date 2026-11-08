@@ -1,19 +1,18 @@
 """Quick stand-in wind generator (no ERA5 needed), PPC schema, numpy only. M6's fallback, kept for tests.
 
-The real simulator is `python -m wattsentry.sim.wind` (#22 ERA5-driven parks on real OSM positions + #23 fault
-injector in wattsentry.sim.wind_faults); `data.load_wind()` reads its cache first and only falls back to this module
-when that cache is absent (or with `train --synth`). This file stays because it needs no data files and makes
-small worlds in seconds (tests/test_windnbm.py). Output is a `WindData` (wide view) that converts losslessly to
-the contract tables (`data.to_long`, `meteo_table`, `turbines_table`, `fault_labels_table`).
+The real simulator is `python -m wattsentry.sim.wind` (ERA5-driven parks on real OSM positions + the fault injector
+in wattsentry.sim.wind_faults); `data.load_wind()` falls back to this module only when its cache is absent (or with
+`train --synth`). Needs no data files and makes small worlds in seconds. Output is a `WindData` (wide view) that
+converts losslessly to the contract tables (`data.to_long`, `meteo_table`, `turbines_table`, `fault_labels_table`).
 
-Physics (plan §4, §3.5): stochastic 100 m wind per park (AR(1) latent → Weibull, seasonal + diurnal scale,
+Physics: stochastic 100 m wind per park (AR(1) latent → Weibull, seasonal + diurnal scale,
 correlated across parks), regime-switching direction, shear to hub height (α = 0.14), air density from T and p,
 direction-dependent Jensen wakes, turbulence noise, generic 2.5 / 6.1 MW class curves, first-order thermal model
 for the five component temperatures (ambient + load-dependent rise + lag; some turbines run hot by design).
 Shared building blocks (AR(1), thermal lag, wake table, THERMAL, ERROR_CODES) live in wattsentry.sim.wind.physics.
 
 Faults with exact onset labels (WindAnomaly): fault_stop, curtailment (park-wide cap; labelled where the cap
-binds), icing (T < 1 °C and RH > 88 % spells), underperformance (sector-dependent yaw misalignment or power-curve
+binds), icing (T < 1 °C and RH > 90 % spells), underperformance (sector-dependent yaw misalignment or power-curve
 degradation), overheating (gearbox / generator-bearing residual drifting 3–21 days, often ending in a stop),
 anemometer_fault (bias / stuck / erratic nacelle wind while power follows the real wind), data_gap (comm gaps,
 some rows carrying integral error codes).
@@ -31,7 +30,7 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 from scipy.special import ndtr
 
-from wattsentry.sim.wind.physics import ERROR_CODES, THERMAL, wake_table  # shared with the simulator (#22)
+from wattsentry.sim.wind.physics import ERROR_CODES, THERMAL, wake_table
 from wattsentry.sim.wind.physics import ar1 as _ar1
 from wattsentry.sim.wind.physics import lag as _lag
 
@@ -59,7 +58,7 @@ class ParkSpec:
     layout_rot_deg: float = 20.0
 
 
-# Real coordinates; turbine counts / classes follow plan §4 (generic class curves, not vendor curves).
+# Real coordinates; generic class curves, not vendor curves.
 PARKS: tuple[ParkSpec, ...] = (
     ParkSpec("WP1", "Fantanele-Cogealac (synthetic)", 44.555, 28.555, "Constanta", 60, CLASS_2500, 6, 80.0,
              8.0, 12.0, 11.0, ((10.0, 0.45), (200.0, 0.30), (280.0, 0.25))),
@@ -68,7 +67,6 @@ PARKS: tuple[ParkSpec, ...] = (
     ParkSpec("WP3", "Deleni, Vaslui (synthetic)", 46.700, 27.600, "Vaslui", 23, CLASS_6100, 3, 330.0,
              7.0, 9.8, 12.5, ((320.0, 0.55), (140.0, 0.30), (230.0, 0.15)), layout_rot_deg=35.0),
 )
-
 
 
 @dataclass
@@ -285,8 +283,8 @@ def generate(cfg: SynthConfig | None = None) -> WindData:
                 power[s:e, j] *= np.where(part, 1 - sv, 1.0)
                 put(j, s, e, "underperformance", severity=sv, params={"kind": "power_curve", "loss": round(sv, 3)})
 
-    # icing: park spells of T < 1 °C and RH > 88 %
-    for p, spec in enumerate(specs):
+    # icing: park spells of T < 1 °C and RH > 90 %
+    for p in range(P):
         cond = (temp[:, p] < 1.0) & (rh[:, p] > 90)
         d = np.diff(np.concatenate([[0], cond.astype(int), [0]]))
         for s, e in zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)):
@@ -326,7 +324,7 @@ def generate(cfg: SynthConfig | None = None) -> WindData:
             put(j, s, e, "anemometer_fault", params={"kind": ["", "bias", "stuck", "erratic"][kind]})
 
     # curtailment: park-wide cap, onsets weighted towards high production
-    for p, spec in enumerate(specs):
+    for p in range(P):
         cols = np.flatnonzero(park_of == p)
         w = (avail[:, cols].mean(1) / rated[cols].mean()) ** 2 + 1e-3
         for s, e in _episodes(rng, T, cfg.rate_curtail, 4, 32, weights=w):
@@ -385,7 +383,6 @@ def generate(cfg: SynthConfig | None = None) -> WindData:
                 sensors[k][s:e, j] = np.nan
             put(j, s, e, "data_gap", params={"coded": bool(err[s, j] != 0)})
 
-    P_ = len(specs)
     keep5 = cfg.keep_5min if cfg.keep_5min is not None else T * N <= 2_000_000
     m5 = None
     if keep5:  # 5-min per-turbine meteo: 15-min series repeated + small noise, mean-preserving per bin
@@ -399,7 +396,7 @@ def generate(cfg: SynthConfig | None = None) -> WindData:
         "pressure_hpa": pres.astype(np.float32), "wind100_ms": v100.astype(np.float32),
         "wdir100_deg": wdir.astype(np.float32),
     }
-    assert set(weather) == set(WEATHER_FIELDS) and P_ == weather["temp_c"].shape[1]
+    assert set(weather) == set(WEATHER_FIELDS) and P == weather["temp_c"].shape[1]
     meteo = {"wind_ms": meteo_w.astype(np.float32), "wdir_deg": meteo_d}
     assert set(meteo) == set(METEO_FIELDS)
     return WindData(

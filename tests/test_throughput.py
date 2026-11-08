@@ -1,4 +1,4 @@
-"""Card #140: train-loop throughput accounting and the cached per-epoch validation (same numbers as collect())."""
+"""Train-loop throughput accounting and the cached per-epoch validation (same numbers as collect())."""
 
 import sys
 from pathlib import Path

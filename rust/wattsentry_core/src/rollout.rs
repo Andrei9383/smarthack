@@ -1,4 +1,4 @@
-//! K1 battery rollout. Python reference: `wattsentry.opt.commit.rollout` (source of truth). Floating-point
+//! Battery rollout. Python reference: `wattsentry.opt.commit.rollout` (source of truth). Floating-point
 //! operations are written in numpy's order so the results are bit-identical.
 
 use rayon::prelude::*;

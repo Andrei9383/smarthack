@@ -1,16 +1,15 @@
-"""The three synthetic RO parks, placed on REAL OpenStreetMap turbine positions (data/raw, card #9).
+"""The three synthetic RO parks, placed on REAL OpenStreetMap turbine positions (data/raw).
 
-| park | where | turbines used | class | ERA5 point |
-|---|---|---|---|---|
-| WP1 | Fântânele-Cogealac area, Constanța: the 70 OSM 2.5 MW turbines nearest the park core (of 278 mapped) | 70 | generic-2.5MW | `park:fantanele_cogealac` |
-| WP2 | Peștera, Constanța: every OSM turbine tagged 3 MW (EDPR) | 36 | generic-2.5MW (*) | `park:pestera` |
-| WP3 | Moldova 6 MW cluster, Iași: the OSM turbines near 47.3 N 26.8 E (10 tagged 6 MW / DTEK + 5 untagged) | 15 | generic-6.1MW | nearest ERA5 point with 2022-2025 data (`loc:valea_lupului`, ~55 km) |
+  WP1  Fântânele-Cogealac area, Constanța: the 70 OSM 2.5 MW turbines nearest the park core (of 278 mapped);
+       generic-2.5MW; ERA5 point `park:fantanele_cogealac`
+  WP2  Peștera, Constanța: all 36 OSM turbines tagged 3 MW (EDPR); generic-2.5MW (*); ERA5 point `park:pestera`
+  WP3  Moldova 6 MW cluster, Iași: the 15 OSM turbines near 47.3 N 26.8 E (10 tagged 6 MW / DTEK + 5 untagged);
+       generic-6.1MW; nearest ERA5 point with 2022-2025 data (`loc:valea_lupului`, ~55 km)
 
 (*) Peștera's real turbines are ~3 MW; the contract allows only the two generic classes, and WP2 is the held-out
-park, so it keeps a class M6 has seen in training. WP3 stands in for "the 6.1 MW-class Moldova park" of plan §4:
-the public Deleni (Vaslui) coordinates are unverified and no turbines are mapped there in OSM, so the park sits
-where 6 MW turbines are actually mapped and is labelled with that county (Iași). Power curves are generic class
-curves (wattsentry.model.wind.physics), never vendor curves.
+park, so it keeps a class M6 has seen in training. WP3 sits where 6 MW turbines are actually mapped in OSM (the
+public Deleni, Vaslui coordinates are unverified). Power curves are generic class curves
+(wattsentry.model.wind.physics), never vendor curves.
 """
 
 from __future__ import annotations

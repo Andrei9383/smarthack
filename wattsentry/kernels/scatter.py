@@ -1,4 +1,4 @@
-"""K5 telemetry scatter: long-format readings -> dense [sensor, step, turbine] bin means (WindNBM load, card #103).
+"""Telemetry scatter: long-format readings -> dense [sensor, step, turbine] bin means (WindNBM load).
 
     from wattsentry.kernels import scatter_telemetry
     sens, err = scatter_telemetry(ti, tj, sk, v, is_code, scale, T)
@@ -7,10 +7,9 @@
     # sens f32 [S, T, N]: mean of the finite non-code v * scale in each bin, NaN if none or if err != 0;
     # err i32 [T, N]: last code in the bin (rows order), 0 if none.
 
-The reference is the bincount body of ``wattsentry.model.wind.data._scatter_telemetry`` moved here (one bincount pair
-per sensor, ~8 full passes over 70 M rows on WP1: 6.3 s of the 11.1 s load, #95 profile). The Rust copy
-``wattsentry._core.scatter_telemetry`` (rust/wattsentry_core/src/scatter.rs) does one pass in row order, so the sums add
-in the same order as bincount and the result is bit-identical.
+The reference does one bincount pair per sensor. The Rust copy ``wattsentry._core.scatter_telemetry``
+(rust/wattsentry_core/src/scatter.rs) does one pass in row order, so the sums add in the same order as bincount and the
+result is bit-identical.
 """
 
 from __future__ import annotations

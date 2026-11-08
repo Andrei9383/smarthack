@@ -1,4 +1,4 @@
-"""K5 telemetry scatter (#103): reference vs a scalar loop, Rust == Python bit for bit, WindNBM load uses the kernel."""
+"""K5 telemetry scatter: reference vs a scalar loop, Rust == Python bit for bit, WindNBM load uses the kernel."""
 
 from __future__ import annotations
 

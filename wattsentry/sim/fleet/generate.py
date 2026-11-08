@@ -1,4 +1,4 @@
-"""Orchestrates the fleet simulation and writes the dataset (see SCHEMA.md)."""
+"""Orchestrates the fleet simulation and writes the dataset."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
     weather = load_weather(locs, all_ts, cfg.seed, cfg.weather_source)
     log(f"world: {len(sites)} sites on {len(feeders)} feeders in {len(locs)} localities; weather={weather.source} "
         f"({time.perf_counter() - t0:.1f}s)")
-    io = ThreadPoolExecutor(1)  # Parquet writes (pyarrow releases the GIL) overlap the simulation (#135)
+    io = ThreadPoolExecutor(1)  # Parquet writes (pyarrow releases the GIL) overlap the simulation
     weather_job = io.submit(_write_weather, weather, tmp / "weather.parquet")
 
     bp = BatteryParams.from_sites(sites)
@@ -100,11 +100,11 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
         w = weather.slice(ts)
         cal = local_features(ts)
         rng = np.random.default_rng([cfg.seed, year, 2])
-        with ThreadPoolExecutor(_PV_THREADS) as ex:  # PV has no RNG: threads overlap it with simulate_load (#135)
+        with ThreadPoolExecutor(_PV_THREADS) as ex:  # PV has no RNG: threads overlap it with simulate_load
             pv_parts = {ex.submit(simulate_pv, sites.iloc[rows], w): rows for rows in _locality_buckets(sites)}
             load = simulate_load(sites, w, cal, rng)
             pv, status = _gather_pv(pv_parts, len(sites), len(ts))
-        batt, soc, e = kernels.self_consumption(bp, pv, load, DT_H, e)  # Rust K7 if built, else battery.py
+        batt, soc, e = kernels.self_consumption(bp, pv, load, DT_H, e)  # Rust kernel if built, else battery.py
         grid = pv - load - batt
         passive = passive_load(feeders, w, cal, rng)
         fdf, volt = feeder_flows(sites, feeders, grid, passive, w, rng)
@@ -133,7 +133,8 @@ def generate(cfg: FleetConfig, out_dir: Path | None = None, force: bool = False,
     seconds = time.perf_counter() - t0
     congested = int((st.sunny_exceed_share >= 0.25).sum())  # over the limit on >= 1 in 4 sunny summer days
     manifest = {
-        "data_version": DATA_VERSION, "config": cfg.to_json(), "digest": cfg.digest(wkey), "weather_source": weather.source, "weather_key": wkey,
+        "data_version": DATA_VERSION, "config": cfg.to_json(), "digest": cfg.digest(wkey),
+        "weather_source": weather.source, "weather_key": wkey,
         "n_sites": len(sites), "n_feeders": len(feeders), "steps_per_year": {y: len(utc_index(y)) for y in cfg.years},
         "feeders_congested_on_sunny_days": congested, "seconds": round(seconds, 1),
         "files": sorted(str(p.relative_to(tmp)) for p in tmp.rglob("*.parquet")),

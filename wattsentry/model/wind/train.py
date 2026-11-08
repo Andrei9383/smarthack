@@ -1,9 +1,9 @@
-"""M6 WindNBM training + evaluation vs WindMon rules (card #41).
+"""M6 WindNBM training + evaluation vs WindMon rules.
 
     python -m wattsentry.model.wind.train [--epochs 20 --lr 2e-3 --max-minutes 25]
     train.py --model windnbm ...   →  wattsentry.model.wind.train.main(argv)
 
-Pipeline: load wind (#22/#23 output if present, else stand-in synth) → splits (time + held-out park) → NBM (GRU,
+Pipeline: load wind (simulator output if present, else stand-in synth) → splits (time + held-out park) → NBM (GRU,
 pinball, normal steps only) → binned meteo curve → LightGBM classifier on residual + park-context features →
 per-class thresholds tuned on validation and frozen → held-out park / test year metrics for M6 and the WindMon
 rules on the same data → ONNX (opset 17, onnxruntime parity) + classifier + calibration JSON + report + manifest
@@ -28,7 +28,9 @@ from pathlib import Path
 import numpy as np
 
 from .data import CLASSES, CLASS_INDEX, TEMP_SENSORS, load_wind, make_splits
+from . import metrics as wind_metrics
 from .features import (
+    CURTAIL_MIN_PARK_FRAC,
     DEFAULT_MERGE,
     DEFAULT_MIN_RUN,
     MIN_HISTORY_STEPS,
@@ -45,7 +47,7 @@ from .features import (
     ood_steps,
     run_nbm,
 )
-from .metrics import event_metrics, step_confusion
+from .metrics import A_IDX, event_metrics, step_confusion, truth_episodes
 from .normal_select import select_normal, selection_quality
 from .synth import SynthConfig
 from .windmon_rules import RULES, raw_alert_count, windmon_classes, windmon_flags
@@ -96,7 +98,8 @@ def _sha256(p: Path) -> str:
 
 
 def parse_args(argv):
-    ap = argparse.ArgumentParser(prog="windnbm", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="windnbm", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--steps-per-epoch", type=int, default=300)
     ap.add_argument("--batch", type=int, default=256)
@@ -113,14 +116,14 @@ def parse_args(argv):
     ap.add_argument("--days", type=int, default=731, help="synthetic data only")
     ap.add_argument("--scale", type=float, default=1.0, help="synthetic data only: turbines per park multiplier")
     ap.add_argument("--data-seed", type=int, default=41)
-    ap.add_argument("--synth", action="store_true", help="force the stand-in generator even if #22 output exists")
+    ap.add_argument("--synth", action="store_true", help="force the stand-in generator even if simulator output exists")
     ap.add_argument("--holdout-park", default=None)
     ap.add_argument("--clf-rounds", type=int, default=600)
     ap.add_argument("--clf-lr", type=float, default=0.05)
     ap.add_argument("--clf-normal", type=int, default=300_000, help="normal rows sampled for the classifier")
     ap.add_argument("--clf-per-class", type=int, default=80_000)
     ap.add_argument("--normal-select", choices=("labels", "label_free"), default="labels",
-                    help="how NBM training picks 'normal' steps: injector labels (optimistic) or telemetry only (#70)")
+                    help="how NBM training picks 'normal' steps: injector labels (optimistic) or telemetry only")
     ap.add_argument("--no-eval-seen", action="store_true")
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default=None)
@@ -132,7 +135,7 @@ def parse_args(argv):
     ap.add_argument("--compile", default="off", choices=["auto", "off", "default", "reduce-overhead",
                                                          "max-autotune-no-cudagraphs"],
                     help="torch.compile mode for the train forward (t_compile_s logged). Off by default: the step is "
-                         "GPU-bound in the cuDNN GRUs (72%% util), compile measured no faster (#140 train#713-715)")
+                         "GPU-bound in the cuDNN GRUs (72%% util), compile measured no faster")
     return ap.parse_args(argv)
 
 
@@ -154,7 +157,8 @@ def main(argv: list[str] | None = None) -> None:
     torch.manual_seed(args.seed)
     dev = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     use_amp = dev.type == "cuda" and torch.cuda.is_bf16_supported()
-    run_id = os.environ.get("LAB_RUN_ID") or os.environ.get("LAB_RUN") or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    run_id = (os.environ.get("LAB_RUN_ID") or os.environ.get("LAB_RUN")
+              or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"))
     version = f"windnbm-r{run_id}" + ("-lf" if args.normal_select == "label_free" else "")
     print(f"[windnbm] device={dev} bf16={use_amp} out={out} version={version}", flush=True)
 
@@ -167,10 +171,11 @@ def main(argv: list[str] | None = None) -> None:
         rated = data.rated_kw.astype(np.float64)
         is_large = (rated >= 4000).astype(np.float32)
         pres_turb = data.weather["pressure_hpa"][:, park_of]
-    label = LABEL + (" (stand-in)" if data.source.startswith("synth") else "")  # until #22 lands
+    label = LABEL + (" (stand-in)" if data.source.startswith("synth") else "")
     if data.labels is None:
         raise SystemExit("no labels in the wind data (fault_labels missing): cannot train/evaluate M6")
-    print(f"[windnbm] {len(data.turbines)} turbines, {data.n_steps} steps, source={data.source}; splits {sp.describe()}")
+    print(f"[windnbm] {len(data.turbines)} turbines, {data.n_steps} steps, source={data.source}; "
+          f"splits {sp.describe()}")
     N, T = len(data.turbines), data.n_steps
 
     with run.stage("windows"):
@@ -179,7 +184,7 @@ def main(argv: list[str] | None = None) -> None:
                              train_mask_labels=not label_free)
         sel_quality = None
         if label_free:
-            # #70: real SCADA has no labels, so pick normal steps from telemetry alone (labels only for diagnostics)
+            # real SCADA has no labels, so pick normal steps from telemetry alone (labels only for diagnostics)
             v_nac = np.where(X[..., 1] > 0, X[..., 0] * V_SCALE, np.nan).T
             v_met = np.where(X[..., 3] > 0, X[..., 2] * V_SCALE, np.nan).T
             power_ok, temp_ok = select_normal(data.sensors, data.err, rated, v_nac, v_met, sp.train_t,
@@ -250,7 +255,8 @@ def main(argv: list[str] | None = None) -> None:
             boot = (torch.rand(xb.shape[0], model.heads, device=dev) < 0.8)
         else:
             boot = torch.ones(xb.shape[0], model.heads, dtype=torch.bool, device=dev)
-        lp = sum(pinball(pq[:, :, h], yb[..., 0], mb[..., 0] & boot[:, h, None]) for h in range(model.heads)) / model.heads
+        lp = sum(pinball(pq[:, :, h], yb[..., 0], mb[..., 0] & boot[:, h, None])
+                 for h in range(model.heads)) / model.heads
         lt = pinball(tq, yb[..., 1:], mb[..., 1:])
         return lp + args.temp_weight * lt, lp, lt
 
@@ -263,7 +269,7 @@ def main(argv: list[str] | None = None) -> None:
     with run.stage("train"):
         for ep in range(args.epochs):
             model.train()
-            tl = torch.zeros((), device=dev)  # summed on the device: no per-step host sync (#140)
+            tl = torch.zeros((), device=dev)  # summed on the device: no per-step host sync
             for _ in range(args.steps_per_epoch):
                 with tp.wait():
                     xb, yb, mb, tb = batch(tr_starts, args.batch, gen)
@@ -305,7 +311,7 @@ def main(argv: list[str] | None = None) -> None:
     run.emit("val_loss", best)
     if dev.type == "cuda":
         run.emit("gpu_peak_mem_mb", torch.cuda.max_memory_allocated() / 2**20)
-    del Xg, Yg, Mg, val_batches
+    Xg = Yg = Mg = val_batches = None  # free GPU memory (the closures above are not called again)
     if dev.type == "cuda":
         torch.cuda.empty_cache()
 
@@ -370,7 +376,7 @@ def main(argv: list[str] | None = None) -> None:
         F, names = clf_features(
             {k: v[sl][:, cols] for k, v in data.sensors.items()}, data.err[sl][:, cols],
             {k: v[sl][:, cols] for k, v in data.meteo.items()}, wpark, rated[cols], is_large[cols],
-            neighbours_for(lat[cols], lon[cols]), pq[sl][:, cols], pstd[sl][:, cols] / 1.0, tq[sl][:, cols], met_curve,
+            neighbours_for(lat[cols], lon[cols]), pq[sl][:, cols], pstd[sl][:, cols], tq[sl][:, cols], met_curve,
         )
         return cols, F, names
 
@@ -410,9 +416,9 @@ def main(argv: list[str] | None = None) -> None:
         vs = rng.choice(len(yv), min(len(yv), 300_000), replace=False)
         dtr = lgb.Dataset(Xs, ys, weight=w_cls[ys], feature_name=feat_names, free_raw_data=True)
         dva = lgb.Dataset(Xv[vs], yv[vs], weight=w_cls[yv[vs]], reference=dtr)
-        params = dict(objective="multiclass", num_class=K, learning_rate=args.clf_lr, num_leaves=63, min_data_in_leaf=50,
-                      feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, verbose=-1,
-                      seed=args.seed, num_threads=max(1, (os.cpu_count() or 4)))
+        params = dict(objective="multiclass", num_class=K, learning_rate=args.clf_lr, num_leaves=63,
+                      min_data_in_leaf=50, feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0,
+                      verbose=-1, seed=args.seed, num_threads=max(1, (os.cpu_count() or 4)))
         clf_deadline = run.deadline - max(60.0, 0.5 * reserve * 60)
 
         def time_cb(env):
@@ -449,7 +455,7 @@ def main(argv: list[str] | None = None) -> None:
         th = {c: 0.5 for c in CLASSES[1:]}
         best_obj, best_m = objective(th)
         grid = [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.93]
-        for sweep in range(2):
+        for _ in range(2):
             for c in CLASSES[1:]:
                 for g in grid:
                     if run.left() < 90:
@@ -461,7 +467,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[windnbm] tuned thresholds {th} → val {best_m}", flush=True)
         for k in ("wind_precision", "wind_recall", "alerts_per_turbine_day", "curtail_vs_fault_f1"):
             run.emit(f"val_{k}", best_m[k])
-        del Pv, Tv, Cv
+        Pv = Tv = Cv = None
 
     # --- held-out park, test year: M6 vs WindMon rules on the same data ------------------------------------------
     with run.stage("eval"):
@@ -486,9 +492,7 @@ def main(argv: list[str] | None = None) -> None:
             r: raw_alert_count({r: flags[r]}) / (len(cols) * truth.shape[0] / 96) for r in RULES
         }
         # alert fatigue: share of curtailment episodes on which each system raised an O&M alert
-        for name, mm, pr in (("m6", m6, pred), ("windmon", wm, wpred)):
-            from .metrics import A_IDX, truth_episodes
-
+        for mm, pr in ((m6, pred), (wm, wpred)):
             n_c = n_alert = 0
             for j in range(truth.shape[1]):
                 for c, s, e in truth_episodes(truth[:, j]):
@@ -562,8 +566,7 @@ def main(argv: list[str] | None = None) -> None:
         booster.save_model(str(out / "windnbm_clf.txt"), num_iteration=booster.best_iteration)
         torch.save({"state_dict": model_cpu.state_dict(), "args": vars(args)}, out / "windnbm.pt")
 
-        vm_ = vm_fit  # validation thresholds for the qualify step (#26/#27)
-        width = (pq[..., 2] - pq[..., 0])[vm_]
+        width = (pq[..., 2] - pq[..., 0])[vm_fit]  # validation steps for the qualify thresholds
         calib = {
             "model": "windnbm",
             "model_version": version,
@@ -572,13 +575,13 @@ def main(argv: list[str] | None = None) -> None:
             "thresholds": {
                 "ood": float(np.quantile(ood[sp.val_t][:, sp.train_turbines], 0.99)),
                 "width": float(np.quantile(width, 0.95)),
-                "member_std": float(np.quantile(pstd[vm_], 0.95)),
+                "member_std": float(np.quantile(pstd[vm_fit], 0.95)),
                 "p_fault": float(min(th.values())),
             },
             "class_thresholds": th,
             "min_run": DEFAULT_MIN_RUN,
             "merge": DEFAULT_MERGE,
-            "curtail_min_park_frac": 0.15,
+            "curtail_min_park_frac": CURTAIL_MIN_PARK_FRAC,
             "classes": CLASSES,
             "turbine_index": {data.turbines[j]["turbine_id"]: int(emb_idx[j]) for j in range(N) if emb_idx[j] > 0},
             "met_curve": met_curve,
@@ -603,7 +606,7 @@ def main(argv: list[str] | None = None) -> None:
                                       "label_free only changes what the NBM and its calibration treat as normal"},
             "splits": sp.describe(),
             "eval_scope": f"held-out park {sp.holdout_park}, test year {sp.test_year}",
-            "definitions": __import__("wattsentry.model.wind.metrics", fromlist=["x"]).__doc__,
+            "definitions": wind_metrics.__doc__,
             "m6": m6,
             "baseline_windmon": wm,
             "seen_parks_test": seen,
@@ -620,9 +623,7 @@ def main(argv: list[str] | None = None) -> None:
 
     run.emit("t_total_s", time.time() - run.t0)
     files = {p.name: _sha256(p) for p in sorted(out.glob("windnbm*"))}
-    import lightgbm
     import onnx
-    import onnxruntime
 
     manifest = {
         "model": "windnbm",
@@ -635,7 +636,7 @@ def main(argv: list[str] | None = None) -> None:
         "device": str(dev),
         "gpu": torch.cuda.get_device_name(0) if dev.type == "cuda" else None,
         "versions": {"python": platform.python_version(), "torch": torch.__version__, "onnx": onnx.__version__,
-                     "onnxruntime": onnxruntime.__version__, "lightgbm": lightgbm.__version__,
+                     "onnxruntime": ort.__version__, "lightgbm": lgb.__version__,
                      "numpy": np.__version__},
         "files": files,
         "metrics": run.metrics,

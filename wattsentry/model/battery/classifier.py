@@ -1,4 +1,4 @@
-"""Stage 1 of spec I step 5b: which battery strategy a home runs, from 28 days of its meter data (card #174).
+"""Stage 1 of the two-stage battery model: which battery strategy a home runs, from 28 days of its meter data.
 
 LightGBM multiclass over ``features.CLS_FEATURES`` -> P(none / self_consumption / price_driven / enrolled) + the
 confidence (max probability), and LightGBM regressors for the battery parameters the simulation needs (capacity,
@@ -19,7 +19,7 @@ from .features import CLS_FEATURES
 
 STRATEGIES = ("none", "self_consumption", "price_driven", "enrolled")   # = wattsentry.kernels.strategies codes 0..3
 PARAMS = ("cap_kwh", "p_kw", "reserve_frac", "k_top")
-# Simulation fallbacks = the middle of I2's synthetic ranges (config.py): cap 5-15, P 3-5, reserve 10-40 %, k 8-20.
+# Simulation fallbacks = the middle of the data-v2 generator's ranges: cap 5-15, P 3-5, reserve 10-40 %, k 8-20.
 PRIOR = {"cap_kwh": 10.0, "p_kw": 4.0, "reserve_frac": 0.25, "k_top": 14.0, "eta": 0.95}
 BOUNDS = {"cap_kwh": (2.0, 20.0), "p_kw": (1.0, 8.0), "reserve_frac": (0.05, 0.5), "k_top": (4.0, 32.0)}
 

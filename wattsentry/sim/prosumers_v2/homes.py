@@ -1,4 +1,4 @@
-"""data-v2 homes (spec I step 2a): PV + household from the fleet simulator's site sampler, plus contract, meter and a
+"""data-v2 homes: PV + household from the fleet simulator's site sampler, plus contract, meter and a
 battery strategy assigned from the config shares. PPC knows `PUBLIC_COLUMNS`; everything else is hidden truth.
 """
 

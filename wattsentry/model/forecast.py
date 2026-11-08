@@ -61,7 +61,7 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--eval-limit", type=int, default=40000,
                     help="windows per eval split, a fixed seeded sample shared by all runs and baselines (0 = all)")
     ap.add_argument("--no-export", action="store_true")
-    ap.add_argument("--no-lgbm", action="store_true", help="skip #15's LightGBM baseline on the same split")
+    ap.add_argument("--no-lgbm", action="store_true", help="skip the LightGBM baseline on the same split")
     ap.add_argument("--lgbm-sites", type=int, default=150, help="train sites for the in-run LightGBM baseline")
     ap.add_argument("--tag", default="", help="suffix for artifact names (ensembles: seed tag)")
     ap.add_argument("--profile", action=argparse.BooleanOptionalAction, default=False,
@@ -69,8 +69,8 @@ def parse_args(model: str, argv=None):
     ap.add_argument("--loader-workers", type=int, default=0, help="batch-building threads (0 = auto from CPU count)")
     ap.add_argument("--compile", default="auto", choices=["auto", "off", "default", "reduce-overhead",
                                                           "max-autotune-no-cudagraphs"],
-                    help="torch.compile mode for the train forward; auto = reduce-overhead (CUDA graphs) on CUDA sm>=7.5, "
-                         "else off. Compile time is logged as t_compile_s (#140)")
+                    help="torch.compile mode for the train forward; auto = reduce-overhead (CUDA graphs) on CUDA "
+                         "sm>=7.5, else off. Compile time is logged as t_compile_s")
     ap.add_argument("--fused-adam", action=argparse.BooleanOptionalAction, default=True,
                     help="fused AdamW kernel on CUDA (one launch per step instead of one per tensor group)")
     return ap.parse_args(argv)
@@ -78,10 +78,9 @@ def parse_args(model: str, argv=None):
 
 # --- sampling ----------------------------------------------------------------------------------------------
 def step_weights(kind: str, raw: dict, inp: dict, strict: bool = False) -> np.ndarray:
-    """Loss / metric mask per target step (always only logged steps, `valid`).
-    PV headline = #15's definition: daylight (solar zenith < 90°) and no fault on that step.
-    strict (secondary metric): also clear-sky profile >= 5% of recorded kWp, so dawn/dusk zeros don't count.
-    Load: every logged step."""
+    """Loss / metric mask per target step (only logged steps, `valid`).
+    PV: daylight (solar zenith < 90°) and no fault on that step; strict (secondary metric) also needs the clear-sky
+    profile >= 5% of recorded kWp, so dawn/dusk zeros don't count. Load: every logged step."""
     valid = raw.get("valid", np.ones(raw["y"].shape, bool))
     if kind == "pv":
         m = (raw["geom"][..., 0] < 90) & (raw["fault"] == 0) & valid
@@ -149,8 +148,8 @@ def loader_workers() -> int:
 
 
 def val_inputs(src, kind, sites, starts, mode, stats, device, batch=1024) -> dict:
-    """Normalised inputs, targets and masks of a fixed window set, built once and kept on `device` (#140).
-    Same arrays collect() rebuilt every epoch, so val_score() == the per-epoch collect() numbers."""
+    """Normalised inputs, targets and masks of a fixed window set, built once and kept on `device`
+    (same arrays as collect(), so val_score() matches the collect()-based numbers)."""
     import torch
 
     parts = {k: [] for k in ("seq", "ref", "summ", "stat", "mask", "y", "w", "scale")}
@@ -213,7 +212,7 @@ def _amp(amp):
 
 def fit_ood(emb: np.ndarray) -> dict:
     """Mahalanobis on embeddings (Ledoit-Wolf shrinkage), standardised as a robust z-score of the train
-    distances: score = max(0, (D - median_train) / (1.4826 MAD_train)). Same dict layout as #27's MahalanobisOOD."""
+    distances: score = max(0, (D - median_train) / (1.4826 MAD_train))."""
     x = emb.astype(np.float64)
     mu = x.mean(0)
     xc = x - mu
@@ -243,7 +242,7 @@ def ood_score(ood: dict, emb: np.ndarray) -> np.ndarray:
 
 
 def conformal_offsets(qn: np.ndarray, yn: np.ndarray, w: np.ndarray) -> dict:
-    """Asymmetric CQR offsets per horizon bucket in normalised units: P(y < q10 - lo) ≈ 10 %, P(y > q90 + hi) ≈ 10 %."""
+    """Asymmetric CQR offsets per horizon bucket (normalised units): P(y < q10 - lo) ≈ P(y > q90 + hi) ≈ 10 %."""
     lo, hi = [], []
     for a, b in BUCKETS:
         m = w[:, a:b] > 0
@@ -292,8 +291,8 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
     import torch
 
     net.eval()
-    res = {k: [] for k in ("q", "y", "y_healthy", "w", "w_strict", "night", "scale", "fault", "emb", "csi", "month", "offday",
-                           "snow")}
+    res = {k: [] for k in ("q", "y", "y_healthy", "w", "w_strict", "night", "scale", "fault", "emb", "csi", "month",
+                           "offday", "snow")}
     bl: dict[str, list] = {}
     with torch.no_grad():
         for k in range(0, len(sites), batch):
@@ -319,7 +318,7 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
             res["fault"].append(raw["fault"].max(1))
             csi = raw["wx"][..., 0].sum(1) / np.maximum(raw["geom"][..., 2].sum(1), 1)
             res["csi"].append(csi)
-            res["month"].append(((raw["cal"][:, 48, 6:8]).copy()))
+            res["month"].append(raw["cal"][:, 48, 6:8].copy())
             res["offday"].append(raw["cal"][:, 48, 4])
             res["snow"].append(raw["wx"][..., 6].max(1))
             for name, v in baselines(kind, raw).items():
@@ -332,7 +331,8 @@ def collect(src, kind, net, sites, starts, mode, stats, device, amp, batch=1024)
 def season_of(doy_sin, doy_cos):
     doy = (np.arctan2(doy_sin, doy_cos) / (2 * np.pi) * 365.25) % 365.25
     m = np.clip((doy / 30.44).astype(int), 0, 11) + 1
-    return np.select([np.isin(m, [12, 1, 2]), np.isin(m, [3, 4, 5]), np.isin(m, [6, 7, 8])], ["DJF", "MAM", "JJA"], "SON")
+    return np.select([np.isin(m, [12, 1, 2]), np.isin(m, [3, 4, 5]), np.isin(m, [6, 7, 8])], ["DJF", "MAM", "JJA"],
+                     "SON")
 
 
 def group_metrics(c, groups: dict[str, np.ndarray], mask_key="w", truth="y") -> dict:
@@ -369,8 +369,8 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
         sp = make_splits(src)
         n_days = src.n_days
         tr_s, tr_d = sp.site_days("train")
-        print(f"[data] {src.label}: {len(src.sites)} sites ({len(sp.train_sites)} train / {len(sp.unseen_sites)} unseen),"
-              f" {n_days} days; train windows {len(tr_s)}", flush=True)
+        print(f"[data] {src.label}: {len(src.sites)} sites ({len(sp.train_sites)} train / "
+              f"{len(sp.unseen_sites)} unseen), {n_days} days; train windows {len(tr_s)}", flush=True)
 
     def sample_train(n):
         k = rng.integers(0, len(tr_s), n)
@@ -384,7 +384,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
         s, d = sp.site_days(split)
         if split == "cal":  # conformal set: cal days on ALL sites. Unseen sites are never trained on and cal days
             # never overlap test days, so this leaks nothing, and the offsets also cover never-seen sites
-            # (calibrating on train sites only left unseen-site coverage at ~0.55 in run #289)
+            # (calibrating on train sites only left unseen-site coverage far below target)
             s, d = np.meshgrid(np.arange(len(src.sites)), sp.days["cal"], indexing="ij")
             s, d = s.ravel(), d.ravel()
         if limit and len(s) > limit:  # fixed sample (independent of --seed): every run / seed / baseline scores
@@ -421,7 +421,8 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
     def make_batch(s, st):
         raw, inp, x, y, w, mask = batch_arrays(src, kind, s, st, args.mode, stats)
         if args.stat_noise > 0:
-            x["stat"] = x["stat"] + np.random.default_rng().normal(0, args.stat_noise, x["stat"].shape).astype(np.float32)
+            noise = np.random.default_rng().normal(0, args.stat_noise, x["stat"].shape)
+            x["stat"] = x["stat"] + noise.astype(np.float32)
         # pinned host tensors built in the worker, so the main thread only issues async H2D copies
         return [pin(torch.from_numpy(a)) for a in (x["seq"], x["ref"], x["summ"], x["stat"], mask, y, w)]
 
@@ -463,9 +464,10 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             # validation (fixed subset) for early stopping
             with tp.val():
                 vp, vn = val_score(net, vcache, amp)
-            history.append({"epoch": ep, "train_loss": float(torch.stack(losses).mean()), "val_pinball": vp, "val_nmae": vn,
+            train_loss = float(torch.stack(losses).mean())
+            history.append({"epoch": ep, "train_loss": train_loss, "val_pinball": vp, "val_nmae": vn,
                             "sec": round(time.time() - t_ep, 1)})
-            print(f"[train] ep {ep} loss {float(torch.stack(losses).mean()):.4f} val_pinball {vp:.4f} val_nmae {vn:.4f} "
+            print(f"[train] ep {ep} loss {train_loss:.4f} val_pinball {vp:.4f} val_nmae {vn:.4f} "
                   f"({time.time() - t_ep:.1f}s, {ctx.elapsed_min():.1f} min)", flush=True)
             if vp < best - 1e-5:
                 best, bad = vp, 0
@@ -504,7 +506,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
         from . import lgbm_ref
 
         if not args.no_lgbm and lgbm_ref.available():
-            # #15's LightGBM (its own feature code / params) on the SAME windows, split and mask -> baseline "lgbm"
+            # the reference LightGBM (its own feature code / params) on the SAME windows, split and mask -> "lgbm"
             with ctx.stage("lgbm"):
                 try:
                     bundle = lgbm_ref.fit(src, sp, kind, args.mode, max_train_sites=args.lgbm_sites, seed=args.seed,
@@ -551,7 +553,8 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             wrong = np.array([src.sites[i].get("meta_wrong", False) for i in t["site"]])
             groups["metadata"] = np.where(wrong, "wrong_recorded_meta", "right_recorded_meta")
             groups["snow"] = np.where(t["snow"] > 0.5, "snow_on_ground", "no_snow")
-            groups["cloudiness"] = np.select([t["csi"] < 0.4, t["csi"] < 0.7], ["overcast(csi<0.4)", "mixed"], "clear(csi>=0.7)")
+            groups["cloudiness"] = np.select([t["csi"] < 0.4, t["csi"] < 0.7], ["overcast(csi<0.4)", "mixed"],
+                                             "clear(csi>=0.7)")
             ood_test = ood_score(ood, t["emb"])
             groups["ood"] = np.where(ood_test > 3.0, "ood>3", "in_dist")
         else:
@@ -563,7 +566,7 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
             from .synth import FAULTS
 
             tt = dict(t)
-            tt["w_all"] = ((~t["night"])).astype(np.float32)
+            tt["w_all"] = (~t["night"]).astype(np.float32)
             fd = group_metrics(tt, {"fault_in_window": np.array([FAULTS[i] for i in t["fault"]])},
                                mask_key="w_all", truth="y_healthy")
             report["test_vs_true_healthy_by_fault"] = fd["fault_in_window"]
@@ -606,9 +609,10 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
 
     for gname, g in report["test_groups"].items():
         for k, d in g.items():
-            bl = " ".join(f"{b.replace('_nmae', '')}={v:.3f}" for b, v in d.items() if b.endswith("_nmae") and b != "nmae")
-            print(f"[analysis] {gname:16s} {k:24s} n={d['n_windows']:6d} nmae={d['nmae']:.3f} cov={d['coverage']:.3f} {bl}",
-                  flush=True)
+            bl = " ".join(f"{b.replace('_nmae', '')}={v:.3f}" for b, v in d.items()
+                          if b.endswith("_nmae") and b != "nmae")
+            print(f"[analysis] {gname:16s} {k:24s} n={d['n_windows']:6d} nmae={d['nmae']:.3f} "
+                  f"cov={d['coverage']:.3f} {bl}", flush=True)
     for k, d in report.get("test_vs_true_healthy_by_fault", {}).items():
         print(f"[analysis] vs_true_healthy  {k:24s} n={d['n_windows']:6d} nmae={d['nmae']:.3f}", flush=True)
     print(f"[analysis] ood {report['ood']}", flush=True)
@@ -616,7 +620,8 @@ def run(model: str, argv=None, prefix: str = "") -> dict:
         "model": model, "model_version": ctx.model_version, "mode": args.mode, "unit": spec["unit"],
         "scale": spec["scale"], "data_label": src.label, "quantiles": [0.1, 0.5, 0.9],
         "quantile_offsets": offsets, "offset_units": f"normalised (multiply by {spec['scale']})",
-        "thresholds": {"ood": 3.0, "width": float(np.quantile(cal_w[cal["w"] > 0], 0.95)) if (cal["w"] > 0).any() else None,
+        "thresholds": {"ood": 3.0,
+                       "width": float(np.quantile(cal_w[cal["w"] > 0], 0.95)) if (cal["w"] > 0).any() else None,
                        "member_std": None, "p_fault": None},
         "ood": ood, "channels": {k: list(v) for k, v in spec["channels"].items()}, "dims": dims,
         "inputs": ["seq", "ref", "summ", "stat", "mask"], "outputs": ["q", "emb"],

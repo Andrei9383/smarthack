@@ -1,11 +1,10 @@
-"""K4 causal NaN-aware rolling mean along axis 0 (M6 WindNBM classifier features, card #95).
+"""Causal NaN-aware rolling mean along axis 0 (M6 WindNBM classifier features).
 
     from wattsentry.kernels import rolling_mean
     m = rolling_mean(x, w)    # x (T, ...) -> float64 (T, ...): mean of the finite values in x[t-w+1 : t+1], 0 if none
 
-The reference is the ``rmean`` of ``wattsentry.model.wind.features`` (cumsum differences) moved here verbatim; the
-Rust copy ``wattsentry._core.rolling_mean`` (rust/wattsentry_core/src/rolling.rs) runs the same prefix sums in one
-pass and matches it bit for bit. ``clf_features`` calls it ~40 times per park (>50 % of the stage, #95 profile).
+The reference ``rolling_mean_py`` uses cumsum differences; the Rust copy ``wattsentry._core.rolling_mean``
+(rust/wattsentry_core/src/rolling.rs) runs the same prefix sums in one pass and matches it bit for bit.
 """
 
 from __future__ import annotations

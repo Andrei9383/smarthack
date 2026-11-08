@@ -1,13 +1,13 @@
-"""M7 WindFailure training + evaluation vs a fixed residual threshold (card #43, OPTIONAL).
+"""M7 WindFailure training + evaluation vs a fixed residual threshold (optional model).
 
     python -m wattsentry.model.windfailure.train [--residuals physics|nbm] [--fa-budget 0.5]
     train.py --model windfailure ...   →  wattsentry.model.windfailure.train.main(argv)
 
-Pipeline: load wind (#22/#23 output, else stand-in synth) → temperature residuals (physics linear thermal NBM, or
+Pipeline: load wind (simulator output, else stand-in synth) → temperature residuals (physics linear thermal NBM, or
 M6's GRU trained in-process; label-free normal selection, no drift mask) → daily per turbine-component features
 (features.py) → targets P(failure of component c within 7 / 14 days) from the injector's exact failure onsets →
 LightGBM per horizon → alarm threshold tuned on validation under a false-alarm budget and frozen → test metrics
-for M7 and the fixed-threshold baseline (daily mean residual over the turbine's own baseline) → ship decision (R12).
+for M7 and the fixed-threshold baseline (daily mean residual over the turbine's own baseline) → ship decision.
 
 Splits (same rules as M6): held-out park (default WP2) never in training or validation; test = the last calendar
 year (2025, all parks; held-out park reported separately); train / val = earlier time of the other parks, by
@@ -62,7 +62,7 @@ def parse_args(argv):
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--residuals", choices=["physics", "nbm"], default="physics")
     ap.add_argument("--data", choices=["auto", "synth"], default="auto",
-                    help="auto: #22/#23 output if cached (else builds it, else synth); synth: stand-in generator")
+                    help="auto: simulator output if cached (else builds it, else synth); synth: stand-in generator")
     ap.add_argument("--synth-days", type=int, default=731)
     ap.add_argument("--synth-scale", type=float, default=1.0)
     ap.add_argument("--holdout-park", default=None)
@@ -82,8 +82,9 @@ def parse_args(argv):
     ap.add_argument("--nbm-hidden", type=int, default=96)
     ap.add_argument("--nbm-lr", type=float, default=2e-3)
     ap.add_argument("--nbm-max-minutes", type=float, default=15.0)
-    ap.add_argument("--care", action="store_true", help="after training, score the artifacts on CARE-to-Compare "
-                    "Wind Farm A (non-RO; range-fetched into ~/.cache/wattsentry/care, skipped offline / > --care-max-gb)")
+    ap.add_argument("--care", action="store_true",
+                    help="after training, score the artifacts on CARE-to-Compare Wind Farm A (non-RO; range-fetched "
+                         "into ~/.cache/wattsentry/care, skipped offline / > --care-max-gb)")
     ap.add_argument("--care-max-gb", type=float, default=2.0)
     ap.add_argument("--device", default=None)
     ap.add_argument("--out", default=None)
@@ -110,7 +111,7 @@ def load_data(args, log=print):
     if args.data == "synth":
         return load_wind(prefer_external=False, synth_config=synth, log=log)
     if external_wind_dir() is None:
-        try:  # build #22/#23 output (deterministic, cached) so the run uses the ERA5-driven data
+        try:  # build the simulator output (deterministic, cached) so the run uses the ERA5-driven data
             from wattsentry.sim.wind.build import build
 
             log("[windfailure] no cached wind data: building it with wattsentry.sim.wind (one-off)")
@@ -160,7 +161,8 @@ def main(argv: list[str] | None = None) -> dict:
     run = Run()
     out = Path(args.out or os.environ.get("LAB_OUTPUT_DIR", ".lab-out"))
     out.mkdir(parents=True, exist_ok=True)
-    run_id = os.environ.get("LAB_RUN_ID") or os.environ.get("LAB_RUN") or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    run_id = (os.environ.get("LAB_RUN_ID") or os.environ.get("LAB_RUN")
+              or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"))
     version = f"windfailure-r{run_id}"
     print(f"[windfailure] residuals={args.residuals} out={out} version={version}", flush=True)
 
@@ -198,8 +200,8 @@ def main(argv: list[str] | None = None) -> dict:
         from .residuals_nbm import nbm_residuals
 
         r, res_model = nbm_residuals(data, sp, train_t, args, log=print, out=out)
-        res_desc = ("M6 WindNBM GRU (wattsentry.model.wind.nbm) trained in-process on the thermal objective, label-free "
-                    "mask (finite, no error code; no labels, no drift mask); held-out park uses embedding 0")
+        res_desc = ("M6 WindNBM GRU (wattsentry.model.wind.nbm) trained in-process on the thermal objective, "
+                    "label-free mask (finite, no error code; no labels, no drift mask); held-out park uses embedding 0")
     run.stage("residuals", t)
     ok = np.isfinite(r) & train_t[:, None, None] & seen[None, :, None]
     run.emit("res_train_mae_c", float(np.nanmean(np.abs(r[ok]))))
@@ -215,10 +217,12 @@ def main(argv: list[str] | None = None) -> dict:
     y, down = daily_targets(failures, days, N, HORIZONS_D)
     run.stage("features", t)
     warm = np.arange(D) >= WARMUP_D
-    ends = days + np.timedelta64(1440, "m")
 
     def fail_in(dmask, tmask):
-        return [f for f in failures if tmask[f.turbine] and dmask[min(D - 1, int((f.t_fail - days[0]) // np.timedelta64(1440, "m")))]]
+        def day_of(f):
+            return min(D - 1, int((f.t_fail - days[0]) // np.timedelta64(1440, "m")))
+
+        return [f for f in failures if tmask[f.turbine] and dmask[day_of(f)]]
 
     ev_val = fail_in(pre_d, seen)  # every pre-test failure of the training parks is validated out-of-fold
     ev_test = fail_in(test_d, np.ones(N, bool))
@@ -260,8 +264,8 @@ def main(argv: list[str] | None = None) -> dict:
                   f"{int(rva.sum())} (pos {int(yf[rva].sum())}), best iter {b.best_iteration}", flush=True)
         n_rounds = int(max(30, np.median(iters) * 1.1)) if iters else 100
         rall = _rows(pre_d[:, None] & base_elig, C).reshape(-1)
-        b = lgb.train(params, lgb.Dataset(Xf[rall], yf[rall], feature_name=FEATURES, categorical_feature=["comp_id"]),
-                      num_boost_round=n_rounds)
+        dall = lgb.Dataset(Xf[rall], yf[rall], feature_name=FEATURES, categorical_feature=["comp_id"])
+        b = lgb.train(params, dall, num_boost_round=n_rounds)
         boosters[h] = b
         trows = _rows(test_d[:, None] & np.ones((1, N), bool), C).reshape(-1)
         Ph[trows] = b.predict(Xf[trows])  # test year: the final model only (never saw 2025)
@@ -284,7 +288,8 @@ def main(argv: list[str] | None = None) -> dict:
     run.emit("val_wf_event_recall", val_m.get("event_recall", float("nan")))
     run.emit("val_wf_false_alarms_per_turbine_year", val_m.get("false_alarms_per_turbine_year", float("nan")))
     run.emit("val_baseline_threshold_event_recall", val_b.get("event_recall", float("nan")))
-    run.emit("val_baseline_threshold_false_alarms_per_turbine_year", val_b.get("false_alarms_per_turbine_year", float("nan")))
+    run.emit("val_baseline_threshold_false_alarms_per_turbine_year",
+             val_b.get("false_alarms_per_turbine_year", float("nan")))
 
     def ev(score, thr, elig, evs):
         return evaluate_alarms(np.nan_to_num(score, nan=-np.inf) >= thr, elig, evs, days, 14, drifts=drifts)
@@ -314,12 +319,14 @@ def main(argv: list[str] | None = None) -> dict:
     # Equal-FA comparison on test. M7 keeps its frozen threshold; the baseline is given its BEST test threshold with
     # false alarms <= M7's frozen test rate (an oracle advantage for the baseline: a conservative check for M7).
     m, b = res["test"]["model"], res["test"]["baseline"]
-    mh, bh = res["test_holdout"]["model"], res["test_holdout"]["baseline"]
+    mh = res["test_holdout"]["model"]
     diag = {
-        "baseline_oracle_at_model_fa": recall_at_fa(score_b, elig_test, ev_test, days, m["false_alarms_per_turbine_year"]),
+        "baseline_oracle_at_model_fa": recall_at_fa(score_b, elig_test, ev_test, days,
+                                                    m["false_alarms_per_turbine_year"]),
         "baseline_oracle_at_model_fa_holdout": recall_at_fa(score_b, elig_test_hold, ev_test_hold, days,
                                                             mh["false_alarms_per_turbine_year"]),
-        "model_oracle_at_baseline_fa": recall_at_fa(score_m, elig_test, ev_test, days, b["false_alarms_per_turbine_year"]),
+        "model_oracle_at_baseline_fa": recall_at_fa(score_m, elig_test, ev_test, days,
+                                                    b["false_alarms_per_turbine_year"]),
     }
     run.emit("baseline_threshold_event_recall_at_wf_fa", diag["baseline_oracle_at_model_fa"]["event_recall"] or 0.0)
     run.emit("baseline_threshold_lead_time_h_at_wf_fa", diag["baseline_oracle_at_model_fa"]["lead_time_h"] or 0.0)
@@ -327,11 +334,12 @@ def main(argv: list[str] | None = None) -> dict:
              diag["baseline_oracle_at_model_fa_holdout"]["event_recall"] or 0.0)
     run.stage("eval", t)
 
-    # --- ship decision (R12) -----------------------------------------------------------------------------------------
+    # --- ship decision -----------------------------------------------------------------------------------------------
     checks = {
         "lead_time_positive_test": m["n_detected"] > 0 and m["lead_time_h"] > 0,
         "lead_time_positive_holdout_park": mh["n_detected"] > 0 and mh["lead_time_h"] > 0,
-        "recall_beats_baseline_at_equal_fa": m["event_recall"] > (diag["baseline_oracle_at_model_fa"]["event_recall"] or 0),
+        "recall_beats_baseline_at_equal_fa":
+            m["event_recall"] > (diag["baseline_oracle_at_model_fa"]["event_recall"] or 0),
     }
     info = {
         "frozen_vs_frozen_dominates": m["event_recall"] >= b["event_recall"]
@@ -417,7 +425,8 @@ def main(argv: list[str] | None = None) -> dict:
     p.write_text(json.dumps(report, indent=1, default=float))
     files[p.name] = p
     manifest = {
-        "model": "windfailure", "model_version": version, "card": 43, "created_utc": datetime.now(timezone.utc).isoformat(),
+        "model": "windfailure", "model_version": version, "card": 43,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_sha(), "argv": sys.argv, "args": vars(args), "label": LABEL, "data_source": data.source,
         "python": platform.python_version(), "lightgbm": lgb.__version__, "shipped": ship,
         "files": {k: {"sha256": _sha256(v), "bytes": v.stat().st_size} for k, v in files.items()},

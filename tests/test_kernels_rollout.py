@@ -1,4 +1,4 @@
-"""K1 battery rollout: Python reference == wattsentry.opt.commit.rollout, Rust == Python bit for bit (#50)."""
+"""K1 battery rollout: Python reference == wattsentry.opt.commit.rollout, Rust == Python bit for bit."""
 
 import numpy as np
 import pytest

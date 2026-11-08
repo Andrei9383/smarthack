@@ -1,4 +1,4 @@
-"""Card #41 M6 WindNBM: stand-in data, contract conformance, normalisation, WindMon rules, splits, metrics.
+"""M6 WindNBM: stand-in data, contract conformance, normalisation, WindMon rules, splits, metrics.
 
 Always-on tests need only requirements.txt; the end-to-end train → ONNX → predictor test needs torch.
 """
@@ -28,7 +28,7 @@ from wattsentry.model.wind.data import (
 )
 from wattsentry.model.wind.features import clf_features, curtail_ok, decide, neighbours_for
 from wattsentry.model.wind.metrics import event_metrics
-from wattsentry.model.wind.physics import CLASS_2500, air_density, density_normalise, shear_to_hub, v_norm_from
+from wattsentry.model.wind.physics import CLASS_2500, air_density, density_normalise, shear_to_hub
 from wattsentry.model.wind.synth import SynthConfig, generate
 from wattsentry.model.wind.windmon_rules import windmon_classes, windmon_flags
 
@@ -82,7 +82,7 @@ def test_tags_parse_and_codes_follow_contract(tiny):
 
 
 def test_long_roundtrip_drops_in(tiny):
-    """#22/#23 output in the contract tables loads into the same wide view M6 trains on."""
+    """Simulator output in the contract tables loads into the same wide view M6 trains on."""
     sub = tiny.subset(np.arange(len(tiny.turbines)), slice(0, 2880))
     back = from_long(to_long(sub), turbines_table(sub), meteo=meteo_table(sub), weather=weather_table(sub),
                      fault_labels=fault_labels_table(sub))
@@ -100,8 +100,8 @@ def test_density_normalisation_numbers():
     assert density_normalise(10.0, 1.225) == pytest.approx(10.0)
     rho = air_density(1000.0, -10.0)
     assert rho == pytest.approx(100000 / (287.05 * 263.15), rel=1e-9)
-    assert v_norm_from(10.0, 1000.0, -10.0) == pytest.approx(10 * (rho / 1.225) ** (1 / 3), rel=1e-9)
-    assert v_norm_from(10.0, 1000.0, -10.0) > 10.0  # cold dense air carries more power
+    assert density_normalise(10.0, air_density(1000.0, -10.0)) == pytest.approx(10 * (rho / 1.225) ** (1 / 3), rel=1e-9)
+    assert density_normalise(10.0, air_density(1000.0, -10.0)) > 10.0  # cold dense air carries more power
     assert shear_to_hub(7.0, 120.0) == pytest.approx(7.0 * 1.2**0.14)
     assert CLASS_2500.power_frac(2.0) == 0 and CLASS_2500.power_frac(26.0) == 0
     assert CLASS_2500.power_frac(15.0) == pytest.approx(1.0, abs=1e-3)
@@ -194,7 +194,7 @@ def _probs(T, n):
 
 
 def test_park_capped_to_zero_is_curtailment_not_a_work_order():
-    """#99: a park-wide cap to 0 % leaves noisy near-zero power, so no common ceiling (park_cap_frac_m4 = 0).
+    """a park-wide cap to 0 % leaves noisy near-zero power, so no common ceiling (park_cap_frac_m4 = 0).
     The park consensus on p_curtailment still calls it curtailment: logged, no alert, no work order."""
     T, n = 160, 70
     ci = CLASS_INDEX["curtailment"]
@@ -239,7 +239,7 @@ def test_park_capped_to_zero_is_curtailment_not_a_work_order():
 
 
 def test_lone_low_turbine_is_never_hidden_as_curtailment():
-    """#99: one underperforming turbine in a normal park keeps its actionable class even when the classifier
+    """one underperforming turbine in a normal park keeps its actionable class even when the classifier
     leans to curtailment, also when its park is tuned together with a capped park (consensus is per park) and
     in a 2-turbine park (one turbine is half the park, but never a consensus)."""
     T = 160
@@ -285,7 +285,7 @@ def test_train_export_predict_end_to_end(tmp_path):
 
 
 def test_label_free_normal_selection_beats_base_rate():
-    """#70: telemetry-only normal selection is cleaner than taking every step, and never peeks at the labels."""
+    """telemetry-only normal selection is cleaner than taking every step, and never peeks at the labels."""
     from wattsentry.model.wind.features import density_inputs
     from wattsentry.model.wind.normal_select import select_normal, selection_quality
 

@@ -1,4 +1,4 @@
-"""K2 window gather (#51): Python reference == numpy fancy-index gather on a #10-layout memmap; Rust == Python
+"""K2 window gather: Python reference == numpy fancy-index gather on a windows-cache memmap; Rust == Python
 byte for byte."""
 
 import numpy as np
@@ -11,7 +11,7 @@ H, HH = 96, 14 * 96
 
 
 def fancy(arr, rows, starts, offset, length, dtype):
-    """The gather the model data path runs on #10's cache (#14 features.gather)."""
+    """The gather the model data path runs on the windows cache (features.gather)."""
     idx = np.asarray(starts)[:, None] + np.arange(offset, offset + length)[None]
     return np.asarray(arr[np.asarray(rows)[:, None], idx], dtype)
 

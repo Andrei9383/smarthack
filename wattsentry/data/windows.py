@@ -1,9 +1,9 @@
-"""Build the model window cache (card #10): fleet (#11) + faults (#12) -> the `wattsentry-windows-v1` layout that
-wattsentry.model.data.ArraySource reads (#14), at ~/.cache/wattsentry/data-v{N}/windows/.
+"""Build the model window cache: simulated fleet + faults -> the `wattsentry-windows-v1` layout that
+wattsentry.model.data.ArraySource reads, at ~/.cache/wattsentry/data-v{N}/windows/.
 
     python -m wattsentry.data.windows [--quick] [--force] [--out DIR]
 
-Layout (memmap-able .npy + JSON, see #14 synth.py):
+Layout (memmap-able .npy + JSON):
   site arrays [S, T] float16, kW / V / 0..1: pv_ac (REPORTED, with faults), pv_healthy (clean physics), load, batt,
               soc, inv_v, pvlib_rec, pvlib_rec_fc, pvclear_rec (pvlib from RECORDED metadata, actual / forecast
               weather / clear sky);  int8: inv_status (0 off, 1 producing, 2 limiting, 3 overvoltage trip),
@@ -64,7 +64,7 @@ def _cloud_from_ghi(ghi: np.ndarray, cs: np.ndarray) -> np.ndarray:
 
 
 def forecast_weather(act: np.ndarray, geom: np.ndarray, doy: np.ndarray, rng, ph) -> np.ndarray:
-    """Day-ahead forecast from actuals, same error structure as #14's synth: a daily clear-sky-index regime error
+    """Day-ahead forecast from actuals: a daily clear-sky-index regime error
     (15 % of days a big miss), smoothed intraday timing error, errors growing with lead over the target day."""
     T = act.shape[0]
     D = T // DAY
@@ -156,7 +156,7 @@ def build_windows(fleet_dir: Path | None = None, fault_dir: Path | None = None, 
     arr = {k: mm(k, np.float16) for k in SITE_F16}
     arr.update({k: mm(k, np.int8) for k in SITE_I8})
     site_order = list(sites.site_id)
-    faulted, clean = SiteReader(files), SiteReader(clean_files)  # #133: row-group reads + numpy order
+    faulted, clean = SiteReader(files), SiteReader(clean_files)
     for b0 in range(0, S, batch):
         ids = site_order[b0:b0 + batch]
         f = faulted.read(ids, ["pv_ac_w", "load_w", "batt_w", "soc", "inv_voltage_v", "inv_status"], i0, i1)
@@ -179,11 +179,11 @@ def build_windows(fleet_dir: Path | None = None, fault_dir: Path | None = None, 
         arr["inv_status"][sl] = st
         log(f"[windows] sites {b0 + len(ids)}/{S} ({time.perf_counter() - t_all:.0f}s)")
 
-    # pvlib channels (#133): per locality, all its sites at once through kernels.pv_ac_batch
-    # (= physics.pvlib_expected_kw / pvlib_clear_kw with the metadata broadcast over sites; same bytes as one call
-    # per site), clear sky once per locality.
+    # pvlib channels: per locality, all its sites at once through kernels.pv_ac_batch (same bytes as
+    # physics.pvlib_expected_kw / pvlib_clear_kw per site), clear sky once per locality.
     site_loc = np.array([loc_index[x] for x in sites.locality_id])
-    meta = [sites[m].to_numpy(np.float64) for m in ("kwp_recorded", "tilt_recorded", "azimuth_recorded", "inverter_kw")]
+    meta = [sites[m].to_numpy(np.float64)
+            for m in ("kwp_recorded", "tilt_recorded", "azimuth_recorded", "inverter_kw")]
     for li in range(L):
         g64, a64, f64 = geom[li].astype(np.float64), act[li].astype(np.float64), fc[li].astype(np.float64)
         zen, saz = g64[:, 0], g64[:, 1]
@@ -192,8 +192,8 @@ def build_windows(fleet_dir: Path | None = None, fault_dir: Path | None = None, 
         for k in range(0, len(rows_l), batch):
             rows = rows_l[k:k + batch]
             m = [x[rows] for x in meta]
-            arr["pvlib_rec"][rows] = pv_ac_batch(*m, a64[:, 0], a64[:, 1], a64[:, 2], a64[:, 3], a64[:, 5], zen, saz)
-            arr["pvlib_rec_fc"][rows] = pv_ac_batch(*m, f64[:, 0], f64[:, 1], f64[:, 2], f64[:, 3], f64[:, 5], zen, saz)
+            arr["pvlib_rec"][rows] = pv_ac_batch(*m, *(a64[:, j] for j in (0, 1, 2, 3, 5)), zen, saz)
+            arr["pvlib_rec_fc"][rows] = pv_ac_batch(*m, *(f64[:, j] for j in (0, 1, 2, 3, 5)), zen, saz)
             arr["pvclear_rec"][rows] = pv_ac_batch(*m, cs["ghi"], cs["dni"], cs["dhi"], 20.0, None, zen, saz)
     log(f"[windows] pvlib channels ({time.perf_counter() - t_all:.0f}s)")
 
@@ -227,7 +227,9 @@ def build_windows(fleet_dir: Path | None = None, fault_dir: Path | None = None, 
         arrays[fpath.stem] = {"file": fpath.name, "dtype": str(a.dtype), "shape": list(a.shape)}
     weather_source = json.loads((fleet_dir / "manifest.json").read_text()).get("weather_source", "?")
     index = {
-        "format": FORMAT, "source": "wattsentry.sim.fleet (#11) + wattsentry.sim.faults (#12) via wattsentry.data.windows (#10)",
+        "format": FORMAT,
+        # value kept verbatim: it is part of the committed cache index
+        "source": "wattsentry.sim.fleet (#11) + wattsentry.sim.faults (#12) via wattsentry.data.windows (#10)",
         "label": f"synthetic RO ({weather_source} weather)", "source_key": key, "data_version": DATA_VERSION,
         "t_start": str(times[0]), "step_minutes": 15, "n_steps": T, "n_sites": S,
         "weather_channels": list(ph.WEATHER_CHANNELS), "geom_channels": list(ph.GEOM_CHANNELS),
@@ -255,7 +257,8 @@ def main(argv=None) -> None:
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args(argv)
     if a.quick:
-        build_windows(fleet_cfg=FleetConfig(**QUICK), out=a.out or default_out().with_name("windows-quick"), force=a.force)
+        out = a.out or default_out().with_name("windows-quick")
+        build_windows(fleet_cfg=FleetConfig(**QUICK), out=out, force=a.force)
     else:
         build_windows(out=a.out, force=a.force)
 

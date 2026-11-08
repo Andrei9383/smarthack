@@ -2,7 +2,6 @@
 
 Archetype = heating (gas | electric | heat pump) x AC x EV x electric boiler x works-from-home, on top of an
 occupancy profile (weekday vs weekend / public holiday), lighting after dark, appliance spikes and noise.
-The national shape is a seasonal stub until the ENTSO-E RO load curve from #9 lands (national_shape()).
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ def _qh(profile: list[float]) -> np.ndarray:
 
 
 def national_shape(doy: np.ndarray) -> np.ndarray:
-    """Seasonal multiplier of household consumption (winter higher). Stub for the ENTSO-E RO load shape (#9)."""
+    """Seasonal multiplier of household consumption (winter higher)."""
     return (1 + 0.10 * np.cos(2 * np.pi * (doy - 15) / 365)).astype(np.float32)
 
 

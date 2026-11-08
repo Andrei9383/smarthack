@@ -1,4 +1,4 @@
-"""Card #22: WindMon's six quality rules and OK / DEGRADED / SUSPECT flags (wattsentry/data/wind/quality.py)."""
+"""WindMon's six quality rules and OK / DEGRADED / SUSPECT flags (wattsentry/data/wind/quality.py)."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -6,15 +6,13 @@ import numpy as np
 import polars as pl
 import pytest
 
-from wattsentry.contracts.wind import SENSORS, make_tag
+from wattsentry.contracts.wind import SENSORS
 from wattsentry.data.wind.quality import (
     FROZEN_STEPS,
     RULES,
     apply_rules,
-    daily_summary,
     flag_counts,
     wide_from_arrays,
-    wide_from_long,
 )
 
 RATED = 2500.0
@@ -111,39 +109,6 @@ def test_suspect_beats_degraded_and_counts():
     assert q["quality"][2] == "SUSPECT" and q["q_suspect_rules"][2] >= 1 and q["q_degraded_rules"][2] >= 1
     c = flag_counts(q)
     assert c["share_suspect"] == pytest.approx(1 / T, abs=1e-4) and set(c) >= {f"rule_{r.lower()}" for r in RULES}
-    day = daily_summary(q)
-    assert day.height == 1 and day["worst"][0] == "SUSPECT" and day["rows"][0] == T
-
-
-def test_long_and_array_paths_agree():
-    """Contract long table and the simulator's arrays give the same flags."""
-    from wattsentry.model.wind.data import WindData, to_long, turbines_table
-
-    rng = np.random.default_rng(1)
-    n, N = 40, 2
-    sensors = {k: (40 + rng.normal(0, 0.5, (n, N))).astype(np.float32) for k in SENSORS}
-    sensors["act_pwt"][:] = (1000 + rng.normal(0, 20, (n, N))).astype(np.float32)
-    sensors["wd_spd"][:] = (30 + rng.normal(0, 1, (n, N))).astype(np.float32)
-    sensors["wd_spd"][10:20, 1] = 25.25  # frozen
-    sensors["gearbox_t"][5, 0] = np.nan  # gap
-    err = np.zeros((n, N), np.int32)
-    err[30:32, 0] = 5021
-    for k in sensors:
-        sensors[k][err != 0] = np.nan
-    turbines = [{"turbine_id": f"WP1.TID0{j + 1}", "park_id": "WP1", "model": "generic-2.5MW", "rated_kw": RATED,
-                 "hub_height_m": 85.0, "rotor_d_m": 100.0, "lat": 44.6, "lon": 28.5, "county": "Constanța",
-                 "power_unit": "kW", "power_scale": 1.0} for j in range(N)]
-    ts = np.datetime64("2024-01-01T00:00") + np.arange(n) * np.timedelta64(15, "m")
-    d = WindData(ts=ts, turbines=turbines, sensors=sensors, err=err, park_ids=["WP1"], weather={}, meteo={})
-    tt = turbines_table(d)
-    a = apply_rules(wide_from_arrays(d), tt).sort(["turbine_id", "ts"])
-    b = apply_rules(wide_from_long(to_long(d), tt), tt).sort(["turbine_id", "ts"])
-    assert a["quality"].to_list() == b["quality"].to_list()
-    for r in RULES:
-        assert a[f"q_{r.lower()}"].to_list() == b[f"q_{r.lower()}"].to_list(), r
-    assert make_tag("1", "01", "act_pwt") == "WP1.TID01.act_pwt"
-    assert (a.filter(pl.col("turbine_id") == "WP1.TID02")["q_frozen"].sum()) == 10
-    assert a.filter(pl.col("q_error_code"))["quality"].unique().to_list() == ["SUSPECT"]
 
 
 def test_flags_on_simulated_faults():

@@ -1,13 +1,10 @@
-"""Train + evaluate M3 DemandNet (card #44). `train.py --model demandnet` (lab run type train_cpu) calls `main()`.
+"""Train + evaluate M3 DemandNet (`train.py --model demandnet` calls `main()`).
 
   python -m wattsentry.demand [--data-dir data/raw] [--out $LAB_OUTPUT_DIR] [--counties B:0.11,CT:0.035] [--quick]
 
-1. v2 on national RO load: ENTSO-E RO total load if #9's parquet is in data/raw ("real RO"), else a synthetic
-   RO-shaped series ("synthetic RO"). DemandNet vs persistence (day, week) and national-shape scaling on the test
-   split. Headline LAB_METRICs come from this zone.
-2. v2 per county on synthetic county series (always "synthetic RO" — county load is not published).
-3. v1 demo: MockPredictor load scenarios aggregated feeder -> locality -> county -> zone_demand rows + actions.
-Writes model files, demand_report.json, zone_demand_v1_rows.json and zone_demand_v1_actions.jsonl to the output dir.
+Fits v2 on national RO load (ENTSO-E if present, else synthetic; headline LAB_METRICs) and on synthetic county
+splits, then runs the v1 scenario-aggregation demo. Writes model files, demand_report.json,
+zone_demand_v1_rows.json and zone_demand_v1_actions.jsonl to the output dir.
 """
 
 from __future__ import annotations
@@ -65,7 +62,7 @@ def run_v1_demo(out: Path, t0: str, run_id: str, n_scenarios: int = 200) -> dict
     actions = zone_demand_actions(agg, run_id=run_id)
     (out / "zone_demand_v1_rows.json").write_text(json.dumps(rows))
     (out / "zone_demand_v1_actions.jsonl").write_text("\n".join(a.to_json() for a in actions) + "\n")
-    # how much would summing site quantiles overstate the zone P90? (the reason for scenario sums)
+    # how much summing site quantiles would overstate the zone P90 (why we sum scenarios instead)
     site_q90 = np.quantile(scen, 0.9, axis=0)  # [N, T] kW
     overstate = {}
     for z in agg.level("county"):
@@ -89,7 +86,7 @@ def run_v1_demo(out: Path, t0: str, run_id: str, n_scenarios: int = 200) -> dict
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="python -m wattsentry.demand", description="Train + evaluate M3 DemandNet")
     ap.add_argument("--model", default="demandnet", help="ignored (train.py dispatch compatibility)")
-    ap.add_argument("--data-dir", default=None, help="where #9's raw parquet lives (default <repo>/data/raw)")
+    ap.add_argument("--data-dir", default=None, help="raw parquet dir (default <repo>/data/raw)")
     ap.add_argument("--out", default=os.environ.get("LAB_OUTPUT_DIR", "./.lab-out"))
     ap.add_argument("--counties", default=DEFAULT_COUNTIES, help="CODE:share,... synthetic county split ('' = none)")
     ap.add_argument("--seed", type=int, default=0)

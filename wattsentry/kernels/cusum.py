@@ -1,4 +1,4 @@
-"""K3 two-sided CUSUM: Python reference (source of truth); the Rust copy ``wattsentry._core.cusum_two_sided``
+"""Two-sided CUSUM: Python reference (source of truth); the Rust copy ``wattsentry._core.cusum_two_sided``
 (rust/wattsentry_core/src/cusum.rs) must match it bit for bit. The PV fault baseline uses it with ``cap=h``."""
 
 from __future__ import annotations

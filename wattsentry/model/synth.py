@@ -1,4 +1,4 @@
-"""Deterministic, physics-based synthetic Romanian prosumer dataset (stand-in until #10/#11/#12 windows land).
+"""Deterministic, physics-based synthetic Romanian prosumer dataset (fallback when the shared data windows are absent).
 
 What it simulates (all seeded, no internet):
 - ~20 real RO localities (lat/lon); pvlib solar geometry + Ineichen clear sky; a stochastic clear-sky-index process
@@ -14,8 +14,9 @@ What it simulates (all seeded, no internet):
 - 7 fault classes + healthy with exact onset step: soiling, shading, string_outage, clipping, overvoltage_trip,
   battery_fade, sensor_fault (frozen or mis-scaled meter).
 
-Output: a directory of .npy arrays (memmap-able) + index.json, cached at ~/.cache/wattsentry/model-synth-v1/<digest>.
-Layout (shared with data.ArraySource; #10 can write the same and it drops in):
+Output: a directory of .npy arrays (memmap-able) + index.json, cached at
+~/.cache/wattsentry/model-synth-v{SYNTH_VERSION}/<digest> ($WATTSENTRY_MODEL_CACHE overrides).
+Layout (read by data.ArraySource; the shared data windows use the same one):
   site arrays   [S, T] float16 (kW / V / 0..1): pv_ac, pv_healthy, load, batt, soc, inv_v, pvlib_rec, pvlib_rec_fc,
                 pvclear_rec;  int8: inv_status, fault
   locality      [L, T, 7] float16 weather_act, weather_fc (ghi, dni, dhi, temp, cloud, wind, snow); [L, T, 3] geom
@@ -78,7 +79,8 @@ class SynthConfig:
 
 
 def cache_root() -> Path:
-    return Path(os.environ.get("WATTSENTRY_MODEL_CACHE", Path.home() / ".cache" / "wattsentry" / f"model-synth-v{SYNTH_VERSION}"))
+    default = Path.home() / ".cache" / "wattsentry" / f"model-synth-v{SYNTH_VERSION}"
+    return Path(os.environ.get("WATTSENTRY_MODEL_CACHE", default))
 
 
 def _ar1(rng, shape, rho, axis=-1):
@@ -92,7 +94,7 @@ def _smooth(x, n):
 
 
 # --- weather -----------------------------------------------------------------------------------------------
-def _weather(cfg: SynthConfig, rng, times: pd.DatetimeIndex, geoms: np.ndarray):
+def _weather(rng, times: pd.DatetimeIndex, geoms: np.ndarray):
     L, T = len(LOCALITIES), len(times)
     D = T // ph.DAY
     doy_d = pd.DatetimeIndex(times[:: ph.DAY]).day_of_year.to_numpy()
@@ -135,7 +137,8 @@ def _weather(cfg: SynthConfig, rng, times: pd.DatetimeIndex, geoms: np.ndarray):
         amp = 3.5 + 5.0 * (1 - cd)
         temp = tday_i + amp * np.cos(2 * np.pi * (utc_h - 12.5) / 24) + 0.4 * _ar1(rng, (T,), 0.9)
         wmean = np.exp(np.log(3.0) + 0.35 * w_nat + 0.2 * _ar1(rng, (D,), 0.5))
-        wind = np.repeat(wmean, ph.DAY) * (1 + 0.3 * np.cos(2 * np.pi * (utc_h - 12) / 24)) * np.exp(0.15 * _ar1(rng, (T,), 0.9))
+        diurnal = 1 + 0.3 * np.cos(2 * np.pi * (utc_h - 12) / 24)
+        wind = np.repeat(wmean, ph.DAY) * diurnal * np.exp(0.15 * _ar1(rng, (T,), 0.9))
         # snow depth (cm), daily state
         snow = np.zeros(D)
         s = 0.0
@@ -321,7 +324,7 @@ def generate(cfg: SynthConfig = SynthConfig(), out: Path | None = None, verbose:
     L, S = len(LOCALITIES), cfg.n_sites
 
     geoms = np.stack([ph.solar_geometry(times, lat, lon) for (_, _, lat, lon) in LOCALITIES])  # [L, T, 3]
-    act, fc, c_d, sig_d = _weather(cfg, rng, times, geoms)
+    act, fc, c_d, sig_d = _weather(rng, times, geoms)
     cal = ph.calendar_features(times).astype(np.float32)
     loc_t = times.tz_convert(ph.TZ)
     cal_hour = (loc_t.hour + loc_t.minute / 60).to_numpy(np.float64)
@@ -343,7 +346,8 @@ def generate(cfg: SynthConfig = SynthConfig(), out: Path | None = None, verbose:
     def mm(name, dtype=np.float16, shape=(S, T)):
         return np.lib.format.open_memmap(tmp / f"{name}.npy", mode="w+", dtype=dtype, shape=shape)
 
-    arr = {k: mm(k) for k in ("pv_ac", "pv_healthy", "load", "batt", "soc", "inv_v", "pvlib_rec", "pvlib_rec_fc", "pvclear_rec")}
+    arr = {k: mm(k) for k in ("pv_ac", "pv_healthy", "load", "batt", "soc", "inv_v", "pvlib_rec", "pvlib_rec_fc",
+                              "pvclear_rec")}
     arr["inv_status"] = mm("inv_status", np.int8)
     arr["fault"] = mm("fault", np.int8)
     arr["fault"][:] = fault
@@ -376,7 +380,7 @@ def generate(cfg: SynthConfig = SynthConfig(), out: Path | None = None, verbose:
         kwp_eff = s["kwp_true"] * deg
         healthy = ph.ac_power_kw(g, temp, kwp_eff, s["inverter_kw"], s["losses"], s["gamma"], wind)
         # physical faults
-        g_f, kwp_f, inv_f = g.copy(), np.full(T, kwp_eff, dtype=np.float64) * 1.0, np.full(T, s["inverter_kw"], np.float64)
+        g_f, kwp_f, inv_f = g.copy(), np.full(T, kwp_eff, dtype=np.float64), np.full(T, s["inverter_kw"], np.float64)
         for e in (e for e in eps if e["site"] == si):
             a, z = e["onset"], e["end"]
             if e["fault"] == "soiling":

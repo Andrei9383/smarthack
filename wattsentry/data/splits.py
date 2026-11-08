@@ -1,13 +1,12 @@
-"""Train / val / calibration / test splits (plan §4). One definition for every model, baseline and eval.
+"""Train / val / calibration / test splits. One definition for every model, baseline and eval.
 
 Time, by the TARGET day (UTC date of the window's first step):
   train  2022-2023
   val    2024, ISO weeks with week % 4 != 3
   cal    2024, ISO weeks with week % 4 == 3   (conformal calibration + threshold tuning; never trained on)
   test   2025
-Sites: `split` column of the sites table (data.md): `train` (70 %) or `unseen` (30 %, never in train/val/cal).
+Sites: `split` column of the sites table: `train` (70 %) or `unseen` (30 %, never in train/val/cal).
 train / val / cal use train sites only; test uses all sites, reported seen vs unseen.
-Wind: one whole park is held out of training (`unseen_park`), turbines in it only appear in test.
 Windows need `history_days` of past data, so the first days of the series are never targets.
 
 Small series (tests, smoke runs) that miss a year fall back to proportional time blocks, so every split is non-empty.
@@ -84,32 +83,3 @@ def site_split(site_split_col) -> tuple[np.ndarray, np.ndarray]:
 def make_splits(day_dates: pd.DatetimeIndex, site_split_col, history_days: int = HISTORY_DAYS) -> Splits:
     tr, un = site_split(site_split_col)
     return Splits(time_split(day_dates, history_days), tr, un)
-
-
-def unseen_park(park_ids) -> str:
-    """The wind park held out of training: the smallest park (by turbine count, ties by id), deterministic."""
-    s = pd.Series(np.asarray(park_ids).astype(str))
-    counts = s.value_counts()
-    return str(sorted(counts.index, key=lambda p: (counts[p], p))[0])
-
-
-def turbine_split(park_ids) -> np.ndarray:
-    """Per turbine: 'train' or 'unseen' (whole held-out park)."""
-    p = np.asarray(park_ids).astype(str)
-    return np.where(p == unseen_park(p), "unseen", "train")
-
-
-def check_no_leakage(splits: Splits, horizon_days: int = 1) -> None:
-    """Raise if any two splits share a target day, a train window's target reaches into a later split's days,
-    or an unseen site appears outside test."""
-    seen: dict[int, str] = {}
-    for name in SPLITS:
-        for d in splits.days[name]:
-            if d in seen:
-                raise AssertionError(f"day {d} in both {seen[d]} and {name}")
-            seen[d] = name
-    if len(splits.days["train"]) and len(splits.days["test"]):
-        if splits.days["train"].max() + horizon_days > splits.days["test"].min():
-            raise AssertionError("train targets overlap the test period")
-    if set(splits.train_sites) & set(splits.unseen_sites):
-        raise AssertionError("a site is both train and unseen")

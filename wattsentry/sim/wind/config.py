@@ -1,8 +1,8 @@
 """Wind simulator configuration and cache location (light module: no numpy/polars at import time).
 
 Everything that changes the output lives in `WindSimConfig` (+ `FaultConfig` in wattsentry.sim.wind_faults), so the
-manifest can hash it. Output: `~/.cache/wattsentry/data-v{WIND_DATA_VERSION}/wind/` (root overridable with
-$WATTSENTRY_CACHE; the whole directory with $WATTSENTRY_WIND_DIR, which wattsentry.model.wind.data.load_wind also reads).
+manifest can hash it. Output: `$WATTSENTRY_CACHE/data-v{WIND_DATA_VERSION}/wind/` (default root ~/.cache/sentinel); the
+whole directory can be set with $WATTSENTRY_WIND_DIR, which wattsentry.model.wind.data.load_wind also reads.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-# Bump when the generated wind data changes meaning or shape. v4 = first ERA5-driven release (#22/#23).
-# (v1-v3 are used by the prosumer fleet simulator; wind starts at 4 so the two never collide.)
+# Bump when the generated wind data changes meaning or shape. Starts at 4 so it never collides with the fleet's
+# data-v1..v3 directories.
 WIND_DATA_VERSION = 4
 
 REPO = Path(__file__).resolve().parents[3]
@@ -57,9 +57,6 @@ class WindSimConfig:
     def to_json(self) -> dict:
         return dataclasses.asdict(self)
 
-    def describe(self) -> str:
-        return f"seed={self.seed} {self.start}..{self.end} parks={','.join(self.parks)} shear={self.shear}"
-
 
 def weather_file(cfg: WindSimConfig) -> Path:
     if cfg.weather_path:
@@ -71,7 +68,7 @@ def weather_file(cfg: WindSimConfig) -> Path:
 def code_hash() -> str:
     """Hash of the simulator / injector / shared-physics sources: any code change invalidates the cache."""
     h = hashlib.sha256()
-    pkg = REPO / "sentinel"
+    pkg = REPO / "wattsentry"
     files = sorted((pkg / "sim" / "wind").glob("*.py")) + sorted((pkg / "sim" / "wind_faults").glob("*.py"))
     files += [pkg / "model" / "wind" / "physics.py", pkg / "model" / "wind" / "data.py"]
     for f in files:

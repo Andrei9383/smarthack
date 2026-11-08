@@ -1,8 +1,8 @@
-"""Card #23 wind fault injector: every class injected with an exact onset, and the labels match the telemetry.
+"""Wind fault injector: every class injected with an exact onset, and the labels match the telemetry.
 
 Each test enables ONE kind at a high rate on a small ERA5-driven world, re-renders the clean telemetry with the
 same noise, and checks that (a) nothing changes before a turbine's first onset, (b) the class signature is there
-from the onset on, and (c) the fault_labels rows follow team/contracts/data.md + the WindAnomaly classes.
+from the onset on, and (c) the fault_labels rows follow the fault_labels contract + the WindAnomaly classes.
 """
 
 import json
