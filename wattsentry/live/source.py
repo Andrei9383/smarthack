@@ -1,17 +1,14 @@
-"""Where readings come from, one 15-min step at a time (card #128).
+"""Where readings come from, one 15-min step at a time.
 
-`TelemetrySource.readings(ts)` returns what arrived for the step starting at `ts` (unix s, UTC): only that step, so a
-consumer that calls it tick by tick can never see the future. `SimulatedSource` replays a `World` (#11 fleet via
-SimWorld, or MockWorld in tests): PV and load from the world's telemetry (`observed_site_day`, stale readings ->
-None), battery from the self-consumption rule (data.md: history is generated under it), stepped forward here so the
-state of charge carries across ticks and restarts. Vendor adapters (FusionSolar, SMA, ...) are #131; `VendorSource`
-only marks the seam.
+`SimulatedSource.readings(ts)` returns only the step starting at `ts` (unix s, UTC), so a consumer calling it tick by
+tick never sees the future. PV and load come from the world's telemetry (`observed_site_day`, stale readings ->
+None); the battery runs the self-consumption rule here, so its state of charge carries across ticks and restarts.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Mapping, Optional, Protocol, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from wattsentry.contracts import BatterySpec
 from wattsentry.contracts.opt import self_consumption_step
@@ -32,22 +29,6 @@ class Reading:
 
     def row(self) -> dict[str, Any]:
         return asdict(self)
-
-
-class TelemetrySource(Protocol):
-    label: str
-
-    def sites(self) -> Mapping[str, Any]:
-        """site_id -> world Site (row + battery)."""
-
-    def feeders(self) -> Mapping[str, Any]:
-        """feeder_id -> world Feeder (spec + site_ids)."""
-
-    def span(self) -> tuple[int, int]:
-        """[first, end) unix seconds the source can serve."""
-
-    def readings(self, ts: int) -> dict[str, Reading]:
-        """What arrived for the step starting at ts. Must be called with increasing ts."""
 
 
 class SimulatedSource:
@@ -113,12 +94,3 @@ class SimulatedSource:
                 continue
             out[sid] = Reading(sid, fid, round(pv, 4), round(load, 4), round(batt, 4), self.soc(sid), round(grid, 4))
         return out
-
-
-class VendorSource:
-    """Seam for real telemetry (vendor cloud APIs, #131). Names of the settings it will read: .env.example."""
-
-    label = "vendor"
-
-    def __init__(self, *_: Any, **__: Any):
-        raise NotImplementedError("vendor adapters are card #131; use SimulatedSource")

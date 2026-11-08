@@ -1,4 +1,4 @@
-"""Card #128: live 15-min loop on the mock world (team/contracts/live.md)."""
+"""Live 15-min loop on the mock world."""
 
 from __future__ import annotations
 
@@ -156,7 +156,7 @@ def test_flags_and_helpers():
 
 
 def test_live_feeder_steps_view_for_the_app(tmp_path):
-    """#130 reads live_feeder_steps (packages/api/src/routers/live.ts): one row per feeder step, newest = forecast."""
+    """The app reads live_feeder_steps (packages/api/src/routers/live.ts): one row per feeder step, newest = forecast."""
     w = _world()
     src = SimulatedSource(w, ["F7", "F5"])
     con = store.connect(tmp_path / "v.sqlite")
