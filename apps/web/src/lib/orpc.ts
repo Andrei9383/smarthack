@@ -5,7 +5,7 @@ import type { AppRouterClient } from "@wattsentry/api/routers/index";
 import { environmentManager, QueryCache, QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-export function createQueryClient() {
+function createQueryClient() {
   return new QueryClient({
     queryCache: new QueryCache({
       onError: (error, query) => {
@@ -33,7 +33,7 @@ export function getQueryClient() {
   return browserQueryClient;
 }
 
-export const link = new RPCLink({
+const link = new RPCLink({
   url: `${typeof window !== "undefined" ? window.location.origin : "http://localhost:3001"}/api/rpc`,
   fetch(url, options) {
     return fetch(url, {

@@ -9,7 +9,7 @@ import { cn } from "@wattsentry/ui/lib/utils";
 //   critical  diamond (+ halo if pulse) review   hexagon with a hollow core
 //   forecast  dashed ring               soc      battery cell (optional fill level)
 //   unknown   hollow ring               live     round LED that breathes
-// Colour comes from the --status-* tokens (ui-style.md §2) through currentColor.
+// Colour comes from the --status-* tokens through currentColor.
 
 export type StatusKind = "ok" | "warn" | "critical" | "review" | "forecast" | "soc" | "unknown" | "live";
 

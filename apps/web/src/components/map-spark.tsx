@@ -9,7 +9,7 @@ import { bandAreaPath, bandEdgePath, computeBandSegments } from "@/components/ch
 import { ChartRevealClip } from "@/components/charts/chart-reveal-clip";
 import { linePathD } from "@/components/charts/line-path";
 
-// A map-sized member of the Bklit chart family (components/charts): the same band geometry, line
+// A map-sized member of the chart family (components/charts): the same band geometry, line
 // paths, dashed projection and left-to-right reveal clip, without the shell's axes and tooltip,
 // which can't shrink to 120 × 36. Grammar, everywhere on the map:
 //   measured (past)  solid line          forecast (ahead)  dashed line from the last measurement
@@ -27,7 +27,7 @@ export type SparkPoint = {
   p90?: number | null;
 };
 
-export type MapSparkProps = {
+type MapSparkProps = {
   /** Sorted by t. Actual values after `now` are ignored; forecast values start at the last actual. */
   points: SparkPoint[];
   /** The replay clock, epoch ms. */
@@ -43,10 +43,6 @@ export type MapSparkProps = {
   limit?: { value: number; label: string };
   /** Hour labels for the peak, in the app's wall-clock zone. */
   formatTime: (ms: number) => string;
-  /** Ticks under the expanded chart, as hours after now. */
-  tickHours?: number[];
-  /** Explains the grammar under the expanded chart; the legend says it once per mode. */
-  showKey?: boolean;
   /** Peak value text in both sizes, or only when opened (where a limit already crowds the compact chart). */
   peakLabel?: "always" | "expanded";
   /** Words for that line, e.g. "today so far" / "rest of the day" on a feeder. */
@@ -60,6 +56,8 @@ const SIZE = {
 } as const;
 
 const HOUR_MS = 3_600_000;
+/** Ticks under the expanded chart, as hours after now. */
+const TICK_HOURS = [0, 6, 12];
 const REVEAL = { type: "tween", duration: 0.3, ease: [0.22, 1, 0.36, 1] } as const;
 const PEAK_LABEL_GAP = 5;
 // Rough width of a label character, to keep the peak label inside the chart.
@@ -68,7 +66,7 @@ const CHAR_PX = { compact: 5, expanded: 5.6 } as const;
 const isNumber = (value: number | null | undefined): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
-export function formatAmount(value: number) {
+function formatAmount(value: number) {
   return value >= 10 ? Math.round(value).toString() : value.toFixed(1);
 }
 
@@ -86,8 +84,6 @@ export function MapSpark({
   tone = "actual",
   limit,
   formatTime,
-  tickHours = [0, 6, 12],
-  showKey = false,
   keyLabels,
   peakLabel = "always",
   className,
@@ -213,7 +209,7 @@ export function MapSpark({
   const lineWidth = expanded ? 1.75 : 1.5;
   const dash = expanded ? "4 3" : "3 2.5";
   const measuredStroke = tone === "brand" ? "var(--sentinel)" : "var(--status-actual)";
-  const ticks = tickHours
+  const ticks = TICK_HOURS
     .map((hours) => ({ hours, at: x(now + hours * HOUR_MS) }))
     .filter((tick) => tick.at >= pad.left - 1 && tick.at <= width - pad.right + 1);
 
@@ -357,7 +353,7 @@ export function MapSpark({
             ))}
         </svg>
       </LazyMotion>
-      {expanded && showKey && (
+      {expanded && (
         <SparkKey
           measured={model.measured}
           range={model.bandRows.length > 1}
@@ -371,7 +367,7 @@ export function MapSpark({
   );
 }
 
-export type SparkKeyLabels = { measured: string; forecast: string; range: string; limit: string };
+type SparkKeyLabels = { measured: string; forecast: string; range: string; limit: string };
 
 const DEFAULT_KEY: SparkKeyLabels = {
   measured: "measured",

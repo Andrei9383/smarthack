@@ -5,7 +5,7 @@ import { AudioLines, BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen } from
 import type { ReactNode } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/status-mark";
-import { useAskSentinel } from "@/components/voice/voice-assistant";
+import { useAskWattSentry } from "@/components/voice/voice-assistant";
 import { useSummaryOpen } from "@/components/shell/demo-jumps";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
@@ -74,8 +74,8 @@ function RailItem({
 }
 
 /** #207: voice conversation with the ElevenLabs agent; hidden when the server has no key. */
-function AskSentinelItem({ expanded }: { expanded: boolean }) {
-  const { available, live, toggle } = useAskSentinel();
+function AskWattSentryItem({ expanded }: { expanded: boolean }) {
+  const { available, live, toggle } = useAskWattSentry();
   if (!available) return null;
   return (
     <RailItem
@@ -150,7 +150,7 @@ export function Rail({
         onClick={() => setSummaryOpen(!summaryOpen)}
         shortcut="6"
       />
-      <AskSentinelItem expanded={expanded} />
+      <AskWattSentryItem expanded={expanded} />
 
       <div className="flex-1" />
 

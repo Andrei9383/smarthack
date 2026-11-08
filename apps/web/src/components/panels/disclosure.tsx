@@ -13,18 +13,18 @@ import { type ReactNode, useRef } from "react";
 
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shell/popover";
 
-// Progressive disclosure and the Calm building blocks (team/contracts/ui-style.md). A glance shows a
+// Progressive disclosure and the Calm building blocks. A glance shows a
 // title and one status pill, up to three numbers, one chart and one top-5 list; the rest sits one
 // click away in a popover (a breakdown, a definition, the "why") or a Details sheet (tables,
 // secondary charts, logs).
 // Popovers and sheets are base-ui (already in packages/ui): Esc and outside click close them,
 // sheets trap focus. Both lift with shadow-overlay and fade/scale in from their trigger.
 
-/** Section title: 14px / 600, sentence case, ink (ui-style §4). */
+/** Section title: 14px / 600, sentence case, ink. */
 export const LABEL = "section-title whitespace-nowrap";
 
 /** Click (or Enter/Space) opens; Esc, outside click or the trigger again closes. */
-export function Pop({
+function Pop({
   trigger,
   title,
   children,
@@ -66,7 +66,7 @@ export function Pop({
 }
 
 /** Units small and muted after the number; the number itself in Inter with tabular digits. */
-export function Num({ value, unit, className }: { value: ReactNode; unit?: string; className?: string }) {
+function Num({ value, unit, className }: { value: ReactNode; unit?: string; className?: string }) {
   return (
     <span className={cn("inline-flex items-baseline gap-0.5 whitespace-nowrap tabular-nums", className)}>
       <span>{value}</span>
@@ -79,7 +79,7 @@ export function Num({ value, unit, className }: { value: ReactNode; unit?: strin
 export type Delta = { text: ReactNode; good?: boolean | null };
 
 /** Small delta chip: the word or number first, colour second (never colour alone). */
-export function DeltaChip({ delta, className }: { delta: Delta; className?: string }) {
+function DeltaChip({ delta, className }: { delta: Delta; className?: string }) {
   const tone =
     delta.good === true
       ? "bg-status-ok/10 text-status-ok"

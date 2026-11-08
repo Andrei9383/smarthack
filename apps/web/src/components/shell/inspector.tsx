@@ -11,7 +11,7 @@ import { InspectorEmbedded } from "./inspector-embedded";
 const PANEL_IN_INSPECTOR =
   "[&>aside]:static [&>aside]:inset-auto [&>aside]:z-auto [&>aside]:h-auto [&>aside]:w-full [&>aside]:max-w-none [&>aside]:overflow-visible [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:shadow-none";
 
-/** The one floating right inspector every mode renders into (prototype .insp). */
+/** The one floating right inspector every mode renders into. */
 export function Inspector({ mode, children, className }: { mode: ModeId; children: ReactNode; className?: string }) {
   return (
     <aside

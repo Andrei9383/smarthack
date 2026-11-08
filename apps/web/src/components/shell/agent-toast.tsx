@@ -24,7 +24,7 @@ export function showAgentToast(action: AgentAction, options: { others?: number; 
   emit();
 }
 
-export function hideAgentToast() {
+function hideAgentToast() {
   current = null;
   emit();
 }

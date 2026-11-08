@@ -4,32 +4,19 @@ import { stepToDate } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import { orpc } from "@/lib/orpc";
 
-// Judge rows are keyed by the local (Europe/Bucharest) calendar day, design §8.
+// Judge rows are keyed by the local (Europe/Bucharest) calendar day.
 const LOCAL_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest" });
-export const localDay = (step: number) => LOCAL_DAY.format(stepToDate(step));
-
-export function useJudgeDay() {
-  const [step] = useReplayStep();
-  return localDay(step);
-}
 
 export function useVerdicts(assetId?: string) {
-  const until = useJudgeDay();
+  const [step] = useReplayStep();
+  const until = LOCAL_DAY.format(stepToDate(step));
   return useQuery({
     ...orpc.judge.verdicts.queryOptions({ input: { until, assetId } }),
     placeholderData: keepPreviousData,
   });
 }
 
-export function useTrustBoard() {
-  const until = useJudgeDay();
-  return useQuery({
-    ...orpc.judge.trustBoard.queryOptions({ input: { until } }),
-    placeholderData: keepPreviousData,
-  });
-}
-
-export const WITNESS_LABEL: Record<string, string> = {
+const WITNESS_LABEL: Record<string, string> = {
   pvnet: "PVNet",
   pvlib: "pvlib",
   loadnet: "LoadNet",

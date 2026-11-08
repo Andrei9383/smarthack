@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Demo readiness smoke check (card #62). Run it against the app the demo will use:
-//   node apps/web/src/demo/offline-check.mjs [base-url]      (default http://localhost:3000)
+// Demo readiness smoke check. Run it against the app the demo will use:
+//   node apps/web/scripts/offline-check.mjs [base-url]      (default http://localhost:3000)
 // With Wi-Fi off and a local `npm run build && npm start`, every line must say ok. On the phone hotspot,
 // point it at the shared app URL. It loads each mode, every same-origin script and stylesheet the page
 // references, and the summary data (runs + KPIs), and lists any external host a page asks for.

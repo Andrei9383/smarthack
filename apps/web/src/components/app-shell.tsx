@@ -5,7 +5,7 @@ import { cn } from "@wattsentry/ui/lib/utils";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { useCallback, useEffect, useState } from "react";
 
-import { defaultTourSteps, Tour, useTour } from "@/components/help";
+import { Tour, useTour } from "@/components/help";
 import { AgentToast } from "@/components/shell/agent-toast";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { Inspector } from "@/components/shell/inspector";
@@ -24,10 +24,10 @@ import { FlexDock, useFlexOpen } from "@/components/panels/flex/flex-panel";
 import { SiteSheet } from "@/components/panels/site/site-sheet";
 
 const ROMANIA_CENTER: [number, number] = [25, 45.9];
-const RAIL_KEY = "sentinel.rail";
+const RAIL_KEY = "wattsentry.rail";
 
 // Feeders and Demand draw their own legend inside their layers; the shell moves it into the
-// prototype's legend slot (top-left, under the top bar). The other modes use the shell's LegendCard.
+// legend slot (top-left, under the top bar). The other modes use the shell's LegendCard.
 const OWN_LEGEND = new Set<ModeId>(["feeders", "demand"]);
 // Written out in full: Tailwind only generates classes it can read literally in the source.
 const MOVE_MODE_LEGEND =
@@ -151,7 +151,7 @@ export function AppShell() {
               <LegendCard mode={mode} className="absolute top-[80px] left-4 z-[15]" />
             ) : null}
 
-            {/* #31/#32: the flexibility panel opens from Feeders and O&M. Closed, its button sits beside
+            {/* The flexibility panel opens from Feeders and O&M. Closed, its button sits beside
                 the inspector; open, the panel takes the legend's column on the left. */}
             {hasFlex ? (
               flexShown ? (
@@ -194,7 +194,7 @@ export function AppShell() {
       </main>
       <SiteSheet />
       <TurbineSheet />
-      <Tour steps={defaultTourSteps} open={tour.open} onOpenChange={tour.onOpenChange} />
+      <Tour open={tour.open} onOpenChange={tour.onOpenChange} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onTour={tour.start} />
     </div>
     </VoiceAssistantProvider>

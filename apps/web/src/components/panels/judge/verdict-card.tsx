@@ -22,7 +22,7 @@ const UNKNOWN = { kind: "unknown" as const, pill: "unknown" as const };
 
 const pct = (v: number | null) => (v === null ? "–" : `${Math.round(v * 100)}%`);
 
-export function TrustBar({ trust, className }: { trust: number | null; className?: string }) {
+function TrustBar({ trust, className }: { trust: number | null; className?: string }) {
   const v = trust === null ? 0 : Math.max(0, Math.min(1, trust));
   const tone = trust === null ? "bg-status-unknown" : v >= 0.7 ? "bg-status-ok" : v >= 0.4 ? "bg-status-warn" : "bg-status-critical";
   return (

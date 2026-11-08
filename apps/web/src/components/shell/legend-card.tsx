@@ -12,8 +12,8 @@ import { StatusMark } from "@/components/status-mark";
 import { SparkKey } from "@/components/map-spark";
 import { Term } from "@/components/help";
 
-// One legend card per mode, top-left under the top bar as in the prototype. Colours are the
-// status tokens the mode layers use (team/contracts/ui-style.md §2).
+// One legend card per mode, top-left under the top bar. Colours are the status
+// tokens the mode layers use.
 const STRESS_GRADIENT = `linear-gradient(to right, ${STRESS_RAMP.map(([at, color]) => `${color} ${at * 100}%`).join(", ")})`;
 
 function Line({ tone, dashed }: { tone: string; dashed?: boolean }) {

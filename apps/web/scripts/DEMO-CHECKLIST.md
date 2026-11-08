@@ -1,13 +1,12 @@
-# Demo readiness checklist (card #62)
+# Demo readiness checklist
 
-Demo data: `demo/wattsentry.sqlite` = replay#506 (runs `506:baseline`, `506:sentinel`, week Mon 2 – Sun 8 June 2025).
-Write what you saw on card #62 (`lab note 62 "..."`), one line per section.
+Demo data: `demo/wattsentry.sqlite` = replay run 506 (runs `506:baseline`, `506:sentinel`, week Mon 2 – Sun 8 June 2025).
 
 ## 0. Automated smoke check (1 min)
 
 ```sh
-node apps/web/src/demo/offline-check.mjs                       # local build, default http://localhost:3000
-node apps/web/src/demo/offline-check.mjs https://app.<domain>  # the shared app, from the hotspot
+node apps/web/scripts/offline-check.mjs                       # local build, default http://localhost:3000
+node apps/web/scripts/offline-check.mjs https://app.<domain>  # the shared app, from the hotspot
 ```
 
 Every line must say `ok`. It loads all 6 modes, every script/style they reference, and the summary data.
@@ -48,11 +47,11 @@ Footer: `Run ID 506:sentinel · 506:baseline`. Keys 1–5 land on: Production WP
 2. Run the smoke check against the shared URL; note the `ms` of the first mode.
 3. Click through all modes and keys 1–6 as in section 2.
 
-## 4. Lab public on (with Andrei)
+## 4. Lab public on
 
 `lab public on`, then open `demo.<domain>` from a phone on mobile data and repeat section 3, step 3.
 
 ## 5. Rehearsal
 
-Two timed run-throughs of the plan §7 script on the demo laptop; note the time and whether the map stays smooth
+Two timed run-throughs of the demo script on the demo laptop; note the time and whether the map stays smooth
 (no visible stutter while the replay plays).

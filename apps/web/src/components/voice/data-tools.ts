@@ -23,7 +23,7 @@ const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "satur
  * The replay week is Monday 2 – Sunday 8 June 2025. Accepts "today", "yesterday", "tomorrow", a weekday,
  * "2025-06-04", "4 June", "June 4" or "day 3" (1 = Monday); anything else means the replay's current day.
  */
-export function parseDay(input: unknown, currentDay: number): { day: number } | { error: string } {
+function parseDay(input: unknown, currentDay: number): { day: number } | { error: string } {
   const text = String(input ?? "").trim().toLowerCase();
   if (!text || text === "today" || text === "now") return { day: currentDay };
   const clamp = (day: number) =>

@@ -4,12 +4,12 @@ export const STEPS_PER_DAY = 96;
 export const DAYS = 7;
 export const STEPS_IN_WEEK = STEPS_PER_DAY * DAYS;
 export const NOON_STEP = 48;
-// F7's peak day in the demo week; the fault at site 1042 is the day after (#30).
+// F7's peak day in the demo week; the fault at site 1042 is the day after.
 export const HERO_DAY = 2;
 export const FAULT_DAY = 3;
 export const DEFAULT_STEP = HERO_DAY * STEPS_PER_DAY + NOON_STEP;
 
-// 2025-06-02 00:00 EEST: the week #30 seeds, no DST change (R19). Align with runs.week_start (#56).
+// 2025-06-02 00:00 EEST: the fixture week, no DST change. Matches runs.week_start.
 const WEEK_START_UTC = Date.UTC(2025, 5, 1, 21, 0);
 
 export function stepToDate(step: number): Date {

@@ -20,9 +20,9 @@ import { cn } from "@wattsentry/ui/lib/utils";
  * rail = mode navigation · map = map canvas · inspector = right-hand details panel ·
  * timeline = bottom dock (play / scrubber) · policy = Baseline/WattSentry toggle.
  */
-export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy";
+type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy";
 
-export type TourStep = {
+type TourStep = {
   id: string;
   /** `data-tour` value to spotlight. Omit (or missing in the DOM) = a centred card over the full scrim. */
   target?: TourTarget;
@@ -32,7 +32,7 @@ export type TourStep = {
   placement?: "right" | "left" | "top" | "bottom" | "center";
 };
 
-export const defaultTourSteps: TourStep[] = [
+const STEPS: TourStep[] = [
   {
     id: "welcome",
     title: "Welcome to WattSentry",
@@ -134,23 +134,13 @@ const FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"
  *
  *   const tour = useTour();
  *   <button onClick={tour.start}>?</button>
- *   <Tour steps={defaultTourSteps} open={tour.open} onOpenChange={tour.onOpenChange} />
+ *   <Tour open={tour.open} onOpenChange={tour.onOpenChange} />
  *
  * Keyboard: ← / → move between steps, Esc skips, Tab stays inside the card.
  */
-export function Tour({
-  steps,
-  open,
-  onOpenChange,
-  initialStep = 0,
-}: {
-  steps: TourStep[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** Step shown each time the tour opens (0-based). */
-  initialStep?: number;
-}) {
-  const [index, setIndex] = useState(initialStep);
+export function Tour({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const steps = STEPS;
+  const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [card, setCard] = useState<{ left: number; top: number } | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -170,11 +160,11 @@ export function Tour({
   // Reset to the first step and remember focus each time the tour opens; restore focus on close.
   useEffect(() => {
     if (!open) return;
-    setIndex(Math.min(initialStep, steps.length - 1));
+    setIndex(0);
     setSettled(false);
     restoreRef.current = document.activeElement as HTMLElement | null;
     return () => restoreRef.current?.focus?.();
-  }, [open, initialStep, steps.length]);
+  }, [open]);
 
   const layout = useCallback(() => {
     if (!step) return;
@@ -344,19 +334,20 @@ export function Tour({
   );
 }
 
-const DEFAULT_KEY = "sentinel.tour.v1";
+const STORAGE_KEY = "wattsentry.tour.v1";
+const AUTO_OPEN_DELAY_MS = 800;
 
-function seen(key: string) {
+function seen() {
   try {
-    return window.localStorage.getItem(key) === "done";
+    return window.localStorage.getItem(STORAGE_KEY) === "done";
   } catch {
     return false; // storage blocked: treat as a first visit, but never throw
   }
 }
 
-function markSeen(key: string) {
+function markSeen() {
   try {
-    window.localStorage.setItem(key, "done");
+    window.localStorage.setItem(STORAGE_KEY, "done");
   } catch {
     /* storage blocked: the tour may show again next visit */
   }
@@ -367,38 +358,22 @@ function markSeen(key: string) {
  * Auto-open is skipped for automated browsers (navigator.webdriver, e.g. screenshot scripts)
  * and when the URL has `?tour=0`, so demo links and screenshots stay clean.
  */
-export function useTour({
-  storageKey = DEFAULT_KEY,
-  autoOpen = true,
-  delayMs = 800,
-}: { storageKey?: string; autoOpen?: boolean; delayMs?: number } = {}) {
+export function useTour() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!autoOpen || seen(storageKey)) return;
-    if (navigator.webdriver) return;
+    if (seen() || navigator.webdriver) return;
     if (new URLSearchParams(window.location.search).get("tour") === "0") return;
-    const t = setTimeout(() => setOpen(true), delayMs);
+    const t = setTimeout(() => setOpen(true), AUTO_OPEN_DELAY_MS);
     return () => clearTimeout(t);
-  }, [autoOpen, storageKey, delayMs]);
+  }, []);
 
-  const onOpenChange = useCallback(
-    (next: boolean) => {
-      setOpen(next);
-      if (!next) markSeen(storageKey);
-    },
-    [storageKey],
-  );
+  const onOpenChange = useCallback((next: boolean) => {
+    setOpen(next);
+    if (!next) markSeen();
+  }, []);
 
   const start = useCallback(() => setOpen(true), []);
 
-  const reset = useCallback(() => {
-    try {
-      window.localStorage.removeItem(storageKey);
-    } catch {
-      /* ignore */
-    }
-  }, [storageKey]);
-
-  return { open, onOpenChange, start, reset };
+  return { open, onOpenChange, start };
 }

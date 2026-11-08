@@ -1,8 +1,6 @@
 "use client";
 
-import { cn } from "@wattsentry/ui/lib/utils";
-import { Volume2, VolumeX } from "lucide-react";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
 
 import type { AgentAction } from "@/components/shell/agent-actions";
 import { useAgentActions } from "@/components/shell/agent-actions";
@@ -12,16 +10,16 @@ import { useReplayStep } from "@/lib/use-replay";
 import type { FeederState } from "@/modes/overview/use-overview-data";
 import { useOverviewData } from "@/modes/overview/use-overview-data";
 
-import { loadLine, narrator, narratorLine } from "./narrator";
-import { setNarrationOn, useNarrationOn, useVoiceStatus } from "./use-voice-status";
+import { loadLine, narrator } from "./narrator";
+import { useVoiceStatus } from "./use-voice-status";
 
-// "Play today's story", told by an ElevenLabs voice (card #207). The script is written from the
+// "Play today's story", told by an ElevenLabs voice. The script is written from the
 // same data the Overview shows: what the agent did overnight, the midday solar on the worst
 // feeder, each action it takes during the day, the evening peak and the day against no WattSentry.
 
 const DAY = HERO_DAY * STEPS_PER_DAY;
 const at = (hour: number, minute = 0) => DAY + hour * 4 + Math.round(minute / 15);
-export const STORY_START = at(6);
+const STORY_START = at(6);
 const STORY_END = at(20);
 
 type Line = { step: number; text: string };
@@ -41,7 +39,7 @@ const peak = (feeders: FeederState[], pick: (f: FeederState) => number | undefin
   feeders.some((f) => pick(f) !== undefined) ? Math.max(...feeders.map((f) => pick(f) ?? 0)) : undefined;
 
 /** "Scheduled 15 home batteries on …" → "WattSentry scheduled 15 home batteries on …" */
-const asSentinel = (title: string) => `WattSentry ${title.charAt(0).toLowerCase()}${title.slice(1)}`;
+const asWattSentry = (title: string) => `WattSentry ${title.charAt(0).toLowerCase()}${title.slice(1)}`;
 
 function actionLine(group: AgentAction[]): string {
   const [lead] = group;
@@ -49,10 +47,10 @@ function actionLine(group: AgentAction[]): string {
   const others = group.length - 1;
   const also = others > 0 ? `, and on ${plural(others, "other feeder")}` : "";
   const why = lead.kind === "dispatch" ? "" : ` ${lead.detail}.`;
-  return `At ${spokenTime(lead.step)}, ${asSentinel(lead.title)}${also}.${why}`;
+  return `At ${spokenTime(lead.step)}, ${asWattSentry(lead.title)}${also}.${why}`;
 }
 
-export function buildStory(feeders: FeederState[], actions: AgentAction[], comfortBreaches?: number): Line[] {
+function buildStory(feeders: FeederState[], actions: AgentAction[], comfortBreaches?: number): Line[] {
   const lines: Line[] = [];
   const date = stepToDate(STORY_START).toLocaleDateString("en-GB", {
     weekday: "long",
@@ -140,9 +138,7 @@ export function buildStory(feeders: FeederState[], actions: AgentAction[], comfo
  * Pausing pauses the voice; scrubbing or jumping elsewhere ends the narration for that run.
  */
 export function useStoryNarration(runId: number) {
-  const status = useVoiceStatus();
-  const wanted = useNarrationOn();
-  const enabled = status.narration && wanted;
+  const enabled = useVoiceStatus().narration;
   const data = useOverviewData();
   const { actions } = useAgentActions();
   const [rawStep] = useReplayStep();
@@ -195,33 +191,4 @@ export function useStoryNarration(runId: number) {
   }, [enabled]);
 
   useEffect(() => () => narrator.stop(), []);
-}
-
-/** The line being spoken, for a caption under the briefing. */
-export function useNarratorLine() {
-  return useSyncExternalStore(narratorLine.subscribe, narratorLine.get, () => null);
-}
-
-/** Voice on / off for the story, beside "Play today's story". Hidden when the server has no key. */
-export function NarrationToggle({ className }: { className?: string }) {
-  const { narration } = useVoiceStatus();
-  const on = useNarrationOn();
-  if (!narration) return null;
-  const label = on ? "Narration on: the story is read aloud" : "Narration off";
-  return (
-    <button
-      type="button"
-      onClick={() => setNarrationOn(!on)}
-      aria-pressed={on}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "grid size-10 shrink-0 cursor-pointer place-items-center rounded-lg bg-card text-muted-foreground shadow-raised transition-[background-color,color] duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-        on && "text-foreground",
-        className,
-      )}
-    >
-      {on ? <Volume2 aria-hidden className="size-4" /> : <VolumeX aria-hidden className="size-4" />}
-    </button>
-  );
 }

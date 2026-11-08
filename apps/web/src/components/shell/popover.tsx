@@ -4,7 +4,7 @@ import { Popover as Base } from "@base-ui/react/popover";
 import { cn } from "@wattsentry/ui/lib/utils";
 import { type ReactNode, useRef } from "react";
 
-// A small white popover for progressive disclosure (ui-style.md §7): opens on click or Enter/Space,
+// A small white popover for progressive disclosure: opens on click or Enter/Space,
 // closes on Esc and outside click, scales in from its trigger in 180 ms. Built on Base UI, which
 // packages/ui already ships (its Sheet and Tooltip use it), so there is no new dependency.
 

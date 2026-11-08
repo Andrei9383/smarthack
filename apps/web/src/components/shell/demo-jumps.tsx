@@ -9,7 +9,7 @@ import { DEFAULT_STEP, FAULT_DAY, NOON_STEP, STEPS_PER_DAY } from "@/lib/replay"
 const EVENING_STEP = DEFAULT_STEP - NOON_STEP + 76; // 19:00 on the hero day
 const FAULT_STEP = FAULT_DAY * STEPS_PER_DAY + NOON_STEP;
 
-// Demo script, plan §7. The story days come from #30. Step 6 opens the summary instead of a jump.
+// Demo script jumps. Step 6 opens the summary instead of a jump.
 const JUMPS = [
   {
     title: "Production",

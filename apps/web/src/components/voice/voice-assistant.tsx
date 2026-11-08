@@ -125,7 +125,7 @@ function VoiceTools() {
 
 /* ---------- Start / stop ---------- */
 
-export function useAskSentinel() {
+export function useAskWattSentry() {
   const { assistant } = useVoiceStatus();
   const { startSession, endSession } = useConversationControls();
   const { status } = useConversationStatus();
@@ -172,7 +172,7 @@ export function VoicePanel({ className }: { className?: string }) {
   const { open, said, error, muted } = useVoiceState();
   const { status } = useConversationStatus();
   const { isSpeaking } = useConversationMode();
-  const { live, start, stop } = useAskSentinel();
+  const { live, start, stop } = useAskWattSentry();
   if (!open) return null;
 
   const connected = status === "connected";

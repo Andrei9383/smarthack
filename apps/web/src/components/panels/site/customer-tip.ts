@@ -1,4 +1,4 @@
-// The one sentence the homeowner sees (plan §7 step 5). Plain words, no model names, and only
+// The one sentence the homeowner sees. Plain words, no model names, and only
 // facts that are in the run: if a number is missing, the sentence does without it.
 
 export type TipInput = {

@@ -34,9 +34,7 @@ import { customerTip } from "./customer-tip";
 import { dayName, dayRange, hhmm, inRange, stepTs, wallClock } from "./time";
 import { useSelectedSite } from "./use-site";
 
-// Re-exported for modes/om, which imports it from here; values live in ../colors.
-export { STATUS_COLORS };
-/** Status = shape-coded mark + word (ui-style §2); in the header it sits in a tinted StatusPill. */
+/** Status = shape-coded mark + word; in the header it sits in a tinted StatusPill. */
 const STATUS_KIND: Record<string, StatusKind> = {
   eligible: "ok",
   derated: "warn",
@@ -58,7 +56,7 @@ const STATUS_WORDS: Record<string, string> = {
 const ACTUAL_COLOR = ACTUAL;
 const FORECAST_COLOR = FORECAST;
 const SOC_COLOR = SOC;
-// The battery schedule is WattSentry's own series (ui-style §6).
+// The battery schedule is WattSentry's own series.
 const BATT_COLOR = "var(--sentinel)";
 // Room for the y-axis labels on the left and the 24:00 tick on the right.
 const CHART_MARGIN = { left: 40, right: 18, top: 10, bottom: 26 };
