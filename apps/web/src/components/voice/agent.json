@@ -3,60 +3,60 @@
   "voiceId": "JBFqnCBsd6RMkjVDRZzb",
   "documents": [
     {
-      "id": "2BONX4HDkXCh1mcyhcch",
+      "id": "NnmehaeQ7VFxBXyDpSvy",
       "name": "Sentinel · README.md · Project overview, how it works, headline results",
       "file": "README.md"
     },
     {
-      "id": "fPEliKMunGA6fGpfEDHG",
+      "id": "Eqmxc7u3pMvV8KQSGZT1",
       "name": "Sentinel · team/brief.md · The Smarthack challenge and how it is judged",
       "file": "team/brief.md"
     },
     {
-      "id": "931fjwFtvj1WySGQk01X",
+      "id": "4XVeT1cRbpFjo11zmz0r",
       "name": "Sentinel · team/plan.md · The binding build plan",
       "file": "team/plan.md"
     },
     {
-      "id": "LboJFL9IRDF6i0DWNVmY",
+      "id": "LvgJaHn9wxfaNhXaGTgc",
       "name": "Sentinel · team/decisions.md · Team decisions and contract changes",
       "file": "team/decisions.md"
     },
     {
-      "id": "08zwQgOiDZX4GT8inQHC",
+      "id": "5BSgumeH8hJsTlFOLbgf",
       "name": "Sentinel · team/results.md · Evaluation results and run IDs",
       "file": "team/results.md"
     },
     {
-      "id": "qaZ23jbXsZ1jOO4HKAly",
+      "id": "oPR3JcatiISDaz1BlmNU",
       "name": "Sentinel · team/insights.md · What we learned from experiments",
       "file": "team/insights.md"
     },
     {
-      "id": "TEofdqqtRT0jZYdMsXzI",
+      "id": "MHQywsUxq8tu47WCidiC",
       "name": "Sentinel · team/data-provenance.md · Data sources and provenance",
       "file": "team/data-provenance.md"
     },
     {
-      "id": "i1WuVMGHPjDICpq6qDYx",
+      "id": "2qZbinMTdzQ1lKVvjkFD",
       "name": "Sentinel · team/judge-design.md · The Judge: trust filter for model predictions",
       "file": "team/judge-design.md"
     },
     {
-      "id": "Vrmh0FepvPLW8K1TGGo1",
+      "id": "vNkx7GbSqQcpA3GuncG2",
       "name": "Sentinel · team/features/grid.md · Feature spec: grid / feeders",
       "file": "team/features/grid.md"
     },
     {
-      "id": "BewnQcwoeqI3BRaRUA7g",
+      "id": "kNt8eViXBBBBDlkTt6G2",
       "name": "Sentinel · team/features/imbalance.md · Feature spec: imbalance and prices",
       "file": "team/features/imbalance.md"
     },
     {
-      "id": "9Pn92biU7Y26VHnTQQyi",
+      "id": "UMizvS9mBgSvNqnlQjYU",
       "name": "Sentinel · team/features/wind.md · Feature spec: wind O&M",
       "file": "team/features/wind.md"
     }
   ],
-  "syncedAt": "2026-11-08T01:04:34.230Z"
+  "syncedAt": "2026-11-08T01:09:19.405Z"
 }

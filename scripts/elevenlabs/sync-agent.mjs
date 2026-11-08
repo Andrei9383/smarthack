@@ -84,7 +84,7 @@ const TOOLS = [
     type: "client",
     name: "current_view",
     description:
-      "Find out which view the person is looking at, the replay clock, whether Sentinel or the baseline is shown, and the briefing sentence on Overview.",
+      "Find out which view the person is looking at, the replay clock, whether Sentinel or the baseline is shown, and what is selected.",
     expects_response: true,
     response_timeout_secs: 5,
     parameters: { type: "object", properties: {} },
