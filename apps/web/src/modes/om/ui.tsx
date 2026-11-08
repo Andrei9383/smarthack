@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import type { StatusKind } from "@/components/brand/status-mark";
 
 // Small presentational pieces shared by the O&M panel, the turbine drawer and the park report.
-// Section titles use the `section-title` utility; the provenance pill is components/provenance-pill.
+// Section titles use the `section-title` utility.
 
 export type Tone = "ok" | "warn" | "review" | "unknown" | "critical" | "info";
 

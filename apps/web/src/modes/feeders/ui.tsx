@@ -4,7 +4,6 @@ import { scaleLinear } from "d3-scale";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { ProvenancePill } from "@/components/provenance-pill";
 import { LABEL, SectionHeader as CalmSectionHeader } from "@/panels/disclosure";
 
 // Small presentational pieces shared by the Feeders and Demand panels (team/contracts/ui-style.md, Calm).
@@ -12,8 +11,6 @@ import { LABEL, SectionHeader as CalmSectionHeader } from "@/panels/disclosure";
 /** @deprecated Use `LABEL` from panels/disclosure. Kept for demand-panel until #200 lands. */
 export const SECTION_LABEL = LABEL;
 
-/** The shared provenance pill (components/provenance-pill.tsx); re-exported for demand-panel. */
-export { ProvenancePill };
 
 /** Plot margins: room on the left for y labels, below for time ticks. */
 export const AXIS_MARGIN = { left: 36, right: 10, top: 22, bottom: 24 };

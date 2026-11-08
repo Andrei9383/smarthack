@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 
 import { HowItDecides } from "@/components/help";
 
-import { ProvenancePill } from "@/components/provenance-pill";
 import { useOverview } from "@/demo/kpi-strip";
 import { MODES, type ModeId } from "@/modes/registry";
 
@@ -39,7 +38,6 @@ const PANEL_IN_INSPECTOR =
 
 /** The one floating right inspector every mode renders into (prototype .insp). */
 export function Inspector({ mode, children, className }: { mode: ModeId; children: ReactNode; className?: string }) {
-  const { label: runLabel } = useOverview();
   const copy = MODE_COPY[mode];
   const subline = useSubline(mode);
 
@@ -91,11 +89,10 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
               </Popover>
             ) : null}
           </div>
-          {runLabel ? <ProvenancePill label={runLabel} className="mt-0.5 shrink-0" /> : null}
         </header>
 
         <div className={PANEL_IN_INSPECTOR}>
-          <InspectorEmbedded runLabel={runLabel ?? null}>{children}</InspectorEmbedded>
+          <InspectorEmbedded>{children}</InspectorEmbedded>
         </div>
 
         {/* #114: the agent loop for this mode, folded under the live content. */}
