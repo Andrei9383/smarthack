@@ -5,6 +5,8 @@ stays under the feeder's limit and is released into the evening peak. It watches
 real faults from curtailment and sensor noise. It commits only the flexibility that healthy, predictable assets
 can actually deliver (P10). Every decision is written to an audit log that names the model prediction behind it.
 
+![WattSentry overview: prosumer savings, feeder limits, wind fleet, decisions needing review, and the asset map](docs/overview.png)
+
 Built in 24 h at Smarthack XI (PPC theme "24h to Power PPC"). Challenge summary: [team/brief.md](team/brief.md);
 binding plan: [team/plan.md](team/plan.md).
 
@@ -86,16 +88,16 @@ torch or the LP: every panel is precomputed by `replay.py`.
 All models are trained from scratch in this repo and run in our code (ONNX + onnxruntime at inference, no
 external API). Each one has a fallback, so a missing model degrades a panel, never the demo.
 
-| # | Model | Question | Architecture | Tier | Status | Fallback |
-|---|---|---|---|---|---|---|
-| M1 | PVNet | What should this PV system produce? | PatchTST-style encoder, 0.29 M params, weather + solar geometry + the site's own past-power reference window | MUST | trained on the #11 fleet, 4-seed ensemble (#14 train#383–386), in `models/` | LightGBM quantile (#15) |
-| M2 | LoadNet | What will this household consume? | same encoder, separate weights, 0.21 M params | MUST | trained, 4 seeds (#14 train#387–390), in `models/` | persistence |
-| M4 | SiteHealth | Is this prosumer site healthy? | 1D-CNN on M1/M2 residuals + telemetry + 14-day summary, focal loss, 8 classes, 56 k params | MUST | trained (#14 train#391), in `models/` | threshold rule + CUSUM (#15) |
-| M6 | WindNBM | Is this turbine behaving normally? | GRU normal-behaviour model (power + component temps) + LightGBM classifier on residuals and park context, 0.13 M params | SHOULD | in `models/`: #41 run 135 (stand-in wind data); evaluated on #22 parks (#99 train#591–594) | WindMon rules (#24) |
-| M3 | DemandNet | Where and when will demand peak? | v1 sum of LoadNet scenarios per zone; v2 LightGBM quantile per county | SHOULD | on main (#44) | persistence |
-| M8 | GridTwin | Is the GIS feeder/phase right? | voltage correlation + spectral clustering | SHOULD | on main (#13) | GIS as-is (τ = 1) |
-| M5 | WindPower | What will each park produce? | probabilistic power-curve MLP | OPTIONAL | experiment, not merged (#42) | binned empirical curve |
-| M7 | WindFailure | Will a component fail soon? | LightGBM on daily M6 residuals | OPTIONAL | on main (#43 train#379); fails on real CARE data | residual trend, no score |
+| # | Model | Question | Architecture | Status | Fallback |
+|---|---|---|---|---|---|
+| M1 | PVNet | What should this PV system produce? | PatchTST-style encoder, 0.29 M params, weather + solar geometry + the site's own past-power reference window | trained on the #11 fleet, 4-seed ensemble (#14 train#383–386), in `models/` | LightGBM quantile (#15) |
+| M2 | LoadNet | What will this household consume? | same encoder, separate weights, 0.21 M params | trained, 4 seeds (#14 train#387–390), in `models/` | persistence |
+| M4 | SiteHealth | Is this prosumer site healthy? | 1D-CNN on M1/M2 residuals + telemetry + 14-day summary, focal loss, 8 classes, 56 k params | trained (#14 train#391), in `models/` | threshold rule + CUSUM (#15) |
+| M6 | WindNBM | Is this turbine behaving normally? | GRU normal-behaviour model (power + component temps) + LightGBM classifier on residuals and park context, 0.13 M params | in `models/`: #41 run 135 (stand-in wind data); evaluated on #22 parks (#99 train#591–594) | WindMon rules (#24) |
+| M3 | DemandNet | Where and when will demand peak? | v1 sum of LoadNet scenarios per zone; v2 LightGBM quantile per county | on main (#44) | persistence |
+| M8 | GridTwin | Is the GIS feeder/phase right? | voltage correlation + spectral clustering | on main (#13) | GIS as-is (τ = 1) |
+| M5 | WindPower | What will each park produce? | probabilistic power-curve MLP | code on main (`wattsentry/model/windpower/`), no shipped weights; the agent uses the fallback | binned empirical curve |
+| M7 | WindFailure | Will a component fail soon? | LightGBM on daily M6 residuals | on main (#43 train#379); fails on real CARE data | residual trend, no score |
 
 Not ML: the per-feeder LP, the P10 rollout and the qualification rules.
 
