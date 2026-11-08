@@ -4,6 +4,7 @@
   "site": {
     "stale_minutes": 60,
     "pfault_confident": 0.6,
+    "soiling_confident": 0.7,
     "pfault_std_max": 0.15,
     "rel_width_max": 0.8,
     "ood_max": 3.0

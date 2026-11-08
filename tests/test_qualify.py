@@ -127,6 +127,14 @@ def test_site_without_actual_uses_class_default_loss():
     assert a.status.headroom_factor == pytest.approx(1 - Q.PV_DEFAULT_LOSS["soiling"])
 
 
+def test_soiling_needs_its_own_higher_probability():
+    """#214: P(fault) 0.65 is enough for a string outage, not for soiling (P(soiling) 0.64 < soiling_confident)."""
+    assert assess(SITE_1042, site_pred(fault=PvFault.STRING_OUTAGE.value, p=0.65), 0).status.status == "derated"
+    a = assess(SITE_1042, site_pred(fault=PvFault.SOILING.value, p=0.65), 0)
+    assert a.status.status == "eligible" and a.status.reason == "ok"
+    assert assess(SITE_1042, site_pred(fault=PvFault.SOILING.value, p=0.75), 0).status.status == "derated"
+
+
 def test_site_healthy_eligible():
     s = qualify(SITE_1042, site_pred(), 10)
     assert s.status == "eligible" and s.headroom_factor == 1.0 and s.reason == "ok"

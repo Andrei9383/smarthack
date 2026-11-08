@@ -1,4 +1,4 @@
-"""python -m sentinel.gridtwin.run [--fleet DIR] [--out DIR] [--start 2024-05-01] [--days 60]
+"""python -m sentinel.gridtwin.run [--fleet DIR] [--out DIR] [--start 2024-05-01] [--days 180]
 
 Runs the grid-twin on the fleet's inverter voltages, scores it against the simulator's hidden truth and writes
 flags.geojson (review requests), feeders.json (tau, g_kw per feeder) and sites.parquet to the output dir."""
@@ -13,7 +13,7 @@ from pathlib import Path
 from sentinel.sim.fleet import FleetConfig, generate
 from sentinel.sim.fleet.config import DATA_VERSION, default_cache_root
 
-from .twin import load_voltages, run_twin, to_geojson
+from .twin import DAYS, PHASE_THRESHOLD, load_voltages, run_twin, to_geojson
 
 
 def default_out() -> Path:
@@ -44,8 +44,9 @@ def main(argv=None) -> None:
     ap.add_argument("--fleet", type=Path)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--start", default="2024-05-01")
-    ap.add_argument("--days", type=int, default=60)
-    ap.add_argument("--threshold", type=float, default=0.7)
+    ap.add_argument("--days", type=int, default=DAYS)
+    ap.add_argument("--threshold", type=float, default=0.7, help="feeder flags")
+    ap.add_argument("--phase-threshold", type=float, default=PHASE_THRESHOLD)
     a = ap.parse_args(argv)
     t0 = time.perf_counter()
     fleet = a.fleet or generate(FleetConfig(), plots=False)
@@ -53,7 +54,7 @@ def main(argv=None) -> None:
 
     sites, v = load_voltages(fleet, a.start, a.days)
     feeders = pd.read_parquet(Path(fleet) / "feeders.parquet")
-    res = run_twin(sites, v, feeders, a.threshold)
+    res = run_twin(sites, v, feeders, a.threshold, phase_threshold=a.phase_threshold)
     m = score(res, sites)
     out = a.out or default_out()
     out.mkdir(parents=True, exist_ok=True)
