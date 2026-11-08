@@ -3,6 +3,7 @@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@sentinel-app/ui/components/sheet";
 import { cn } from "@sentinel-app/ui/lib/utils";
 import { ChevronRight, CircleHelp, Info, Pause, Play } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { type ReactNode, useMemo, useRef, useState } from "react";
 
@@ -25,6 +26,7 @@ import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
 import { TrustBoard } from "@/panels/judge/trust-board";
 import { useGrid } from "@/modes/feeders/grid-section";
+import { orpc } from "@/utils/orpc";
 
 import { MiniMap } from "./mini-map";
 import { type FeederState, useOverviewData } from "./use-overview-data";
@@ -581,6 +583,50 @@ function TodayVsWithout() {
   );
 }
 
+/* ---------- Imbalance glance (#177) ---------- */
+function ImbalanceGlance() {
+  const go = useGo();
+  const { data } = useQuery({ ...orpc.imbalance.getPolicyComparison.queryOptions({ input: {} }), staleTime: Number.POSITIVE_INFINITY });
+  const of = (policy: string) => data?.find((r) => r.policy === policy);
+  const sentinel = of("sentinel");
+  const profile = of("profile");
+  const lei = (v?: number) => (v === undefined ? "—" : Math.round(v).toLocaleString("en-US"));
+  return (
+    <section aria-labelledby="ov-imbalance">
+      <SectionHeading>
+        <span id="ov-imbalance">Imbalance cost</span>
+      </SectionHeading>
+      <div className="rounded-lg border border-border bg-card px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] text-text-secondary">
+              Avoidable imbalance cost{" "}
+              <span className="text-muted-foreground">· {sentinel ? `${Math.round(sentinel.days)} days, portfolio` : "no imbalance replay yet"}</span>
+            </p>
+            <p className="mt-1 font-mono text-[32px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
+              {sentinel ? (
+                <>
+                  {lei(sentinel.avoidableLei)}
+                  <Unit>lei</Unit>
+                </>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            <p className="mt-1 text-[12px] text-muted-foreground tabular-nums">
+              fixed profile <span className="font-medium text-text-secondary">{lei(profile?.avoidableLei)} lei</span>
+            </p>
+          </div>
+          <Delta from={profile?.avoidableLei} to={sentinel?.avoidableLei} />
+        </div>
+        <GoButton onClick={() => go({ mode: "imbalance", feeder: null, park: null, turbine: null, site: null })}>
+          Open imbalance
+        </GoButton>
+      </div>
+    </section>
+  );
+}
+
 /* ---------- 5. Agent activity ---------- */
 
 function when(markerStep: number, now: number) {
@@ -724,6 +770,9 @@ export function OverviewPage({ onTour }: ModePageProps) {
         </div>
         <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-3">
           <AgentActivity />
+        </div>
+        <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-4">
+          <ImbalanceGlance />
         </div>
         <div className="@min-[880px]:col-start-2 @min-[880px]:row-start-4">
           <TrustBoard />
