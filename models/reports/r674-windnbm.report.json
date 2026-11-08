@@ -1,0 +1,885 @@
+{
+ "model": "windnbm",
+ "model_version": "windnbm-r674-lf",
+ "label": "synthetic RO",
+ "data_source": "external:/var/lib/lab-gpu/.cache/sentinel/data-v4/wind",
+ "normal_select": {
+  "mode": "label_free",
+  "quality_on_train": {
+   "precision": 0.9562749678147431,
+   "recall": 0.9123006473459532,
+   "selected_frac": 0.8592180512555899,
+   "kept_fault_stop": 0.12905815820707953,
+   "kept_curtailment": 0.13933781776884774,
+   "kept_icing": 0.1827205882352941,
+   "kept_underperformance": 0.52284372747287,
+   "kept_overheating": 0.8790564903846154,
+   "kept_anemometer_fault": 0.18626309662398138,
+   "kept_data_gap": 0.0
+  },
+  "note": "the LightGBM classifier and threshold tuning still use labels (supervised); label_free only changes what the NBM and its calibration treat as normal"
+ },
+ "splits": {
+  "holdout_park": "WP2",
+  "test_year": 2025,
+  "train_steps": 21888,
+  "val_steps": 10944,
+  "test_steps": 35040,
+  "n_train_turbines": 85,
+  "n_holdout_turbines": 36,
+  "rule": "test = last calendar year; earlier years: day-of-month <= 19 train, >= 22 val (2-day buffer)"
+ },
+ "eval_scope": "held-out park WP2, test year 2025",
+ "definitions": "Event-level wind anomaly metrics, identical for M6 and the WindMon rules (numpy).\n\nDefinitions (also written into the JSON report):\n- truth episode: contiguous run of one non-normal label on one turbine; data_gap runs closer than `gap_merge`\n  steps are one offline window.\n- alert: contiguous run of steps whose predicted class is ACTIONABLE (everything except normal and curtailment,\n  which is logged without a work order) on one turbine; runs closer than `merge_tol` steps merge (generous to the\n  rules: a step firing 3 rules is one alert). Alert class = majority predicted class in the run.\n- wind_precision = alerts overlapping (\u00b1 overlap_tol) an actionable truth episode / alerts.\n- wind_recall = actionable truth episodes overlapped by >= 1 alert / actionable truth episodes (class-agnostic).\n- alerts_per_turbine_day = alerts / (turbines \u00d7 days).\n- curtail_vs_fault_f1: over truth episodes of class curtailment or fault_stop, episode prediction = majority\n  non-normal predicted class inside it (\"normal\" if none); macro F1 of the two classes.\n",
+ "m6": {
+  "wind_precision": 0.913312693498452,
+  "wind_recall": 0.8980537534754403,
+  "wind_f1": 0.9056189528775908,
+  "alerts_per_turbine_day": 0.07374429223744292,
+  "curtail_vs_fault_f1": 0.9360535676919858,
+  "n_alerts": 969,
+  "n_true_actionable": 1079,
+  "true_actionable_per_turbine_day": 0.08211567732115678,
+  "class_correct_recall_macro": 0.71896846007704,
+  "per_class": {
+   "fault_stop": {
+    "episodes": 203,
+    "detected_any_alert": 203,
+    "class_correct": 202,
+    "median_delay_h": 0.0
+   },
+   "curtailment": {
+    "episodes": 498,
+    "detected_any_alert": 31,
+    "class_correct": 387,
+    "median_delay_h": null
+   },
+   "icing": {
+    "episodes": 240,
+    "detected_any_alert": 165,
+    "class_correct": 132,
+    "median_delay_h": 1.25
+   },
+   "underperformance": {
+    "episodes": 102,
+    "detected_any_alert": 75,
+    "class_correct": 19,
+    "median_delay_h": 0.0
+   },
+   "overheating": {
+    "episodes": 57,
+    "detected_any_alert": 49,
+    "class_correct": 33,
+    "median_delay_h": 4.25
+   },
+   "anemometer_fault": {
+    "episodes": 73,
+    "detected_any_alert": 73,
+    "class_correct": 71,
+    "median_delay_h": 0.25
+   },
+   "data_gap": {
+    "episodes": 404,
+    "detected_any_alert": 404,
+    "class_correct": 393,
+    "median_delay_h": 0.0
+   }
+  },
+  "episode_confusion": {
+   "rows_truth_cols_pred": [
+    "normal",
+    "fault_stop",
+    "curtailment",
+    "icing",
+    "underperformance",
+    "overheating",
+    "anemometer_fault",
+    "data_gap"
+   ],
+   "note": "row 'normal' = alerts that overlap no actionable truth episode, by predicted class",
+   "matrix": [
+    [
+     0,
+     25,
+     0,
+     5,
+     54,
+     0,
+     0,
+     0
+    ],
+    [
+     0,
+     202,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    [
+     95,
+     0,
+     387,
+     0,
+     1,
+     2,
+     11,
+     2
+    ],
+    [
+     75,
+     27,
+     0,
+     132,
+     0,
+     1,
+     5,
+     0
+    ],
+    [
+     16,
+     24,
+     16,
+     5,
+     19,
+     0,
+     4,
+     18
+    ],
+    [
+     2,
+     6,
+     6,
+     3,
+     0,
+     33,
+     1,
+     6
+    ],
+    [
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     71,
+     1
+    ],
+    [
+     0,
+     5,
+     1,
+     1,
+     0,
+     2,
+     2,
+     393
+    ]
+   ]
+  },
+  "curtail_vs_fault_f1_per_class": {
+   "curtailment": 0.8745762711864407,
+   "fault_stop": 0.9975308641975309
+  },
+  "step_confusion": [
+   [
+    1085913,
+    1132,
+    43,
+    190,
+    4230,
+    129,
+    218,
+    70
+   ],
+   [
+    57,
+    19528,
+    0,
+    23,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    923,
+    0,
+    5122,
+    0,
+    31,
+    20,
+    162,
+    0
+   ],
+   [
+    4278,
+    887,
+    0,
+    3535,
+    0,
+    1,
+    104,
+    0
+   ],
+   [
+    63807,
+    82,
+    0,
+    10,
+    2613,
+    0,
+    24,
+    0
+   ],
+   [
+    17365,
+    0,
+    0,
+    3,
+    0,
+    8013,
+    9,
+    7
+   ],
+   [
+    997,
+    68,
+    1,
+    0,
+    0,
+    0,
+    32322,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    9523
+   ]
+  ],
+  "curtailment_episodes_alerted_frac": 0.028112449799196786
+ },
+ "baseline_windmon": {
+  "wind_precision": 0.8353174603174603,
+  "wind_recall": 0.7469879518072289,
+  "wind_f1": 0.7886872837696967,
+  "alerts_per_turbine_day": 0.07671232876712329,
+  "curtail_vs_fault_f1": 0.3884462151394422,
+  "n_alerts": 1008,
+  "n_true_actionable": 1079,
+  "true_actionable_per_turbine_day": 0.08211567732115678,
+  "class_correct_recall_macro": 0.27831641362588055,
+  "per_class": {
+   "fault_stop": {
+    "episodes": 203,
+    "detected_any_alert": 198,
+    "class_correct": 195,
+    "median_delay_h": 0.0
+   },
+   "curtailment": {
+    "episodes": 498,
+    "detected_any_alert": 121,
+    "class_correct": 0,
+    "median_delay_h": null
+   },
+   "icing": {
+    "episodes": 240,
+    "detected_any_alert": 59,
+    "class_correct": 0,
+    "median_delay_h": 1.25
+   },
+   "underperformance": {
+    "episodes": 102,
+    "detected_any_alert": 60,
+    "class_correct": 0,
+    "median_delay_h": 0.0
+   },
+   "overheating": {
+    "episodes": 57,
+    "detected_any_alert": 36,
+    "class_correct": 0,
+    "median_delay_h": 0.0
+   },
+   "anemometer_fault": {
+    "episodes": 73,
+    "detected_any_alert": 49,
+    "class_correct": 0,
+    "median_delay_h": 1.5
+   },
+   "data_gap": {
+    "episodes": 404,
+    "detected_any_alert": 404,
+    "class_correct": 399,
+    "median_delay_h": 0.0
+   }
+  },
+  "episode_confusion": {
+   "rows_truth_cols_pred": [
+    "normal",
+    "fault_stop",
+    "curtailment",
+    "icing",
+    "underperformance",
+    "overheating",
+    "anemometer_fault",
+    "data_gap"
+   ],
+   "note": "row 'normal' = alerts that overlap no actionable truth episode, by predicted class",
+   "matrix": [
+    [
+     0,
+     95,
+     0,
+     0,
+     0,
+     71,
+     0,
+     0
+    ],
+    [
+     5,
+     195,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3
+    ],
+    [
+     377,
+     104,
+     0,
+     0,
+     0,
+     6,
+     0,
+     11
+    ],
+    [
+     181,
+     52,
+     0,
+     0,
+     0,
+     0,
+     0,
+     7
+    ],
+    [
+     42,
+     35,
+     0,
+     0,
+     0,
+     3,
+     0,
+     22
+    ],
+    [
+     21,
+     20,
+     0,
+     0,
+     0,
+     0,
+     0,
+     16
+    ],
+    [
+     24,
+     13,
+     0,
+     0,
+     0,
+     0,
+     0,
+     36
+    ],
+    [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     399
+    ]
+   ]
+  },
+  "curtail_vs_fault_f1_per_class": {
+   "curtailment": 0.0,
+   "fault_stop": 0.7768924302788844
+  },
+  "step_confusion": [
+   [
+    1090814,
+    28,
+    0,
+    0,
+    0,
+    1083,
+    0,
+    0
+   ],
+   [
+    5525,
+    13903,
+    0,
+    0,
+    0,
+    0,
+    0,
+    180
+   ],
+   [
+    4952,
+    1203,
+    0,
+    0,
+    0,
+    7,
+    0,
+    96
+   ],
+   [
+    7488,
+    1269,
+    0,
+    0,
+    0,
+    0,
+    0,
+    48
+   ],
+   [
+    66474,
+    1,
+    0,
+    0,
+    0,
+    61,
+    0,
+    0
+   ],
+   [
+    25397,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    19009,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    14379
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    9523
+   ]
+  ],
+  "raw_rule_alerts_per_turbine_day": 0.14170471841704718,
+  "rule_alerts_per_turbine_day": {
+   "HIGH_WIND_ZERO_POWER": 0.09939117199391172,
+   "TEMPERATURE_SPIKE": 0.009512937595129375,
+   "DATA_GAP": 0.021765601217656014,
+   "SUSPECT_DATA": 0.011035007610350075
+  },
+  "curtailment_episodes_alerted_frac": 0.2248995983935743
+ },
+ "seen_parks_test": {
+  "m6": {
+   "wind_precision": 0.9732704402515723,
+   "wind_recall": 0.9473684210526315,
+   "wind_f1": 0.9601447714248782,
+   "alerts_per_turbine_day": 0.06149879129734086,
+   "curtail_vs_fault_f1": 0.9732803952143514,
+   "n_alerts": 1908,
+   "n_true_actionable": 2128,
+   "true_actionable_per_turbine_day": 0.06858984689766318,
+   "class_correct_recall_macro": 0.8191571097307196,
+   "per_class": {
+    "fault_stop": {
+     "episodes": 464,
+     "detected_any_alert": 464,
+     "class_correct": 461,
+     "median_delay_h": 0.0
+    },
+    "curtailment": {
+     "episodes": 1698,
+     "detected_any_alert": 92,
+     "class_correct": 1539,
+     "median_delay_h": null
+    },
+    "icing": {
+     "episodes": 350,
+     "detected_any_alert": 297,
+     "class_correct": 264,
+     "median_delay_h": 1.25
+    },
+    "underperformance": {
+     "episodes": 180,
+     "detected_any_alert": 130,
+     "class_correct": 52,
+     "median_delay_h": 0.375
+    },
+    "overheating": {
+     "episodes": 110,
+     "detected_any_alert": 102,
+     "class_correct": 93,
+     "median_delay_h": 30.75
+    },
+    "anemometer_fault": {
+     "episodes": 148,
+     "detected_any_alert": 147,
+     "class_correct": 144,
+     "median_delay_h": 0.25
+    },
+    "data_gap": {
+     "episodes": 876,
+     "detected_any_alert": 876,
+     "class_correct": 852,
+     "median_delay_h": 0.0
+    }
+   },
+   "episode_confusion": {
+    "rows_truth_cols_pred": [
+     "normal",
+     "fault_stop",
+     "curtailment",
+     "icing",
+     "underperformance",
+     "overheating",
+     "anemometer_fault",
+     "data_gap"
+    ],
+    "note": "row 'normal' = alerts that overlap no actionable truth episode, by predicted class",
+    "matrix": [
+     [
+      0,
+      2,
+      0,
+      22,
+      26,
+      1,
+      0,
+      0
+     ],
+     [
+      0,
+      461,
+      0,
+      2,
+      0,
+      1,
+      0,
+      0
+     ],
+     [
+      98,
+      1,
+      1539,
+      20,
+      4,
+      14,
+      19,
+      3
+     ],
+     [
+      53,
+      30,
+      0,
+      264,
+      0,
+      0,
+      0,
+      3
+     ],
+     [
+      10,
+      18,
+      56,
+      4,
+      52,
+      0,
+      4,
+      36
+     ],
+     [
+      0,
+      3,
+      10,
+      0,
+      0,
+      93,
+      0,
+      4
+     ],
+     [
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      144,
+      2
+     ],
+     [
+      0,
+      6,
+      3,
+      2,
+      3,
+      5,
+      5,
+      852
+     ]
+    ]
+   },
+   "curtail_vs_fault_f1_per_class": {
+    "curtailment": 0.9508804448563485,
+    "fault_stop": 0.9956803455723542
+   }
+  },
+  "windmon": {
+   "wind_precision": 0.7228041901692184,
+   "wind_recall": 0.8007518796992481,
+   "wind_f1": 0.7597840675236363,
+   "alerts_per_turbine_day": 0.08,
+   "curtail_vs_fault_f1": 0.2968005445881552,
+   "n_alerts": 2482,
+   "n_true_actionable": 2128,
+   "true_actionable_per_turbine_day": 0.06858984689766318,
+   "class_correct_recall_macro": 0.2796850685135995,
+   "per_class": {
+    "fault_stop": {
+     "episodes": 464,
+     "detected_any_alert": 446,
+     "class_correct": 436,
+     "median_delay_h": 0.0
+    },
+    "curtailment": {
+     "episodes": 1698,
+     "detected_any_alert": 589,
+     "class_correct": 0,
+     "median_delay_h": null
+    },
+    "icing": {
+     "episodes": 350,
+     "detected_any_alert": 102,
+     "class_correct": 0,
+     "median_delay_h": 1.75
+    },
+    "underperformance": {
+     "episodes": 180,
+     "detected_any_alert": 117,
+     "class_correct": 0,
+     "median_delay_h": 0.0
+    },
+    "overheating": {
+     "episodes": 110,
+     "detected_any_alert": 77,
+     "class_correct": 3,
+     "median_delay_h": 41.75
+    },
+    "anemometer_fault": {
+     "episodes": 148,
+     "detected_any_alert": 86,
+     "class_correct": 0,
+     "median_delay_h": 1.5
+    },
+    "data_gap": {
+     "episodes": 876,
+     "detected_any_alert": 876,
+     "class_correct": 868,
+     "median_delay_h": 0.0
+    }
+   },
+   "episode_confusion": {
+    "rows_truth_cols_pred": [
+     "normal",
+     "fault_stop",
+     "curtailment",
+     "icing",
+     "underperformance",
+     "overheating",
+     "anemometer_fault",
+     "data_gap"
+    ],
+    "note": "row 'normal' = alerts that overlap no actionable truth episode, by predicted class",
+    "matrix": [
+     [
+      0,
+      522,
+      0,
+      0,
+      0,
+      166,
+      0,
+      0
+     ],
+     [
+      18,
+      436,
+      0,
+      0,
+      0,
+      0,
+      0,
+      10
+     ],
+     [
+      1109,
+      569,
+      0,
+      0,
+      0,
+      6,
+      0,
+      14
+     ],
+     [
+      248,
+      89,
+      0,
+      0,
+      0,
+      0,
+      0,
+      13
+     ],
+     [
+      63,
+      49,
+      0,
+      0,
+      0,
+      2,
+      0,
+      66
+     ],
+     [
+      33,
+      50,
+      0,
+      0,
+      0,
+      3,
+      0,
+      24
+     ],
+     [
+      62,
+      20,
+      0,
+      0,
+      0,
+      0,
+      0,
+      66
+     ],
+     [
+      0,
+      7,
+      0,
+      0,
+      0,
+      1,
+      0,
+      868
+     ]
+    ]
+   },
+   "curtail_vs_fault_f1_per_class": {
+    "curtailment": 0.0,
+    "fault_stop": 0.5936010891763104
+   }
+  }
+ },
+ "validation": {
+  "wind_precision": 0.9667519181585678,
+  "wind_recall": 0.919732441471572,
+  "wind_f1": 0.9426562138682458,
+  "alerts_per_turbine_day": 0.08070175438596491,
+  "curtail_vs_fault_f1": 0.9841587516960651,
+  "n_alerts": 782,
+  "n_true_actionable": 897,
+  "true_actionable_per_turbine_day": 0.09256965944272445,
+  "class_correct_recall_macro": 0.805607212916842
+ },
+ "class_thresholds": {
+  "fault_stop": 0.35,
+  "curtailment": 0.5,
+  "icing": 0.85,
+  "underperformance": 0.93,
+  "overheating": 0.93,
+  "anemometer_fault": 0.93,
+  "data_gap": 0.5
+ },
+ "nbm": {
+  "val_nmae_wind": 0.018105539382902564,
+  "val_pinball_wind": 0.005712008807983959,
+  "val_coverage_wind": 0.7913231561646734,
+  "test_nmae_wind_holdout": 0.018825907937143824,
+  "test_coverage_wind_holdout_cal": 0.7997243400416695,
+  "val_temp_mae_c": 0.3554024338722229
+ },
+ "feature_importance_gain": {
+  "v_nac": 2961326.771450728,
+  "p": 2816137.117147267,
+  "lr_m96": 2326187.3315876443,
+  "park_low_frac": 1277295.8668273762,
+  "park_res_med": 1220524.3328310698,
+  "wd_frozen": 1159255.8253860474,
+  "icing_cond_m16": 1084716.693989396,
+  "z": 906995.8264371753,
+  "lr_m16": 870622.178516522,
+  "gen2_t_z_m16": 822428.5060968455,
+  "res_partial_m672": 799068.0355220065,
+  "z_m16": 753605.2430765107,
+  "gen1_t_z_m16": 579399.9954663515,
+  "res_minus_nb_m672": 565632.6261517219,
+  "gen1_t_res_m672": 537868.4115024032,
+  "gearbox_t_z_m16": 535755.235069823,
+  "amb": 505457.04921423644,
+  "res_partial_m96": 481695.1422814727,
+  "gen2_t_res_m672": 464133.50855853036,
+  "res_m672": 412077.94917590916,
+  "pstd": 387897.0032502189,
+  "below_p10_m96": 383389.14043381065,
+  "below_p10_m16": 369308.506095469,
+  "gearbox_t_res_m672": 342465.3707109131,
+  "res_m96": 254512.40976631828
+ },
+ "training": {
+  "epochs_done": 40,
+  "steps": 12000,
+  "stopped_early": false
+ }
+}

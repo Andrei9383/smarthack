@@ -7,6 +7,12 @@ Replay rows use replay#506 (#29, final demo replay: fleet-trained M1/M2/M4 from 
 regenerate with `make replay-demo`). Model rows #4–#6 use eval#521 (#110: `eval.py --predictor onnx,baselines --models models/
 --drills` on the committed models/; regenerate with `make eval`); train-time numbers from train.py are marked as such.
 
+**models/ after #202 (campaign #139):** M2 LoadNet = #141 train#680-683 (train-time test nMAE 0.219-0.221, mean 0.2199
+vs 0.2203 before, coverage 0.81-0.82), M1 forecast = train#684 (0.1052 vs 0.1064), M6 WindNBM = #143 train#674 (row 8's
+recipe, #22 parks: P/R 0.913/0.898), M7 WindFailure = #144 train#778 (row 12's numbers come from train#379; #778: lead time
+124.8 h, recall 0.982, 0.42 FA/turbine-year). Rows 1, 3, 7 (replay#506) and 4-6 (eval#521) were measured on the older
+files; models/README.md has the promotion record, the #202 note the replay comparison.
+
 | # | Claim | Ours | Baselines | Target | Status | Label | Run |
 |---|---|---|---|---|---|---|---|
 | 1 | Feeder export peak shaving (headline) | minutes over limit 1905 (54 min/feeder-day); energy over limit 94.5 kWh; worst overshoot 10.6 kW; peak reduction 19.1 % (24.1 % on congested feeder-days) | self-consumption rule: 6645 min, 1397 kWh, 29.1 kW; tuned threshold rule: not run | zero violations where headroom suffices | **partial** (−71 % minutes, −93 % kWh over; hero day F7 Wed cleared, not zero overall) | syn RO + real OPCOM prices | `replay#506` |

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Cable, MapPinned, Zap } from "lucide-react";
+import { Cable, MapPinned } from "lucide-react";
 import { useState } from "react";
 
 import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SheetSection } from "@/panels/disclosure";
@@ -64,7 +64,7 @@ export function GridRow({ feederId, feederName }: { feederId: string; feederName
       ) : null}
       <RowButton onClick={() => setOpen(true)} className="border-t border-border" aside={data?.value ? `≈ ${fmt(data.value.deferredCapexLei)} lei` : undefined}>
         <span className="font-medium">Grid capacity</span>
-        <span className="text-text-secondary"> · voltage, map, value</span>
+        <span className="text-text-secondary">{data?.voltage ? " · voltage, map, value" : " · map, value"}</span>
       </RowButton>
       <GridSheet open={open} onOpenChange={setOpen} feederId={feederId} feederName={feederName} />
     </>
@@ -133,12 +133,9 @@ function GridSheet({
         )}
       </SheetSection>
 
-      <SheetSection
-        title="Voltage above 253 V"
-        aside={voltage ? <ProvenancePill label="non-RO · IEEE European LV feeder" /> : null}
-      >
-        {voltage ? (
-          <>
+      {/* No G2 voltage.json in this build: leave the section out rather than show an empty card. */}
+      {voltage ? (
+        <SheetSection title="Voltage above 253 V" aside={<ProvenancePill label="non-RO · IEEE European LV feeder" />}>
             <MetricRow>
               <Metric
                 label="Steps over 253 V"
@@ -164,11 +161,8 @@ function GridSheet({
               topology, not a Romanian street. Lost production ≈ {fmt(voltage.baseline.tripLei)} lei without,{" "}
               {fmt(voltage.sentinel.tripLei)} lei with Sentinel. Run {voltage.runId}.
             </p>
-          </>
-        ) : (
-          <EmptyNote icon={Zap}>No voltage run yet (G2 voltage.json).</EmptyNote>
-        )}
-      </SheetSection>
+        </SheetSection>
+      ) : null}
 
       <SheetSection
         title="GridTwin: homes the map had wrong"
