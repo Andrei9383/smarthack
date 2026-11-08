@@ -1,15 +1,14 @@
-# WattSentry: clean checkout -> every number the presentation shows.
+# WattSentry: from a clean checkout to every number the app shows.
 #
-#   make reproduce        setup + tests + simulator + eval + demand + uncertainty + replay + replay-demo, then a provenance summary
-#   make replay-demo      the demo replay with the committed models/ (regenerates replay#506's KPIs)
-#   make help             list the targets and variables
+#   make reproduce    setup, test, sim, eval, demand, uncertainty, replay, replay-demo, then a summary
+#   make app          build and serve the web app
+#   make help         list all targets and variables
 #
-# Offline after `make setup` (uv / pip download the Python wheels once): every raw input is committed in data/raw/.
-# Outputs go to $(OUT) (gitignored). Committed files (demo/, models/) are never overwritten unless you ask (PROMOTE=1).
-# Steps whose code has not reached main yet are skipped with the card that brings them, so the target stays green.
+# Offline after `make setup`: every raw input is committed in data/raw/. Outputs go to $(OUT) (gitignored).
+# Committed files in demo/ and models/ are never overwritten unless PROMOTE=1.
 
-SHELL       := /bin/bash
-.SHELLFLAGS := -eu -o pipefail -c
+SHELL         := /bin/bash
+.SHELLFLAGS   := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
 PY_VERSION   ?= 3.12
@@ -17,66 +16,63 @@ VENV         ?= .venv
 PYTHON       ?= $(VENV)/bin/python
 OUT          ?= .lab-out/reproduce
 LOGS         := $(OUT)/logs
-# Shared data cache (fleet, faults, #10 windows, #22 wind, grid-twin) for eval and replay-demo; never ~/.cache.
 CACHE        := $(abspath $(OUT))/cache
-# Seed for replay, demand and the uncertainty demo (the simulator keeps its own defaults: fleet 7, faults 0).
 SEED         ?= 0
-# FULL=1: fault injector on the full 600-site fleet (~4 min) instead of the quick 120-site fleet (~15 s).
+# 1: fault injector on the full 600-site fleet (~4 min) instead of the quick one
 FULL         ?= 0
-# REPLAY_WORLD: mock (same as lab.toml [runs.replay]) | sim (needs the caches that `make replay-demo` builds).
+# mock | sim (sim needs the caches `make replay-demo` builds)
 REPLAY_WORLD ?= mock
 REPLAY_DAYS  ?= 7
-# REPLAY_OUT may point at a committed file (demo/wattsentry.sqlite, #29) only with PROMOTE=1.
 REPLAY_OUT   ?= $(OUT)/wattsentry.sqlite
-PROMOTE      ?= 0
-# DEMO_OUT: where `make replay-demo` writes (demo/wattsentry.sqlite only with PROMOTE=1).
 DEMO_OUT     ?= $(OUT)/demo/wattsentry.sqlite
-# DEMO=0: `make reproduce` skips replay-demo (~9 min on a laptop CPU, most of it building the data cache).
+# 0: reproduce skips replay-demo
 DEMO         ?= 1
-# EVAL_ARGS: extra eval.py flags, e.g. --quick (150-site fleet, a smoke test, not the eval#521 numbers).
+PROMOTE      ?= 0
+# e.g. --quick for a 150-site smoke test
 EVAL_ARGS    ?=
-TRAIN_LOCAL  ?= 0
-# MODEL: pvnet | loadnet | sitehealth | windnbm | demandnet | windpower | windfailure | gridtwin (train.py registry)
+# see train.py --help
 MODEL        ?= pvnet
 TRAIN_ARGS   ?=
-CARD         ?= 14
-# APP_DB: sqlite file for `make app`; empty = demo/wattsentry.sqlite, else demo/fixtures.sqlite.
+# sqlite file for `make app`; default demo/wattsentry.sqlite
 APP_DB       ?=
 comma        := ,
+STAMP        := $(VENV)/.reqs-stamp
+STEPS        := test sim baselines eval demand uncertainty replay replay-demo
 
-STAMP := $(VENV)/.reqs-stamp
-
-# $(call step,name,command): run, tee to $(LOGS)/name.log, record wall time (read back by `summary`).
+# $(call step,name,command): run, tee to $(LOGS)/name.log and record the wall time.
 define step
 @mkdir -p $(LOGS); printf '\n==> %s\n' "$(1)"; t0=$$(date +%s); \
 	{ $(2) ; } 2>&1 | tee $(LOGS)/$(1).log; \
 	echo "$$(( $$(date +%s) - t0 ))" > $(LOGS)/$(1).time
 endef
 
-# $(call skip,name,message): log a skipped step so the summary shows it.
-define skip
-@mkdir -p $(LOGS); printf '\n==> %s\n' "$(1)"; echo "skipped: $(2)" | tee $(LOGS)/$(1).log; echo "-" > $(LOGS)/$(1).time
+# Refuse to overwrite a committed file unless PROMOTE=1.
+define guard
+@if git ls-files --error-unmatch "$(1)" >/dev/null 2>&1 && [ "$(PROMOTE)" != 1 ]; then \
+	  echo "refusing to overwrite committed $(1); rerun with PROMOTE=1"; exit 1; fi
 endef
 
-.PHONY: help reproduce setup test sim baselines eval demand uncertainty replay replay-demo train app app-600 fixtures summary clean clean-venv
+.PHONY: help reproduce setup test sim baselines eval demand uncertainty replay replay-demo train app app-600 \
+        fixtures summary clean clean-venv
 
 help:
 	@echo "WattSentry"
-	@echo "  make reproduce   setup, test, sim, eval, demand, uncertainty, replay, replay-demo, summary (DEMO=0 skips replay-demo)"
-	@echo "  make setup       $(VENV) with Python $(PY_VERSION) + requirements.txt (uv, else python$(PY_VERSION) -m venv)"
-	@echo "  make test        pytest tests/"
-	@echo "  make sim         RO prosumer fleet (#11) + PV fault injector (#12)        -> $(OUT)/fleet, $(OUT)/faults"
-	@echo "  make baselines   eval.py --baselines only: pvlib, persistence, LightGBM, CUSUM -> $(OUT)/baselines"
-	@echo "  make eval        eval.py on models/ + baselines + drills (= eval#521, #110) -> $(OUT)/eval"
-	@echo "  make demand      M3 DemandNet on real RO load (#44)                        -> $(OUT)/demand"
-	@echo "  make uncertainty conformal + P10 commitment demo (#27)                    -> $(OUT)/uncertainty.json"
-	@echo "  make replay      baseline vs Sentinel, mock world: pipeline check (#17)     -> $(REPLAY_OUT)"
-	@echo "  make replay-demo sim fleet + models/: regenerates replay#506 (#29)          -> $(DEMO_OUT)"
-	@echo "  make train       how training runs on the lab; TRAIN_LOCAL=1 MODEL=pvnet trains here"
-	@echo "  make app         npm ci + build + start the web app (APP_DB=<sqlite> to pick the DB)"
-	@echo "  make summary     re-print the provenance table of the last reproduce"
-	@echo "  make clean       remove $(OUT) (make clean-venv also removes $(VENV))"
-	@echo "Variables: OUT SEED FULL REPLAY_WORLD REPLAY_DAYS REPLAY_OUT DEMO DEMO_OUT PROMOTE EVAL_ARGS TRAIN_LOCAL MODEL TRAIN_ARGS APP_DB"
+	@echo "  make reproduce    setup + $(STEPS) + summary (DEMO=0 skips replay-demo)"
+	@echo "  make setup        $(VENV) with Python $(PY_VERSION) + requirements.txt"
+	@echo "  make test         pytest"
+	@echo "  make sim          prosumer fleet + PV fault injector        -> $(OUT)/fleet, $(OUT)/faults"
+	@echo "  make baselines    pvlib, persistence, LightGBM, CUSUM      -> $(OUT)/baselines"
+	@echo "  make eval         models/ against every baseline + drills  -> $(OUT)/eval"
+	@echo "  make demand       DemandNet on real Romanian load          -> $(OUT)/demand"
+	@echo "  make uncertainty  conformal calibration + P10 commitment   -> $(OUT)/uncertainty.json"
+	@echo "  make replay       baseline vs WattSentry on a mock world   -> $(REPLAY_OUT)"
+	@echo "  make replay-demo  the demo replay with models/             -> $(DEMO_OUT)"
+	@echo "  make train        train one model locally (MODEL=pvnet, needs requirements-train.txt)"
+	@echo "  make app          build and serve the web app (APP_DB=<sqlite> to pick the database)"
+	@echo "  make app-600      the app on the 600-home replay"
+	@echo "  make fixtures     mock database for the app (demo/fixtures.sqlite)"
+	@echo "  make clean        remove $(OUT) (clean-venv also removes $(VENV))"
+	@echo "Variables: OUT SEED FULL REPLAY_WORLD REPLAY_DAYS REPLAY_OUT DEMO DEMO_OUT PROMOTE EVAL_ARGS MODEL TRAIN_ARGS APP_DB"
 
 reproduce:
 	@start=$$(date +%s); \
@@ -84,7 +80,6 @@ reproduce:
 	mkdir -p $(LOGS); echo "$$(( $$(date +%s) - start ))" > $(LOGS)/total.time; \
 	$(MAKE) --no-print-directory summary
 
-# ---------------------------------------------------------------------------------------------------------- setup
 setup: $(STAMP)
 
 $(STAMP): requirements.txt
@@ -92,20 +87,15 @@ $(STAMP): requirements.txt
 	  [ -x $(PYTHON) ] || uv venv -q --python $(PY_VERSION) $(VENV); \
 	  uv pip install -q --python $(PYTHON) -r requirements.txt; \
 	else \
-	  echo "uv not found; using python$(PY_VERSION) -m venv + pip (slower; https://docs.astral.sh/uv/ to install uv)"; \
 	  [ -x $(PYTHON) ] || python$(PY_VERSION) -m venv $(VENV); \
 	  $(PYTHON) -m pip install -q -r requirements.txt; \
 	fi
-	@$(PYTHON) -c 'import sys; v = sys.version_info; assert v[:2] == (3, 12), f"need Python 3.12, got {v}"; print("venv ok:", sys.version.split()[0])'
 	@touch $(STAMP)
 
-# ----------------------------------------------------------------------------------------------------------- test
 test: setup
 	$(call step,test,$(PYTHON) -m pytest -q tests)
 
-# ------------------------------------------------------------------------------------------------------------ sim
-# Full fleet (600 sites, 15 feeders, 2022-2025, ~30 s, ~0.7 GB) for `REPLAY_WORLD=sim`; the fault injector runs on
-# the quick fleet by default (120 sites, 2024) because the full one takes minutes. Both are deterministic (seeded).
+# Full fleet (600 sites, 2022-2025) for REPLAY_WORLD=sim; the fault injector runs on the quick fleet unless FULL=1.
 sim: setup
 	$(call step,sim,\
 	  $(PYTHON) -m wattsentry.sim.fleet --no-plots --out $(OUT)/fleet && \
@@ -113,99 +103,54 @@ sim: setup
 	  else F=$(OUT)/fleet-quick; $(PYTHON) -m wattsentry.sim.fleet --quick --no-plots --out $$F; fi && \
 	  $(PYTHON) -m wattsentry.sim.faults --fleet $$F --out $(OUT)/faults)
 
-# ------------------------------------------------------------------------------------------------------ baselines
-# The numbers the models must beat (PV / load / fault: #15; wind WindMon rules: #24), alone. `make eval` prints the
-# same baselines next to the models, so `reproduce` skips this target. eval.py builds the 600-site test fleet +
-# injected faults once under $(CACHE); the other targets reuse it.
+# `make eval` prints the same baselines next to the models, so reproduce skips this target.
 baselines: setup
-ifneq ($(wildcard eval.py),)
 	$(call step,baselines,mkdir -p $(OUT)/baselines && \
 	  WATTSENTRY_CACHE=$(CACHE) LAB_OUTPUT_DIR=$(OUT)/baselines $(PYTHON) eval.py --baselines $(EVAL_ARGS))
-else ifneq ($(wildcard wattsentry/eval/baselines/pv/run.py),)
-	$(call step,baselines,mkdir -p $(OUT)/baselines && \
-	  WATTSENTRY_CACHE=$(CACHE) $(PYTHON) -m wattsentry.eval.baselines.pv.run --seed $(SEED) \
-	    --out $(OUT)/baselines && \
-	  if [ ! -d wattsentry/eval/baselines/wind ]; then echo "note: wind baselines not on main yet (#24)"; fi)
-else
-	$(call skip,baselines,PV baselines not on main yet (#15))
-endif
 
-# ----------------------------------------------------------------------------------------------------------- eval
-# Model test-set metrics grouped by label: the committed models/*.onnx (#29) next to every baseline, plus #28's
-# robustness drills. Same command as eval#521 (#110), the run the README's model numbers come from.
 eval: setup
-ifeq ($(wildcard eval.py),)
-	$(call skip,eval,eval.py not on main yet (#16); model numbers in the README cite lab train runs (#14 / #41))
-else
 	$(call step,eval,mkdir -p $(OUT)/eval && \
-	  WATTSENTRY_CACHE=$(CACHE) LAB_OUTPUT_DIR=$(OUT)/eval $(PYTHON) eval.py --predictor onnx$(comma)baselines --models models --drills $(EVAL_ARGS))
-endif
+	  WATTSENTRY_CACHE=$(CACHE) LAB_OUTPUT_DIR=$(OUT)/eval \
+	  $(PYTHON) eval.py --predictor onnx$(comma)baselines --models models --drills $(EVAL_ARGS))
 
-# --------------------------------------------------------------------------------------------------------- demand
 demand: setup
 	$(call step,demand,$(PYTHON) -m wattsentry.demand --seed $(SEED) --out $(OUT)/demand)
 
-# ---------------------------------------------------------------------------------------------------- uncertainty
 uncertainty: setup
 	$(call step,uncertainty,$(PYTHON) -m wattsentry.eval.uncertainty --seed $(SEED) \
 	  --calibration-out $(OUT)/calibration --report $(OUT)/uncertainty.json)
 
-# --------------------------------------------------------------------------------------------------------- replay
 replay: setup
-	@if git ls-files --error-unmatch "$(REPLAY_OUT)" >/dev/null 2>&1 && [ "$(PROMOTE)" != 1 ]; then \
-	  echo "refusing to overwrite committed $(REPLAY_OUT); rerun with PROMOTE=1 if you mean it"; exit 1; fi
+	$(call guard,$(REPLAY_OUT))
 	@if [ "$(REPLAY_WORLD)" = sim ] && ! ls $(CACHE)/data-v*/windows/index.json >/dev/null 2>&1; then \
-	  echo "REPLAY_WORLD=sim needs the data caches: run 'make replay-demo' (it builds them)"; exit 1; fi
-	$(call step,replay,\
-	  mkdir -p $$(dirname $(REPLAY_OUT)) && \
+	  echo "REPLAY_WORLD=sim needs the data caches: run 'make replay-demo' first"; exit 1; fi
+	$(call step,replay,mkdir -p $$(dirname $(REPLAY_OUT)) && \
 	  WATTSENTRY_CACHE=$(CACHE) $(PYTHON) replay.py --policy baseline$(comma)sentinel \
 	    --world $(REPLAY_WORLD) --days $(REPLAY_DAYS) --seed $(SEED) --out $(REPLAY_OUT))
 
-# ---------------------------------------------------------------------------------------------------- replay-demo
-# The demo replay (demo/wattsentry.sqlite, card #29) with the committed models/: same commands as replay#506. Builds
-# the #10 windows (fleet #11 + faults #12), the #22 wind parks and the #13 grid-twin into $(CACHE) first.
+# Builds the data windows, wind parks and grid twin into $(CACHE), then replays the demo week with models/.
 replay-demo: setup
-	@if git ls-files --error-unmatch "$(DEMO_OUT)" >/dev/null 2>&1 && [ "$(PROMOTE)" != 1 ]; then \
-	  echo "refusing to overwrite committed $(DEMO_OUT); rerun with PROMOTE=1 if you mean it"; exit 1; fi
-	$(call step,replay-demo,\
-	  export WATTSENTRY_CACHE=$(CACHE) && \
+	$(call guard,$(DEMO_OUT))
+	$(call step,replay-demo,export WATTSENTRY_CACHE=$(CACHE) && \
 	  $(PYTHON) -m wattsentry.data.windows && \
 	  $(PYTHON) -m wattsentry.sim.wind --no-plots && \
 	  $(PYTHON) -m wattsentry.gridtwin.run && \
 	  mkdir -p $$(dirname $(DEMO_OUT)) && \
 	  $(PYTHON) replay.py --world sim --policy baseline$(comma)sentinel --out $(DEMO_OUT))
 
-# ---------------------------------------------------------------------------------------------------------- train
-# Training runs on the lab's GPU workers, not here: models fit a 4 GB GPU; final runs used the 12 GB RTX 5070.
-train:
-	@echo "Training runs on the lab (lab.toml [runs.train] / [runs.train_cpu]); results come back to the card:"
-	@echo "  lab submit $(CARD) --run train --cmd \".venv/bin/python train.py --model $(MODEL)\""
-	@echo "  lab submit 14 --run train --cmd \".venv/bin/python train.py --preset {p}\" --grid p=pv_now@s0,pv_now@s1,load,sh"
-	@echo "  lab submit 44 --run train_cpu --cmd \".venv/bin/python train.py --model demandnet\""
-	@echo "Local (needs requirements-train.txt, i.e. torch): make train TRAIN_LOCAL=1 MODEL=pvnet TRAIN_ARGS='--max-minutes 5'"
-ifeq ($(TRAIN_LOCAL),1)
-ifeq ($(wildcard train.py),)
-	$(call skip,train,train.py not on main yet (#14 merges it; #41 adds windnbm))
-else
-	@$(MAKE) --no-print-directory setup
+train: setup
 	@if command -v uv >/dev/null 2>&1; then uv pip install -q --python $(PYTHON) -r requirements-train.txt; \
 	  else $(PYTHON) -m pip install -q -r requirements-train.txt; fi
 	$(call step,train-$(MODEL),mkdir -p $(OUT)/train/$(MODEL) && \
 	  LAB_OUTPUT_DIR=$(OUT)/train/$(MODEL) $(PYTHON) train.py --model $(MODEL) $(TRAIN_ARGS))
-endif
-endif
 
-# ------------------------------------------------------------------------------------------------------------ app
-# The app reads demo/wattsentry.sqlite (promoted replay, #29), else demo/fixtures.sqlite (#30), unless APP_DB is set.
 app:
 	@[ -d node_modules ] || npm ci --no-audit --no-fund
 	@if [ -z "$(APP_DB)" ] && [ ! -f demo/wattsentry.sqlite ] && [ ! -f demo/fixtures.sqlite ]; then \
 	  python3 demo/fixtures/make_fixtures.py; fi
 	npm run build
-	@echo "serving on http://localhost:$${PORT:-3000}  (DB: $(if $(APP_DB),$(abspath $(APP_DB)),demo/wattsentry.sqlite else demo/fixtures.sqlite))"
 	$(if $(APP_DB),DATABASE_URL=file:$(abspath $(APP_DB)),) npm start
 
-# The 600-home fleet (#118, replay #568; card #211): unpack the committed .gz, then serve it.
 demo/wattsentry-homes600.sqlite: demo/wattsentry-homes600.sqlite.gz
 	python3 -c 'import gzip,shutil; shutil.copyfileobj(gzip.open("$<"), open("$@","wb"))'
 
@@ -215,41 +160,21 @@ app-600: demo/wattsentry-homes600.sqlite
 fixtures:
 	python3 demo/fixtures/make_fixtures.py
 
-# -------------------------------------------------------------------------------------------------------- summary
-# Every number printed by reproduce, with the step that produced it, its label and the card / lab run it backs.
+# Every metric printed by the last reproduce, per step.
 summary:
-	@L=$(LOGS); [ -d $$L ] || { echo "no logs in $$L: run make reproduce"; exit 1; }; \
-	label() { case $$1 in \
-	  test) echo "n/a: unit + contract tests";; \
-	  sim) echo "synthetic RO (driven by real RO ERA5 in data/raw); #11, #12";; \
-	  baselines) echo "label per block below (synthetic_RO test 2025 / non_RO PVDAQ / real_RO); #15 via eval.py";; \
-	  eval) echo "label per block below; committed models/*.onnx + baselines + drills, same command as eval#521 (#110)";; \
-	  demand) echo "real RO: Energy-Charts/ENTSO-E RO load + ERA5 temp, test 2025; #44";; \
-	  uncertainty) echo "synthetic (MockPredictor truth): method check, not a model result; #27";; \
-	  replay) echo "mock world, MockPredictor (FALLBACK): pipeline check, not a result; #17 (lab [runs.replay])";; \
-	  replay-demo) echo "synthetic RO + real OPCOM prices; sim fleet + committed models/, same commands as replay#506 (#29)";; \
-	  *) echo "";; esac; }; \
-	echo; echo "================ make reproduce: where every number came from ================"; \
-	for s in test sim baselines eval demand uncertainty replay replay-demo; do \
-	  [ -f $$L/$$s.log ] || continue; t=$$(cat $$L/$$s.time 2>/dev/null || echo "?"); \
-	  if grep -q '^skipped:' $$L/$$s.log; then st="SKIPPED"; else st="ran in $${t}s"; fi; \
-	  printf '\n[%s] %s  |  %s\n' "$$s" "$$st" "$$(label $$s)"; \
-	  printf '    log: %s\n' "$$L/$$s.log"; \
-	  grep -E '^skipped:' $$L/$$s.log | sed 's/^/    /' || true; \
+	@[ -d $(LOGS) ] || { echo "no logs in $(LOGS): run make reproduce"; exit 1; }
+	@for s in $(STEPS); do \
+	  f=$(LOGS)/$$s.log; [ -f $$f ] || continue; \
+	  printf '\n[%s] %ss  (%s)\n' "$$s" "$$(cat $(LOGS)/$$s.time 2>/dev/null || echo ?)" "$$f"; \
 	  case $$s in \
-	    test) grep -E '[0-9]+ passed' $$L/$$s.log | tail -1 | sed 's/^/    /' || true;; \
-	    sim) grep -E "^wrote " $$L/$$s.log | sed "s/^/    /" || true;; \
-	    replay|replay-demo) grep -E '^\[agent\] FALLBACK|^# replay:' $$L/$$s.log | sed 's/^/    /' || true;; \
+	    test) grep -E '[0-9]+ passed' $$f | tail -1 | sed 's/^/    /' || true;; \
+	    sim)  grep -E '^wrote ' $$f | sed 's/^/    /' || true;; \
+	    *) if grep -q '^== ' $$f; then sed -n '/^== /,/^eval report:/p' $$f | sed 's/^/    /'; \
+	       else grep -E '^LAB_METRIC ' $$f | sed 's/^LAB_METRIC /    /' || true; fi;; \
 	  esac; \
-	  if grep -q '^== ' $$L/$$s.log; then grep -E '^predictors:' $$L/$$s.log | sed 's/^/    /' || true; \
-	    sed -n '/^== /,/^eval report:/p' $$L/$$s.log | sed 's/^/    /'; \
-	  else grep -E '^LAB_METRIC ' $$L/$$s.log | sed 's/^LAB_METRIC /    /' || true; fi; \
-	done; \
-	echo; echo "outputs: $(OUT)/  (replay DBs: $(REPLAY_OUT), $(DEMO_OUT))"; \
-	[ -f $$L/total.time ] && echo "total: $$(cat $$L/total.time)s" || true; \
-	echo "Compare with README.md#results: eval = eval#521, replay-demo = replay#506. M6 wind and train-time numbers cite lab train runs."
+	done
+	@[ -f $(LOGS)/total.time ] && echo && echo "total: $$(cat $(LOGS)/total.time)s" || true
 
-# ---------------------------------------------------------------------------------------------------------- clean
 clean:
 	rm -rf $(OUT)
 

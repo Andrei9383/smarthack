@@ -1,5 +1,5 @@
 """PV / load / fault baselines: pvlib (recorded metadata), persistence, LightGBM quantiles, threshold
-rule and CUSUM on the pvlib residual. Entry point: python -m wattsentry.eval.baselines.pv.run
+rule and CUSUM on the pvlib residual.
 
     from wattsentry.eval.baselines.pv import predictors
     P = predictors(fleet_dir)   # {"pvlib": {"pv"}, "persistence": {"pv", "load"}, "lgbm": {"pv", "load"},

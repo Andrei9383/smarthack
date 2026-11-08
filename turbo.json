@@ -16,11 +16,6 @@
         "!.next/cache/**"
       ]
     },
-    "lint": {
-      "dependsOn": [
-        "^lint"
-      ]
-    },
     "check-types": {
       "dependsOn": [
         "^check-types"
@@ -63,13 +58,8 @@
   "globalEnv": [
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",
-    "CI",
     "DATABASE_URL",
-    "NODE_ENV",
-    "VERCEL",
-    "VERCEL_ENV",
-    "VERCEL_PROJECT_PRODUCTION_URL",
-    "VERCEL_URL"
+    "NODE_ENV"
   ],
   "globalDependencies": [
     ".env*",

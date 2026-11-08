@@ -15,12 +15,8 @@
     "db:studio": "turbo run db:studio -F @wattsentry/db --",
     "db:generate": "turbo run db:generate -F @wattsentry/db --",
     "db:migrate": "turbo run db:migrate -F @wattsentry/db --",
-    "auth:generate": "cd apps/web && npm run auth:generate",
     "test": "turbo run check-types",
     "start": "npm run start --workspace web"
-  },
-  "dependencies": {
-    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@wattsentry/config": "*",

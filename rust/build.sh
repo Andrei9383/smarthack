@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build wattsentry._core into ./.venv (team/infra.md §4), and probe the worker's Rust toolchain.
+# Build the optional Rust kernels (wattsentry._core) into ./.venv and report the toolchain.
 #
 #   sh rust/build.sh build            # setup step: never exits non-zero; writes rust/.build_status
 #   sh rust/build.sh status           # cmd step: prints the probe/build result as LAB_METRIC lines
