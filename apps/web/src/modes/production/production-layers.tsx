@@ -72,17 +72,60 @@ function useWindRaster(meta: WindMeta | undefined, hour: number) {
   }, [map, isLoaded, coordinates, hour]);
 }
 
+// Web Mercator in 0..1 world units (MapLibre's tiles are 512 px at zoom 0).
+const TILE_PX = 512;
+const mercX = (lng: number) => (lng + 180) / 360;
+const mercY = (lat: number) => {
+  const sin = Math.sin((lat * Math.PI) / 180);
+  return 0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI);
+};
+const lngOf = (x: number) => x * 360 - 180;
+const latOf = (y: number) => (360 / Math.PI) * Math.atan(Math.exp((0.5 - y) * 2 * Math.PI)) - 90;
+const clamp = (value: number, low: number, high: number) => (low > high ? (low + high) / 2 : Math.min(high, Math.max(low, value)));
+
+/** Pixels of the map's right side hidden behind the inspector (0 when it's closed or not beside the map). */
+function coveredRight(container: HTMLElement) {
+  const panel = document.querySelector<HTMLElement>('[data-tour="inspector"]');
+  if (!panel) return 0;
+  const map = container.getBoundingClientRect();
+  const box = panel.getBoundingClientRect();
+  if (box.width === 0 || box.left <= map.left || box.top > map.bottom) return 0;
+  return Math.max(0, map.right - box.left);
+}
+
 // The wind field only covers meta.bounds. While Production is open the camera can't pan or zoom out
-// past that box, so the wind never ends in a visible edge (#208). MapLibre leaves the map padding
-// (the inspector on the right) out of this, so all of Romania stays reachable left of the panel.
+// past that box, so the wind never ends in a visible edge (#208). The part of the map behind the
+// inspector doesn't count (measured, not the map padding, which is wider than the panel), so the
+// strip between the map and the panel stays covered too. Leaving the mode restores the defaults.
 function useWindBounds(meta: WindMeta | undefined) {
   const { map, isLoaded } = useMap();
   useEffect(() => {
     if (!map || !isLoaded || !meta) return;
-    const previous = map.getMaxBounds();
-    map.setMaxBounds(meta.bounds);
+    const [west, south, east, north] = meta.bounds;
+    const x0 = mercX(west);
+    const x1 = mercX(east);
+    const y0 = mercY(north);
+    const y1 = mercY(south);
+    map.setTransformConstrain((lngLat, zoom) => {
+      const container = map.getContainer();
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      const visible = Math.max(1, width - coveredRight(container));
+      const pad = map.getPadding();
+      // MapLibre's centre is the centre of the padded area; the visible area is [0, visible] x [0, height].
+      const cx = (pad.left ?? 0) + (width - (pad.left ?? 0) - (pad.right ?? 0)) / 2;
+      const cy = (pad.top ?? 0) + (height - (pad.top ?? 0) - (pad.bottom ?? 0)) / 2;
+      // The lowest zoom at which the box still covers the visible area.
+      const fit = Math.log2(Math.max(visible / ((x1 - x0) * TILE_PX), height / ((y1 - y0) * TILE_PX)));
+      const nextZoom = Math.min(map.getMaxZoom(), Math.max(zoom ?? fit, fit, map.getMinZoom()));
+      const world = TILE_PX * 2 ** nextZoom;
+      const x = clamp(mercX(lngLat.lng), x0 + cx / world, x1 - (visible - cx) / world);
+      const y = clamp(mercY(lngLat.lat), y0 + cy / world, y1 - (height - cy) / world);
+      const LngLatClass = lngLat.constructor as new (lng: number, lat: number) => typeof lngLat;
+      return { center: new LngLatClass(lngOf(x), latOf(y)), zoom: nextZoom };
+    });
     return () => {
-      map.setMaxBounds(previous ?? null);
+      map.setTransformConstrain(null);
     };
   }, [map, isLoaded, meta]);
 }
