@@ -4,8 +4,8 @@ import { Map } from "@wattsentry/ui/components/map";
 import { cn } from "@wattsentry/ui/lib/utils";
 import { ChevronRight } from "lucide-react";
 
-import { StatusMark } from "@/components/brand/status-mark";
-import { useBasemapStyles, useRomaniaFocus } from "@/demo/use-basemap";
+import { StatusMark } from "@/components/status-mark";
+import { useBasemapStyles, useRomaniaFocus } from "@/lib/use-basemap";
 import { useMapTheme } from "@/lib/palette";
 
 import { OverviewLayers } from "./overview-layers";

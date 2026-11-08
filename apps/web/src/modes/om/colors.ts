@@ -1,7 +1,6 @@
 // Raw colour values for code that cannot read CSS variables: MapLibre paint expressions, the canvas
-// status marks and the SVG/visx charts in this mode. The RGB source is apps/web/src/lib/palette.ts
-// (team/contracts/ui-style.md §2, §3); components use the Tailwind tokens (`text-status-critical`,
-// `bg-brand-50`, …) instead.
+// status marks and the SVG charts in this mode. The RGB source is lib/palette.ts; components use the
+// Tailwind tokens (`text-status-critical`, `bg-brand-50`, …) instead.
 import { activePaletteTheme, hex, MAP_SAFE, paletteFor, rgba } from "@/lib/palette";
 
 const current = () => paletteFor(activePaletteTheme());
@@ -17,7 +16,7 @@ export const OM_COLORS = {
   soc: hex(MAP_SAFE.soc),
   /** measured series in SVG charts (follows the theme through the CSS variable) */
   actual: "var(--status-actual)",
-  /** chart grid lines (§3), SVG only */
+  /** chart grid lines, SVG only */
   grid: "var(--chart-grid)",
   /** ring around map markers so they lift off either basemap */
   ring: hex([255, 255, 255]),
@@ -38,14 +37,4 @@ export const OM_COLORS = {
   /** specular light on a map status mark's dome */
   markLight: rgba([255, 255, 255], 0.5),
   markLightEnd: rgba([255, 255, 255], 0),
-};
-
-/** Site / turbine status → colour, same keys as the shared STATUS_COLORS, remapped to the map-safe set. */
-export const OM_STATUS_COLORS: Record<string, string> = {
-  eligible: OM_COLORS.ok,
-  derated: OM_COLORS.warn,
-  excluded: OM_COLORS.unknown,
-  human_review: OM_COLORS.review,
-  // a turbine that is out of service is stopped, which reads red
-  stopped: OM_COLORS.critical,
 };

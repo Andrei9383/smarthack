@@ -1,4 +1,4 @@
-import type { Area, Line } from "d3-shape";
+import type { Line } from "d3-shape";
 
 /**
  * Formats like d3-path's `appendRound(3)`: `String(Math.round(v * 1000) / 1000)`.
@@ -40,14 +40,12 @@ function formatCoordinate(value: number): string {
 }
 
 /**
- * Path context for d3 shape generators that emits the same `d` string as
- * d3-path with 3 digits (d3-shape's default), but faster. Curves only call
- * moveTo / lineTo / bezierCurveTo / quadraticCurveTo / closePath; anything
- * else marks the result unsupported so the caller falls back to d3-path.
+ * Path context for d3 line generators that emits the same `d` string as d3-path with 3 digits
+ * (d3-shape's default), but faster. Line curves only call moveTo / lineTo / bezierCurveTo /
+ * quadraticCurveTo / closePath.
  */
 class FastPath {
   d = "";
-  unsupported = false;
   private open = false;
 
   moveTo(x: number, y: number) {
@@ -82,38 +80,17 @@ class FastPath {
     this.d += `C${formatCoordinate(+x1)},${formatCoordinate(+y1)},${formatCoordinate(+x2)},${formatCoordinate(+y2)},${formatCoordinate(+x)},${formatCoordinate(+y)}`;
     this.open = true;
   }
-
-  arcTo() {
-    this.unsupported = true;
-  }
-
-  arc() {
-    this.unsupported = true;
-  }
-
-  rect() {
-    this.unsupported = true;
-  }
 }
 
-type Generator<Datum> = Line<Datum> | Area<Datum>;
-
 /**
- * `generator(data) || ""` for a d3 `line()` / `area()` that uses the default
- * 3-digit rounding and no context of its own — same string, built faster.
+ * `generator(data) || ""` for a d3 `line()` that uses the default 3-digit rounding and no context
+ * of its own: same string, built faster.
  */
-export function fastShapePath<Datum>(
-  generator: Generator<Datum>,
-  data: Datum[]
-): string {
+export function fastShapePath<Datum>(generator: Line<Datum>, data: Datum[]): string {
   const context = new FastPath();
-  // The path context type is a CanvasRenderingContext2D-like interface;
-  // FastPath implements the subset d3 shapes call.
+  // FastPath implements the subset of CanvasRenderingContext2D that d3 curves call.
   generator.context(context as unknown as CanvasRenderingContext2D);
-  (generator as (data: Datum[]) => unknown)(data);
+  generator(data);
   generator.context(null);
-  if (context.unsupported) {
-    return ((generator as (data: Datum[]) => string | null)(data) ?? "") || "";
-  }
   return context.d;
 }

@@ -1,23 +1,37 @@
-.lab/
-.lab-out/
-.venv/
+# Dependencies and build output
 node_modules/
+.venv/
 __pycache__/
 .next/
 .turbo/
 dist/
 *.tsbuildinfo
+target/
+
+# Local environment
 .env
 .env*.local
 local.db*
-demo/fixtures.sqlite
-demo/fixtures.sqlite-*
-apps/web/public/maplibre-gl-worker.mjs
-# Rust extension built in place by `maturin develop` (rust/build.sh, card #48)
-wattsentry/_core*.so
-wattsentry/_core*.pyd
-# live feed output (card #128)
+
+# Generated data
+.lab-out/
+demo/fixtures.sqlite*
 demo/live.sqlite*
-# unpacked from demo/wattsentry-homes600.sqlite.gz (card #211)
 demo/wattsentry-homes600.sqlite
 demo/wattsentry-homes600.sqlite-*
+apps/web/public/maplibre-gl-worker.mjs
+
+# Rust extension built in place by maturin (rust/build.sh)
+wattsentry/_core*.so
+wattsentry/_core*.pyd
+rust/.build_status
+
+# Local tooling and team workspace (kept out of the repository)
+.lab/
+.claude/
+.codex/
+.gemini/
+team/
+AGENTS.md
+CLAUDE.md
+GEMINI.md

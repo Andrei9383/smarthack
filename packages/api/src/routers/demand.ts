@@ -1,10 +1,10 @@
 import { implement } from "@orpc/server";
-import { zoneDemand } from "@wattsentry/db/schema/sentinel";
-import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { zoneDemand } from "@wattsentry/db/schema/replay";
+import { and, asc, eq } from "drizzle-orm";
 
 import type { Context } from "../context";
 import { demandContract } from "../contract/demand";
-import { latestRunWith } from "./runs";
+import { inWindow, latestRunWith } from "./runs";
 
 const os = implement(demandContract).$context<Context>();
 
@@ -31,8 +31,7 @@ export const demandRouter = os.router({
         and(
           eq(zoneDemand.runId, runId),
           input?.level ? eq(zoneDemand.level, input.level) : undefined,
-          input?.from ? gte(zoneDemand.ts, input.from) : undefined,
-          input?.to ? lt(zoneDemand.ts, input.to) : undefined,
+          inWindow(zoneDemand.ts, input?.from, input?.to),
         ),
       )
       .orderBy(asc(zoneDemand.ts));

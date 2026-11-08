@@ -4,17 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 import { Cable, MapPinned } from "lucide-react";
 import { useState } from "react";
 
-import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SheetSection } from "@/panels/disclosure";
-import { orpc } from "@/utils/orpc";
+import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SheetSection } from "@/components/panels/disclosure";
+import { orpc } from "@/lib/orpc";
 
 import { BASELINE_SERIES, WATTSENTRY_SERIES } from "./colors";
 
 import { ChartLegend, EmptyNote } from "./ui";
 
-// Feature G (G5 #163): hosting capacity (G1), voltage on the IEEE LV feeder (G2), GridTwin and the
+// Grid: hosting capacity (G1), voltage on the IEEE LV feeder (G2), GridTwin and the
 // deferred-capex value (G3). All read from feeders.getGrid; each part is empty until its run exists.
 
-export function useGrid() {
+function useGrid() {
   return useQuery({ ...orpc.feeders.getGrid.queryOptions({ input: {} }), staleTime: 60_000 });
 }
 

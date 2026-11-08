@@ -237,39 +237,3 @@ export function seriesDataSignature(
     })
     .join(",");
 }
-
-export function seriesPathTransitionSignature({
-  renderData,
-  xAccessor,
-  dataKey,
-  innerWidth,
-  xDomainMin,
-  xDomainMax,
-}: {
-  renderData: Record<string, unknown>[];
-  xAccessor: (datum: Record<string, unknown>) => Date;
-  dataKey: string;
-  innerWidth: number;
-  xDomainMin: number;
-  xDomainMax: number;
-}): string {
-  return seriesPathTransitionSignatureFromData(
-    seriesDataSignature(renderData, xAccessor, dataKey),
-    { innerWidth, xDomainMin, xDomainMax }
-  );
-}
-
-/**
- * {@link seriesPathTransitionSignature} from an already-built
- * {@link seriesDataSignature}, so callers needing both walk the data once.
- */
-export function seriesPathTransitionSignatureFromData(
-  dataSignature: string,
-  {
-    innerWidth,
-    xDomainMin,
-    xDomainMax,
-  }: { innerWidth: number; xDomainMin: number; xDomainMax: number }
-): string {
-  return `${innerWidth}|${xDomainMin}|${xDomainMax}|${dataSignature}`;
-}

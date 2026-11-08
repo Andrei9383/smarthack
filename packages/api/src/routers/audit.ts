@@ -1,13 +1,12 @@
-// Audit trail (#32): every action the agent took, with the model version, input hash, prediction
+// Audit trail: every action the agent took, with the model version, input hash, prediction
 // and threshold it was based on, and committed vs realised where it was a commitment.
 import { implement } from "@orpc/server";
-import { auditLog } from "@wattsentry/db/schema/sentinel";
-import { and, desc, eq, lte, type SQL } from "drizzle-orm";
+import { auditLog } from "@wattsentry/db/schema/replay";
+import { and, desc, eq, lte } from "drizzle-orm";
 
 import type { Context } from "../context";
 import { auditContract } from "../contract/audit";
-import { emptyIfNoTables } from "./runs";
-import { resolveRunId } from "./sites";
+import { emptyIfNoTables, resolveRunId } from "./runs";
 
 const os = implement(auditContract).$context<Context>();
 
@@ -19,15 +18,6 @@ export const auditRouter = os.router({
     emptyIfNoTables(async () => {
       const runId = await resolveRunId(db, input?.runId);
       if (!runId) return [];
-      const where = [
-        eq(auditLog.runId, runId),
-        input?.assetId ? eq(auditLog.assetId, input.assetId) : undefined,
-        input?.actionType
-          ? eq(auditLog.actionType, input.actionType)
-          : undefined,
-        input?.actionId ? eq(auditLog.actionId, input.actionId) : undefined,
-        input?.until ? lte(auditLog.ts, input.until) : undefined,
-      ].filter((c): c is SQL => c !== undefined);
       return db
         .select({
           id: auditLog.id,
@@ -50,7 +40,15 @@ export const auditRouter = os.router({
           threshold: auditLog.threshold,
         })
         .from(auditLog)
-        .where(and(...where))
+        .where(
+          and(
+            eq(auditLog.runId, runId),
+            input?.assetId ? eq(auditLog.assetId, input.assetId) : undefined,
+            input?.actionType ? eq(auditLog.actionType, input.actionType) : undefined,
+            input?.actionId ? eq(auditLog.actionId, input.actionId) : undefined,
+            input?.until ? lte(auditLog.ts, input.until) : undefined,
+          ),
+        )
         .orderBy(desc(auditLog.ts))
         .limit(Math.min(input?.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
     }),

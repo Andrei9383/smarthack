@@ -11,9 +11,9 @@ import {
   interpolateBandSegments,
   morphBandSegments,
 } from "./band-geometry";
-import { LINE_LOADING_PULSE_EASE } from "./line-loading-timing";
+import { DATA_TWEEN_EASE } from "./chart-context";
 
-export interface UseAnimatedBandOptions {
+interface UseAnimatedBandOptions {
   renderData: Record<string, unknown>[];
   xAccessor: (datum: Record<string, unknown>) => Date;
   xScale: (value: Date) => number | undefined;
@@ -21,14 +21,12 @@ export interface UseAnimatedBandOptions {
   upperKey: string;
   lowerKey: string;
   curve: CurveFactory;
-  chartPhase: string;
   durationMs: number;
   innerWidth: number;
-  enabled: boolean;
 }
 
 /** Band currently on screen. `polyline` frames render with `curveLinear`. */
-export interface DisplayedBand {
+interface DisplayedBand {
   segments: BandSegment[];
   polyline: boolean;
 }
@@ -68,10 +66,8 @@ export function useAnimatedBand({
   upperKey,
   lowerKey,
   curve,
-  chartPhase,
   durationMs,
   innerWidth,
-  enabled,
 }: UseAnimatedBandOptions): DisplayedBand {
   const reducedMotion = useReducedMotion();
   const [animatedBand, setAnimatedBand] = useState<DisplayedBand | null>(null);
@@ -133,12 +129,7 @@ export function useAnimatedBand({
     };
   });
 
-  const shouldAnimate =
-    enabled &&
-    !reducedMotion &&
-    chartPhase === "ready" &&
-    durationMs > 0 &&
-    renderData.length > 0;
+  const shouldAnimate = !reducedMotion && durationMs > 0 && renderData.length > 0;
 
   // Drop a stale tween frame as soon as animation is no longer allowed —
   // adjusted during render rather than via setState in the effect below.
@@ -214,7 +205,7 @@ export function useAnimatedBand({
 
     const control = animate(0, 1, {
       duration: durationMs / 1000,
-      ease: [...LINE_LOADING_PULSE_EASE],
+      ease: [...DATA_TWEEN_EASE],
       onUpdate: renderFrame,
       onComplete: () => {
         animatingRef.current = false;
@@ -234,9 +225,7 @@ export function useAnimatedBand({
     transitionSignature,
     dataSignature,
     shouldAnimate,
-    chartPhase,
     durationMs,
-    enabled,
     reducedMotion,
     renderData.length,
   ]);

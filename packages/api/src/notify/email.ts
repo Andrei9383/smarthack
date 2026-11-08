@@ -1,37 +1,6 @@
-// Household congestion notice: subject, HTML and plain text (card #120). Content depends on the
-// congestion level and on the home: its solar in the window, its WattSentry battery plan, its appliances.
-import type { CongestionLevel, FeederForecast } from "./forecast";
-
-export type Household = {
-  assetId: string;
-  locality: string;
-  county: string;
-  feederId: string;
-  kwp: number;
-  hasBattery: boolean;
-  batteryKwh: number;
-  comfortReserveKwh: number;
-  hasEv: boolean;
-  hasAc: boolean;
-  hasBoiler: boolean;
-  worksFromHome: boolean;
-  /** M1 P50 solar in the congestion window */
-  pvWindowKwh: number;
-  /** P50 solar minus yesterday's load, summed over the window where positive */
-  exportWindowKwh: number;
-  /** WattSentry battery schedule: charge planned inside the window */
-  batteryPlanKwh: number;
-};
-
-export type NoticeContext = {
-  feederId: string;
-  feederName: string;
-  limitKw: number;
-  forecast: FeederForecast;
-  modelVersion: string;
-};
-
-export type RenderedEmail = { subject: string; html: string; text: string };
+// Household congestion notice: subject, HTML and plain text. Content depends on the congestion level and
+// on the home: its solar in the window, its WattSentry battery plan, its appliances.
+import type { CongestionLevelValue as CongestionLevel, FeederNotice, HouseholdItem } from "../contract/notify";
 
 const TZ = "Europe/Bucharest";
 const hm = (ts: string) =>
@@ -64,7 +33,7 @@ const LEVEL_COPY: Record<Exclude<CongestionLevel, "none">, { tag: string; color:
   },
 };
 
-function tips(h: Household, window: string): string[] {
+function tips(h: HouseholdItem, window: string): string[] {
   const out: string[] = [];
   if (h.hasEv) out.push(`Plug in your electric car between ${window} instead of in the evening.`);
   if (h.hasBoiler) out.push(`Heat your hot water with the electric boiler during ${window}.`);
@@ -77,8 +46,7 @@ function tips(h: Household, window: string): string[] {
   return out.slice(0, 3);
 }
 
-export function renderNotice(h: Household, ctx: NoticeContext): RenderedEmail | null {
-  const f = ctx.forecast;
+export function renderNotice(h: HouseholdItem, f: FeederNotice) {
   if (f.level === "none" || !f.windowFrom || !f.windowTo) return null;
   const copy = LEVEL_COPY[f.level];
   const day = dayName(f.windowFrom);
@@ -104,14 +72,14 @@ export function renderNotice(h: Household, ctx: NoticeContext): RenderedEmail | 
   const todo = tips(h, window);
   const why =
     `Level "${f.level}": ${f.reason}. Forecast peak ${Math.round(f.peakP50Kw)} kW (P50) / ${Math.round(f.peakP90Kw)} kW (P90) ` +
-    `against a ${Math.round(ctx.limitKw)} kW limit on feeder ${ctx.feederId}. Solar forecast by WattSentry's PVNet model ` +
-    `(${ctx.modelVersion}); load forecast = ${f.loadSource === "yesterday" ? "yesterday's measured load" : f.loadSource === "weekly_profile" ? "typical load profile (no data for yesterday)" : "none available"}.`;
+    `against a ${Math.round(f.limitKw)} kW limit on feeder ${f.feederId}. Solar forecast by WattSentry's PVNet model ` +
+    `(${f.modelVersion}); load forecast = ${f.loadSource === "yesterday" ? "yesterday's measured load" : f.loadSource === "weekly_profile" ? "typical load profile (no data for yesterday)" : "none available"}.`;
 
   const text = [
     `${copy.tag}: ${day}, ${window}`,
     "",
     `Hello, household ${h.assetId} in ${h.locality}.`,
-    `On ${day} between ${window} the local power line (feeder ${ctx.feederId}, ${ctx.feederName}) ${copy.lead}.`,
+    `On ${day} between ${window} the local power line (feeder ${f.feederId}, ${f.feederName}) ${copy.lead}.`,
     "",
     ...facts,
     ...(plan ? ["", plan] : []),
@@ -133,7 +101,7 @@ export function renderNotice(h: Household, ctx: NoticeContext): RenderedEmail | 
   <div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#667085">WattSentry · grid notice</div>
   <div style="display:inline-block;margin-top:12px;padding:4px 10px;border-radius:999px;background:${copy.bg};color:${copy.color};font-size:13px;font-weight:600">${esc(copy.tag)} · ${esc(day)}, ${esc(window)}</div>
   <h1 style="font-size:20px;line-height:1.3;margin:14px 0 8px">${esc(subject)}</h1>
-  <p style="font-size:15px;line-height:1.5;margin:0 0 12px">Hello, household ${esc(h.assetId)} in ${esc(h.locality)}. On <b>${esc(day)}</b> between <b>${esc(window)}</b> the local power line (feeder ${esc(ctx.feederId)}, ${esc(ctx.feederName)}) ${esc(copy.lead)}.</p>
+  <p style="font-size:15px;line-height:1.5;margin:0 0 12px">Hello, household ${esc(h.assetId)} in ${esc(h.locality)}. On <b>${esc(day)}</b> between <b>${esc(window)}</b> the local power line (feeder ${esc(f.feederId)}, ${esc(f.feederName)}) ${esc(copy.lead)}.</p>
   <p style="font-size:15px;line-height:1.5;margin:0 0 12px">${facts.map(esc).join(" ")}</p>
   ${plan ? `<p style="font-size:15px;line-height:1.5;margin:0 0 12px;padding:10px 12px;background:#f0fdf4;border-radius:8px;color:#05603a">${esc(plan)}</p>` : ""}
   <p style="font-size:15px;line-height:1.5;margin:16px 0 6px;font-weight:600">How you can help</p>

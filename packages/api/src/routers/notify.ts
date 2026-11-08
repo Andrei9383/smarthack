@@ -1,4 +1,4 @@
-// Congestion notices (card #120): day-ahead congestion forecast per feeder and household emails via Resend.
+// Congestion notices: day-ahead congestion forecast per feeder and household emails via Resend.
 import { implement } from "@orpc/server";
 import type { Database } from "@wattsentry/db";
 import {
@@ -10,7 +10,7 @@ import {
   measurements,
   runs,
   schedules,
-} from "@wattsentry/db/schema/sentinel";
+} from "@wattsentry/db/schema/replay";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lt } from "drizzle-orm";
 
 import type { Context } from "../context";
@@ -192,29 +192,6 @@ async function buildNotice(db: Database, feederId: string, day: DayInput): Promi
   };
 }
 
-function render(notice: FeederNotice, home: HouseholdItem) {
-  return renderNotice(home, {
-    feederId: notice.feederId,
-    feederName: notice.feederName,
-    limitKw: notice.limitKw,
-    modelVersion: notice.modelVersion,
-    forecast: {
-      level: notice.level,
-      reason: notice.reason,
-      windowFrom: notice.windowFrom,
-      windowTo: notice.windowTo,
-      stepsOverP10: notice.stepsOverP10,
-      stepsOverP50: notice.stepsOverP50,
-      stepsOverP90: notice.stepsOverP90,
-      peakP50Kw: notice.peakP50Kw,
-      peakP90Kw: notice.peakP90Kw,
-      overLimitP50Kwh: notice.overLimitP50Kwh,
-      loadSource: notice.loadSource,
-      steps: [],
-    },
-  });
-}
-
 // Sent log lives in memory: the demo SQLite is a committed, read-only artefact.
 const SENT_LOG: SentLogItem[] = [];
 const LOG_MAX = 50;
@@ -238,22 +215,10 @@ export const notifyRouter = os.router({
     return notice ?? null;
   }),
 
-  getFleet: os.getFleet.handler(({ context, input }) =>
-    emptyIfNoTables(async () => {
-      const ids = await context.db.select({ id: feeders.id }).from(feeders).orderBy(asc(feeders.id));
-      const notices = await Promise.all(ids.map(({ id }) => buildNotice(context.db, id, input)));
-      return notices.flatMap((n) => {
-        if (!n) return [];
-        const { steps: _steps, households, ...rest } = n;
-        return [{ ...rest, householdCount: households.length }];
-      });
-    }),
-  ),
-
   preview: os.preview.handler(async ({ context, input }) => {
     const notice = await buildNotice(context.db, input.feederId, input);
     const home = notice?.households.find((h) => h.assetId === input.assetId);
-    return notice && home ? render(notice, home) : null;
+    return notice && home ? renderNotice(home, notice) : null;
   }),
 
   send: os.send.handler(async ({ context, input }) => {
@@ -281,7 +246,7 @@ export const notifyRouter = os.router({
     const emails = notice.households
       .filter((h) => !wanted || wanted.has(h.assetId))
       .flatMap((h) => {
-        const mail = render(notice, h);
+        const mail = renderNotice(h, notice);
         // Synthetic homes have no address: every notice goes to the demo inbox, tagged with its home.
         return mail
           ? [{ to: cfg.demoTo, subject: `[${h.assetId}] ${mail.subject}`, html: mail.html, text: mail.text,

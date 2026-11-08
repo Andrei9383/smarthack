@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-// Demo store lookup (plan R18): promoted replay, then #30 fixtures, then an empty
+// Demo store lookup: promoted replay, then the fixtures, then an empty
 // in-memory DB so the page still renders on a clean checkout.
 function resolveDatabaseUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;

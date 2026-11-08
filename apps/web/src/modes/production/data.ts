@@ -1,12 +1,12 @@
 import type { ParkForecastItem } from "@wattsentry/api/contract/production";
 
-import { stepToDate } from "@/demo/replay";
+import { stepToDate } from "@/lib/replay";
 
 const HOUR_MS = 3_600_000;
 const WINDOW_HOURS = 24;
 const STEP_HOURS = 0.25;
 
-export type HourlyForecast = { ts: string; p10: number; p50: number; p90: number };
+type HourlyForecast = { ts: string; p10: number; p50: number; p90: number };
 
 // Stored ts has no milliseconds, and rows are compared to these bounds as strings.
 const isoSeconds = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");

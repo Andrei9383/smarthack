@@ -10,8 +10,8 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { Term } from "@/components/help";
-import { stepToTs, timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { stepToTs, timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
 import {
   type Delta,
   DetailsSheet,
@@ -22,10 +22,10 @@ import {
   SectionHeader,
   SheetSection,
   StatusPill,
-} from "@/panels/disclosure";
-import { useVerdicts } from "@/panels/judge/use-judge";
-import { orpc } from "@/utils/orpc";
-import { VerdictCard } from "@/panels/judge/verdict-card";
+} from "@/components/panels/disclosure";
+import { useVerdicts } from "@/components/panels/judge/use-judge";
+import { orpc } from "@/lib/orpc";
+import { VerdictCard } from "@/components/panels/judge/verdict-card";
 
 import { BASELINE_SERIES, LIMIT_SERIES, WATTSENTRY_SERIES, SOC_SERIES } from "./colors";
 import { FeederRanking } from "./feeder-ranking";
@@ -46,7 +46,7 @@ const BUCHAREST = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
-// Charts format dates in the browser's zone, so hand them Bucharest wall-clock time (plan R19).
+// Charts format dates in the browser's zone, so hand them Bucharest wall-clock time.
 function bucharestWallClock(ts: string) {
   const parts = Object.fromEntries(
     BUCHAREST.formatToParts(new Date(ts)).map((part) => [part.type, Number(part.value)]),
@@ -60,7 +60,7 @@ function bucharestWallClock(ts: string) {
   );
 }
 
-// Status text class (team/contracts/ui-style.md §2). Red only for a value over its limit now.
+// Status text class. Red only for a value over its limit now.
 const OVER_TONE = "text-status-critical";
 
 /**
@@ -75,7 +75,7 @@ function deltaVs(baseline: number | undefined, sentinel: number | undefined, neu
   return { text: `${change > 0 ? "+" : "−"}${Math.abs(change)}%`, good: neutral ? null : change < 0 };
 }
 
-/** Judge verdicts (#192) for this feeder, folded on the glance; nothing when the DB has no Judge rows. */
+/** Judge verdicts for this feeder, folded on the glance; nothing when the DB has no Judge rows. */
 function JudgeFold({ feederId }: { feederId: string }) {
   const { data } = useVerdicts(feederId);
   if (!data?.length) return null;
@@ -327,13 +327,13 @@ export function FeederPanel() {
               data={exportData}
               aspectRatio="3 / 1"
               margin={AXIS_MARGIN}
-              animationDuration={0}
+             
               yScaleDomainMax={exportAxis.domainMax}
             >
-              <Grid rowTickValues={exportAxis.ticks} fadeHorizontal={false} />
-              <Line dataKey="baseline_export" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="sentinel_export" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="limit" stroke={LIMIT_SERIES} strokeWidth={2} fadeEdges={false} dashFromIndex={0} />
+              <Grid rowTickValues={exportAxis.ticks} />
+              <Line dataKey="baseline_export" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} />
+              <Line dataKey="sentinel_export" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} />
+              <Line dataKey="limit" stroke={LIMIT_SERIES} strokeWidth={2} dashFromIndex={0} />
               <ChartTooltip />
             </LineChart>
             <ChartAxes
@@ -387,12 +387,12 @@ export function FeederPanel() {
               data={exportData}
               aspectRatio="2 / 1"
               margin={AXIS_MARGIN}
-              animationDuration={0}
+             
               yScaleDomainMax={importAxis.domainMax}
             >
-              <Grid rowTickValues={importAxis.ticks} fadeHorizontal={false} />
-              <Line dataKey="baseline_import" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="sentinel_import" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+              <Grid rowTickValues={importAxis.ticks} />
+              <Line dataKey="baseline_import" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} />
+              <Line dataKey="sentinel_import" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} />
               <ChartTooltip />
             </LineChart>
             <ChartAxes dates={dates} top={importAxis.top} ticks={importAxis.ticks} unit="kW" now={nowDate} />
@@ -422,12 +422,12 @@ export function FeederPanel() {
                 data={socData}
                 aspectRatio="2 / 1"
                 margin={AXIS_MARGIN}
-                animationDuration={0}
+               
                 yScaleDomainMax={socAxis.domainMax}
               >
-                <Grid rowTickValues={socAxis.ticks} fadeHorizontal={false} />
+                <Grid rowTickValues={socAxis.ticks} />
                 <Band upperKey="soc_q90" lowerKey="soc_q10" label="P10–P90" fill={SOC_SERIES} fillOpacity={0.14} strokeOpacity={0.35} curve={curveMonotoneX} />
-                <Line dataKey="soc_q50" stroke={SOC_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+                <Line dataKey="soc_q50" stroke={SOC_SERIES} curve={curveMonotoneX} />
                 <ChartTooltip />
               </LineChart>
               <ChartAxes dates={socDates} top={socAxis.top} ticks={socAxis.ticks} unit="%" now={nowDate} />

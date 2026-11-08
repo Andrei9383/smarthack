@@ -1,31 +1,15 @@
 "use client";
 
-import {
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-/** `useLayoutEffect` in the browser, `useEffect` on the server (no SSR warning). */
-export const useIsomorphicLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
-export interface ElementSize {
+interface ElementSize {
   width: number;
   height: number;
 }
 
-const ZERO_SIZE: ElementSize = { width: 0, height: 0 };
-
-/**
- * Layout size of `element`, unaffected by CSS transforms. Fractional like
- * `ResizeObserver`'s `contentRect`, so the observer's first notification
- * matches and doesn't trigger a second render.
- */
+/** Layout size (unaffected by CSS transforms), fractional like `ResizeObserver`'s `contentRect`. */
 function readElementSize(element: HTMLElement): ElementSize {
   const style = getComputedStyle(element);
   const width = Number.parseFloat(style.width);
@@ -36,175 +20,69 @@ function readElementSize(element: HTMLElement): ElementSize {
   };
 }
 
-export interface ElementSizeOptions {
-  /**
-   * - `"layout"` (default): measure in a layout effect so the sized render
-   *   commits before the first paint; later `ResizeObserver` changes are
-   *   throttled to one update per `debounceTime`.
-   * - `"observer"`: visx `useParentSize` timing, for charts whose enter
-   *   motion was tuned on it. Stays 0×0 until the observer's first
-   *   notification (applied in the next animation frame), reads the
-   *   content-box size (`contentRect`), and debounces like visx: the first
-   *   change applies at once, later ones once `debounceTime` passes without
-   *   another.
-   */
-  timing?: "layout" | "observer";
-}
-
-const sameSize = (a: ElementSize, b: ElementSize) =>
-  a.width === b.width && a.height === b.height;
-
 /**
- * visx `debounce(fn, wait, { leading: true })`: fires on the first call, then
- * once more with the latest argument `wait` ms after the last call (only if
- * there were calls after the leading one).
+ * Element size, measured first in a layout effect (the sized render commits before the first
+ * paint), then from a `ResizeObserver` throttled to one update per `debounceTime` plus a trailing one.
  */
-function leadingDebounce<A>(fn: (arg: A) => void, wait: number) {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  let pending: { arg: A } | null = null;
-  const debounced = (arg: A) => {
-    if (timeout === undefined) {
-      fn(arg);
-      pending = null;
-    } else {
-      pending = { arg };
-    }
-    clearTimeout(timeout);
-    timeout = setTimeout(() => {
-      timeout = undefined;
-      if (pending !== null) {
-        fn(pending.arg);
-        pending = null;
-      }
-    }, wait);
-  };
-  debounced.cancel = () => {
-    clearTimeout(timeout);
-    timeout = undefined;
-    pending = null;
-  };
-  return debounced;
-}
-
-/**
- * Tracks an element's size. The first measurement happens in a layout effect,
- * so the sized render commits before the browser paints its first frame
- * (no blank frame while a `ResizeObserver` round-trips). Later changes come
- * from a `ResizeObserver`; `debounceTime` coalesces bursts after an
- * immediate leading update. `timing: "observer"` keeps visx `useParentSize`
- * behaviour instead (see {@link ElementSizeOptions}).
- */
-export function useElementSize<T extends HTMLElement>(
-  ref: RefObject<T | null>,
-  debounceTime = 0,
-  { timing = "layout" }: ElementSizeOptions = {}
-): ElementSize {
-  const [size, setSize] = useState<ElementSize>(ZERO_SIZE);
-
-  // visx useParentSize: passive effect, rAF-deferred observer callbacks.
-  useEffect(() => {
-    const element = ref.current;
-    if (
-      timing !== "observer" ||
-      !element ||
-      typeof ResizeObserver === "undefined"
-    ) {
-      return;
-    }
-    const resize = leadingDebounce<ElementSize>((next) => {
-      setSize((prev) => (sameSize(prev, next) ? prev : next));
-    }, debounceTime);
-    let frame = 0;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        frame = requestAnimationFrame(() => resize({ width, height }));
-      }
-    });
-    observer.observe(element);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      resize.cancel();
-    };
-  }, [ref, debounceTime, timing]);
+function useElementSize(ref: RefObject<HTMLElement | null>, debounceTime: number): ElementSize {
+  const [size, setSize] = useState<ElementSize>({ width: 0, height: 0 });
 
   useIsomorphicLayoutEffect(() => {
     const element = ref.current;
-    if (timing !== "layout" || !element) {
-      return;
-    }
+    if (!element) return;
     const apply = () => {
       const next = readElementSize(element);
-      setSize((prev) => (sameSize(prev, next) ? prev : next));
+      setSize((prev) => (prev.width === next.width && prev.height === next.height ? prev : next));
     };
     apply();
+    if (typeof ResizeObserver === "undefined") return;
 
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let trailing = false;
-    const observer = new ResizeObserver(() => {
-      if (debounceTime <= 0) {
+    const flush = () => {
+      if (trailing) {
+        trailing = false;
         apply();
-        return;
+        timeout = setTimeout(flush, debounceTime);
+      } else {
+        timeout = null;
       }
+    };
+    const observer = new ResizeObserver(() => {
       if (timeout !== null) {
         trailing = true;
         return;
       }
       apply();
-      const flush = () => {
-        if (trailing) {
-          trailing = false;
-          apply();
-          timeout = setTimeout(flush, debounceTime);
-          return;
-        }
-        timeout = null;
-      };
       timeout = setTimeout(flush, debounceTime);
     });
     observer.observe(element);
     return () => {
       observer.disconnect();
-      if (timeout !== null) {
-        clearTimeout(timeout);
-      }
+      if (timeout !== null) clearTimeout(timeout);
     };
-  }, [ref, debounceTime, timing]);
+  }, [ref, debounceTime]);
 
   return size;
 }
 
-export interface ChartParentSizeProps {
-  children: (size: { width: number; height: number }) => ReactNode;
-  className?: string;
-  debounceTime?: number;
-  style?: CSSProperties;
-}
-
 /**
- * Drop-in for visx `<ParentSize>` without its `overflow: hidden` measuring
- * layer, so tooltips, markers, and strokes at the chart edge aren't clipped.
- * Measures before first paint (see {@link useElementSize}).
+ * Like visx `<ParentSize>` without its `overflow: hidden` measuring layer, so tooltips and strokes
+ * at the chart edge aren't clipped.
  */
 export function ParentSize({
   children,
-  className,
   debounceTime,
-  style,
-}: ChartParentSizeProps) {
+}: {
+  children: (size: ElementSize) => ReactNode;
+  debounceTime: number;
+}) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const { width, height } = useElementSize(parentRef, debounceTime ?? 300);
+  const size = useElementSize(parentRef, debounceTime);
   return (
-    <div
-      className={className}
-      style={{ position: "relative", width: "100%", height: "100%", ...style }}
-    >
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <div ref={parentRef} style={{ position: "absolute", inset: 0 }}>
-        {children({ width, height })}
+        {children(size)}
       </div>
     </div>
   );

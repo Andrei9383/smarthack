@@ -2,9 +2,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { StatusMark } from "@/components/brand/status-mark";
-import { dayName } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+import { StatusMark } from "@/components/status-mark";
+import { dayName } from "@/lib/time";
+import { orpc } from "@/lib/orpc";
 
 import { useReplayTs } from "./use-om-data";
 

@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useEffect, useMemo } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { fitRomania, ROMANIA_BOUNDS } from "@/components/shell/map-controls";
 import { zonesByCountyCode } from "@/modes/demand/data";
 import {

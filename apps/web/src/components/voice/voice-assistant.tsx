@@ -12,17 +12,17 @@ import { Mic, MicOff, PhoneOff, X } from "lucide-react";
 import { parseAsString, useQueryStates } from "nuqs";
 import { type ReactNode, useState, useSyncExternalStore } from "react";
 
-import { StatusMark } from "@/components/brand/status-mark";
-import { setPlaying } from "@/demo/replay-bar";
-import { clampStep, clockLabel, dayOfStep } from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
+import { StatusMark } from "@/components/status-mark";
+import { setPlaying } from "@/lib/replay-playing";
+import { clampStep, clockLabel, dayOfStep } from "@/lib/replay";
+import { usePolicy, useReplayStep } from "@/lib/use-replay";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 import { getDaySummary, getFaults, getFeeders, getWindParks } from "./data-tools";
 import { narrator } from "./narrator";
 import { useVoiceStatus } from "./use-voice-status";
 
-// "Ask WattSentry" (card #207): a voice conversation with the ElevenLabs agent made by
+// "Ask WattSentry": a voice conversation with the ElevenLabs agent made by
 // scripts/elevenlabs/sync-agent.mjs. It answers questions about the grid and the week on screen
 // (feeders, wind parks, faults, results), never about the code. Its facts come from client tools
 // that read the app's own API (./data-tools), so answers match the screens.
@@ -125,7 +125,7 @@ function VoiceTools() {
 
 /* ---------- Start / stop ---------- */
 
-export function useAskSentinel() {
+export function useAskWattSentry() {
   const { assistant } = useVoiceStatus();
   const { startSession, endSession } = useConversationControls();
   const { status } = useConversationStatus();
@@ -172,7 +172,7 @@ export function VoicePanel({ className }: { className?: string }) {
   const { open, said, error, muted } = useVoiceState();
   const { status } = useConversationStatus();
   const { isSpeaking } = useConversationMode();
-  const { live, start, stop } = useAskSentinel();
+  const { live, start, stop } = useAskWattSentry();
   if (!open) return null;
 
   const connected = status === "connected";
