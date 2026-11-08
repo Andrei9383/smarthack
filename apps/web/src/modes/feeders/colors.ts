@@ -19,7 +19,7 @@ onPaletteTheme((palette) => {
 });
 
 // Charts: Sentinel is always --primary, the baseline always --chart-baseline (foreground at 55%).
-export const SENTINEL_SERIES = "var(--primary)";
+export const SENTINEL_SERIES = "var(--sentinel)";
 export const BASELINE_SERIES = "var(--chart-baseline)";
 export const LIMIT_SERIES = "var(--status-critical)";
 export const SOC_SERIES = "var(--status-soc)";

@@ -8,7 +8,7 @@ export const PROVENANCE_PILL_CLASS =
 export function provenanceDotClass(label: string): string {
   const text = label.toLowerCase();
   if (text.includes("non-ro")) return "bg-status-forecast";
-  if (text.includes("real ro")) return "bg-primary";
+  if (text.includes("real ro")) return "bg-status-ok";
   return "bg-status-unknown";
 }
 

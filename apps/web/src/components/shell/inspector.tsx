@@ -73,7 +73,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
             <p className="text-[13px] leading-snug text-foreground">{copy.what}</p>
             {copy.doing || copy.look ? (
               <Popover>
-                <PopoverTrigger className="mt-1.5 -ml-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-brand-700 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-900 focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-brand-50">
+                <PopoverTrigger className="mt-1.5 -ml-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-surface-raised">
                   <Info aria-hidden className="size-3.5" />
                   What am I looking at?
                 </PopoverTrigger>

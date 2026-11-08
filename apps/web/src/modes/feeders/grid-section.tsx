@@ -141,7 +141,7 @@ function GridSheet({
                 label="Steps over 253 V"
                 value={fmt(voltage.sentinel.violations)}
                 sub={`without: ${fmt(voltage.baseline.violations)}`}
-                tone="text-primary"
+                tone="text-status-ok"
               />
               <Metric
                 label="Inverter trips"
@@ -216,7 +216,7 @@ function GridSheet({
                 value={`≈ ${fmt(value.deferredCapexLei)}`}
                 unit="lei"
                 sub="click for the assumptions"
-                tone="text-primary"
+                tone="text-status-ok"
                 popTitle="Assumptions"
                 pop={<PopList rows={value.assumptions.map((a) => ({ label: a.label, value: a.value, key: a.label }))} />}
               />

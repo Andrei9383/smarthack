@@ -343,7 +343,7 @@ function Results({ onClose, onTour }: { onClose: () => void; onTour: () => void 
                     <span
                       className={cn(
                         "grid size-5 shrink-0 place-items-center",
-                        isActive ? "text-brand-700" : "text-text-secondary",
+                        isActive ? "text-foreground" : "text-text-secondary",
                       )}
                     >
                       {item.icon}

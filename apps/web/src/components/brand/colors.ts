@@ -3,7 +3,7 @@
 export const SHADER_COLORS = {
   // Light theme: pale emerald, everything above ~85% lightness so dark text keeps AA contrast.
   white: "#ffffff",
-  mist: "#f4f6f8",
+  mist: "#f6f7f8",
   brand50: "#ecfbf2",
   brand100: "#d1f5e0",
   brand300: "#6cd9a0",
@@ -11,9 +11,9 @@ export const SHADER_COLORS = {
   forecast: "#7cc4ea",
   warn: "#f5c27a",
   critical: "#f4a3a6",
-  // Dark theme (Cockpit): deep navy and emerald, everything below ~25% lightness so light text keeps AA.
-  night: "#101720",
-  nightSurface: "#182330",
+  // Dark theme (Calm charcoal): charcoal and emerald, everything below ~25% lightness so light text keeps AA.
+  night: "#18191b",
+  nightSurface: "#1f2023",
   nightBrand50: "#15352a",
   nightBrand100: "#1c4535",
   nightBrand300: "#1f6b4a",

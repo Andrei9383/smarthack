@@ -65,7 +65,7 @@ export function ParkReport({ parkId, title = true }: { parkId: string; title?: b
                     key={r.actionId}
                     className={
                       r.date === today
-                        ? "bg-brand-50 font-medium text-brand-900"
+                        ? "bg-surface-raised font-medium text-foreground"
                         : "text-foreground"
                     }
                     title={issues

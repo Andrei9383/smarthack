@@ -23,7 +23,7 @@ import { fetchWindMeta } from "./wind-field";
 
 // Sentinel's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
 const FAN_FILL = "var(--brand-500)";
-const FAN_LINE = "var(--primary)";
+const FAN_LINE = "var(--sentinel)";
 const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-text-secondary uppercase";
 const PILL = "inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-text-secondary";
 const Y_TICKS = 4;
@@ -61,7 +61,7 @@ function provenanceDot(text: string | undefined) {
   if (!text) return "bg-status-unknown";
   if (/non-RO/i.test(text)) return "bg-status-forecast";
   if (/synthetic|mock/i.test(text)) return "bg-status-unknown";
-  if (/real RO/i.test(text)) return "bg-primary";
+  if (/real RO/i.test(text)) return "bg-status-ok";
   return "bg-status-unknown";
 }
 
@@ -163,7 +163,7 @@ export function ProductionPanel() {
               onClick={() => setSelected(p.id)}
               className={`rounded-full px-2.5 py-1 text-xs font-medium tabular-nums transition-[background-color,box-shadow,color] duration-150 ${
                 p.id === park?.id
-                  ? "bg-brand-50 text-brand-900 shadow-raised"
+                  ? "bg-primary text-primary-foreground shadow-raised"
                   : "bg-card text-text-secondary shadow-raised hover:bg-surface-raised hover:text-foreground"
               }`}
             >
@@ -241,17 +241,17 @@ export function ProductionPanel() {
                     const top = index === 0;
                     return (
                       <li key={ts} className="flex items-center gap-2.5">
-                        <span className={`w-3 font-mono text-[11px] ${top ? "font-semibold text-brand-700" : "text-muted-foreground"}`}>
+                        <span className={`w-3 font-mono text-[11px] ${top ? "font-semibold text-status-ok" : "text-muted-foreground"}`}>
                           {index + 1}
                         </span>
-                        <span className={`w-11 font-medium ${top ? "text-brand-900" : "text-foreground"}`}>{localLabel(ts)}</span>
+                        <span className={`w-11 font-medium ${top ? "font-semibold text-foreground" : "text-foreground"}`}>{localLabel(ts)}</span>
                         <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                           <span
-                            className={`block h-full rounded-full ${top ? "bg-primary" : "bg-brand-500/50"}`}
+                            className={`block h-full rounded-full ${top ? "bg-sentinel" : "bg-brand-500/50"}`}
                             style={{ width: `${peakMw > 0 ? (p50 / peakMw) * 100 : 0}%` }}
                           />
                         </span>
-                        <span className={`w-12 text-right ${top ? "font-semibold text-brand-900" : "text-text-secondary"}`}>
+                        <span className={`w-12 text-right ${top ? "font-semibold text-status-ok" : "text-text-secondary"}`}>
                           {Math.round(p50)} <span className="text-[11px] font-normal text-muted-foreground">MW</span>
                         </span>
                       </li>
@@ -269,7 +269,7 @@ export function ProductionPanel() {
               </h3>
               <ul className="flex items-center gap-3 text-[11px] text-text-secondary">
                 <li className="flex items-center gap-1.5">
-                  <span className="h-0.5 w-3.5 rounded-full bg-primary" aria-hidden />
+                  <span className="h-0.5 w-3.5 rounded-full bg-sentinel" aria-hidden />
                   P50
                 </li>
                 <li className="flex items-center gap-1.5">

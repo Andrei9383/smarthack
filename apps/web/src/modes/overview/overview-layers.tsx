@@ -228,7 +228,7 @@ export function OverviewLayers({ compact = false }: { compact?: boolean } = {}) 
                   title={`${park.name}: open in O&M`}
                   className="pointer-events-auto flex h-6 cursor-pointer items-center gap-1 rounded-full bg-card pr-2 pl-1 text-[11px] font-semibold whitespace-nowrap text-foreground shadow-raised transition-[box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-floating"
                 >
-                  <span className="grid size-4 place-items-center rounded-full border-[1.5px] border-primary bg-brand-50 text-[8px] font-bold text-brand-900 tabular-nums">
+                  <span className="grid size-4 place-items-center rounded-full border-[1.5px] border-status-ok bg-card text-[8px] font-bold text-foreground tabular-nums">
                     {park.turbineCount}
                   </span>
                   {park.id}
@@ -240,7 +240,7 @@ export function OverviewLayers({ compact = false }: { compact?: boolean } = {}) 
                   title={`${park.name}: open in O&M`}
                   className="pointer-events-auto flex cursor-pointer items-center gap-2 rounded-lg bg-card/95 py-1 pr-2.5 pl-1.5 text-left shadow-raised transition-[box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-floating"
                 >
-                  <span className="grid size-6 place-items-center rounded-full border-2 border-primary bg-brand-50 text-[9px] font-bold text-brand-900">
+                  <span className="grid size-6 place-items-center rounded-full border-2 border-status-ok bg-card text-[9px] font-bold text-foreground">
                     {park.turbineCount}
                   </span>
                   <span className="leading-tight">

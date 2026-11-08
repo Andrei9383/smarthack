@@ -77,7 +77,7 @@ function ZoneList({
               onClick={() => onSelect(zone.id)}
               aria-current={isSelected || undefined}
               className={`grid w-full grid-cols-[1.25rem_minmax(0,1fr)_6rem_4.5rem] items-center gap-x-3 rounded-sm px-2 py-2 text-left text-[13px] transition-colors duration-150 focus-visible:outline-none ${
-                isSelected ? "bg-brand-50 text-brand-900" : "hover:bg-muted focus-visible:bg-muted"
+                isSelected ? "bg-surface-raised font-medium text-foreground" : "hover:bg-muted focus-visible:bg-muted"
               }`}
             >
               <span className="text-xs text-muted-foreground tabular-nums">{index + 1}</span>
@@ -163,13 +163,13 @@ export function DemandPanel() {
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto overscroll-contain rounded-xl bg-card text-card-foreground shadow-floating">
       <header className="px-5 pt-4">
         <nav className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" aria-label="Zone">
-          <button type="button" className="transition-colors duration-150 hover:text-brand-700" onClick={() => setSelected(null)}>
+          <button type="button" className="transition-colors duration-150 hover:text-foreground" onClick={() => setSelected(null)}>
             Romania
           </button>
           {trail.map((zone) => (
             <span key={zone.id} className="flex items-center gap-1">
               <span aria-hidden>›</span>
-              <button type="button" className="transition-colors duration-150 hover:text-brand-700" onClick={() => setSelected(zone.id)}>
+              <button type="button" className="transition-colors duration-150 hover:text-foreground" onClick={() => setSelected(zone.id)}>
                 {zone.name}
               </button>
             </span>

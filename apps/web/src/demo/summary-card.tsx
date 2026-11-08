@@ -53,7 +53,7 @@ function ChangeChip({ delta }: { delta: ReturnType<typeof change> }) {
   if (!delta) return null;
   const tone =
     delta.good === true
-      ? "bg-brand-50 text-brand-700"
+      ? "bg-status-ok/10 text-status-ok"
       : delta.good === false
         ? "bg-status-critical/10 text-status-critical"
         : "bg-muted text-text-secondary";
@@ -145,7 +145,7 @@ export function SummaryCard() {
                 <div key={name} className="rounded-lg border border-border px-4 py-3.5">
                   <div className="truncate text-xs font-medium text-text-secondary">{metric?.label}</div>
                   <div className="mt-1.5 flex items-center gap-2">
-                    <Value kpi={shown} className="text-[28px] leading-9 font-semibold tracking-tight text-brand-700" />
+                    <Value kpi={shown} className="text-[28px] leading-9 font-semibold tracking-tight text-foreground" />
                     <ChangeChip delta={change(name, baseline, sentinel)} />
                   </div>
                   <div className="mt-1 h-4 text-xs text-muted-foreground">
@@ -168,7 +168,7 @@ export function SummaryCard() {
             <tr className="border-b border-border">
               <th className="pb-2 font-medium">Metric</th>
               <th className="pb-2 text-right font-medium">Baseline</th>
-              <th className="pb-2 text-right font-medium text-brand-700">Sentinel</th>
+              <th className="pb-2 text-right font-medium text-status-ok">Sentinel</th>
               <th className="w-20 pb-2 text-right font-medium">Change</th>
             </tr>
           </thead>

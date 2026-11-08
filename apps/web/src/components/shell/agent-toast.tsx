@@ -38,7 +38,7 @@ const subscribe = (listener: () => void) => {
 };
 
 export const KIND_STYLE: Record<ActionKind, { icon: typeof Wrench; tile: string }> = {
-  dispatch: { icon: BatteryCharging, tile: "bg-primary" },
+  dispatch: { icon: BatteryCharging, tile: "bg-sentinel" },
   workorder: { icon: Wrench, tile: "bg-status-warn" },
   review: { icon: UserRound, tile: "bg-status-review" },
   remote: { icon: Radio, tile: "bg-status-forecast" },
@@ -108,7 +108,7 @@ export function AgentToast({ className }: { className?: string }) {
                   explain(action);
                   hideAgentToast();
                 }}
-                className="font-semibold text-brand-700 underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+                className="font-semibold text-foreground underline underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
               >
                 why?
               </button>
