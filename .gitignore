@@ -16,3 +16,5 @@ apps/web/public/maplibre-gl-worker.mjs
 # Rust extension built in place by `maturin develop` (rust/build.sh, card #48)
 sentinel/_core*.so
 sentinel/_core*.pyd
+# live feed output (card #128)
+demo/live.sqlite*
