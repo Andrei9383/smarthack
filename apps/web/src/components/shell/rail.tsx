@@ -1,16 +1,12 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
-import { AudioLines, BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react";
+import { AudioLines, BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { useAskSentinel } from "@/components/voice/voice-assistant";
 import { useSummaryOpen } from "@/demo/demo-jumps";
-import { useOverview } from "@/demo/kpi-strip";
-import { useReplayPlaying } from "@/demo/replay-bar";
-import { clampStep, clockLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 import { MODE_COPY } from "./mode-copy";
@@ -77,26 +73,6 @@ function RailItem({
   );
 }
 
-/** Quiet replay status for the rail footer: a live LED while playing, the SCADA clock, the run. */
-function RailReplayStatus({ runLabel }: { runLabel?: string }) {
-  const [step] = useReplayStep();
-  const playing = useReplayPlaying();
-  return (
-    <div className="flex min-w-0 items-center gap-2.5 text-xs">
-      <StatusMark kind={playing ? "live" : "unknown"} size="xs" pulse={playing} />
-      <span className="min-w-0 leading-tight">
-        <span className="block truncate font-mono text-caption font-medium text-foreground tabular-nums">
-          {clockLabel(clampStep(step))}
-        </span>
-        <span className="block truncate text-caption text-muted-foreground">
-          {playing ? "Replaying the test week" : "Replay paused"}
-          {runLabel ? ` · ${runLabel}` : ""}
-        </span>
-      </span>
-    </div>
-  );
-}
-
 /** #207: voice conversation with the ElevenLabs agent; hidden when the server has no key. */
 function AskSentinelItem({ expanded }: { expanded: boolean }) {
   const { available, live, toggle } = useAskSentinel();
@@ -129,7 +105,6 @@ export function Rail({
   onHelp: () => void;
 }) {
   const [summaryOpen, setSummaryOpen] = useSummaryOpen();
-  const { label } = useOverview();
 
   return (
     <nav
@@ -141,12 +116,9 @@ export function Rail({
       )}
     >
       <div className="mb-5 flex h-10 items-center gap-3 pl-1">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground shadow-brand">
-          <Zap aria-hidden className="size-[18px]" />
-        </span>
+        <img src="/brand/wattsentry-icon.svg" alt="" aria-hidden width={32} height={32} className="size-8 shrink-0" />
         <span className={cn("min-w-0 leading-tight transition-opacity duration-150", expanded ? "opacity-100" : "opacity-0")}>
-          <b className="block truncate text-title tracking-tight">WattSentry</b>
-          <span className="block truncate text-caption text-muted-foreground">PPC · grid agent</span>
+          <b className="block truncate text-title font-semibold tracking-tight">WattSentry</b>
         </span>
       </div>
 
@@ -183,11 +155,7 @@ export function Rail({
       <div className="flex-1" />
 
       <div className={cn("flex items-center gap-1.5 border-t border-border pt-3", expanded ? "pl-1.5" : "flex-col")}>
-        {expanded ? (
-          <div className="min-w-0 flex-1">
-            <RailReplayStatus runLabel={label} />
-          </div>
-        ) : null}
+        {expanded ? <div className="flex-1" /> : null}
         <button
           type="button"
           onClick={onHelp}
