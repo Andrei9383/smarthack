@@ -1,0 +1,5956 @@
+{
+ "schema": "hosting_capacity/v1",
+ "label": "synthetic RO",
+ "run_id": "1092",
+ "judge_mode": "C1 adapter, verdict source NoJudge",
+ "week_start": "2025-06-02",
+ "days": 7,
+ "policies": [
+  "self_consumption",
+  "threshold",
+  "sentinel"
+ ],
+ "tols_min_per_week": [
+  0,
+  30
+ ],
+ "variants": [
+  "batteries",
+  "no_batteries"
+ ],
+ "n_max": 300,
+ "assumptions": {
+  "new_homes": "PV of a healthy donor on the same feeder scaled to a fleet kWp draw; load of another donor; battery drawn from the fleet with the fleet's battery share (variant no_batteries: none)",
+  "new_home_forecasts": "donor M1/M2 forecasts scaled like the PV (proxy)",
+  "limit": "G = tau*G_max + (1 - tau)*G_cons (M8), unchanged when homes are added (same cable)",
+  "physics": "K1 battery_rollout; batteries start at e_min and carry energy across days; Sentinel = day-ahead LP per day + comfort-reserve clip, no intraday re-qualify / hourly re-solve",
+  "threshold_alpha": 0.5
+ },
+ "feeders": [
+  {
+   "feeder_id": "F1",
+   "src_feeder_id": "F01",
+   "g_kw": 297.846,
+   "g_max_kw": 322.2,
+   "g_conservative_kw": 262.8,
+   "tau": 0.59,
+   "n_homes": 54,
+   "n_batteries": 22,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 26,
+      "threshold": 29,
+      "sentinel": 34
+     },
+     "30": {
+      "self_consumption": 27,
+      "threshold": 30,
+      "sentinel": 36
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 26,
+      "threshold": 28,
+      "sentinel": 34
+     },
+     "30": {
+      "self_consumption": 27,
+      "threshold": 29,
+      "sentinel": 36
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 8,
+      "vs_threshold": 5
+     },
+     "30": {
+      "vs_self_consumption": 9,
+      "vs_threshold": 6
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 8,
+      "vs_threshold": 6
+     },
+     "30": {
+      "vs_self_consumption": 9,
+      "vs_threshold": 7
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       196.344
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       213.624
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       248.819
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       273.662
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       289.925
+      ],
+      [
+       26,
+       0.0,
+       0.0,
+       297.415
+      ],
+      [
+       27,
+       30.0,
+       1.063,
+       300.885
+      ],
+      [
+       28,
+       45.0,
+       3.359,
+       304.721
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       189.28
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       206.56
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       239.631
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       290.177
+      ],
+      [
+       29,
+       0.0,
+       0.0,
+       295.428
+      ],
+      [
+       30,
+       30.0,
+       0.489,
+       299.542
+      ],
+      [
+       31,
+       45.0,
+       3.063,
+       304.544
+      ],
+      [
+       32,
+       60.0,
+       4.442,
+       306.198
+      ],
+      [
+       36,
+       90.0,
+       18.625,
+       317.837
+      ],
+      [
+       44,
+       510.0,
+       113.744,
+       342.815
+      ],
+      [
+       60,
+       1455.0,
+       954.13,
+       400.954
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       193.47
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       209.847
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       242.902
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       280.643
+      ],
+      [
+       32,
+       0.0,
+       0.0,
+       296.294
+      ],
+      [
+       34,
+       0.0,
+       0.0,
+       297.532
+      ],
+      [
+       35,
+       15.0,
+       0.266,
+       298.912
+      ],
+      [
+       36,
+       15.0,
+       0.919,
+       301.521
+      ],
+      [
+       37,
+       45.0,
+       2.567,
+       304.012
+      ],
+      [
+       38,
+       45.0,
+       2.751,
+       304.654
+      ],
+      [
+       40,
+       75.0,
+       4.14,
+       305.017
+      ],
+      [
+       44,
+       105.0,
+       6.132,
+       305.262
+      ],
+      [
+       60,
+       570.0,
+       88.491,
+       324.059
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       196.344
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       213.624
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       248.819
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       273.662
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       289.925
+      ],
+      [
+       26,
+       0.0,
+       0.0,
+       297.415
+      ],
+      [
+       27,
+       30.0,
+       1.063,
+       300.885
+      ],
+      [
+       28,
+       45.0,
+       3.359,
+       304.721
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       189.28
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       206.56
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       241.432
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       295.779
+      ],
+      [
+       29,
+       30.0,
+       1.325,
+       301.03
+      ],
+      [
+       30,
+       45.0,
+       3.474,
+       305.143
+      ],
+      [
+       32,
+       75.0,
+       12.011,
+       313.485
+      ],
+      [
+       36,
+       195.0,
+       37.609,
+       325.124
+      ],
+      [
+       44,
+       855.0,
+       222.838,
+       351.036
+      ],
+      [
+       60,
+       1995.0,
+       1569.367,
+       411.952
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       193.47
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       209.847
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       242.902
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       280.643
+      ],
+      [
+       32,
+       0.0,
+       0.0,
+       296.294
+      ],
+      [
+       34,
+       0.0,
+       0.0,
+       297.532
+      ],
+      [
+       35,
+       15.0,
+       0.266,
+       298.912
+      ],
+      [
+       36,
+       30.0,
+       1.857,
+       301.599
+      ],
+      [
+       37,
+       60.0,
+       2.94,
+       304.476
+      ],
+      [
+       38,
+       105.0,
+       5.48,
+       304.654
+      ],
+      [
+       40,
+       120.0,
+       7.361,
+       305.017
+      ],
+      [
+       44,
+       315.0,
+       31.306,
+       316.096
+      ],
+      [
+       60,
+       1980.0,
+       945.287,
+       374.784
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F2",
+   "src_feeder_id": "F02",
+   "g_kw": 648.885,
+   "g_max_kw": 670.6,
+   "g_conservative_kw": 563.1,
+   "tau": 0.798,
+   "n_homes": 125,
+   "n_batteries": 60,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 43,
+      "threshold": 54,
+      "sentinel": 46
+     },
+     "30": {
+      "self_consumption": 46,
+      "threshold": 57,
+      "sentinel": 53
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 43,
+      "threshold": 51,
+      "sentinel": 46
+     },
+     "30": {
+      "self_consumption": 46,
+      "threshold": 52,
+      "sentinel": 52
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 3,
+      "vs_threshold": -8
+     },
+     "30": {
+      "vs_self_consumption": 7,
+      "vs_threshold": -4
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 3,
+      "vs_threshold": -5
+     },
+     "30": {
+      "vs_self_consumption": 6,
+      "vs_threshold": 0
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       483.565
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       496.668
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       524.84
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       587.6
+      ],
+      [
+       36,
+       0.0,
+       0.0,
+       620.95
+      ],
+      [
+       40,
+       0.0,
+       0.0,
+       635.779
+      ],
+      [
+       42,
+       0.0,
+       0.0,
+       643.211
+      ],
+      [
+       43,
+       0.0,
+       0.0,
+       648.116
+      ],
+      [
+       44,
+       15.0,
+       0.676,
+       651.59
+      ],
+      [
+       46,
+       30.0,
+       2.377,
+       657.449
+      ],
+      [
+       47,
+       75.0,
+       3.717,
+       659.212
+      ],
+      [
+       48,
+       165.0,
+       12.087,
+       663.571
+      ],
+      [
+       52,
+       420.0,
+       89.934,
+       680.633
+      ],
+      [
+       60,
+       765.0,
+       414.082,
+       714.181
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       458.713
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       471.512
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       494.476
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       552.663
+      ],
+      [
+       44,
+       0.0,
+       0.0,
+       613.734
+      ],
+      [
+       52,
+       0.0,
+       0.0,
+       639.659
+      ],
+      [
+       54,
+       0.0,
+       0.0,
+       647.59
+      ],
+      [
+       55,
+       15.0,
+       0.181,
+       649.61
+      ],
+      [
+       56,
+       30.0,
+       0.903,
+       651.383
+      ],
+      [
+       57,
+       30.0,
+       3.604,
+       656.818
+      ],
+      [
+       58,
+       90.0,
+       7.844,
+       660.889
+      ],
+      [
+       60,
+       150.0,
+       25.624,
+       670.221
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       476.691
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       492.689
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       517.974
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       584.325
+      ],
+      [
+       44,
+       0.0,
+       0.0,
+       640.962
+      ],
+      [
+       46,
+       0.0,
+       0.0,
+       646.838
+      ],
+      [
+       47,
+       15.0,
+       0.028,
+       648.999
+      ],
+      [
+       48,
+       15.0,
+       1.093,
+       653.255
+      ],
+      [
+       52,
+       15.0,
+       1.541,
+       655.048
+      ],
+      [
+       53,
+       30.0,
+       1.894,
+       655.002
+      ],
+      [
+       54,
+       60.0,
+       3.314,
+       655.331
+      ],
+      [
+       56,
+       75.0,
+       7.615,
+       660.239
+      ],
+      [
+       60,
+       90.0,
+       19.807,
+       672.155
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       483.565
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       496.668
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       524.84
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       587.6
+      ],
+      [
+       36,
+       0.0,
+       0.0,
+       620.95
+      ],
+      [
+       40,
+       0.0,
+       0.0,
+       635.779
+      ],
+      [
+       42,
+       0.0,
+       0.0,
+       643.211
+      ],
+      [
+       43,
+       0.0,
+       0.0,
+       648.116
+      ],
+      [
+       44,
+       15.0,
+       0.676,
+       651.59
+      ],
+      [
+       46,
+       30.0,
+       2.377,
+       657.449
+      ],
+      [
+       47,
+       90.0,
+       3.783,
+       659.212
+      ],
+      [
+       48,
+       165.0,
+       12.658,
+       663.571
+      ],
+      [
+       52,
+       420.0,
+       91.249,
+       680.633
+      ],
+      [
+       60,
+       795.0,
+       442.91,
+       714.181
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       458.713
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       471.512
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       497.956
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       559.496
+      ],
+      [
+       44,
+       0.0,
+       0.0,
+       622.19
+      ],
+      [
+       48,
+       0.0,
+       0.0,
+       633.365
+      ],
+      [
+       50,
+       0.0,
+       0.0,
+       640.748
+      ],
+      [
+       51,
+       0.0,
+       0.0,
+       646.388
+      ],
+      [
+       52,
+       30.0,
+       0.518,
+       650.089
+      ],
+      [
+       53,
+       60.0,
+       2.539,
+       653.017
+      ],
+      [
+       54,
+       60.0,
+       7.765,
+       658.168
+      ],
+      [
+       56,
+       120.0,
+       16.648,
+       664.42
+      ],
+      [
+       60,
+       285.0,
+       75.307,
+       683.349
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       476.691
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       492.689
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       517.974
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       586.589
+      ],
+      [
+       44,
+       0.0,
+       0.0,
+       640.962
+      ],
+      [
+       46,
+       0.0,
+       0.0,
+       646.838
+      ],
+      [
+       47,
+       15.0,
+       0.028,
+       648.999
+      ],
+      [
+       48,
+       15.0,
+       1.093,
+       653.255
+      ],
+      [
+       52,
+       15.0,
+       1.541,
+       655.048
+      ],
+      [
+       53,
+       45.0,
+       2.251,
+       655.002
+      ],
+      [
+       54,
+       75.0,
+       4.794,
+       655.776
+      ],
+      [
+       56,
+       75.0,
+       9.048,
+       661.782
+      ],
+      [
+       60,
+       105.0,
+       19.991,
+       672.155
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F3",
+   "src_feeder_id": "F03",
+   "g_kw": 71.075,
+   "g_max_kw": 76.6,
+   "g_conservative_kw": 59.6,
+   "tau": 0.675,
+   "n_homes": 27,
+   "n_batteries": 11,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 1860.0,
+     "threshold": 1590.0,
+     "sentinel": 1020.0
+    },
+    "no_batteries": {
+     "self_consumption": 1860.0,
+     "threshold": 1590.0,
+     "sentinel": 1020.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       1860.0,
+       466.729,
+       100.214
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       1590.0,
+       264.869,
+       96.532
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       1020.0,
+       56.91,
+       81.64
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       1860.0,
+       466.729,
+       100.214
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       1590.0,
+       264.869,
+       96.532
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       1020.0,
+       56.91,
+       81.64
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F4",
+   "src_feeder_id": "F04",
+   "g_kw": 252.692,
+   "g_max_kw": 272.4,
+   "g_conservative_kw": 218.7,
+   "tau": 0.633,
+   "n_homes": 44,
+   "n_batteries": 18,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 21,
+      "threshold": 24,
+      "sentinel": 28
+     },
+     "30": {
+      "self_consumption": 21,
+      "threshold": 25,
+      "sentinel": 34
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 21,
+      "threshold": 23,
+      "sentinel": 26
+     },
+     "30": {
+      "self_consumption": 21,
+      "threshold": 23,
+      "sentinel": 27
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 7,
+      "vs_threshold": 4
+     },
+     "30": {
+      "vs_self_consumption": 13,
+      "vs_threshold": 9
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 5,
+      "vs_threshold": 3
+     },
+     "30": {
+      "vs_self_consumption": 6,
+      "vs_threshold": 4
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       173.615
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       190.442
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       220.025
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       247.797
+      ],
+      [
+       21,
+       0.0,
+       0.0,
+       251.19
+      ],
+      [
+       22,
+       45.0,
+       2.277,
+       256.102
+      ],
+      [
+       24,
+       315.0,
+       26.599,
+       265.399
+      ],
+      [
+       28,
+       840.0,
+       184.177,
+       281.595
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       164.474
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       176.897
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       206.35
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       234.212
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       250.079
+      ],
+      [
+       25,
+       30.0,
+       0.254,
+       253.208
+      ],
+      [
+       26,
+       45.0,
+       1.648,
+       255.632
+      ],
+      [
+       28,
+       210.0,
+       21.449,
+       266.355
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       167.913
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       185.016
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       215.678
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       251.899
+      ],
+      [
+       29,
+       15.0,
+       1.006,
+       256.717
+      ],
+      [
+       30,
+       15.0,
+       1.027,
+       256.801
+      ],
+      [
+       32,
+       15.0,
+       1.066,
+       256.957
+      ],
+      [
+       34,
+       15.0,
+       1.087,
+       257.039
+      ],
+      [
+       35,
+       45.0,
+       3.844,
+       260.376
+      ],
+      [
+       36,
+       60.0,
+       4.041,
+       260.922
+      ],
+      [
+       44,
+       135.0,
+       11.526,
+       261.987
+      ],
+      [
+       60,
+       2355.0,
+       1191.398,
+       313.408
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       173.615
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       190.442
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       220.025
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       247.797
+      ],
+      [
+       21,
+       0.0,
+       0.0,
+       251.19
+      ],
+      [
+       22,
+       45.0,
+       2.277,
+       256.102
+      ],
+      [
+       24,
+       375.0,
+       29.785,
+       265.399
+      ],
+      [
+       28,
+       885.0,
+       197.538,
+       281.595
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       164.474
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       181.3
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       210.884
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       238.655
+      ],
+      [
+       22,
+       0.0,
+       0.0,
+       246.961
+      ],
+      [
+       23,
+       0.0,
+       0.0,
+       252.169
+      ],
+      [
+       24,
+       45.0,
+       1.909,
+       256.258
+      ],
+      [
+       28,
+       510.0,
+       63.014,
+       272.454
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       167.913
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       185.988
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       214.706
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       241.687
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       245.794
+      ],
+      [
+       26,
+       0.0,
+       0.0,
+       250.169
+      ],
+      [
+       27,
+       15.0,
+       0.764,
+       255.747
+      ],
+      [
+       28,
+       60.0,
+       4.203,
+       259.383
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F5",
+   "src_feeder_id": "F05",
+   "g_kw": 105.344,
+   "g_max_kw": 119.3,
+   "g_conservative_kw": 94.2,
+   "tau": 0.444,
+   "n_homes": 21,
+   "n_batteries": 11,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 5,
+      "threshold": 7,
+      "sentinel": 12
+     },
+     "30": {
+      "self_consumption": 5,
+      "threshold": 7,
+      "sentinel": 13
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 5,
+      "threshold": 7,
+      "sentinel": 10
+     },
+     "30": {
+      "self_consumption": 5,
+      "threshold": 7,
+      "sentinel": 11
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 7,
+      "vs_threshold": 5
+     },
+     "30": {
+      "vs_self_consumption": 8,
+      "vs_threshold": 6
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 5,
+      "vs_threshold": 3
+     },
+     "30": {
+      "vs_self_consumption": 6,
+      "vs_threshold": 4
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       85.206
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       100.337
+      ],
+      [
+       5,
+       0.0,
+       0.0,
+       105.272
+      ],
+      [
+       6,
+       60.0,
+       1.749,
+       107.819
+      ],
+      [
+       8,
+       705.0,
+       54.278,
+       116.684
+      ],
+      [
+       12,
+       1260.0,
+       284.012,
+       131.526
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       78.584
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       92.6
+      ],
+      [
+       6,
+       0.0,
+       0.0,
+       99.703
+      ],
+      [
+       7,
+       0.0,
+       0.0,
+       104.794
+      ],
+      [
+       8,
+       60.0,
+       0.718,
+       106.489
+      ],
+      [
+       12,
+       705.0,
+       84.238,
+       118.734
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       84.864
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       99.935
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       104.229
+      ],
+      [
+       13,
+       15.0,
+       0.288,
+       106.498
+      ],
+      [
+       14,
+       105.0,
+       2.75,
+       108.054
+      ],
+      [
+       16,
+       885.0,
+       46.136,
+       114.159
+      ],
+      [
+       20,
+       1860.0,
+       300.07,
+       125.049
+      ],
+      [
+       28,
+       2460.0,
+       955.436,
+       147.477
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       85.206
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       100.337
+      ],
+      [
+       5,
+       0.0,
+       0.0,
+       105.272
+      ],
+      [
+       6,
+       60.0,
+       1.749,
+       107.819
+      ],
+      [
+       8,
+       720.0,
+       55.71,
+       116.684
+      ],
+      [
+       12,
+       1350.0,
+       299.426,
+       131.526
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       78.584
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       92.602
+      ],
+      [
+       6,
+       0.0,
+       0.0,
+       99.703
+      ],
+      [
+       7,
+       0.0,
+       0.0,
+       104.935
+      ],
+      [
+       8,
+       195.0,
+       5.126,
+       108.29
+      ],
+      [
+       12,
+       900.0,
+       138.884,
+       123.032
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       84.864
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       100.337
+      ],
+      [
+       8,
+       0.0,
+       0.0,
+       104.54
+      ],
+      [
+       10,
+       0.0,
+       0.0,
+       104.345
+      ],
+      [
+       11,
+       15.0,
+       0.23,
+       106.263
+      ],
+      [
+       12,
+       45.0,
+       0.361,
+       106.283
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F7",
+   "src_feeder_id": "F06",
+   "g_kw": 61.846,
+   "g_max_kw": 65.5,
+   "g_conservative_kw": 53.9,
+   "tau": 0.685,
+   "n_homes": 27,
+   "n_batteries": 12,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 1785.0,
+     "threshold": 1875.0,
+     "sentinel": 870.0
+    },
+    "no_batteries": {
+     "self_consumption": 1785.0,
+     "threshold": 1875.0,
+     "sentinel": 870.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       1785.0,
+       477.863,
+       90.541
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       1875.0,
+       303.166,
+       82.386
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       870.0,
+       37.255,
+       70.402
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       1785.0,
+       477.863,
+       90.541
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       1875.0,
+       303.166,
+       82.386
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       870.0,
+       37.255,
+       70.402
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F6",
+   "src_feeder_id": "F07",
+   "g_kw": 56.218,
+   "g_max_kw": 57.1,
+   "g_conservative_kw": 48.1,
+   "tau": 0.902,
+   "n_homes": 19,
+   "n_batteries": 10,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 1395.0,
+     "threshold": 765.0,
+     "sentinel": 75.0
+    },
+    "no_batteries": {
+     "self_consumption": 1395.0,
+     "threshold": 765.0,
+     "sentinel": 75.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       1395.0,
+       153.17,
+       75.818
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       765.0,
+       64.31,
+       70.874
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       75.0,
+       2.404,
+       59.714
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       1395.0,
+       153.17,
+       75.818
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       765.0,
+       64.31,
+       70.874
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       75.0,
+       2.404,
+       59.714
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F8",
+   "src_feeder_id": "F08",
+   "g_kw": 304.687,
+   "g_max_kw": 307.8,
+   "g_conservative_kw": 235.4,
+   "tau": 0.957,
+   "n_homes": 48,
+   "n_batteries": 28,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 27,
+      "threshold": 36,
+      "sentinel": 50
+     },
+     "30": {
+      "self_consumption": 30,
+      "threshold": 37,
+      "sentinel": 51
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 27,
+      "threshold": 34,
+      "sentinel": 42
+     },
+     "30": {
+      "self_consumption": 30,
+      "threshold": 34,
+      "sentinel": 43
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 23,
+      "vs_threshold": 14
+     },
+     "30": {
+      "vs_self_consumption": 21,
+      "vs_threshold": 14
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 15,
+      "vs_threshold": 8
+     },
+     "30": {
+      "vs_self_consumption": 13,
+      "vs_threshold": 9
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       195.851
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       210.876
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       241.168
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       276.438
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       287.862
+      ],
+      [
+       26,
+       0.0,
+       0.0,
+       297.429
+      ],
+      [
+       27,
+       0.0,
+       0.0,
+       302.416
+      ],
+      [
+       28,
+       15.0,
+       0.016,
+       304.75
+      ],
+      [
+       30,
+       15.0,
+       1.597,
+       311.076
+      ],
+      [
+       31,
+       105.0,
+       5.528,
+       316.175
+      ],
+      [
+       32,
+       150.0,
+       12.915,
+       319.6
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       172.891
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       187.283
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       212.154
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       273.405
+      ],
+      [
+       36,
+       0.0,
+       0.0,
+       303.13
+      ],
+      [
+       37,
+       30.0,
+       1.203,
+       307.402
+      ],
+      [
+       38,
+       45.0,
+       2.161,
+       309.209
+      ],
+      [
+       40,
+       105.0,
+       13.903,
+       318.749
+      ],
+      [
+       44,
+       285.0,
+       61.797,
+       335.857
+      ],
+      [
+       60,
+       1305.0,
+       703.375,
+       385.675
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       192.851
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       206.108
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       238.168
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       285.269
+      ],
+      [
+       44,
+       0.0,
+       0.0,
+       290.824
+      ],
+      [
+       48,
+       0.0,
+       0.0,
+       296.535
+      ],
+      [
+       50,
+       0.0,
+       0.0,
+       304.023
+      ],
+      [
+       51,
+       30.0,
+       0.691,
+       307.263
+      ],
+      [
+       52,
+       75.0,
+       3.352,
+       310.421
+      ],
+      [
+       60,
+       345.0,
+       35.205,
+       328.905
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       195.851
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       210.876
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       241.168
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       276.438
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       289.556
+      ],
+      [
+       26,
+       0.0,
+       0.0,
+       299.123
+      ],
+      [
+       27,
+       0.0,
+       0.0,
+       304.11
+      ],
+      [
+       28,
+       15.0,
+       0.439,
+       306.444
+      ],
+      [
+       30,
+       30.0,
+       2.346,
+       312.77
+      ],
+      [
+       31,
+       135.0,
+       8.813,
+       317.869
+      ],
+      [
+       32,
+       165.0,
+       17.216,
+       321.295
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       172.891
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       187.283
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       215.938
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       281.045
+      ],
+      [
+       32,
+       0.0,
+       0.0,
+       295.896
+      ],
+      [
+       34,
+       0.0,
+       0.0,
+       302.658
+      ],
+      [
+       35,
+       60.0,
+       1.149,
+       307.066
+      ],
+      [
+       36,
+       90.0,
+       7.744,
+       312.229
+      ],
+      [
+       44,
+       840.0,
+       203.111,
+       348.687
+      ],
+      [
+       60,
+       1740.0,
+       1383.474,
+       407.712
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       192.851
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       207.876
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       236.399
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       285.269
+      ],
+      [
+       36,
+       0.0,
+       0.0,
+       292.295
+      ],
+      [
+       40,
+       0.0,
+       0.0,
+       292.628
+      ],
+      [
+       42,
+       0.0,
+       0.0,
+       299.417
+      ],
+      [
+       43,
+       15.0,
+       0.102,
+       305.095
+      ],
+      [
+       44,
+       45.0,
+       3.263,
+       310.153
+      ],
+      [
+       60,
+       1635.0,
+       747.373,
+       367.26
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F9",
+   "src_feeder_id": "F09",
+   "g_kw": 81.265,
+   "g_max_kw": 84.7,
+   "g_conservative_kw": 69.5,
+   "tau": 0.774,
+   "n_homes": 26,
+   "n_batteries": 14,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 2
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 0
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 2
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 2
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 0,
+      "vs_threshold": 0
+     },
+     "30": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 2
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 990.0,
+     "threshold": 345.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 990.0,
+     "threshold": 345.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       990.0,
+       134.183,
+       101.234
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       345.0,
+       24.393,
+       90.526
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       80.164
+      ],
+      [
+       1,
+       15.0,
+       0.01,
+       81.306
+      ],
+      [
+       2,
+       30.0,
+       0.281,
+       82.378
+      ],
+      [
+       3,
+       45.0,
+       0.781,
+       83.217
+      ],
+      [
+       4,
+       375.0,
+       9.827,
+       86.06
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       990.0,
+       134.183,
+       101.234
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       345.0,
+       24.393,
+       90.526
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       80.164
+      ],
+      [
+       1,
+       15.0,
+       0.01,
+       81.306
+      ],
+      [
+       2,
+       30.0,
+       0.281,
+       82.378
+      ],
+      [
+       3,
+       45.0,
+       0.781,
+       83.217
+      ],
+      [
+       4,
+       375.0,
+       9.827,
+       86.06
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F10",
+   "src_feeder_id": "F10",
+   "g_kw": 63.629,
+   "g_max_kw": 65.7,
+   "g_conservative_kw": 55.5,
+   "tau": 0.797,
+   "n_homes": 27,
+   "n_batteries": 15,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 2
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 2
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 1
+     },
+     "30": {
+      "self_consumption": 0,
+      "threshold": 0,
+      "sentinel": 1
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 2
+     },
+     "30": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 2
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 1,
+      "vs_threshold": 1
+     },
+     "30": {
+      "vs_self_consumption": 1,
+      "vs_threshold": 1
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 1605.0,
+     "threshold": 870.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 1605.0,
+     "threshold": 870.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       1605.0,
+       299.607,
+       87.575
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       870.0,
+       83.336,
+       80.126
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       62.796
+      ],
+      [
+       2,
+       0.0,
+       0.0,
+       63.149
+      ],
+      [
+       3,
+       105.0,
+       2.218,
+       66.332
+      ],
+      [
+       4,
+       375.0,
+       11.341,
+       69.095
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       1605.0,
+       299.607,
+       87.575
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       870.0,
+       83.336,
+       80.126
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       62.796
+      ],
+      [
+       1,
+       0.0,
+       0.0,
+       62.874
+      ],
+      [
+       2,
+       45.0,
+       0.332,
+       64.632
+      ],
+      [
+       4,
+       900.0,
+       43.211,
+       72.356
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F11",
+   "src_feeder_id": "F11",
+   "g_kw": 122.347,
+   "g_max_kw": 125.3,
+   "g_conservative_kw": 99.4,
+   "tau": 0.886,
+   "n_homes": 18,
+   "n_batteries": 6,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 12,
+      "threshold": 13,
+      "sentinel": 14
+     },
+     "30": {
+      "self_consumption": 12,
+      "threshold": 13,
+      "sentinel": 14
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 12,
+      "threshold": 12,
+      "sentinel": 14
+     },
+     "30": {
+      "self_consumption": 12,
+      "threshold": 12,
+      "sentinel": 14
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 1
+     },
+     "30": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 1
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 2
+     },
+     "30": {
+      "vs_self_consumption": 2,
+      "vs_threshold": 2
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       66.6
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       87.232
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       120.506
+      ],
+      [
+       13,
+       105.0,
+       3.814,
+       126.1
+      ],
+      [
+       14,
+       420.0,
+       24.06,
+       130.489
+      ],
+      [
+       16,
+       855.0,
+       112.198,
+       138.652
+      ],
+      [
+       20,
+       1545.0,
+       421.385,
+       154.117
+      ],
+      [
+       28,
+       2130.0,
+       1187.58,
+       182.537
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       63.946
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       82.526
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       114.687
+      ],
+      [
+       13,
+       0.0,
+       0.0,
+       119.807
+      ],
+      [
+       14,
+       45.0,
+       0.681,
+       124.206
+      ],
+      [
+       16,
+       345.0,
+       26.7,
+       132.41
+      ],
+      [
+       20,
+       840.0,
+       154.76,
+       147.416
+      ],
+      [
+       28,
+       2040.0,
+       697.779,
+       174.327
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       67.32
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       88.056
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       114.035
+      ],
+      [
+       14,
+       0.0,
+       0.0,
+       121.668
+      ],
+      [
+       15,
+       60.0,
+       1.066,
+       125.486
+      ],
+      [
+       16,
+       60.0,
+       1.216,
+       125.461
+      ],
+      [
+       20,
+       60.0,
+       1.406,
+       125.921
+      ],
+      [
+       28,
+       1890.0,
+       302.087,
+       146.147
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       66.6
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       87.232
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       120.506
+      ],
+      [
+       13,
+       105.0,
+       3.814,
+       126.1
+      ],
+      [
+       14,
+       420.0,
+       24.06,
+       130.489
+      ],
+      [
+       16,
+       900.0,
+       116.97,
+       138.652
+      ],
+      [
+       20,
+       1620.0,
+       436.372,
+       154.117
+      ],
+      [
+       28,
+       2355.0,
+       1280.165,
+       182.537
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       63.946
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       84.578
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       117.852
+      ],
+      [
+       13,
+       60.0,
+       0.628,
+       123.446
+      ],
+      [
+       14,
+       315.0,
+       11.951,
+       127.835
+      ],
+      [
+       16,
+       735.0,
+       79.001,
+       135.998
+      ],
+      [
+       20,
+       1560.0,
+       363.344,
+       151.463
+      ],
+      [
+       28,
+       2325.0,
+       1194.899,
+       179.893
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       67.32
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       88.056
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       116.021
+      ],
+      [
+       14,
+       0.0,
+       0.0,
+       121.668
+      ],
+      [
+       15,
+       60.0,
+       1.066,
+       125.486
+      ],
+      [
+       16,
+       150.0,
+       2.904,
+       125.461
+      ],
+      [
+       20,
+       1350.0,
+       194.121,
+       143.19
+      ],
+      [
+       28,
+       2400.0,
+       1027.077,
+       173.593
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F12",
+   "src_feeder_id": "F12",
+   "g_kw": 495.346,
+   "g_max_kw": 516.1,
+   "g_conservative_kw": 400.8,
+   "tau": 0.82,
+   "n_homes": 75,
+   "n_batteries": 38,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 67,
+      "threshold": 85,
+      "sentinel": 111
+     },
+     "30": {
+      "self_consumption": 68,
+      "threshold": 88,
+      "sentinel": 115
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 67,
+      "threshold": 75,
+      "sentinel": 90
+     },
+     "30": {
+      "self_consumption": 67,
+      "threshold": 76,
+      "sentinel": 92
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 44,
+      "vs_threshold": 26
+     },
+     "30": {
+      "vs_self_consumption": 47,
+      "vs_threshold": 27
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 23,
+      "vs_threshold": 15
+     },
+     "30": {
+      "vs_self_consumption": 25,
+      "vs_threshold": 16
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       252.925
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       269.54
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       297.531
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       357.906
+      ],
+      [
+       60,
+       0.0,
+       0.0,
+       465.704
+      ],
+      [
+       64,
+       0.0,
+       0.0,
+       481.944
+      ],
+      [
+       66,
+       0.0,
+       0.0,
+       489.959
+      ],
+      [
+       67,
+       0.0,
+       0.0,
+       493.198
+      ],
+      [
+       68,
+       30.0,
+       0.484,
+       496.893
+      ],
+      [
+       69,
+       45.0,
+       1.705,
+       499.058
+      ],
+      [
+       70,
+       60.0,
+       3.895,
+       501.375
+      ],
+      [
+       72,
+       150.0,
+       15.986,
+       509.271
+      ],
+      [
+       76,
+       270.0,
+       67.951,
+       524.012
+      ],
+      [
+       92,
+       960.0,
+       676.911,
+       584.362
+      ],
+      [
+       124,
+       1545.0,
+       2864.504,
+       701.667
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       224.343
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       239.743
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       265.164
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       320.601
+      ],
+      [
+       60,
+       0.0,
+       0.0,
+       411.945
+      ],
+      [
+       76,
+       0.0,
+       0.0,
+       464.226
+      ],
+      [
+       84,
+       0.0,
+       0.0,
+       488.946
+      ],
+      [
+       85,
+       0.0,
+       0.0,
+       492.213
+      ],
+      [
+       86,
+       15.0,
+       0.2,
+       496.145
+      ],
+      [
+       88,
+       30.0,
+       2.024,
+       503.086
+      ],
+      [
+       89,
+       105.0,
+       8.021,
+       508.191
+      ],
+      [
+       90,
+       135.0,
+       13.14,
+       510.83
+      ],
+      [
+       92,
+       210.0,
+       26.024,
+       515.596
+      ],
+      [
+       124,
+       1320.0,
+       1247.347,
+       615.482
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       257.809
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       274.953
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       302.944
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       363.267
+      ],
+      [
+       60,
+       0.0,
+       0.0,
+       470.407
+      ],
+      [
+       92,
+       0.0,
+       0.0,
+       467.134
+      ],
+      [
+       108,
+       0.0,
+       0.0,
+       492.767
+      ],
+      [
+       110,
+       0.0,
+       0.0,
+       493.319
+      ],
+      [
+       111,
+       0.0,
+       0.0,
+       493.247
+      ],
+      [
+       112,
+       15.0,
+       0.567,
+       497.614
+      ],
+      [
+       114,
+       15.0,
+       0.638,
+       497.898
+      ],
+      [
+       115,
+       15.0,
+       0.643,
+       497.919
+      ],
+      [
+       116,
+       45.0,
+       2.517,
+       501.358
+      ],
+      [
+       124,
+       210.0,
+       23.017,
+       511.873
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       252.925
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       270.069
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       298.06
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       358.383
+      ],
+      [
+       60,
+       0.0,
+       0.0,
+       467.555
+      ],
+      [
+       64,
+       0.0,
+       0.0,
+       483.822
+      ],
+      [
+       66,
+       0.0,
+       0.0,
+       491.615
+      ],
+      [
+       67,
+       0.0,
+       0.0,
+       495.065
+      ],
+      [
+       68,
+       45.0,
+       2.051,
+       498.549
+      ],
+      [
+       76,
+       345.0,
+       91.586,
+       525.983
+      ],
+      [
+       92,
+       1065.0,
+       785.709,
+       586.018
+      ],
+      [
+       124,
+       1770.0,
+       3333.105,
+       705.984
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       224.343
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       241.659
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       269.786
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       330.182
+      ],
+      [
+       60,
+       0.0,
+       0.0,
+       438.747
+      ],
+      [
+       68,
+       0.0,
+       0.0,
+       470.027
+      ],
+      [
+       72,
+       0.0,
+       0.0,
+       482.656
+      ],
+      [
+       74,
+       0.0,
+       0.0,
+       487.711
+      ],
+      [
+       75,
+       0.0,
+       0.0,
+       492.078
+      ],
+      [
+       76,
+       15.0,
+       0.499,
+       497.342
+      ],
+      [
+       77,
+       45.0,
+       1.857,
+       501.375
+      ],
+      [
+       78,
+       60.0,
+       4.851,
+       504.384
+      ],
+      [
+       80,
+       135.0,
+       16.606,
+       511.131
+      ],
+      [
+       84,
+       345.0,
+       84.505,
+       527.896
+      ],
+      [
+       92,
+       780.0,
+       336.979,
+       557.344
+      ],
+      [
+       124,
+       1800.0,
+       2766.368,
+       676.087
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       257.809
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       274.953
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       302.944
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       363.267
+      ],
+      [
+       60,
+       0.0,
+       0.0,
+       470.407
+      ],
+      [
+       76,
+       0.0,
+       0.0,
+       470.336
+      ],
+      [
+       84,
+       0.0,
+       0.0,
+       476.394
+      ],
+      [
+       88,
+       0.0,
+       0.0,
+       489.39
+      ],
+      [
+       90,
+       0.0,
+       0.0,
+       493.892
+      ],
+      [
+       91,
+       15.0,
+       0.389,
+       496.902
+      ],
+      [
+       92,
+       15.0,
+       1.154,
+       499.963
+      ],
+      [
+       93,
+       120.0,
+       3.533,
+       503.482
+      ],
+      [
+       94,
+       150.0,
+       13.257,
+       507.877
+      ],
+      [
+       96,
+       225.0,
+       28.343,
+       512.864
+      ],
+      [
+       100,
+       480.0,
+       99.167,
+       526.083
+      ],
+      [
+       108,
+       1380.0,
+       550.683,
+       560.34
+      ],
+      [
+       124,
+       1830.0,
+       1846.81,
+       614.197
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F13",
+   "src_feeder_id": "F13",
+   "g_kw": 119.322,
+   "g_max_kw": 127.4,
+   "g_conservative_kw": 107.6,
+   "tau": 0.592,
+   "n_homes": 25,
+   "n_batteries": 12,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 9,
+      "threshold": 12,
+      "sentinel": 20
+     },
+     "30": {
+      "self_consumption": 10,
+      "threshold": 13,
+      "sentinel": 21
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 9,
+      "threshold": 12,
+      "sentinel": 16
+     },
+     "30": {
+      "self_consumption": 10,
+      "threshold": 12,
+      "sentinel": 17
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 11,
+      "vs_threshold": 8
+     },
+     "30": {
+      "vs_self_consumption": 11,
+      "vs_threshold": 8
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 7,
+      "vs_threshold": 4
+     },
+     "30": {
+      "vs_self_consumption": 7,
+      "vs_threshold": 5
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       83.378
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       98.801
+      ],
+      [
+       8,
+       0.0,
+       0.0,
+       114.14
+      ],
+      [
+       9,
+       0.0,
+       0.0,
+       117.873
+      ],
+      [
+       10,
+       30.0,
+       0.724,
+       121.004
+      ],
+      [
+       11,
+       75.0,
+       3.834,
+       124.564
+      ],
+      [
+       12,
+       240.0,
+       16.936,
+       129.821
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       72.714
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       88.136
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       116.303
+      ],
+      [
+       13,
+       30.0,
+       0.503,
+       120.477
+      ],
+      [
+       14,
+       135.0,
+       7.314,
+       125.547
+      ],
+      [
+       16,
+       195.0,
+       15.073,
+       128.323
+      ],
+      [
+       20,
+       795.0,
+       140.878,
+       145.377
+      ],
+      [
+       28,
+       1935.0,
+       680.154,
+       172.113
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       82.208
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       97.172
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       117.556
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       118.669
+      ],
+      [
+       21,
+       15.0,
+       0.48,
+       121.243
+      ],
+      [
+       22,
+       150.0,
+       5.744,
+       125.097
+      ],
+      [
+       24,
+       405.0,
+       32.305,
+       131.595
+      ],
+      [
+       28,
+       1035.0,
+       114.0,
+       138.742
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       83.378
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       98.801
+      ],
+      [
+       8,
+       0.0,
+       0.0,
+       114.14
+      ],
+      [
+       9,
+       0.0,
+       0.0,
+       117.873
+      ],
+      [
+       10,
+       30.0,
+       0.724,
+       121.004
+      ],
+      [
+       11,
+       75.0,
+       3.834,
+       124.564
+      ],
+      [
+       12,
+       240.0,
+       16.936,
+       129.821
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       72.714
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       88.136
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       119.156
+      ],
+      [
+       13,
+       90.0,
+       2.448,
+       123.33
+      ],
+      [
+       14,
+       240.0,
+       15.468,
+       128.4
+      ],
+      [
+       16,
+       375.0,
+       40.759,
+       133.846
+      ],
+      [
+       20,
+       1230.0,
+       236.617,
+       150.9
+      ],
+      [
+       28,
+       2220.0,
+       1009.801,
+       180.431
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       82.208
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       97.61
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       117.556
+      ],
+      [
+       16,
+       0.0,
+       0.0,
+       118.347
+      ],
+      [
+       17,
+       15.0,
+       0.276,
+       120.424
+      ],
+      [
+       18,
+       120.0,
+       4.14,
+       123.384
+      ],
+      [
+       20,
+       555.0,
+       38.406,
+       130.674
+      ],
+      [
+       28,
+       2265.0,
+       661.789,
+       159.141
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F14",
+   "src_feeder_id": "F14",
+   "g_kw": 140.05,
+   "g_max_kw": 152.6,
+   "g_conservative_kw": 123.0,
+   "tau": 0.576,
+   "n_homes": 28,
+   "n_batteries": 14,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 12,
+      "threshold": 18,
+      "sentinel": 26
+     },
+     "30": {
+      "self_consumption": 13,
+      "threshold": 19,
+      "sentinel": 29
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 12,
+      "threshold": 16,
+      "sentinel": 21
+     },
+     "30": {
+      "self_consumption": 13,
+      "threshold": 16,
+      "sentinel": 21
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 14,
+      "vs_threshold": 8
+     },
+     "30": {
+      "vs_self_consumption": 16,
+      "vs_threshold": 10
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 9,
+      "vs_threshold": 5
+     },
+     "30": {
+      "vs_self_consumption": 8,
+      "vs_threshold": 5
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       97.557
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       110.19
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       135.718
+      ],
+      [
+       13,
+       15.0,
+       0.012,
+       140.099
+      ],
+      [
+       14,
+       75.0,
+       3.51,
+       143.986
+      ],
+      [
+       16,
+       165.0,
+       17.511,
+       151.505
+      ],
+      [
+       20,
+       675.0,
+       109.537,
+       167.236
+      ],
+      [
+       28,
+       1485.0,
+       613.407,
+       197.082
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       83.727
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       93.133
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       115.613
+      ],
+      [
+       16,
+       0.0,
+       0.0,
+       131.246
+      ],
+      [
+       18,
+       0.0,
+       0.0,
+       135.545
+      ],
+      [
+       19,
+       15.0,
+       0.11,
+       140.49
+      ],
+      [
+       20,
+       75.0,
+       2.766,
+       143.915
+      ],
+      [
+       28,
+       885.0,
+       137.161,
+       169.102
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       96.414
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       108.248
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       131.736
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       132.029
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       132.875
+      ],
+      [
+       26,
+       0.0,
+       0.0,
+       137.752
+      ],
+      [
+       27,
+       15.0,
+       0.107,
+       140.478
+      ],
+      [
+       28,
+       15.0,
+       0.841,
+       143.415
+      ],
+      [
+       29,
+       15.0,
+       1.04,
+       144.208
+      ],
+      [
+       30,
+       90.0,
+       4.275,
+       147.686
+      ],
+      [
+       32,
+       375.0,
+       24.406,
+       153.676
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       97.557
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       110.19
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       135.718
+      ],
+      [
+       13,
+       15.0,
+       0.012,
+       140.099
+      ],
+      [
+       14,
+       75.0,
+       3.51,
+       143.986
+      ],
+      [
+       16,
+       195.0,
+       18.481,
+       151.505
+      ],
+      [
+       20,
+       750.0,
+       124.038,
+       167.236
+      ],
+      [
+       28,
+       1710.0,
+       705.631,
+       197.082
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       83.727
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       96.482
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       121.925
+      ],
+      [
+       16,
+       0.0,
+       0.0,
+       137.558
+      ],
+      [
+       17,
+       45.0,
+       0.465,
+       141.381
+      ],
+      [
+       18,
+       90.0,
+       4.616,
+       144.777
+      ],
+      [
+       20,
+       330.0,
+       31.749,
+       153.148
+      ],
+      [
+       28,
+       1635.0,
+       497.281,
+       182.752
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       96.414
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       108.248
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       131.736
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       136.508
+      ],
+      [
+       21,
+       0.0,
+       0.0,
+       139.378
+      ],
+      [
+       22,
+       75.0,
+       2.21,
+       143.022
+      ],
+      [
+       24,
+       375.0,
+       28.543,
+       150.126
+      ],
+      [
+       28,
+       930.0,
+       177.142,
+       165.073
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  },
+  {
+   "feeder_id": "F15",
+   "src_feeder_id": "F15",
+   "g_kw": 206.3,
+   "g_max_kw": 206.3,
+   "g_conservative_kw": 168.8,
+   "tau": 1.0,
+   "n_homes": 36,
+   "n_batteries": 20,
+   "capacity": {
+    "batteries": {
+     "0": {
+      "self_consumption": 23,
+      "threshold": 31,
+      "sentinel": 34
+     },
+     "30": {
+      "self_consumption": 23,
+      "threshold": 31,
+      "sentinel": 36
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": 23,
+      "threshold": 27,
+      "sentinel": 31
+     },
+     "30": {
+      "self_consumption": 23,
+      "threshold": 28,
+      "sentinel": 31
+     }
+    }
+   },
+   "censored": {
+    "batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     },
+     "30": {
+      "self_consumption": false,
+      "threshold": false,
+      "sentinel": false
+     }
+    }
+   },
+   "gain": {
+    "batteries": {
+     "0": {
+      "vs_self_consumption": 11,
+      "vs_threshold": 3
+     },
+     "30": {
+      "vs_self_consumption": 13,
+      "vs_threshold": 5
+     }
+    },
+    "no_batteries": {
+     "0": {
+      "vs_self_consumption": 8,
+      "vs_threshold": 4
+     },
+     "30": {
+      "vs_self_consumption": 8,
+      "vs_threshold": 3
+     }
+    }
+   },
+   "sentinel_ge_baseline": {
+    "batteries": {
+     "0": true,
+     "30": true
+    },
+    "no_batteries": {
+     "0": true,
+     "30": true
+    }
+   },
+   "minutes_over_now": {
+    "batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    },
+    "no_batteries": {
+     "self_consumption": 0.0,
+     "threshold": 0.0,
+     "sentinel": 0.0
+    }
+   },
+   "curve": {
+    "batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       120.971
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       136.309
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       164.299
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       191.64
+      ],
+      [
+       22,
+       0.0,
+       0.0,
+       199.859
+      ],
+      [
+       23,
+       0.0,
+       0.0,
+       205.317
+      ],
+      [
+       24,
+       60.0,
+       1.486,
+       209.872
+      ],
+      [
+       28,
+       435.0,
+       60.942,
+       226.357
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       104.213
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       117.062
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       142.781
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       197.286
+      ],
+      [
+       30,
+       0.0,
+       0.0,
+       202.821
+      ],
+      [
+       31,
+       0.0,
+       0.0,
+       205.185
+      ],
+      [
+       32,
+       120.0,
+       3.318,
+       210.635
+      ],
+      [
+       36,
+       390.0,
+       64.063,
+       225.398
+      ],
+      [
+       44,
+       1275.0,
+       463.035,
+       255.026
+      ],
+      [
+       60,
+       2520.0,
+       2294.492,
+       318.296
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       118.69
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       133.667
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       161.459
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       198.143
+      ],
+      [
+       32,
+       0.0,
+       0.0,
+       198.073
+      ],
+      [
+       34,
+       0.0,
+       0.0,
+       198.074
+      ],
+      [
+       35,
+       15.0,
+       0.3,
+       207.499
+      ],
+      [
+       36,
+       30.0,
+       1.975,
+       212.79
+      ],
+      [
+       37,
+       45.0,
+       2.208,
+       212.835
+      ],
+      [
+       38,
+       45.0,
+       2.285,
+       213.001
+      ],
+      [
+       40,
+       45.0,
+       2.333,
+       213.148
+      ],
+      [
+       44,
+       90.0,
+       4.72,
+       213.34
+      ],
+      [
+       60,
+       2505.0,
+       855.475,
+       252.669
+      ]
+     ]
+    },
+    "no_batteries": {
+     "self_consumption": [
+      [
+       0,
+       0.0,
+       0.0,
+       120.971
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       136.309
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       164.299
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       191.64
+      ],
+      [
+       22,
+       0.0,
+       0.0,
+       199.859
+      ],
+      [
+       23,
+       0.0,
+       0.0,
+       205.317
+      ],
+      [
+       24,
+       75.0,
+       2.156,
+       209.872
+      ],
+      [
+       28,
+       555.0,
+       83.304,
+       226.357
+      ]
+     ],
+     "threshold": [
+      [
+       0,
+       0.0,
+       0.0,
+       104.213
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       118.472
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       145.826
+      ],
+      [
+       20,
+       0.0,
+       0.0,
+       173.167
+      ],
+      [
+       24,
+       0.0,
+       0.0,
+       191.399
+      ],
+      [
+       26,
+       0.0,
+       0.0,
+       197.619
+      ],
+      [
+       27,
+       0.0,
+       0.0,
+       202.928
+      ],
+      [
+       28,
+       15.0,
+       0.396,
+       207.884
+      ],
+      [
+       29,
+       105.0,
+       3.148,
+       212.309
+      ],
+      [
+       30,
+       225.0,
+       10.787,
+       214.9
+      ],
+      [
+       32,
+       435.0,
+       48.819,
+       222.508
+      ]
+     ],
+     "sentinel": [
+      [
+       0,
+       0.0,
+       0.0,
+       118.69
+      ],
+      [
+       4,
+       0.0,
+       0.0,
+       133.667
+      ],
+      [
+       12,
+       0.0,
+       0.0,
+       161.459
+      ],
+      [
+       28,
+       0.0,
+       0.0,
+       198.143
+      ],
+      [
+       30,
+       0.0,
+       0.0,
+       198.253
+      ],
+      [
+       31,
+       0.0,
+       0.0,
+       204.951
+      ],
+      [
+       32,
+       45.0,
+       1.964,
+       212.228
+      ],
+      [
+       36,
+       405.0,
+       24.254,
+       215.12
+      ],
+      [
+       44,
+       1995.0,
+       553.191,
+       245.173
+      ],
+      [
+       60,
+       2790.0,
+       3035.248,
+       314.294
+      ]
+     ]
+    }
+   },
+   "monotone": {
+    "batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    },
+    "no_batteries": {
+     "self_consumption": true,
+     "threshold": true,
+     "sentinel": true
+    }
+   }
+  }
+ ],
+ "total": {
+  "capacity": {
+   "batteries": {
+    "0": {
+     "self_consumption": 245,
+     "threshold": 309,
+     "sentinel": 377
+    },
+    "30": {
+     "self_consumption": 255,
+     "threshold": 320,
+     "sentinel": 406
+    }
+   },
+   "no_batteries": {
+    "0": {
+     "self_consumption": 245,
+     "threshold": 285,
+     "sentinel": 331
+    },
+    "30": {
+     "self_consumption": 254,
+     "threshold": 289,
+     "sentinel": 347
+    }
+   }
+  },
+  "gain": {
+   "batteries": {
+    "0": {
+     "vs_self_consumption": 132,
+     "vs_threshold": 68
+    },
+    "30": {
+     "vs_self_consumption": 151,
+     "vs_threshold": 86
+    }
+   },
+   "no_batteries": {
+    "0": {
+     "vs_self_consumption": 86,
+     "vs_threshold": 46
+    },
+    "30": {
+     "vs_self_consumption": 93,
+     "vs_threshold": 58
+    }
+   }
+  }
+ },
+ "sentinel_below_baseline": 0,
+ "run": {
+  "world": "sim",
+  "seed": 0,
+  "alpha": 0.5,
+  "workers": 16,
+  "kernels": "rust",
+  "components": {
+   "predictors": "real:loadnet-387-s0x4,mock-1,pvnet-392-s0,sitehealth-391-s0",
+   "predictor_load": "real:loadnet:loadnet-387-s0x4",
+   "predictor_pv": "real:pvnet:pvnet-392-s0",
+   "predictor_sitehealth": "real:sitehealth:sitehealth-391-s0",
+   "predictor_wind": "fallback:mock windnbm:mock-1",
+   "wind_classifier": "fallback:builtin_rules (M6 stand-in)",
+   "wind_baseline": "real:sentinel.eval.baselines.wind.windmon_rules (#24)",
+   "planner": "real:sentinel.opt.lp.plan_feeder",
+   "rest_of_feeder": "real:sentinel.opt.policies.rest_of_feeder_from_forecasts",
+   "threshold_rule": "real:sentinel.opt.policies.threshold_step",
+   "qualify": "real:sentinel.agent.qualify.qualify_many",
+   "triage": "real:sentinel.agent.triage.triage",
+   "committer": "real:sentinel.opt.commit.make_scenarios+commit",
+   "demand": "real:sentinel.demand.aggregate_scenarios+zone_demand_rows",
+   "judge": "ledger-only (no Judge weights); ledger chosen per run; grader real:sentinel.judge.grader.grade"
+  },
+  "fallbacks": [
+   "predictor_wind",
+   "wind_classifier"
+  ],
+  "t_search_s": 113.8,
+  "fleet": {
+   "n_sites": 600,
+   "battery_share": 0.485,
+   "kwp_mean": 5.923
+  },
+  "verdicts": {
+   "pv": {
+    "use": 4200
+   },
+   "load": {
+    "use": 4200
+   },
+   "sitehealth": {
+    "use": 4200
+   },
+   "gridtwin": {
+    "use": 15
+   }
+  }
+ }
+}

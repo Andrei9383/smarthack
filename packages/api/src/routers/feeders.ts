@@ -38,9 +38,10 @@ function quantile(sorted: number[], q: number): number {
 }
 
 // Feature G documents: SENTINEL_GRID_DIR holds hosting_capacity.json (G1), voltage.json (G2) and
-// dso_value.json (G3); also tried: each writer's default --out, from the repo root or apps/web.
+// dso_value.json (G3); also tried: each writer's default --out, then the committed demo copies (demo/grid, #193),
+// from the repo root or apps/web.
 type Doc = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-const GRID_DIRS = [process.env.SENTINEL_GRID_DIR, "out/grid", "out/grid/g1", "out/hosting_capacity", ".lab-out/voltage", "."]
+const GRID_DIRS = [process.env.SENTINEL_GRID_DIR, "out/grid", "out/grid/g1", "out/hosting_capacity", ".lab-out/voltage", "demo/grid", "."]
   .filter((d): d is string => Boolean(d))
   .flatMap((d) => [resolve(d), resolve("../..", d)]);
 
