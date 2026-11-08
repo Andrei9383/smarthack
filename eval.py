@@ -94,11 +94,26 @@ WX_COLS = {"ghi": "ghi_wm2", "dni": "dni_wm2", "dhi": "dhi_wm2", "temp": "temp_c
            "snow": "snow_cm"}
 
 
+# Other fleets the models can be scored on (all unseen by training, which used the default fleet).
+# homes600 = #118's scripts/build_dataset.py fleet_config(600): the fleet of replay#568, served by preview #211.
+FLEETS = {
+    "homes600": dict(n_sites=600, n_feeders=24, n_congested=6, start_year=TEST_YEAR, end_year=TEST_YEAR,
+                     battery_share=0.20, county_weights={
+                         "Ilfov": 3.0, "Timiș": 2.19, "Bihor": 1.78, "Dolj": 1.75, "Iași": 1.50, "Cluj": 1.4,
+                         "Brașov": 1.3, "Constanța": 1.2, "Prahova": 1.0, "Sibiu": 1.0, "Argeș": 0.8,
+                         "Galați": 0.5, "Bacău": 0.5}),
+}
+FLEET = "default"  # set from --fleet
+
+
 def fleet(quick: bool) -> tuple[Path, Path]:
     from sentinel.sim.faults.dataset import inject_dataset
     from sentinel.sim.fleet.config import FleetConfig
     from sentinel.sim.fleet.generate import generate
-    cfg = FleetConfig(n_sites=150, n_feeders=6, start_year=TEST_YEAR - 1) if quick else FleetConfig()
+    if FLEET != "default":
+        cfg = FleetConfig(**FLEETS[FLEET])
+    else:
+        cfg = FleetConfig(n_sites=150, n_feeders=6, start_year=TEST_YEAR - 1) if quick else FleetConfig()
     clean = generate(cfg, plots=False)
     return clean, inject_dataset(clean)
 
@@ -399,7 +414,11 @@ def main() -> None:
     ap.add_argument("--search-days", type=int, default=14, help="days after onset an alarm still counts")
     ap.add_argument("--pvdaq-days", type=int, default=40, help="days per PVDAQ system")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--fleet", default="default", choices=["default", *FLEETS],
+                    help="fleet for the synthetic blocks (homes600 = #118/#568, the #211 preview's fleet)")
     args = ap.parse_args()
+    global FLEET
+    FLEET = args.fleet
     if args.predictor == "auto":
         args.predictor = "onnx" if any(args.models.glob("*.onnx")) else "mock"
     names = ["baselines"] if args.baselines else [n for n in args.predictor.split(",") if n]
