@@ -15,6 +15,7 @@ import { ShellMapControls } from "@/components/shell/map-controls";
 import { Rail } from "@/components/shell/rail";
 import { TimelineDock } from "@/components/shell/timeline-dock";
 import { TopBar } from "@/components/shell/top-bar";
+import { VoiceAssistantProvider, VoicePanel } from "@/components/voice/voice-assistant";
 import { SummaryCard } from "@/demo/summary-card";
 import { useBasemapStyles, useRomaniaFocus } from "@/demo/use-basemap";
 import { useMapTheme } from "@/lib/palette";
@@ -95,6 +96,7 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   return (
+    <VoiceAssistantProvider>
     <div className="flex h-svh w-full overflow-hidden bg-sidebar text-foreground">
       <Rail
         mode={mode}
@@ -183,6 +185,8 @@ export function AppShell() {
         {/* One instance each across modes: the dock owns the replay ticker (unmounting it pauses). */}
         <TopBar mode={mode} onSearch={() => setPaletteOpen(true)} className="absolute inset-x-4 top-3 z-30 h-14" />
         <AgentToast className={cn("absolute left-4 z-[25]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
+        {/* #207: the "Ask Sentinel" conversation sits in the toast's slot, above it. */}
+        <VoicePanel className={cn("absolute left-4 z-[26]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
         <TimelineDock
           compact={Boolean(Page)}
           className={cn("absolute bottom-4 left-4 z-20", Page ? "right-4 max-w-[1200px]" : BESIDE_INSPECTOR)}
@@ -194,5 +198,6 @@ export function AppShell() {
       <Tour steps={defaultTourSteps} open={tour.open} onOpenChange={tour.onOpenChange} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onTour={tour.start} />
     </div>
+    </VoiceAssistantProvider>
   );
 }

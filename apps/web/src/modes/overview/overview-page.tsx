@@ -17,6 +17,7 @@ import {
   useExplainAction,
 } from "@/components/shell/agent-actions";
 import { CountUp } from "@/components/shell/count-up";
+import { NarrationToggle, useNarratorLine, useStoryNarration } from "@/components/voice/story-narration";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shell/popover";
 import { useOverview } from "@/demo/kpi-strip";
 import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
@@ -127,6 +128,10 @@ function Briefing({ onTour }: { onTour: () => void }) {
   // First press starts the story day at 06:00 with Sentinel on; after a pause it resumes, unless the
   // clock has left the story day's daylight hours.
   const started = useRef(false);
+  // #207: each fresh start from 06:00 is a new narrated run (ElevenLabs voice, when the server has a key).
+  const [storyRun, setStoryRun] = useState(0);
+  useStoryNarration(storyRun);
+  const spoken = useNarratorLine();
   const playStory = () => {
     if (playing) {
       setPlaying(false);
@@ -134,7 +139,10 @@ function Briefing({ onTour }: { onTour: () => void }) {
     }
     const inStory = step >= MORNING_STEP && step < HERO_DAY * STEPS_PER_DAY + 80;
     setPolicy("sentinel");
-    if (!started.current || !inStory) setStep(MORNING_STEP);
+    if (!started.current || !inStory) {
+      setStep(MORNING_STEP);
+      setStoryRun((run) => run + 1);
+    }
     started.current = true;
     setPlaying(true);
   };
@@ -152,6 +160,11 @@ function Briefing({ onTour }: { onTour: () => void }) {
       <p id="ov-briefing" aria-live="polite" className="mt-4 max-w-[36ch] text-page text-balance text-foreground">
         {sentence}
       </p>
+      {spoken ? (
+        <p className="mt-2 max-w-[60ch] text-caption text-text-secondary italic motion-safe:animate-in motion-safe:fade-in-0">
+          “{spoken}”
+        </p>
+      ) : null}
 
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-6">
         <button
@@ -162,6 +175,7 @@ function Briefing({ onTour }: { onTour: () => void }) {
           {playing ? <Pause aria-hidden className="size-4 fill-current" /> : <Play aria-hidden className="size-4 fill-current" />}
           {playing ? "Pause the story" : "Play today's story"}
         </button>
+        <NarrationToggle />
         <button
           type="button"
           onClick={onTour}
