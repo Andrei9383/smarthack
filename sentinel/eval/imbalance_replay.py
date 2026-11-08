@@ -13,6 +13,11 @@ What each policy buys day-ahead for every 15-min step of the test year (2025, UT
 | `sentinel`      | I5 #175 ``portfolio`` (K scenarios, battery, conformal)    | bought_da = quantile q*, traded_id = 0    |
 | `sentinel_id`   | I5 #175, + the 15:00 re-forecast traded on PI (level 2)    | bought_da as sentinel, traded_id = I5's   |
 
+Level 3 (I8 #178, ``sentinel.opt.level3``, opt-in: not in the default --policy): ``sentinel_id_lp`` (the 15:00 LP
+without batteries), ``sentinel_l3`` (+ enrolled batteries), ``sentinel_l3_oracle`` (the LP sees realised PI, upper
+bound), ``sentinel_l3_all`` (every battery home enrolled). The dispatch changes the metered flow, so for these
+``positions.bought_da`` = purchase - dispatch change (dev, costs and KPIs exact; ``actual`` stays the common meter).
+
 Level 1 (the pre-freeze target) = PZU only: ``sentinel`` never trades intraday. ``sentinel_id`` is the level-2 extra.
 Every policy is settled on the same metered portfolio flow (I3's ``actual``: the fault-injected telemetry the models
 were trained on, gaps filled from the clean fleet), with ``sentinel.eval.imbalance.cost_steps`` (X1 #158, frozen
@@ -44,6 +49,8 @@ from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+
+from sentinel.opt.level3 import L3_POLICIES
 
 TZ = "Europe/Bucharest"
 H = 96
@@ -292,9 +299,9 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
 
     t_all = time.perf_counter()
     policies = [p.strip() for p in args.policy.split(",") if p.strip()]
-    bad = [p for p in policies if p not in POLICIES + EXTRA_POLICIES]
+    bad = [p for p in policies if p not in POLICIES + EXTRA_POLICIES + L3_POLICIES]
     if bad:
-        raise SystemExit(f"unknown policy {bad}; expected {POLICIES + EXTRA_POLICIES}")
+        raise SystemExit(f"unknown policy {bad}; expected {POLICIES + EXTRA_POLICIES + L3_POLICIES}")
     run_id = args.run_id or os.environ.get("LAB_RUN_ID") or "local"
     src = open_source(args.data)
     n_all = len(src.sites)
@@ -339,6 +346,21 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
         elif pol == "sentinel_id":
             positions[pol] = (pick(sen["bought"]), pick(sen["traded"]))
     pzu, pi = prices_at(ts.tz_convert("UTC").tz_localize(None).to_numpy())
+    l3 = None
+    l3_pols = [p for p in policies if p in L3_POLICIES]
+    if l3_pols:  # level 3 (I8 #178): enrolled batteries in the 15:00 LP
+        from sentinel.eval.imbalance import load_ab as _load_ab
+        from sentinel.opt.level3 import replay_level3
+
+        a3, b3 = _load_ab()
+        n_d = int(keep.sum())
+        l3 = replay_level3(src, sites, np.asarray(test_days)[keep], ts=np.asarray(sen["ts"])[keep],
+                           bought=np.asarray(sen["bought"])[keep], id_cal=np.asarray(sen["id_cal"])[keep],
+                           mask=np.asarray(sen["mask"])[keep], pzu=pzu.reshape(n_d, -1), pi=pi.reshape(n_d, -1),
+                           policies=l3_pols, a=a3, b=b3, share=args.l3_share, p_noncompliance=args.l3_noncompliance,
+                           n_nodes=args.l3_nodes, seed=args.seed, log=log)
+        for pol in l3_pols:
+            positions[pol] = (pick(sen["bought"]) - l3[pol]["delta"].ravel(), l3[pol]["traded"].ravel())
     summary, steps = evaluate(ts, actual, exp, positions, pzu, pi)
 
     da_cal = pick(sen["da_cal"])
@@ -378,6 +400,21 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
                      "position_nmae", "imbalance_lei", "intraday_lei", "bias_mwh"):
             _emit(f"{name}_{pol}", summary[pol][name])
         _emit(f"avoidable_cost_reduction_vs_profile_{pol}", extra[pol]["avoidable_cost_reduction_vs_profile"])
+    if l3 is not None:
+        cost = {p: summary[p]["avoidable_cost_lei"] for p in summary}
+        if "sentinel_id" in cost and "sentinel_l3" in cost:
+            _emit("l3_extra_saving_vs_l2_lei", cost["sentinel_id"] - cost["sentinel_l3"])
+            _emit("l3_extra_saving_vs_l2_share", 1.0 - cost["sentinel_l3"] / cost["sentinel_id"])
+        if "sentinel_id_lp" in cost:
+            for p in ("sentinel_l3", "sentinel_l3_oracle", "sentinel_l3_all"):
+                if p in cost:
+                    _emit(f"l3_battery_saving_lei_{p}", cost["sentinel_id_lp"] - cost[p])
+        for p, acc in l3["diag"]["per_policy"].items():
+            for k_, v in acc.items():
+                _emit(f"l3_{k_}_{p}", float(v))
+        _emit("l3_battery_homes", l3["diag"]["battery_homes"])
+        _emit("l3_feeder_limit", float(l3["diag"]["feeder_limit"]))
+        _emit("t_level3_s", l3["diag"]["t_level3_s"])
     _emit("export_mwh", float(exp.sum()))
     _emit("days", n_days)
     _emit("homes", len(sites))
@@ -424,7 +461,8 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
         "share_maxcontrol": None, "conformal": sen["conformal"], "behaviour": sen["behaviour"],
         "actual_meter_vs_window_abs_mwh": act_diff, "adapter_counts": sen["adapter_counts"],
         "kernels": kernels.backend(), "timings": timings, "rows": rows, "sqlite": str(out),
-        "tables": TABLES, "test_days_dropped": int((~keep).sum())}
+        "tables": TABLES, "test_days_dropped": int((~keep).sum()),
+        "level3": None if l3 is None else l3["diag"]}
     (pq_dir / "imbalance_report.json").write_text(json.dumps(report, indent=1, default=float))
     log(f"[imbalance] {n_days} days {report['date_from']}..{report['date_to']}, rows {rows} -> {out} "
         f"in {timings['t_total_s']:.0f}s", flush=True)
@@ -452,6 +490,10 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--chunk-days", type=int, default=8)
     ap.add_argument("--max-sites", type=int, default=0, help="first N homes (smoke runs)")
     ap.add_argument("--run-id", default=None)
+    ap.add_argument("--l3-share", type=float, default=0.10,
+                    help="level 3: share of battery homes enrolled (spec share_enrolled; sentinel_l3*)")
+    ap.add_argument("--l3-noncompliance", type=float, default=0.10, help="level 3: P(a home opts out on a day)")
+    ap.add_argument("--l3-nodes", type=int, default=20, help="level 3: quantile nodes of the 15:00 band per step")
     return ap
 
 
