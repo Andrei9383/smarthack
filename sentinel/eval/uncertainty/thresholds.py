@@ -3,13 +3,14 @@
 Schema (shared with #26 qualify, which reads it — do not change without `lab announce`):
 
     {"version": 1, "source_run": str,
-     "site":    {"stale_minutes": 60, "pfault_confident": 0.6, "pfault_std_max": 0.15,
+     "site":    {"stale_minutes": 60, "pfault_confident": 0.6, "soiling_confident": 0.7, "pfault_std_max": 0.15,
                  "rel_width_max": 0.8, "ood_max": 3.0},
      "turbine": {"stale_minutes": 60, "anomaly_conf_min": 0.6, "ood_max": 3.0}}
 
 Signals: `pfault_std` = ensemble std of P_fault (M4 members), `rel_width` = (q90 − q10)/max(q50, eps) averaged over
 daylight steps (`rel_width`), `ood` = Mahalanobis score (`ood.MahalanobisOOD`, same scale as
-`Prediction.ood_score`). A signal above its *_max → human review; P_fault ≥ pfault_confident → confident fault.
+`Prediction.ood_score`). A signal above its *_max → human review; P_fault ≥ pfault_confident → confident fault;
+a soiling call also needs P(soiling) ≥ soiling_confident (#214).
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ THRESHOLDS_PATH = REPO_ROOT / "models" / "thresholds.json"
 DEFAULT_THRESHOLDS: dict[str, Any] = {
     "version": 1,
     "source_run": "defaults",
-    "site": {"stale_minutes": 60, "pfault_confident": 0.6, "pfault_std_max": 0.15, "rel_width_max": 0.8,
-             "ood_max": 3.0},
+    "site": {"stale_minutes": 60, "pfault_confident": 0.6, "soiling_confident": 0.7, "pfault_std_max": 0.15,
+             "rel_width_max": 0.8, "ood_max": 3.0},
     "turbine": {"stale_minutes": 60, "anomaly_conf_min": 0.6, "ood_max": 3.0},
 }
 _INT_KEYS = {"stale_minutes"}

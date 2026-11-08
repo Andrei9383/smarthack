@@ -185,6 +185,18 @@ def score_forecasts(rep: Report, block: str, label: str, preds_by_model: dict, t
                 model_version=ok[0].model_version if ok else "", note=f"{len(preds) - len(ok)} failed")
 
 
+def soiling_min() -> float:
+    from sentinel.agent.qualify import load_thresholds
+    return float(load_thresholds()["site"]["soiling_confident"])
+
+
+def is_alarm(p: Prediction, thr: float) -> bool:
+    """P(fault) over the threshold; a soiling call also needs P(soiling) >= soiling_confident (#214, as qualify)."""
+    if p.p_fault < thr:
+        return False
+    return p.top_fault != "soiling" or float((p.fault_probs or {}).get("soiling", 0.0)) >= soiling_min()
+
+
 def score_health(rep: Report, block: str, label: str, name: str, preds: list, labels: list[str]):
     keep = [(p, lab) for p, lab in zip(preds, labels) if p is not None]
     if not keep:
@@ -193,7 +205,7 @@ def score_health(rep: Report, block: str, label: str, name: str, preds: list, la
     y = np.array([lab != "healthy" for lab in labs])
     s = np.array([p.p_fault for p in ps])
     thr = float(ps[0].extra.get("p_fault_threshold") or 0.5)
-    m = {"pr_auc": M.average_precision(y, s), **M.prf(y, s >= thr), "threshold": thr,
+    m = {"pr_auc": M.average_precision(y, s), **M.prf(y, np.array([is_alarm(p, thr) for p in ps])), "threshold": thr,
          "positives": float(y.sum())}
     probs = [p.fault_probs or {} for p in ps]
     cls = [c for c in FAULTS if c != "healthy"]
@@ -273,7 +285,7 @@ def detection(rep, preds, labels, chosen, clean, faulty, wx, n_days, args) -> No
                 p = run(k["sitehealth"], {**r.to_dict(), "site_id": ep.asset_id},
                         site_window(tel_f, wx[str(r.locality_id)], d, True))
                 thr = float((p.extra.get("p_fault_threshold") if p else None) or 0.5)
-                if p is not None and p.p_fault >= thr:
+                if p is not None and is_alarm(p, thr):
                     hit = d
                     break
             if hit is None:
