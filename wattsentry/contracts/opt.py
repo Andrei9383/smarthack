@@ -1,7 +1,7 @@
-"""Qualification, battery, feeder plan and commitment types (plan §3.4-3.5). Spec: team/contracts/opt.md.
+"""Qualification, battery, feeder plan and commitment types.
 
-The battery model and self-consumption rule live here so the simulator (#11) and the LP (#18) share one
-definition: sites that are not in the pool keep running `self_consumption_step` (R3).
+The battery model and self-consumption rule live here so the simulator and the LP share one definition: sites that
+are not in the pool keep running `self_consumption_step`.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class AssetStatus:
 
 @dataclass
 class BatterySpec:
-    """One home battery (agreed with #11). Powers in kW, energies in kWh, efficiencies one-way."""
+    """One home battery. Powers in kW, energies in kWh, efficiencies one-way."""
 
     capacity_kwh: float  # usable E_i
     p_max_kw: float  # P_i, same for charge and discharge
@@ -119,7 +119,7 @@ def self_consumption_step(
 
 @dataclass
 class FeederSpec:
-    """Feeder limits from the grid-twin (#13). G_f = tau*G_max + (1-tau)*G_conservative; low trust only tightens."""
+    """Feeder limits from the grid-twin. G_f = tau*G_max + (1-tau)*G_conservative; low trust only tightens."""
 
     feeder_id: str
     g_max_kw: float
@@ -177,7 +177,7 @@ class FeederPlan:
 
 @dataclass
 class Commitment:
-    """`commit(feeder, schedule, scenarios) -> Commitment`. Four numbers, never conflated (plan §3.5):
+    """`commit(feeder, schedule, scenarios) -> Commitment`. Four numbers, never conflated:
     nominal >= available >= committed; realised is filled in the next tick (None until measured). kW per step.
     """
 

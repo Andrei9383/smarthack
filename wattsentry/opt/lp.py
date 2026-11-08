@@ -1,66 +1,24 @@
-"""Per-feeder day-ahead LP (card #18, plan §3.5): cvxpy + HiGHS, vectorised over sites (matrix variables).
+"""Per-feeder day-ahead LP: cvxpy + HiGHS, vectorised over sites.
 
     plan_feeder(feeder, eligible_sites, rest_of_feeder, forecasts, G=None, prices=None, *,
                 statuses=None, params=LPParams(), t0=None, peak_mask=None) -> DetailedPlan
 
-For feeder f, steps t = 1..T (T = forecast horizon, 96 for a day), Δt = 0.25 h, controlled sites i
-(all variables >= 0):
+Steps t = 1..T (Δt = 0.25 h), controlled sites i, net grid flow g_it = P̂50_it − L̂50_it − c_it + d_it (+ export):
 
-    min  Σ_t Σ_i [ π_t·m_it·Δt − β_t·π_t·x_it·Δt + c_deg·(c_it + d_it)·Δt ]  +  M·Σ_t s_t·Δt  +  λ·z
-         + M·w·max_t s_t          (w = slack_peak_weight; our addition: flattens unavoidable violations)
-    site balance (P50):  P̂50_it − L̂50_it − c_it + d_it = x_it − m_it        (=: g_it, net grid flow, + export)
-    battery:             e_i,t+1 = e_it + η_c·c_it·Δt − d_it·Δt/η_d ;  R_i ≤ e_it ≤ E_i ;  c_it, d_it ≤ P_i ;
-                         e_i,0 = e0_i ;  e_i,T ≥ e0_i
-    export limit:        Σ_i (P̂90_it − L̂10_it − c_it + d_it) + X_t^rest ≤ G + s_t      (worst plausible export)
-    evening peak:        z ≥ Σ_i (m_it − x_it) + M_t^rest     for t in 17:00–22:00 Europe/Bucharest
+    min  Σ_t Σ_i [(1 − β_t)·π_t·m_it − β_t·π_t·g_it + c_deg·(c_it + d_it)]·Δt + M·Σ_t s_t·Δt + M·w·max_t s_t + λ·z
+    m_it ≥ −g_it (import epigraph);  e_i,t+1 = e_it + η_c·c_it·Δt − d_it·Δt/η_d;  R_i ≤ e_it ≤ E_i;  c, d ≤ P_i;
+    e_i,0 = e0_i;  e_i,T ≥ e0_i;  Σ_i (P̂90_it − L̂10_it − c_it + d_it) + X_t^rest ≤ G + s_t  (worst plausible export);
+    z ≥ Σ_i (−g_it) + M_t^rest for t in 17:00–22:00 Europe/Bucharest (evening import peak).
 
-Negative prices (card #80). As written in plan §3.5 (β_t = β < 1 for all t) the LP is *unbounded* whenever some
-π_t < 0 (real OPCOM days, e.g. 2025-06-07): substituting x = m + g, the energy cost of a site-step is
-(1 − β)·π_t·m − β·π_t·g, and m (with x = m + g) can grow without limit — importing and exporting the same extra
-kWh at once "earns" (1 − β)·|π_t| per kWh. Physically the site has one net flow g, with true cost
-f_t(g) = π_t·max(−g, 0) − β·π_t·max(g, 0); its slopes are −π_t (g < 0) and −β·π_t (g > 0), so f_t is convex iff
-π_t·(1 − β) ≥ 0: exact LP for π_t ≥ 0, concave (needs a binary) for π_t < 0. We stay an LP by pricing exports at
-negative-price steps with β_t = `beta_negative` ≥ 1 (default 1) instead of β:
+β_t = β for π_t ≥ 0 and `beta_negative` (≥ 1) at negative prices, which keeps the cost convex (with β < 1 a negative
+price would make importing and exporting the same kWh profitable, i.e. an unbounded LP). R_i = `BatterySpec.e_min`
+(comfort reserve), or e0 if the battery starts below it.
 
-    β_t = β if π_t ≥ 0 else β⁻ (≥ 1)        cost_t(g) = −β_t·π_t·g + (1 − β_t)·π_t·max(−g, 0)      convex ∀t
-
-i.e. the LP keeps only g (an affine function of c, d) and the import epigraph m ≥ max(−g, 0) (x = m + g is implied);
-m's weight (1 − β_t)·π_t is ≥ 0, so m = max(−g, 0) at the optimum (with β⁻ = 1 the weight is 0 and m is reported as
-max(−g, 0)). For π_t ≥ 0 this is the same LP as before (a change of variables), so plans on non-negative-price days are
-unchanged. For π_t < 0 the cost is exact on the import side (charging / importing earns |π_t|) and overstates the
-cost of exporting (|π_t| instead of β·|π_t|): a convex majorant of f_t that pushes the plan to soak up surplus in the
-batteries — the intended behaviour — within power, SoC and comfort-reserve limits. Boundedness is structural: g is
-bounded by the battery power (|g − net50| ≤ P), and m is also capped at max(0, −net50) + P (the most the site can
-import). Optional `grid_limit_kw` (per-site connection / fuse limit, default None) additionally stops the battery from
-pushing |g| beyond max(limit, |net50_t|) (the forecast itself is never made infeasible). Reported import / export are
-max(−g, 0) / max(g, 0): never both at once.
-
-`R_i` is `BatterySpec.e_min = max(soc_min·E, comfort reserve)`; `E_i` is `e_max`. If a battery starts below its
-reserve, its floor is e0 (the planner never takes it lower, and is not forced up).
-
-Who is controlled: sites in `eligible_sites` that are in the pool (`AssetStatus.in_pool`), `battery_ok`, and have a
-battery. Derated sites have their PV quantiles scaled by `headroom_factor` (PV fault: forecast cut by the
-estimated loss; battery stays in if battery_ok). Any other site passed in `eligible_sites` is *folded* into the
-rest of the feeder: it runs the self-consumption rule and is simulated on its forecasts (R3). `rest_of_feeder`
-covers the feeder's other (non-eligible) sites: a `RestOfFeeder` (see `policies.rest_of_feeder_from_forecasts`),
-a plain per-step net-export sequence (used for both P50 and worst), or None.
-
-Output (`DetailedPlan`, a contract `FeederPlan`): schedule[site] = battery kW per step (+ charge, − discharge),
-already netted (c − d) and replayed through `BatterySpec.step` with the comfort-reserve floor, so it is feasible
-for the battery model; export_curve = P50 feeder net export of that schedule (+ rest); slack_t = max(0, worst
-export − G) of that schedule (kW the plan could not remove). Diagnostics: soc_kwh, worst_export_curve,
-peak_import_kw, simultaneous_steps, solve_time_s (HiGHS, all solves), wall_time_s, extra.
-
-Simultaneous charge/discharge: the LP 'burns' energy (c and d at once) when the battery is full and the limit still
-binds (slack > 0), or with negative prices. `solve_with_repair` then forbids discharge at those steps and re-solves
-(still an LP, ≤ `repair_iters` times); `extra["simultaneous_before_repair"]` / `simultaneous_steps` report it
-before / after. At negative prices c_deg > 0 and η_c·η_d < 1 make burning unprofitable for |π_t| below
-~2·c_deg/(1 − η_c·η_d) ≈ 2.5 lei/kWh (lowest OPCOM price 2023–25: −0.53). Any remainder is netted by the clip, so the
-reported slack is always what the battery can do.
-
-Units: kW, kWh, prices lei/kWh. Weights must satisfy M ≫ λ ≫ π (checked loosely). LP only: no binaries.
-Raises `LPSolveError` if HiGHS does not return an optimal solution; callers (#17) then use
-`aggregate.plan_feeder_aggregate` or `policies.self_consumption_plan`.
+Controlled = eligible sites in the pool, `battery_ok`, with a battery; derated sites get PV scaled by
+`headroom_factor`. Other eligible sites are folded into the rest of the feeder (they run the self-consumption rule).
+The schedule is netted (c − d) and replayed through `BatterySpec.step` with the reserve floor; export curve and
+slack are recomputed from it. Simultaneous charge/discharge is repaired by forbidding discharge at those steps and
+re-solving (`solve_with_repair`). Units: kW, kWh, lei/kWh; M ≫ λ ≫ π. Raises `LPSolveError` unless HiGHS is optimal.
 """
 
 from __future__ import annotations
@@ -137,7 +95,7 @@ class LPParams:
     slack_peak_weight: float = 1.0  # + big_m * weight * max_t s_t: flattens unavoidable violations (1 kW ~ 1 kWh)
     peak_start_h: float = 17.0
     peak_end_h: float = 22.0
-    beta_negative: float = 1.0  # export ratio at steps with π_t < 0; must be >= 1 for convexity (module docstring)
+    beta_negative: float = 1.0  # export ratio at steps with π_t < 0; must be >= 1 for convexity
     grid_limit_kw: Optional[float] = None  # per-site connection limit on |g| the battery may not push beyond
     simultaneous_tol_kw: float = 1e-3
     repair_iters: int = 4  # re-solves that forbid discharge at steps where the LP charged + discharged at once
@@ -188,14 +146,6 @@ class LPSolution:
     def simultaneous(self) -> np.ndarray:
         return np.minimum(self.c, self.d)
 
-    @property
-    def import_kw(self) -> np.ndarray:
-        return np.maximum(0.0, -self.grid)
-
-    @property
-    def export_kw(self) -> np.ndarray:
-        return np.maximum(0.0, self.grid)
-
 
 def solve_lp(
     net50: np.ndarray,
@@ -215,7 +165,7 @@ def solve_lp(
     dt_h: float = DT_H,
     no_discharge: Optional[np.ndarray] = None,
 ) -> LPSolution:
-    """The §3.5 LP on arrays. net50 = P50 PV − P50 load [N, T]; worst = P90 PV − P10 load [N, T]; per-site
+    """The LP on arrays. net50 = P50 PV − P50 load [N, T]; worst = P90 PV − P10 load [N, T]; per-site
     vectors [N]; rest_* / prices / peak_mask [T]; no_discharge [T] bool forces d = 0 at those steps (repair).
     Shared by `plan_feeder` and the aggregate fallback (N = 1)."""
     N, T = net50.shape

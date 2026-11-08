@@ -1,7 +1,4 @@
-"""Agent actions: JSON payload + audit record, one SQLite row each (plan §3.4). Spec: team/contracts/actions.md.
-
-Table names come from the Drizzle schema (#38); team/contracts/replay.md maps each action type to its table.
-"""
+"""Agent actions: JSON payload + audit record, one SQLite row each (table names from the Drizzle schema)."""
 
 from __future__ import annotations
 

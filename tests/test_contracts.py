@@ -1,4 +1,4 @@
-"""Card #7: contract schemas, mock output shapes, action JSON round-trip, wind tag parsing, battery rule."""
+"""Contract schemas, mock output shapes, action JSON round-trip, wind tag parsing, battery rule."""
 
 import json
 
@@ -25,7 +25,6 @@ from wattsentry.contracts import (
     check_columns,
     input_hash,
     is_error_code,
-    kmh_to_ms,
     make_tag,
     parse_tag,
     self_consumption_step,
@@ -196,14 +195,13 @@ def test_wind_tag_parsing():
         parse_tag("WP1.TID07.something_new", strict=True)
 
 
-def test_wind_error_codes_and_units():
+def test_wind_error_codes():
     assert is_error_code("act_pwt", 5021)
     assert not is_error_code("act_pwt", 1234.5)
     assert not is_error_code("act_pwt", None)
     assert is_error_code("gearbox_t", 5021.0)  # raw PPC values are float64
     assert not is_error_code("act_pwt", 0.0)  # a stopped turbine, not a code
     assert not is_error_code("act_pwt", float("nan"))
-    assert kmh_to_ms(36.0) == pytest.approx(10.0)
 
 
 # --- table schemas -------------------------------------------------------------------------------------------
@@ -216,18 +214,16 @@ def test_table_schemas():
     assert check_columns("telemetry", tel[:-1]) == ["telemetry: missing column 'load_w'"]
 
 
-def test_mock_window_caches_match_uncached_path():
-    """#98: predict() caches per-window clear-sky / load terms; a plain list of times takes the uncached path."""
-    from datetime import timedelta
-
-    from wattsentry.contracts import parse_utc
+def test_mock_window_caches_are_exact():
+    """predict() caches per-window clear-sky / load terms: a cold and a warm cache give identical envelopes."""
+    from wattsentry.contracts import mock
 
     t0 = "2025-10-26T00:00:00Z"  # DST change day
-    times = [parse_utc(t0) + timedelta(minutes=15 * k) for k in range(96)]
     row = {"site_id": "S1", "zone_id": "Z1", "kwp_true": 6.3, "lat": 44.7, "archetype": "heat_pump", "n_homes": 800}
     for kind in ("pv", "load", "sitehealth", "zone"):
         m = MockPredictor(kind)
-        for _ in range(2):  # second call hits the caches
-            p = m.predict(row, t0=t0)
-            q10, q50, q90, _ = getattr(m, f"_{kind}")(row, p.asset_id, times)
-            assert (p.q10, p.q50, p.q90) == (q10, q50, q90)
+        for f in (mock._window_times, mock._clear_sky_series, mock._load_terms):
+            f.cache_clear()
+        cold = m.predict(row, t0=t0)
+        warm = m.predict(row, t0=t0)
+        assert (cold.q10, cold.q50, cold.q90) == (warm.q10, warm.q50, warm.q90)

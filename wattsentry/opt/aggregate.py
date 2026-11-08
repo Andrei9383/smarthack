@@ -1,4 +1,4 @@
-"""Fallback planner (card #18, plan §3.5): one virtual battery per feeder, split to sites by headroom.
+"""Fallback planner: one virtual battery per feeder, split to sites by headroom.
 
     plan_feeder_aggregate(feeder, eligible_sites, rest_of_feeder, forecasts, G=None, prices=None, *,
                           statuses=None, params=LPParams(), t0=None, peak_mask=None) -> DetailedPlan

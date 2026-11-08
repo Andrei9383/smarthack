@@ -1,4 +1,4 @@
-"""P10 feeder commitment (plan §3.4, §3.5 "P10 commitment"; contract team/contracts/opt.md).
+"""P10 feeder commitment.
 
     scenarios = make_scenarios(pv_preds, load_preds, n=200, batteries=..., soc0=...)
     c = commit(feeder, schedule, scenarios, haircut=0.05)          # -> Commitment
@@ -256,7 +256,7 @@ def _direction(direction: Any, t: int) -> np.ndarray:
 
 def _net_export(req: np.ndarray, soc0: np.ndarray, bp: BatteryParams, pv: np.ndarray,
                 load: np.ndarray) -> np.ndarray:
-    """Third output of `rollout` (pv - load - batt) via the dispatched K1 kernel (Rust if built, else `rollout`).
+    """Third output of `rollout` (pv - load - batt) via the dispatched `battery_rollout` kernel (Rust if built, else `rollout`).
 
     Bit-identical to `rollout(req, soc0, bp, pv, load)[2]`. A request shared by every scenario ((S, T) with soc0
     (S,)) is rolled out once and broadcast: the battery does not see pv/load, so each scenario would repeat it.
@@ -281,7 +281,7 @@ def _deliverable(sched: np.ndarray, soc0: np.ndarray, specs: Sequence[Optional[B
                  pv: np.ndarray, load: np.ndarray) -> np.ndarray:
     """Sum over sites of baseline export - planned export, shape pv.shape[:-2] + (T,).
 
-    Same result as `rollout` / `rollout_baseline`, through the K1 kernel (wattsentry.kernels.battery_rollout)."""
+    Same result as `rollout` / `rollout_baseline`, through the `battery_rollout` kernel."""
     pv = np.asarray(pv, dtype=float)
     load = np.asarray(load, dtype=float)
     x_plan = _net_export(sched, soc0, battery_params(specs, respect_reserve=True), pv, load)
@@ -295,7 +295,7 @@ def commit(feeder: Union[FeederSpec, FeederPlan, str], schedule: Union[Mapping[s
            batteries: Optional[Mapping[str, Optional[BatterySpec]]] = None,
            soc0: Optional[Mapping[str, float]] = None, quantile: float = 0.10, direction: Any = None,
            t0: Optional[str] = None, min_commit_kw: float = MIN_COMMIT_KW) -> Commitment:
-    """Feeder commitment from a battery schedule and scenarios (plan §3.5).
+    """Feeder commitment from a battery schedule and scenarios.
 
     feeder: FeederSpec, FeederPlan or feeder id. schedule: {site_id: batt_kw[T]} or a FeederPlan (None → the
     FeederPlan passed as `feeder`). batteries / soc0 (fraction of capacity) default to the ones carried by

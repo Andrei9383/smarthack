@@ -1,7 +1,7 @@
 """Deterministic MockPredictor: plausible PV, load, site-health, wind and zone-demand envelopes.
 
 Same (asset, t0) -> same output, on any machine (no RNG state, sha256-based noise). It stands in for the real
-model, so `model` is the real id (pvnet, loadnet, ...) and `model_version` is "mock-1". Spec: model.md §Mock.
+model, so `model` is the real id (pvnet, loadnet, ...) and `model_version` is "mock-1".
 """
 
 from __future__ import annotations
@@ -55,8 +55,7 @@ def _bucharest_hour(ts) -> float:
     return (ts.hour + ts.minute / 60 + off) % 24
 
 
-# Per-window caches (exact: they store what the per-step functions above return, nothing is recomputed differently).
-# Every site predicted for the same window shares its timestamps, so the trig / exp per step is done once.
+# Per-window caches: every site predicted for the same window shares its timestamps, so the per-step trig is done once.
 class _UtcTimes(tuple):
     """Step timestamps built by `predict` from a UTC t0 (parse_utc): safe as a cache key (no mixed offsets)."""
 
@@ -131,9 +130,7 @@ class MockPredictor:
         day = times[0].date().isoformat()
         cloud = 0.35 + 0.65 * _u(aid, day, "cloud")  # 0.35 overcast .. 1 clear
         scale = 0.82 * kwp * cloud  # same left-to-right products as 0.82 * kwp * cloud * f
-        csf = (_clear_sky_series(times, lat) if isinstance(times, _UtcTimes)
-               else [_clear_sky_fraction(t, lat) for t in times])
-        q50 = [scale * f for f in csf]
+        q50 = [scale * f for f in _clear_sky_series(times, lat)]
         spread = 0.08 + 0.25 * (1 - cloud)  # cloudier days are less certain
         q10 = [v * (1 - 1.6 * spread) if v > 0 else 0.0 for v in q50]
         q90 = [min(kwp, v * (1 + spread)) if v > 0 else 0.0 for v in q50]
@@ -145,9 +142,7 @@ class MockPredictor:
         base = 0.25 + 0.3 * _u(aid, "base")
         heat = asset.get("archetype") in ("heat_pump", "electric_heating")
         # same left-to-right sum as base + morning + evening + winter + summer_ac
-        terms = (_load_terms(times, heat) if isinstance(times, _UtcTimes)
-                 else [_load_step_terms(t, heat) for t in times])
-        q50 = [base + m + e + w + s for m, e, w, s in terms]
+        q50 = [base + m + e + w + s for m, e, w, s in _load_terms(times, heat)]
         q10 = [0.65 * v for v in q50]
         q90 = [1.45 * v for v in q50]
         return q10, q50, q90, {"member_std": round(0.12 * sum(q50) / len(q50), 4)}
@@ -204,8 +199,3 @@ class MockPredictor:
         q10 = [v * 0.88 for v in q50]
         q90 = [v * 1.15 for v in q50]
         return q10, q50, q90, {"member_std": round(0.04 * max(q50), 4), "unit": "MW"}
-
-
-def mock_predictors() -> dict[str, MockPredictor]:
-    """One mock per kind, keyed by kind."""
-    return {k: MockPredictor(k) for k in KINDS}

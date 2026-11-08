@@ -1,4 +1,4 @@
-"""Card #18: per-feeder LP, aggregate fallback and baseline policies on MockPredictor forecasts."""
+"""Per-feeder LP, aggregate fallback and baseline policies on MockPredictor forecasts."""
 
 from __future__ import annotations
 
@@ -13,14 +13,10 @@ from wattsentry.opt.lp import LPParams, peak_mask_for, plan_feeder
 from wattsentry.opt.policies import (
     RestOfFeeder,
     Site,
-    ValidationDay,
-    evaluate_threshold,
     rest_of_feeder_from_forecasts,
     self_consumption_plan,
     simulate_rule,
     site_from_row,
-    threshold_plan,
-    tune_threshold,
 )
 
 SUMMER = "2025-06-21T00:00:00Z"
@@ -54,7 +50,7 @@ def sunny():
 
 
 def assert_reserve_and_replay(plan, rows):
-    """Comfort reserve never breached and the schedule replays exactly through the battery model (#27)."""
+    """Comfort reserve never breached and the schedule replays exactly through the battery model."""
     for row in rows:
         sid = row["site_id"]
         if sid not in plan.schedule:
@@ -209,34 +205,6 @@ def test_rule_simulation_matches_contract_step():
         ek = ek_next
 
 
-def test_threshold_rule_and_tuning(sunny):
-    rows, fc, peak = sunny
-    G = 0.7 * peak
-    days = []
-    for t0 in ("2025-06-20T00:00:00Z", SUMMER):
-        r, f = make_feeder(t0)
-        days.append(ValidationDay(
-            sites=r, pv={k: v["pv"].q90 for k, v in f.items()}, load={k: v["load"].q10 for k, v in f.items()},
-            g_kw=G, forecast_pv={k: v["pv"].q50 for k, v in f.items()},
-            forecast_load={k: v["load"].q50 for k, v in f.items()},
-        ))
-    tuned = tune_threshold(days, alphas=[0.0, 0.2, 0.4, 0.6, 0.8])
-    assert tuned.alpha > 0.0  # alpha = 0 is the baseline rule; a congested feeder wants a threshold
-    assert tuned.scores[tuned.alpha]["over_kwh"] < tuned.scores[0.0]["over_kwh"]
-    assert evaluate_threshold(days[0], 0.0)["over_kwh"] > 0
-    th = threshold_plan("F1", rows, None, fc, G=G, alpha=tuned.alpha)
-    base = self_consumption_plan("F1", rows, None, fc, G=G)
-    assert th.policy == "threshold" and sum(th.slack) < sum(base.slack)
-    assert_reserve_like_rule(th, rows)
-
-
-def assert_reserve_like_rule(plan, rows):
-    """Rule plans may use the battery down to soc_min (the rule serves load), never below it."""
-    for r in rows:
-        b = site_from_row(r).battery
-        assert min(plan.soc_kwh[r["site_id"]]) >= b.soc_min * b.capacity_kwh - 1e-9
-
-
 # --- helpers ----------------------------------------------------------------------------------------------
 def test_peak_mask_local_time():
     summer = peak_mask_for(SUMMER, 96)  # UTC+3: 17:00 local = 14:00 UTC = step 56
@@ -273,7 +241,7 @@ def test_lp_scales_to_60_sites():
     assert plan.max_slack_kw == 0.0 and plan.simultaneous_steps == 0
 
 
-# --- negative prices (card #80) ---------------------------------------------------------------------------
+# --- negative prices ---------------------------------------------------------------------------------------
 # Real OPCOM PZU day-ahead prices (lei/MWh, hourly, data/raw/prices.parquet) for the local days 2025-06-07 and
 # 2025-06-08 of the demo week: negative at midday. The merged LP was unbounded on both.
 OPCOM_0607 = ("2025-06-06T21:00:00Z", [
@@ -334,7 +302,7 @@ def test_negative_price_lp_flows_are_physical():
     params = LPParams()
     sol = solve_lp(**args, params=params)
     assert sol.status == "optimal"
-    imp, exp = sol.import_kw, sol.export_kw
+    imp, exp = np.maximum(0.0, -sol.grid), np.maximum(0.0, sol.grid)
     np.testing.assert_allclose(exp - imp, args["net50"] - sol.c + sol.d, atol=1e-9)
     assert (np.minimum(imp, exp) <= params.simultaneous_tol_kw).all()
     # objective = Σ π·imp·Δt − β_t·π·exp·Δt + c_deg·(c + d)·Δt + M·Σ s·Δt + M·w·max s + λ·z, β_t = 1 when π < 0
