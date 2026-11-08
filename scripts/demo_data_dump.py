@@ -69,11 +69,17 @@ def table_csv(con: sqlite3.Connection, sql: str) -> bytes:
     return buf.getvalue().encode()
 
 
-def imbalance(from_run: str, ts_from: str, ts_to: str) -> int:
+def imbalance(from_run: str, ts_from: str, ts_to: str, regen: bool = True) -> int:
     cands = [WORK / "outputs" / from_run / "imbalance.sqlite", WORK / "runs" / from_run / ".lab-out" / "imbalance.sqlite"]
     for d in (WORK / "outputs" / from_run, WORK / "runs" / from_run):
-        print(f"# ls {d}: {sorted(p.name for p in d.iterdir()) if d.is_dir() else 'absent'}")
-    src = next((p for p in cands if p.exists()), None)
+        try:
+            print(f"# ls {d}: {sorted(p.name for p in d.iterdir()) if d.is_dir() else 'absent'}")
+        except OSError as e:
+            print(f"# ls {d}: {e}")
+    src = next((p for p in cands if os.access(p, os.R_OK)), None)
+    if src is None and not regen:
+        print(f"# run {from_run} output not on this worker (host {os.uname().nodename}, user {os.getuid()})")
+        return 3
     if src is None:
         OUT.mkdir(parents=True, exist_ok=True)
         src = OUT / "imbalance.sqlite"
@@ -103,8 +109,9 @@ def main() -> int:
     ap.add_argument("--from-run", default="1071")
     ap.add_argument("--from", dest="ts_from", default="2025-05-28T21:00:00Z", help="imbalance: first ts (UTC) kept")
     ap.add_argument("--to", dest="ts_to", default="2025-06-11T21:00:00Z", help="imbalance: end ts (UTC), exclusive")
+    ap.add_argument("--no-regen", action="store_true", help="imbalance: fail instead of re-running the replay")
     a = ap.parse_args()
-    return grid() if a.what == "grid" else imbalance(a.from_run, a.ts_from, a.ts_to)
+    return grid() if a.what == "grid" else imbalance(a.from_run, a.ts_from, a.ts_to, not a.no_regen)
 
 
 if __name__ == "__main__":
