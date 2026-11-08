@@ -1,23 +1,9 @@
-"""SQLite audit store for the replay (card #17): create the DB from the Drizzle SQL, insert rows, never alter schema.
+"""SQLite audit store for the replay: create the DB from the Drizzle SQL (`packages/db/drizzle`, else
+`schema_fallback.sql`), insert rows, never alter the schema.
 
-Schema source, in order: `packages/db/drizzle/*/migration.sql` or `packages/db/drizzle/*.sql` (#38, source of
-truth) if present, else `wattsentry/agent/schema_fallback.sql` (interim copy of #38's migration).
-
-Inserts are column-intersection-safe, so a schema change on #38 never breaks the replay:
-- `PRAGMA table_info` per table; only known columns are inserted; unknown fields are dropped with one warning
-  per (table, column) (see `AuditDB.dropped`).
-- Column name aliases (`ALIASES`): a row may say `level`, the table may call it `zone_type`; first match wins.
-- Time values: pass `Ts(unix_seconds)` or an ISO-8601 UTC string; INTEGER columns get unix seconds
-  (`WATTSENTRY_TS_UNIT=ms` for milliseconds), TEXT columns get ISO-8601 `...Z`.
-- Derived columns when the table has them and the row does not: `step` (0..95 in the Europe/Bucharest day),
-  `day` (local midnight, INTEGER unix time or TEXT YYYY-MM-DD).
-- NOT NULL columns without default that the row lacks get a neutral value (0 / '') and a warning.
-- Value maps (`VALUE_MAP`): contract enums -> #38's enums (asset_kind site -> prosumer, severity warning -> warn).
-
-Strict mode (`AuditDB(strict=True)`, the default of `replay.py` and the tests): a produced field with no column
-(after aliases), a NOT NULL column we leave to the filler, or a missing table RAISES `SchemaMismatch`, except
-for the fields in `ALLOWED_DROPS` -- the explicit list of things we knowingly don't store. Non-strict mode only
-warns once per (table, field), so a replay against an older or newer schema still completes.
+Inserts only the columns the table has (column `ALIASES` and `VALUE_MAP` translate contract names and enums); time
+values (`Ts` or ISO strings) are formatted per column type, `step` / `day` are derived from the row time. Strict mode
+raises `SchemaMismatch` on a produced field with no column unless it is in `ALLOWED_DROPS`; otherwise it warns once.
 """
 
 from __future__ import annotations
@@ -155,40 +141,27 @@ ALIASES: list[tuple[str, ...]] = [
     ("asset_kind", "asset_type"),
 ]
 _ALIAS_OF: dict[str, tuple[str, ...]] = {n: g for g in ALIASES for n in g}
-# Table renames between replay.md drafts and #38 (first existing wins).
-TABLE_ALIASES: dict[str, tuple[str, ...]] = {
-    "feeder_curves": ("feeder_curves", "feeder_steps"),
-    "statuses": ("statuses", "asset_status"),
-    "schedules": ("schedules", "battery_steps"),
-    "reports": ("reports", "park_reports"),
-    "audit_log": ("audit_log", "audit"),
-}
-# Contract enum values -> #38 schema enum values (by column name).
+# Contract enum values -> schema enum values (by column name).
 VALUE_MAP: dict[str, dict[str, str]] = {
     "asset_kind": {"site": "prosumer"},
     "severity": {"warning": "warn", "safety": "critical"},
 }
-# Fields the agent produces that #38 (d362a39) knowingly has no column for. Strict mode raises on any other drop.
-# Every entry is review feedback for #38: add the column, or confirm the drop. Keys: table ("*" = any table).
+# Fields the agent produces that the schema knowingly has no column for (table -> field -> reason; "*" = any
+# table). Strict mode raises on any other drop.
 ALLOWED_DROPS: dict[str, dict[str, str]] = {
     "*": {
-        # app.md: "No step column: bucket by ts converted to Europe/Bucharest". #44's rows still carry it.
         "step": "no step column by design; UI derives it from ts (Europe/Bucharest)",
     },
     "feeders": {
-        # roll-ups of assets; handy for the Feeders panel without a GROUP BY, but derivable
         "n_sites": "derivable: COUNT(assets) WHERE feeder_id",
         "installed_pv_kw": "derivable: SUM(assets.recorded_kwp) WHERE feeder_id",
         "installed_batt_kwh": "derivable: SUM(assets.battery_kwh) WHERE feeder_id",
     },
     "gis_flags": {
-        # grid-twin suggestion confidence (separate from the feeder's trust score tau); kept in audit_log
         "confidence": "suggestion confidence; also in the gis_flag action's audit_log.prediction_json",
     },
     "zone_demand": {
-        # #44 zone_demand_rows: per-step q90/capacity that drives the 24 h stress slider; #38 keeps peak_stress only
-        "stress": "per-step stress (q90 / capacity); #38 stores only the zone-level peak_stress",
-        # one model version per zone_demand action; audit_log.model_version has it
+        "stress": "per-step stress (q90 / capacity); the schema stores only the zone-level peak_stress",
         "model_version": "in audit_log.model_version of the zone_demand action",
     },
 }
@@ -280,10 +253,7 @@ class AuditDB:
 
     # -- schema introspection ------------------------------------------------------------------------
     def resolve(self, table: str) -> Optional[str]:
-        for t in TABLE_ALIASES.get(table, (table,)):
-            if t in self.tables:
-                return t
-        return None
+        return table if table in self.tables else None
 
     def has_table(self, table: str) -> bool:
         return self.resolve(table) is not None
@@ -347,7 +317,7 @@ class AuditDB:
             if t is Ts:
                 r = ts_memo.get(v)
                 if r is None:
-                    if len(ts_memo) > 200_000:
+                    if len(ts_memo) > _MEMO_MAX:
                         ts_memo.clear()
                     r = ts_memo[v] = format_time(int(v), aff, unit)
                 return r
@@ -390,7 +360,7 @@ class AuditDB:
                     continue  # used only to derive step / day
                 if self.strict and not allowed_drop(real, k):
                     raise SchemaMismatch(f"{real}.{k}: produced but no column in {self.schema_source} "
-                                         f"(map it to #38's name, or add it to audit.ALLOWED_DROPS with a reason)")
+                                         f"(map it to a column name, or add it to audit.ALLOWED_DROPS with a reason)")
                 if k not in self.dropped.setdefault(real, set()):
                     self.dropped[real].add(k)
                     if not allowed_drop(real, k):
@@ -432,7 +402,7 @@ class AuditDB:
             src = next((k for k in TIME_SOURCES if k in keys), None)
             # Column-wise conversion. Every non-derived mapping key is one of `keys`, so r[key] == r.get(key).
             columns: list[Any] = []
-            tsecs = self._tsecs(rs, src)  # always (as before): an unparseable row time raises even if unused
+            tsecs = self._tsecs(rs, src)  # always: an unparseable row time raises even if unused
             for key, col, conv in mapping:
                 if key in ("__step", "__date", "__fill"):
                     if key == "__fill":
@@ -488,7 +458,7 @@ class AuditDB:
         a = action.audit
         pred = dict(a.prediction or {})
         if a.schedule is not None and not self.has_column("audit_log", "schedule_json"):
-            pred["schedule"] = a.schedule  # #38 audit_log has no schedule column: keep it in prediction_json
+            pred["schedule"] = a.schedule  # audit_log has no schedule column: keep it in prediction_json
         row = {
             "id": action.action_id, "action_id": action.action_id, "run_id": action.run_id,
             "ts": Ts(ts) if ts is not None else action.t, "actor": "agent", "action_type": action.type,

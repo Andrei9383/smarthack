@@ -1,30 +1,11 @@
-"""O&M triage: assessments -> work_order / alert / human_review actions, top-K per day per crew type. Card #26.
+"""O&M triage: assessments -> work_order / alert / human_review actions, top-K per day per crew type.
 
-Plan §3.5:
-
-    score_i = P_fault,i × ( lost_kWh_day,i × π  +  lost_flex_MWh_day,i × v_flex ) × D_i
-    lost_kWh_day,i = Σ (P50_i,t − actual_i,t)+ · Δt          D_i = days until the next possible visit
-    v_flex = value per committed MWh of flexibility (0 for turbines)
-
-π in lei/MWh (OPCOM PZU), so the score is lei expected to be lost before a crew can get there. Crews:
-residential installers, wind technicians, remote check (sensor / anemometer faults: never a truck). Each crew type has
-its own daily budget K. Icing -> safety alert, no truck. Curtailment -> curtailed-energy log, no work order. Stale /
-data gap -> one offline window per asset (one alert per turbine, no storm). Every action carries an audit record
-(model_version, input_hash, compact prediction, threshold, status).
-
-`triage()` is pure: it takes the previous `TriageState` and returns a new one, so the loop (#17) can call it every
-tick (open work orders, alerts, reviews and offline windows are not re-issued) or once per day.
-
-Turbines (Wind D2, card #167, spec W step 5, team/judge-design.md §10.4) are ranked by lei per day, not by the
-site formula above:
-
-    lei_per_day   = lost_MWh × mean PZU over the next 24 h
-    lost_MWh      = fault_stop: M5 P50 summed over the next 24 h; else M6 Σ (expected − actual)+ over the last 24 h
-    triage_score  = P(fault) × lei_per_day × days_to_visit
-
-P(fault) and the expected power are read through the C1 adapter (`judge_validated`, one function), never raw.
-Judge "no reliable source" -> remote check, ranked after crew orders. Sensor faults -> remote check; data gaps ->
-the offline-window alert, routed to remote check (never a crew); curtailment -> log only. Site scoring is unchanged.
+Sites:     score = P_fault × (lost kWh/day × π + lost flex MWh/day × v_flex) × D   (π lei/MWh, D = days to a visit)
+Turbines:  score = P(fault) × lost MWh/24 h × mean PZU over the next 24 h × D, with P(fault) and expected power read
+           through the Judge adapter (no reliable source -> remote check, ranked after the scored orders).
+Sensor / anemometer faults and data gaps go to remote check (never a truck), icing raises a safety alert, curtailment
+is logged without a work order. `triage()` is pure: previous `TriageState` in, new state out, so open work orders,
+alerts, reviews and offline windows are not re-issued tick to tick.
 """
 
 from __future__ import annotations
@@ -34,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 import numpy as np
 
@@ -77,8 +58,6 @@ class TriageResult:
     human_reviews: list[Action]
     backlog: list[dict[str, Any]]  # warranted work orders that did not fit today's K, ranked
     curtailment_log: list[dict[str, Any]]  # curtailed-energy entries (no work order)
-    offline_opened: list[dict[str, Any]]  # windows opened this tick
-    offline_closed: list[dict[str, Any]]  # windows closed this tick (asset reported again)
     state: TriageState
 
     @property
@@ -98,22 +77,13 @@ class TriageResult:
 
 def triage_score(p_fault: float, lost_kwh_day: float, lost_flex_mwh_day: float, price_lei_mwh: float,
                  v_flex_lei_mwh: float, visit_days: float) -> float:
-    """Plan §3.5 score, in lei: P_fault × (lost kWh × π + lost flex MWh × v_flex) × D."""
+    """Site score in lei: P_fault × (lost kWh × π + lost flex MWh × v_flex) × D."""
     value = max(0.0, lost_kwh_day) / 1000.0 * price_lei_mwh + max(0.0, lost_flex_mwh_day) * v_flex_lei_mwh
     return float(p_fault * value * visit_days)
 
 
-def lost_kwh(q50: Sequence[float], actual: Sequence[float], step_minutes: int = 15) -> float:
-    """Σ (P50 − actual)+ · Δt over observed steps (NaN = not observed)."""
-    e = np.asarray(q50, dtype=float)
-    a = np.asarray(actual, dtype=float)
-    n = min(len(e), len(a))
-    m = np.isfinite(a[:n])
-    return float(np.clip(e[:n][m] - a[:n][m], 0.0, None).sum() * step_minutes / 60.0)
-
-
-# --- Wind D2 (card #167): turbine work orders by lei per day ------------------------------------------------
-WIND_P_MODEL, WIND_P_SUBSTITUTE = "windnbm", "windmon_rules"  # M6 and its §3 substitute (ModelId values)
+# --- turbines: work orders by lei per day ---------------------------------------------------------------------
+WIND_P_MODEL, WIND_P_SUBSTITUTE = "windnbm", "windmon_rules"  # M6 and its substitute (ModelId values)
 WIND_POWER_MODEL, WIND_POWER_SUBSTITUTE = "windpower", "binned_curve"  # M5 and its substitute
 LOCAL_TZ = "Europe/Bucharest"
 PRICES_PATH = Path(__file__).resolve().parents[2] / "data" / "raw" / "prices.parquet"
@@ -123,7 +93,7 @@ PRICES_PATH = Path(__file__).resolve().parents[2] / "data" / "raw" / "prices.par
 class WindInputs:
     """Optional turbine inputs for triage, keyed by turbine id. Missing entries use the fallbacks below."""
 
-    m5: Mapping[str, Any] = field(default_factory=dict)  # M5 WindPower Prediction (card #164), next 1-24 h
+    m5: Mapping[str, Any] = field(default_factory=dict)  # M5 WindPower Prediction, next 1-24 h
     m5_binned: Mapping[str, Any] = field(default_factory=dict)  # binned power curve Prediction (M5's substitute)
     m6_rules: Mapping[str, Any] = field(default_factory=dict)  # WindMon rules output (M6's substitute)
     judge: Any = None  # adapter VerdictSource; None = the adapter's default (NoJudge unless configured)
@@ -131,7 +101,7 @@ class WindInputs:
 
 
 def wind_triage_score(p_fault: float, lei_day: float, days_to_visit: float) -> float:
-    """Spec W step 5: P(fault) × lei_per_day × days until a crew can get there (lei; no flexibility term)."""
+    """P(fault) × lei_per_day × days until a crew can get there (lei; no flexibility term)."""
     return float(p_fault * max(0.0, lei_day) * days_to_visit)
 
 
@@ -140,18 +110,18 @@ def lei_per_day(lost_mwh: float, pzu_mean_lei_mwh: float) -> float:
     return float(max(0.0, lost_mwh) * pzu_mean_lei_mwh)
 
 
-# The one door to the Judge: the C1 adapter (card #157). A function so tests can monkeypatch it.
+# The one door to the Judge (the adapter). A function so tests can monkeypatch it.
 @lru_cache(maxsize=1)
 def _adapter_validated() -> Callable[..., Any]:
-    from wattsentry.judge.adapter import validated  # card #157
+    from wattsentry.judge.adapter import validated
 
     return validated
 
 
 def judge_validated(asset_id: Any, model: str, day: str, *, raw: Any,
                     substitutes: Optional[Mapping[str, Any]] = None, judge: Any = None) -> Any:
-    """`wattsentry.judge.adapter.validated` (§10.1): verdict + the numbers to act on (band scaled, substitute swapped
-    in on dont_use; known=False = no reliable source). Every turbine number W4 acts on comes through here."""
+    """`wattsentry.judge.adapter.validated`: verdict + the numbers to act on (band scaled, substitute swapped in on
+    dont_use; known=False = no reliable source). Every turbine number triage acts on comes through here."""
     subs = {k: v for k, v in (substitutes or {}).items() if v is not None} or None
     return _adapter_validated()(asset_id, model, day, raw=raw, substitutes=subs, judge=judge)
 
@@ -185,10 +155,10 @@ def _next24_mwh(q50: Any, pred: Any, t: str) -> Optional[float]:
 
 
 def m5_p50_next24_mwh(a: Assessment, t: str, wind: WindInputs, day: str, m6: Any) -> tuple[float, str]:
-    """Lost MWh of a stopped turbine = what it would have produced: M5 P50 over the next 24 h, and its source.
+    """Lost MWh of a stopped turbine = what it would have produced over the next 24 h, and its source.
 
-    M5 WindPower (card #164) is not on main yet. Order: M5 (through the adapter, binned curve as its substitute)
-    -> binned curve -> M6 expected power (the NBM's q50, already validated) -> the class-default loss.
+    Order: M5 (through the adapter, binned curve as its substitute) -> binned curve -> M6 expected power (the NBM's
+    q50, already validated) -> the class-default loss.
     """
     aid = a.asset_id
     m5, binned = wind.m5.get(aid), wind.m5_binned.get(aid)
@@ -205,7 +175,7 @@ def m5_p50_next24_mwh(a: Assessment, t: str, wind: WindInputs, day: str, m6: Any
     if m6 is not None and m6.known and a.prediction is not None:
         mwh = _next24_mwh(m6.q50, a.prediction, t)
         if mwh is not None:
-            return mwh, f"{m6.source_model}_expected"  # stand-in for M5 until #164 lands
+            return mwh, f"{m6.source_model}_expected"
     return a.lost_kwh_day / 1000.0, "class_default"
 
 
@@ -263,8 +233,8 @@ def _pzu_mean_direct(lo: datetime, hi: datetime, path: str) -> Optional[float]:
 
 
 def _pzu_mean_module(lo: datetime, hi: datetime) -> Optional[float]:
-    """Mean PZU over [lo, hi) from wattsentry.data.prices (card #158); the caller falls back on any error."""
-    from wattsentry.data.prices import load_prices  # card #158
+    """Mean PZU over [lo, hi) from wattsentry.data.prices; the caller falls back on any error."""
+    from wattsentry.data.prices import load_prices
 
     df = load_prices(lo, hi)
     if df.height < 48:  # less than half the window priced
@@ -273,28 +243,26 @@ def _pzu_mean_module(lo: datetime, hi: datetime) -> Optional[float]:
 
 
 @lru_cache(maxsize=4096)
-def pzu_next24_mean(t: str, default: float = 450.0, path: str = str(PRICES_PATH)) -> tuple[float, str]:
+def pzu_next24_mean(t: str, default: float = 450.0) -> tuple[float, str]:
     """Mean OPCOM PZU (lei/MWh) over the 24 h from tick t, and its source: 'opcom_pzu' (real RO) or 'config'.
 
-    Reads wattsentry/data/prices.py (#158), else data/raw/prices.parquet directly. Dates the file
-    does not cover (synthetic years, the future) fall back to `default` (TriageConfig.price_lei_mwh).
+    Reads wattsentry.data.prices, else data/raw/prices.parquet directly. Dates the file does not cover (synthetic
+    years, the future) fall back to `default` (TriageConfig.price_lei_mwh).
     """
     lo = parse_utc(t)
     lo = lo.replace(minute=lo.minute - lo.minute % 15, second=0, microsecond=0)  # the tick's quarter-hour
     hi = lo + timedelta(hours=24)
-    v = None
-    if path == str(PRICES_PATH):
-        try:
-            v = _pzu_mean_module(lo, hi)
-        except Exception:
-            v = None
+    try:
+        v = _pzu_mean_module(lo, hi)
+    except Exception:
+        v = None
     if v is None:
-        v = _pzu_mean_direct(lo, hi, path)
+        v = _pzu_mean_direct(lo, hi, str(PRICES_PATH))
     return (float(v), "opcom_pzu") if v is not None and np.isfinite(v) else (float(default), "config")
 
 
 def wind_economics(a: Assessment, t: str, d: float, wind: WindInputs, pzu: tuple[float, str]) -> dict[str, Any]:
-    """Score and work-order fields of one turbine candidate (spec W step 5, judge-design §10.4)."""
+    """Score and work-order fields of one turbine candidate."""
     day = local_day(t)
     m6 = judge_validated(a.asset_id, WIND_P_MODEL, day, raw=a.prediction,
                          substitutes={WIND_P_SUBSTITUTE: wind.m6_rules.get(a.asset_id)}, judge=wind.judge)
@@ -317,7 +285,7 @@ def wind_economics(a: Assessment, t: str, d: float, wind: WindInputs, pzu: tuple
     }
     if obs_h is not None:
         out["lost_obs_h"] = round(obs_h, 2)
-    if unknown:  # §10.4: no reliable source -> no crew; a remote check, ranked after the scored orders
+    if unknown:  # no reliable source -> no crew; a remote check, ranked after the scored orders
         out["crew_type"] = CrewType.REMOTE.value
     return out
 
@@ -395,8 +363,6 @@ def triage(
     alerts: list[Action] = []
     reviews: list[Action] = []
     curtail: list[dict[str, Any]] = []
-    opened: list[dict[str, Any]] = []
-    closed: list[dict[str, Any]] = []
     candidates: dict[str, list[tuple[float, Assessment, float, dict[str, Any]]]] = {}
     wind = wind or WindInputs()
     pzu: Optional[tuple[float, str]] = None
@@ -409,16 +375,14 @@ def triage(
         if a.offline:
             if a.asset_id not in st.offline_since:
                 st.offline_since[a.asset_id] = t
-                opened.append({"asset_id": a.asset_id, "asset_kind": kind, "start": t, "reason": s.reason})
                 if kind == "turbine":
                     alerts.append(_action(ActionType.ALERT, a, t, {
                         "asset_id": a.asset_id, "asset_kind": kind, "severity": Severity.WARNING.value,
                         "code": "offline", "message": f"{a.asset_id} offline since {t} ({s.reason}); one window "
                                                       f"until it reports again. Remote check, no crew.",
                         "park_id": a.group_id, "route": CrewType.REMOTE.value}, cfg, "offline"))
-        elif a.asset_id in st.offline_since:
-            closed.append({"asset_id": a.asset_id, "asset_kind": kind, "start": st.offline_since.pop(a.asset_id),
-                           "end": t})
+        else:
+            st.offline_since.pop(a.asset_id, None)
 
         # Alerts from qualify (icing = safety, overheating = warning), once while the condition lasts.
         code_now = a.alert[1] if a.alert else None
@@ -509,20 +473,4 @@ def triage(
             st.issued[f"{day}|{crew}"] = used + issued_now
 
     return TriageResult(work_orders=work_orders, alerts=alerts, human_reviews=reviews, backlog=backlog,
-                        curtailment_log=curtail, offline_opened=opened, offline_closed=closed, state=st)
-
-
-def offline_windows(records: Iterable[tuple[str, str, bool]]) -> list[dict[str, Any]]:
-    """Merge (asset_id, t, offline) ticks, in time order, into windows {asset_id, start, end}; end None = still open.
-
-    Offline-ness is consecutive in tick order: a run of offline ticks is one window, however long.
-    """
-    open_: dict[str, str] = {}
-    out: list[dict[str, Any]] = []
-    for aid, t, off in records:
-        if off and aid not in open_:
-            open_[aid] = t
-        elif not off and aid in open_:
-            out.append({"asset_id": aid, "start": open_.pop(aid), "end": t})
-    out.extend({"asset_id": aid, "start": s, "end": None} for aid, s in open_.items())
-    return out
+                        curtailment_log=curtail, state=st)

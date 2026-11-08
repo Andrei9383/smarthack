@@ -1,9 +1,6 @@
-"""Agent actions -> contract `Action` (+ audit record) -> SQLite rows (card #17; team/contracts/actions.md, replay.md).
-
-Every decision the loop takes is an `Action` with an `AuditRecord`. `rows_for(action, ts)` maps an action's
-payload onto the #38 tables (work_orders, alerts, review_queue, gis_flags, reports); battery schedules, feeder
-commitments and zone demand are per-step series the loop writes itself, keyed by the same run_id. Column names
-here follow #38; `audit.AuditDB` maps them onto older drafts via aliases and drops what the schema lacks.
+"""Agent actions: contract `Action` + `AuditRecord` builders, and `rows_for(action, ts)`, which maps an action's
+payload onto its table (work_orders, alerts, review_queue, gis_flags, reports). Per-step series (battery schedules,
+commitments, zone demand) are written by the loop itself under the same run_id.
 """
 
 from __future__ import annotations
@@ -70,7 +67,7 @@ def feeder_commitment(t: str, policy: str, run_id: str, feeder_id: str, nominal:
 
 
 def _crew_action(crew: Optional[str], kind: str, fault: Optional[str]) -> str:
-    """#38 work_orders.action: truck | remote_check | inspection. Sensor / anemometer -> remote, never a truck."""
+    """work_orders.action: truck | remote_check | inspection. Sensor / anemometer -> remote, never a truck."""
     if crew == CrewType.REMOTE.value:
         return "remote_check"
     if kind == "turbine" and fault in ("underperformance", "overheating"):
@@ -79,7 +76,7 @@ def _crew_action(crew: Optional[str], kind: str, fault: Optional[str]) -> str:
 
 
 def rows_for(action: Action, ts: int) -> dict[str, list[dict[str, Any]]]:
-    """Payload -> table rows for the action types that have their own table (replay.md)."""
+    """Payload -> table rows for the action types that have their own table."""
     p = action.payload
     base = {"action_id": action.action_id, "id": action.action_id, "run_id": action.run_id}
     t = Ts(ts)

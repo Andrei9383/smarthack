@@ -1,11 +1,7 @@
-"""Qualify: one status per asset per tick (plan §3.5, team/contracts/opt.md). Card #26.
-
-`qualify(asset, prediction, telemetry_age) -> AssetStatus` gates every plan: only `eligible` / `derated` assets are in
-the flexibility pool; the work order (triage.py) is how excluded assets get back in. `assess()` returns the same
-status plus what triage needs (fault, crew, lost kWh, MW at risk, alert, curtailed energy, offline flag), so the agent
-loop (#17) computes each asset once per tick.
-
-Pure functions; the only I/O is reading `models/thresholds.json` (written by #27), cached by mtime.
+"""Qualify: one status per asset per tick. Only `eligible` / `derated` assets are in the flexibility pool; a work
+order (triage.py) is how excluded assets get back in. `assess()` returns the status plus what triage needs (fault,
+crew, lost kWh, MW at risk, alert, curtailed energy, offline flag). Pure functions; the only I/O is reading
+`models/thresholds.json`, cached by mtime.
 
 Sites (prediction = M4 SiteHealth envelope, q10/q50/q90 = expected PV kW):
   stale telemetry / data gap / sensor fault          -> excluded (sensor fault -> remote check, never a truck)
@@ -16,7 +12,7 @@ Turbines (prediction = M6 WindNBM envelope, q50 = expected kW, anomaly_class / a
   stale / data_gap -> excluded + one offline window; icing -> excluded + safety alert (no truck);
   fault_stop -> excluded + work order; underperformance / yaw -> derated + inspection;
   curtailment -> eligible + curtailed-energy log (no work order); anemometer_fault -> remote check;
-  overheating -> eligible + warning (feeds M7). Wind never enters the LP (R20): the status feeds park availability.
+  overheating -> eligible + warning. Wind never enters the LP: the status feeds park availability.
 """
 
 from __future__ import annotations
@@ -34,14 +30,14 @@ import numpy as np
 from wattsentry.contracts import AssetStatus, CrewType, Prediction, PvFault, Severity, Status, WindAnomaly
 
 # --- thresholds ---------------------------------------------------------------------------------------------
-# Shared schema with #27 (which writes models/thresholds.json from validation). Numbers here are the defaults.
+# Defaults; models/thresholds.json (written by the uncertainty calibration) overrides them.
 DEFAULT_THRESHOLDS: dict[str, Any] = {
     "version": 1,
     "source_run": "builtin-defaults",
     "site": {
         "stale_minutes": 60,
         "pfault_confident": 0.6,
-        # Soiling needs more (#214): on homes M4 never saw, a steady gap to the expected PV reads as soiling
+        # Soiling needs more: on homes M4 never saw, a steady gap to the expected PV reads as soiling
         # (only 20-34 % of those calls were right); every other class is 90-100 % right at pfault_confident.
         "soiling_confident": 0.7,
         "pfault_std_max": 0.15,
@@ -160,10 +156,6 @@ class Assessment:
     actual: Optional[np.ndarray] = field(default=None, repr=False)
     telemetry_age_min: Optional[float] = None
 
-    @property
-    def needs_work_order(self) -> bool:
-        return self.crew_type is not None
-
 
 # --- helpers ------------------------------------------------------------------------------------------------
 def asset_kind(asset: Mapping[str, Any], prediction: Optional[Prediction] = None) -> str:
@@ -204,7 +196,6 @@ def production_mask(q50: np.ndarray) -> np.ndarray:
 def rel_width(prediction: Prediction, q50: Optional[np.ndarray] = None, mask: Optional[np.ndarray] = None) -> float:
     """Mean over production steps of (q90 − q10) / max(q50, eps). 0 when nothing is produced (night, calm).
 
-    Shared with #27 so thresholds are tuned on the same statistic (production = q50 ≥ 5% of the day's peak).
     q50 / mask: optional precomputed `np.asarray(prediction.q50, float)` / `production_mask(q50)` (same result).
     """
     if q50 is None:
@@ -265,17 +256,9 @@ def _status(aid: str, status: Status, reason: str, detail: str, headroom: Option
 
 def _top_fault(prediction: Prediction) -> tuple[Optional[str], float]:
     """Most likely non-healthy class and P_fault (= 1 − P(healthy))."""
-    probs = prediction.fault_probs
-    if not probs:
-        return None, 0.0
-    # = max(non-healthy items, key=value)[0]: first maximal key, same strict ">" comparison as max().
-    best, best_p = None, None
-    for k, v in probs.items():
-        if k != _HEALTHY and (best is None or v > best_p):
-            best, best_p = k, v
-    if best is None:
-        return None, 0.0
-    return best, prediction.p_fault
+    best = max((kv for kv in (prediction.fault_probs or {}).items() if kv[0] != _HEALTHY),
+               key=lambda kv: kv[1], default=None)
+    return (None, 0.0) if best is None else (best[0], prediction.p_fault)
 
 
 # --- public API ---------------------------------------------------------------------------------------------
@@ -299,7 +282,7 @@ def assess(
     actual: observed power (kW) aligned with prediction steps from t0; NaN = missing / not yet observed. Used to
         measure the loss (q50 vs actual); without it the per-class default loss is used.
     data_gap / sensor_fault / battery_fault: flags from telemetry checks (Pandera / inverter codes / battery BMS).
-    lost_flex_mwh_day: override of the flexibility energy lost (e.g. from #27's commitment delta).
+    lost_flex_mwh_day: override of the flexibility energy lost.
     """
     th = resolve_thresholds(thresholds)
     kind = asset_kind(asset, prediction)
@@ -307,17 +290,6 @@ def assess(
     arr = None if actual is None else np.asarray(actual, dtype=float)
     return fn(asset, prediction, _minutes(telemetry_age), th, arr, data_gap, sensor_fault, battery_fault,
               lost_flex_mwh_day)
-
-
-def qualify(
-    asset: Mapping[str, Any],
-    prediction: Optional[Prediction],
-    telemetry_age: Union[None, float, int, timedelta],
-    thresholds: Thresholds = None,
-    **kw: Any,
-) -> AssetStatus:
-    """`qualify(asset, prediction, telemetry_age) -> AssetStatus` (opt.md). Same keywords as `assess`."""
-    return assess(asset, prediction, telemetry_age, thresholds, **kw).status
 
 
 def qualify_many(
@@ -336,7 +308,7 @@ def qualify_many(
 
     Park consensus: if ≥ `park_share` of a park's turbines (and ≥ `park_min_turbines`) are flagged fault_stop /
     underperformance at the same tick, it is a park-wide cap (curtailment or grid limit), not N broken turbines:
-    they become eligible + curtailed-energy log, no work orders (plan §3.5, R12).
+    they become eligible + curtailed-energy log, no work orders.
     """
     th = resolve_thresholds(thresholds)
     actuals = actuals or {}

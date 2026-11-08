@@ -1,7 +1,6 @@
--- INTERIM COPY of card #38's Drizzle migration (packages/db/drizzle/20261107131320_panoramic_anita_blake/migration.sql, card/38 commit d362a39).
--- #38 is the source of truth: once packages/db/drizzle/ is on main, wattsentry/agent/audit.py applies those files
--- instead and this file is only used if that directory is missing. Never edit columns here; change the Drizzle
--- schema in packages/db/src/schema/ and regenerate. Python only inserts rows.
+-- Copy of the first Drizzle migration (packages/db/drizzle/20261107131320_panoramic_anita_blake/migration.sql).
+-- audit.py applies packages/db/drizzle/ when present; this file is used only if that directory is missing.
+-- Never edit columns here: change the Drizzle schema in packages/db/src/schema/ and regenerate.
 
 CREATE TABLE `account` (
 	`id` text PRIMARY KEY,

@@ -1,13 +1,9 @@
-"""Replay a test week through the agent, once per policy, into one SQLite file (card #17, plan §3.6 `replay`).
+"""Replay a test week through the agent, once per policy, into one SQLite file.
 
-Same world, same predictions, same prices and limits for every policy; only decide/act differ. One `runs` row per
-policy (label from the world, e.g. "synthetic RO"; components real vs fallback in `notes`), topology once
-(feeders, parks, assets), then every row the loop writes. Prints the plan §2 replay metrics as LAB_METRIC lines.
-
-Judge (#149): on by default for the Sentinel policy (`--judge off` to skip). It writes judge_verdicts (+ trust, and
-outcomes once the J1 grader is in) and logs `t_judge_s` per replay day. `--judge-check` replays Sentinel a second
-time with the judge off (rows discarded) and fails unless every KPI and every action id is identical: the judge only
-records verdicts until the actions are specified (judge-design §10).
+Same world, predictions, prices and limits for every policy; only decide/act differ. Writes one `runs` row per policy
+(components real vs fallback in `notes`), the topology once, then every row the loop writes, and prints the replay
+metrics as LAB_METRIC lines. The Judge runs on the Sentinel policy (`--judge off` to skip); `--judge-check` replays
+Sentinel again with the judge off and fails unless every KPI and action id is identical (the judge only records).
 """
 
 from __future__ import annotations
@@ -22,6 +18,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Sequence
+
+from wattsentry.contracts import input_hash
 
 from .audit import REPO_ROOT, AuditDB, Ts
 from .loop import BASELINE_ALIASES, Components, LoopConfig, PolicyResult, default_components, log, run_policy
@@ -84,7 +82,6 @@ class ReplayReport:
     results: dict[str, PolicyResult]
     metrics: dict[str, float]
     db: dict[str, Any]
-    components: dict[str, str]
     seconds: float
     run_ids: dict[str, str] = field(default_factory=dict)
     judge_check: Optional[dict[str, Any]] = None
@@ -251,7 +248,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
            comps: Optional[Components] = None, print_metrics: bool = True, full: bool = False,
            strict: bool = True, judge: bool = True, judge_check: bool = False,
            detail_sites: Optional[frozenset[str]] = None) -> ReplayReport:
-    """Default output is the demo DB (R18 < 50 MB): no per-step pv/load prediction rows (asset_steps keeps the PV
+    """Default output is the demo DB (< 50 MB): no per-step pv/load prediction rows (asset_steps keeps the PV
     quantiles) and schedules only for Sentinel (baseline battery rows are not shown by the UI). `full=True`
     stores both. `strict=True` raises `audit.SchemaMismatch` on any field the schema cannot hold that is not in
     `audit.ALLOWED_DROPS`."""
@@ -298,8 +295,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
                       **(w.replay_notes() if hasattr(w, "replay_notes") else {}),
                       "world": w.describe(), "resolve_hourly": resolve_hourly, "schema": db.schema_source,
                       "judge": res.judge or {"mode": "off" if not judge or pol != "sentinel" else "unavailable"},
-                      "inputs_hash": __import__("wattsentry.contracts", fromlist=["input_hash"]).input_hash(
-                          res.day_hashes), "plan_status": res.plan_status,
+                      "inputs_hash": input_hash(res.day_hashes), "plan_status": res.plan_status,
                       "commit_calibration": {d: {k: {"method": "online split conformal, past replay days",
                                                      "buckets": v.get("n_buckets"),
                                                      **{f: next(iter(v["members"].values()))[f]
@@ -346,7 +342,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
     summary = db.summary()
     db.close()
     secs = time.perf_counter() - t_start
-    report = ReplayReport(Path(out), results, metrics, summary, dict(comps.sources), secs, run_ids, check)
+    report = ReplayReport(Path(out), results, metrics, summary, secs, run_ids, check)
     if print_metrics:
         if comps.fallbacks:
             print(f"# FALLBACK components: {', '.join(comps.fallbacks)} (label: {w.label}; see runs.notes)")
@@ -382,7 +378,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
 def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
     import argparse
 
-    pre = argparse.ArgumentParser(add_help=False)  # --mode imbalance (I6 #176): supplier portfolio replay, spec I step 8
+    pre = argparse.ArgumentParser(add_help=False)  # --mode imbalance: supplier portfolio replay
     pre.add_argument("--mode", choices=["agent", "imbalance"], default="agent")
     mode, argv = pre.parse_known_args(argv)
     if mode.mode == "imbalance":
@@ -396,21 +392,20 @@ def main(argv: Optional[Sequence[str]] = None) -> ReplayReport:
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--scale", type=float, default=1.0, help="mock world size factor")
-    ap.add_argument("--resolve-hourly", action="store_true", help="SHOULD: re-plan every hour (R4)")
+    ap.add_argument("--resolve-hourly", action="store_true", help="re-plan every hour")
     ap.add_argument("--fallback", default="", help="force built-ins: all | planner,qualify,triage,committer,demand")
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--full", action="store_true",
                     help="also store per-step pv/load predictions and baseline schedules (DB > 50 MB)")
-    ap.add_argument("--lite", action="store_true", help=argparse.SUPPRESS)  # old flag; lite is now the default
     ap.add_argument("--strict", dest="strict", action="store_true", default=True,
                     help="raise if a produced field has no column and is not in audit.ALLOWED_DROPS (default)")
     ap.add_argument("--no-strict", dest="strict", action="store_false", help="warn and drop instead")
     ap.add_argument("--judge", default="on", choices=["on", "off"],
-                    help="Judge verdicts for the Sentinel policy (#149): judge_verdicts / trust / outcomes rows")
+                    help="Judge verdicts for the Sentinel policy: judge_verdicts / trust / outcomes rows")
     ap.add_argument("--judge-check", action="store_true",
                     help="replay Sentinel again with the judge off and fail unless KPIs and actions are identical")
     a = ap.parse_args(argv)
     ff: bool | list[str] = True if a.fallback == "all" else [x for x in a.fallback.split(",") if x]
     return replay([p for p in a.policy.split(",") if p], a.out, world=a.world, days=a.days, seed=a.seed,
                   scale=a.scale, resolve_hourly=a.resolve_hourly, force_fallback=ff, run_id=a.run_id,
-                  full=a.full and not a.lite, strict=a.strict, judge=a.judge == "on", judge_check=a.judge_check)
+                  full=a.full, strict=a.strict, judge=a.judge == "on", judge_check=a.judge_check)
