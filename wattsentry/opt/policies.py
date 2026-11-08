@@ -1,23 +1,11 @@
-"""Baseline policies + the site / plan types shared by the optimiser (card #18, plan §3.5, R3).
+"""Site / plan types shared by the optimiser, rule simulation and the self-consumption baseline plan.
 
-Policies (all return a `DetailedPlan`, i.e. a contract `FeederPlan` with diagnostics):
+- `Site(site_id, battery, e0_kwh)`, built from a `sites` row with `site_from_row`.
+- `RestOfFeeder(net_kw, worst_kw)`: forecast net export of the sites the planner does not control.
+- `simulate_rule` / `threshold_step`: the per-step battery rules (self-consumption, per-home export threshold).
 
-- `self_consumption_plan(...)`: the baseline. Every site runs `contracts.self_consumption_step` (one definition,
-  shared with the simulator #11 and with the non-pool sites inside the LP).
-- `threshold_plan(..., alpha)`: per-home export-threshold rule. Each home only charges the part of its PV surplus
-  above `theta_i = alpha * max_t(P50 PV - P50 load)` (so its battery still has room at the midday peak) and
-  discharges to cover load like the baseline. `tune_threshold(days)` picks `alpha` on validation days.
-
-Shared building blocks (used by `lp.py` and `aggregate.py`):
-
-- `Site(site_id, battery, e0_kwh)`, built from a `sites` row with `site_from_row` (data.md battery columns).
-- `RestOfFeeder(net_kw, worst_kw)`: forecast net export of the sites the planner does not control (R3).
-  `rest_of_feeder_from_forecasts(sites, forecasts)` simulates the rule on P50 and on worst-case inputs.
-- `simulate_rule(battery, e0, pv, load)` / `simulate_fleet(...)`: full-day rule simulation.
-
-Conventions (same for every policy so plans are comparable): kW per 15-min step, + export; battery + charge.
-`export_curve` = planned feeder net export on P50 forecasts; `slack_t = max(0, worst_t - G)` where `worst_t` is the
-worst plausible export (P90 PV, P10 load; the rule reacts to that PV, an LP schedule does not).
+Conventions: kW per 15-min step, + export; battery + charge. `export_curve` = planned feeder net export on P50
+forecasts; `slack_t = max(0, worst_t - G)` with `worst_t` the worst plausible export (P90 PV, P10 load).
 Prices are lei/kWh (the `prices` table is lei/MWh: divide by 1000).
 """
 
@@ -34,12 +22,9 @@ from wattsentry.contracts import self_consumption_step
 ArrayLike = Union[Sequence[float], np.ndarray]
 Forecasts = Mapping[str, Mapping[str, Prediction]]  # {site_id: {"pv": Prediction, "load": Prediction}}
 
-DEFAULT_BETA = 0.5  # export remuneration ratio (plan §3.5, "to verify")
+DEFAULT_BETA = 0.5  # export remuneration ratio (to verify)
 
 
-# --------------------------------------------------------------------------------------------------------------
-# Shared types
-# --------------------------------------------------------------------------------------------------------------
 @dataclass
 class Site:
     """One prosumer site as the planner sees it. `battery=None` (or capacity 0) = no battery.
@@ -65,7 +50,7 @@ class Site:
 
 
 def battery_from_row(row: Mapping[str, Any]) -> Optional[BatterySpec]:
-    """`sites` row -> BatterySpec (data.md: battery_kwh, battery_kw, eta_*, soc_min/max, comfort_reserve_kwh)."""
+    """`sites` row -> BatterySpec (battery_kwh, battery_kw, eta_*, soc_min/max, comfort_reserve_kwh)."""
     cap = float(row.get("battery_kwh") or 0.0)
     if cap <= 0:
         return None
@@ -96,7 +81,7 @@ def as_site(x: Union[Site, Mapping[str, Any]]) -> Site:
 @dataclass
 class RestOfFeeder:
     """Forecast net export (kW, + export) of the feeder's sites outside the planner's control, which keep running
-    the self-consumption rule (R3). `net_kw` on P50 inputs (-> export curve, evening import M_rest = -net);
+    the self-consumption rule. `net_kw` on P50 inputs (-> export curve, evening import M_rest = -net);
     `worst_kw` on worst plausible inputs P90 PV / P10 load (-> X_rest in the export limit). worst defaults to net.
     """
 
@@ -160,9 +145,6 @@ class DetailedPlan(FeederPlan):
         return sum(s > 1e-6 for s in self.slack)
 
 
-# --------------------------------------------------------------------------------------------------------------
-# Forecast helpers
-# --------------------------------------------------------------------------------------------------------------
 def site_quantiles(forecasts: Forecasts, site_id: str, pv_factor: float = 1.0) -> dict[str, np.ndarray]:
     """{pv10, pv50, pv90, l10, l50, l90} arrays for one site; PV scaled by `pv_factor` (derated sites)."""
     try:
@@ -231,9 +213,6 @@ def feeder_id_and_g(feeder: Union[FeederSpec, str], G: Optional[float]) -> tuple
     return str(feeder), float(G)
 
 
-# --------------------------------------------------------------------------------------------------------------
-# Rule simulation
-# --------------------------------------------------------------------------------------------------------------
 StepFn = Callable[[Optional[BatterySpec], float, float, float], tuple[float, float, float]]
 
 
@@ -288,22 +267,16 @@ def simulate_fleet(
     sites: Sequence[Union[Site, Mapping[str, Any]]],
     pv: Mapping[str, ArrayLike],
     load: Mapping[str, ArrayLike],
-    *,
-    thresholds: Optional[Mapping[str, float]] = None,
     dt_h: float = DT_H,
 ) -> FleetTrace:
-    """Full-day fleet simulation of the baseline rule (thresholds=None) or the per-home threshold rule."""
+    """Full-day fleet simulation of the baseline rule."""
     sites = [as_site(s) for s in sites]
     batt, soc, grid = {}, {}, {}
     T = len(next(iter(pv.values()))) if pv else 0
     net = np.zeros(T)
     for s in sites:
-        th = None if thresholds is None else float(thresholds.get(s.site_id, 0.0))
-        step = None
-        if th is not None:
-            step = lambda b, e, p, l, th=th: threshold_step(b, e, p, l, th, dt_h)  # noqa: E731
         b, e, g = simulate_rule(s.battery if s.has_battery else None, s.initial_energy(), pv[s.site_id],
-                                load[s.site_id], step, dt_h)
+                                load[s.site_id], dt_h=dt_h)
         batt[s.site_id], soc[s.site_id], grid[s.site_id] = b, e, g
         net += g
     return FleetTrace(batt, soc, grid, net)
@@ -330,44 +303,6 @@ def rest_of_feeder_from_forecasts(
     return RestOfFeeder(list(net), list(worst))
 
 
-# --------------------------------------------------------------------------------------------------------------
-# Policies as feeder plans
-# --------------------------------------------------------------------------------------------------------------
-def _rule_plan(
-    policy: str, feeder, sites, rest_of_feeder, forecasts, G, *, statuses, thresholds, t0,
-) -> DetailedPlan:
-    fid, g = feeder_id_and_g(feeder, G)
-    sites = [as_site(s) for s in sites]
-    statuses = statuses or {}
-    ids = [s.site_id for s in sites]
-    T = horizon_of(forecasts, ids)
-    if T is None:
-        T = len(rest_of_feeder.net_kw) if isinstance(rest_of_feeder, RestOfFeeder) else len(rest_of_feeder or [])
-    rest = as_rest(rest_of_feeder, T)
-    q = {s.site_id: site_quantiles(forecasts, s.site_id, pv_factor(statuses.get(s.site_id))) for s in sites}
-    th = thresholds(q) if callable(thresholds) else thresholds
-    p50 = simulate_fleet(sites, {k: v["pv50"] for k, v in q.items()}, {k: v["l50"] for k, v in q.items()},
-                         thresholds=th)
-    worst = simulate_fleet(sites, {k: v["pv90"] for k, v in q.items()}, {k: v["l10"] for k, v in q.items()},
-                           thresholds=th)
-    export = p50.net_kw + np.asarray(rest.net_kw)
-    worst_exp = worst.net_kw + np.asarray(rest.worst_kw)
-    slack = np.maximum(0.0, worst_exp - g)
-    t0 = t0 or t0_of(forecasts, ids) or ""
-    from .lp import peak_mask_for  # local import: lp imports this module
-
-    mask = peak_mask_for(t0, T) if t0 else np.zeros(T, bool)
-    peak = float(max(0.0, (-export[mask]).max())) if mask.any() else 0.0
-    return DetailedPlan(
-        feeder_id=fid, t0=t0, policy=policy, g_kw=g,
-        schedule={s.site_id: list(p50.batt_kw[s.site_id]) for s in sites if s.has_battery},
-        export_curve=list(export), slack=list(slack), horizon=T, solver_status="rule", objective=None,
-        method="rule", soc_kwh={s.site_id: list(p50.soc_kwh[s.site_id]) for s in sites if s.has_battery},
-        worst_export_curve=list(worst_exp), peak_import_kw=peak, n_sites=len(sites),
-        extra={"thresholds_kw": dict(th)} if th else {},
-    )
-
-
 def self_consumption_plan(
     feeder: Union[FeederSpec, str],
     sites: Sequence[Union[Site, Mapping[str, Any]]],
@@ -380,92 +315,29 @@ def self_consumption_plan(
     t0: Optional[str] = None,
 ) -> DetailedPlan:
     """Baseline: every site runs the self-consumption rule. Same signature as `lp.plan_feeder` (prices unused)."""
-    return _rule_plan("self_consumption", feeder, sites, rest_of_feeder, forecasts, G,
-                      statuses=statuses, thresholds=None, t0=t0)
+    fid, g = feeder_id_and_g(feeder, G)
+    sites = [as_site(s) for s in sites]
+    statuses = statuses or {}
+    ids = [s.site_id for s in sites]
+    T = horizon_of(forecasts, ids)
+    if T is None:
+        T = len(rest_of_feeder.net_kw) if isinstance(rest_of_feeder, RestOfFeeder) else len(rest_of_feeder or [])
+    rest = as_rest(rest_of_feeder, T)
+    q = {s.site_id: site_quantiles(forecasts, s.site_id, pv_factor(statuses.get(s.site_id))) for s in sites}
+    p50 = simulate_fleet(sites, {k: v["pv50"] for k, v in q.items()}, {k: v["l50"] for k, v in q.items()})
+    worst = simulate_fleet(sites, {k: v["pv90"] for k, v in q.items()}, {k: v["l10"] for k, v in q.items()})
+    export = p50.net_kw + np.asarray(rest.net_kw)
+    worst_exp = worst.net_kw + np.asarray(rest.worst_kw)
+    slack = np.maximum(0.0, worst_exp - g)
+    t0 = t0 or t0_of(forecasts, ids) or ""
+    from .lp import peak_mask_for  # local import: lp imports this module
 
-
-def home_thresholds(q: Mapping[str, Mapping[str, np.ndarray]], alpha: float) -> dict[str, float]:
-    """Per-home threshold theta_i = alpha * max_t(P50 PV - P50 load) (kW, >= 0)."""
-    return {sid: float(alpha * max(0.0, float(np.max(v["pv50"] - v["l50"])))) for sid, v in q.items()}
-
-
-def threshold_plan(
-    feeder: Union[FeederSpec, str],
-    sites: Sequence[Union[Site, Mapping[str, Any]]],
-    rest_of_feeder: RestLike,
-    forecasts: Forecasts,
-    G: Optional[float] = None,
-    prices: Union[float, ArrayLike, None] = None,
-    *,
-    alpha: float = 0.5,
-    statuses: Optional[Mapping[str, AssetStatus]] = None,
-    t0: Optional[str] = None,
-) -> DetailedPlan:
-    """Per-home export-threshold rule with theta_i = alpha * (home's forecast peak surplus); alpha from
-    `tune_threshold`."""
-    return _rule_plan("threshold", feeder, sites, rest_of_feeder, forecasts, G, statuses=statuses,
-                      thresholds=lambda q: home_thresholds(q, alpha), t0=t0)
-
-
-@dataclass
-class ValidationDay:
-    """One feeder-day for tuning. pv / load = realised kW per site (what the rule actually sees);
-    forecast_pv / forecast_load (P50) set each home's threshold, default = realised."""
-
-    sites: Sequence[Union[Site, Mapping[str, Any]]]
-    pv: Mapping[str, ArrayLike]
-    load: Mapping[str, ArrayLike]
-    g_kw: float
-    rest_net_kw: Optional[ArrayLike] = None
-    prices: Union[float, ArrayLike, None] = None
-    forecast_pv: Optional[Mapping[str, ArrayLike]] = None
-    forecast_load: Optional[Mapping[str, ArrayLike]] = None
-
-
-@dataclass
-class ThresholdTuning:
-    alpha: float
-    scores: dict[float, dict[str, float]]  # alpha -> {over_kwh, cost_lei, score}
-
-
-def evaluate_threshold(day: ValidationDay, alpha: float, beta: float = DEFAULT_BETA,
-                       dt_h: float = DT_H) -> dict[str, float]:
-    """kWh above the limit and energy cost (import - beta * export revenue, lei) of the threshold rule on a day."""
-    sites = [as_site(s) for s in day.sites]
-    fpv = day.forecast_pv or day.pv
-    fld = day.forecast_load or day.load
-    q = {s.site_id: {"pv50": np.asarray(fpv[s.site_id], float), "l50": np.asarray(fld[s.site_id], float)}
-         for s in sites}
-    trace = simulate_fleet(sites, day.pv, day.load, thresholds=home_thresholds(q, alpha), dt_h=dt_h)
-    T = len(trace.net_kw)
-    rest = np.zeros(T) if day.rest_net_kw is None else np.asarray(day.rest_net_kw, float)
-    over = float(np.maximum(0.0, trace.net_kw + rest - day.g_kw).sum() * dt_h)
-    price = price_vector(day.prices, T)
-    cost = 0.0
-    for g in trace.grid_kw.values():
-        cost += float((price * (np.maximum(0.0, -g) - beta * np.maximum(0.0, g))).sum() * dt_h)
-    return {"over_kwh": over, "cost_lei": cost}
-
-
-def tune_threshold(
-    days: Sequence[ValidationDay],
-    alphas: Optional[Sequence[float]] = None,
-    beta: float = DEFAULT_BETA,
-    over_weight: float = 100.0,
-) -> ThresholdTuning:
-    """Pick alpha on validation days: minimise `over_weight * kWh above limit + energy cost` summed over days
-    (ties -> smallest alpha, i.e. closest to the baseline). over_weight in lei/kWh; default treats the limit
-    as ~100x more important than the energy bill."""
-    alphas = list(alphas) if alphas is not None else [round(a, 2) for a in np.linspace(0.0, 0.95, 20)]
-    if not days:
-        raise ValueError("need at least one validation day")
-    scores: dict[float, dict[str, float]] = {}
-    for a in alphas:
-        over = cost = 0.0
-        for d in days:
-            r = evaluate_threshold(d, a, beta)
-            over += r["over_kwh"]
-            cost += r["cost_lei"]
-        scores[a] = {"over_kwh": over, "cost_lei": cost, "score": over_weight * over + cost}
-    best = min(alphas, key=lambda a: (round(scores[a]["score"], 9), a))
-    return ThresholdTuning(alpha=best, scores=scores)
+    mask = peak_mask_for(t0, T) if t0 else np.zeros(T, bool)
+    peak = float(max(0.0, (-export[mask]).max())) if mask.any() else 0.0
+    return DetailedPlan(
+        feeder_id=fid, t0=t0, policy="self_consumption", g_kw=g,
+        schedule={s.site_id: list(p50.batt_kw[s.site_id]) for s in sites if s.has_battery},
+        export_curve=list(export), slack=list(slack), horizon=T, solver_status="rule", objective=None,
+        method="rule", soc_kwh={s.site_id: list(p50.soc_kwh[s.site_id]) for s in sites if s.has_battery},
+        worst_export_curve=list(worst_exp), peak_import_kw=peak, n_sites=len(sites),
+    )

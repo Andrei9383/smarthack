@@ -1,4 +1,4 @@
-"""Card #129 (experiment): the replay agent decides each live tick (wattsentry/live/agent.py)."""
+"""The replay agent decides each live tick (wattsentry/live/agent.py)."""
 
 from __future__ import annotations
 

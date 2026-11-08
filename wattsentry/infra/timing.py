@@ -6,7 +6,7 @@ import resource
 import sys
 import time
 
-from .metrics import Metrics, emit
+from .metrics import emit
 
 
 def _rss_mb() -> float:  # process peak; ru_maxrss is KiB on Linux, bytes on macOS
@@ -20,16 +20,12 @@ def _cuda():
 
 
 @contextlib.contextmanager
-def stage(name: str, metrics: Metrics | None = None, timings: dict | None = None):
-    out = metrics.emit if metrics else emit
+def stage(name: str):
     if cuda := _cuda():
         cuda.reset_peak_memory_stats()
     t = time.perf_counter()
     yield
-    dt = time.perf_counter() - t
-    if timings is not None:
-        timings[f"t_{name}_s"] = round(dt, 3)
-    out(f"t_{name}_s", dt)
-    out(f"rss_{name}_mb", _rss_mb())
+    emit(f"t_{name}_s", time.perf_counter() - t)
+    emit(f"rss_{name}_mb", _rss_mb())
     if cuda := _cuda():
-        out(f"cuda_{name}_mb", cuda.max_memory_allocated() / (1 << 20))
+        emit(f"cuda_{name}_mb", cuda.max_memory_allocated() / (1 << 20))

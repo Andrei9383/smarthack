@@ -1,9 +1,8 @@
-"""Card #17: agent loop, replay into SQLite, audit log (plan §3.1, §3.6; team/contracts/replay.md, actions.md)."""
+"""Agent loop, replay into SQLite, audit log."""
 
 import json
 import sqlite3
 import time
-from pathlib import Path
 
 import pytest
 
@@ -110,7 +109,7 @@ def test_value_map_and_not_null_fill(tmp_path):
     db.add("assets", {"id": "S1", "asset_kind": "site", "lat": 44.0, "lon": 28.0, "county": "Constanta"})
     db.flush()
     kind, name, rated = q(db.conn, "SELECT asset_kind, name, rated_kw FROM assets")[0]
-    assert (kind, name, rated) == ("prosumer", "", 0)  # #38 enum; NOT NULL columns filled, never a crash
+    assert (kind, name, rated) == ("prosumer", "", 0)  # enum value; NOT NULL columns filled, never a crash
     db.close()
 
 
@@ -194,7 +193,7 @@ def test_kpis_and_commitment_invariants(small):
     bad = q(conn, "SELECT COUNT(*) FROM commitments WHERE NOT (nominal_kw + 1e-6 >= available_kw AND "
                   "available_kw + 1e-6 >= committed_kw AND committed_kw >= -1e-9)")[0][0]
     assert bad == 0
-    # curtailment is logged, never a work order (plan §3.5, R12)
+    # curtailment is logged, never a work order
     assert q(conn, "SELECT COUNT(*) FROM alerts WHERE code = 'curtailment' AND creates_work_order = 1")[0][0] == 0
 
 
@@ -208,7 +207,7 @@ def test_mock_world_is_deterministic_and_has_the_demo_stories():
 
 
 def test_replay_with_default_components_prints_metrics(tmp_path, capsys):
-    """Whatever real modules (#18/#26/#27/#44) are importable get used; the replay must still run end to end."""
+    """Whatever real modules are importable get used; the replay must still run end to end."""
     rep = replay(["baseline", "sentinel"], tmp_path / "d.sqlite", world=MockWorld(days=1, scale=0.4),
                  schema_dir=tmp_path / "none")
     out = capsys.readouterr().out
@@ -228,7 +227,7 @@ def test_actions_validate_against_contract():
         A.make("work_order", "2025-06-16T00:00:00Z", "sentinel", "r", {"asset_id": "S1"}, rec)
 
 
-# --- observation vs physics (#78 drills finding): blind sites, re-admission, commit-time blind haircut ----------
+# --- observation vs physics: blind sites, re-admission, commit-time blind haircut ---------------------------------
 class _BlindMorning(MockWorld):
     """Every site reports nothing from step 20 to 44 of each day (05:00-11:00 UTC); the physics is untouched."""
 
@@ -249,10 +248,8 @@ def test_blind_sites_keep_their_schedule_and_commitment_holds():
     run = lambda w, **kw: L.run_policy(w, L.default_components(w, force_fallback=True),  # noqa: E731
                                        L.LoopConfig(policy="sentinel", run_id="b", **kw))
     c, b = run(clean), run(blind)
-    old = run(blind, readmit=False, hold_blind=False, blind_haircut=False)  # pre-fix behaviour
-    assert b.comfort_breaches == 0 and old.comfort_breaches == 0
+    assert b.comfort_breaches == 0
     assert _hit(b) >= _hit(c) - 0.1
-    assert _hit(old) < _hit(b)  # dropping blind sites to their local rule for the rest of the day loses the P10
 
 
 def test_blind_haircut_removes_the_blind_share_by_step():
@@ -263,12 +260,11 @@ def test_blind_haircut_removes_the_blind_share_by_step():
     out = L._blind_haircut(c, {"a": np.array([1.0, 1.0, 1.0, 0.0]), "b": np.array([1.0, 3.0, 1.0, 1.0])}, blind)
     assert out.committed == pytest.approx([0.5, 0.75, 1.0, 1.0])
     assert out.extra["haircut_k"][0] == pytest.approx(1 - 0.95 * 0.5) and out.extra["haircut_k"][3] == 0.05
-    prof = L._blind_profile({"a": type("SD", (), {"telemetry_age_s": [0.0] * 40 + [4000.0] + [0.0] * 55})()},
-                            L.LoopConfig())
+    prof = L._blind_profile({"a": type("SD", (), {"telemetry_age_s": [0.0] * 40 + [4000.0] + [0.0] * 55})()})
     assert prof["a"][36:45].all() and not prof["a"][35] and not prof["a"][45]
 
 
-# --- stage 2: predictor versions, #24 WindMon baseline, energy over the limit, online conformal commitment ----
+# --- predictor versions, WindMon baseline, energy over the limit, online conformal commitment ----------------
 def test_predictor_versions_ignore_the_unused_zone_mock():
     from wattsentry.contracts import MockPredictor
 

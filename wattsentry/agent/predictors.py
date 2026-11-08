@@ -1,26 +1,8 @@
-"""Real model predictors for the replay (card #29): the promoted ONNX weights in models/ behind the loop's
-Predictor interface, onnxruntime only (no torch).
-
-The loop asks `predict(asset_row, Window(t0, 96))` once per site per local day (and SiteHealth again at a few
-intraday ticks). A bare Window has no data, so these adapters read the world's own arrays instead:
-
-- `FleetSlice`: a small in-memory copy of #10's window cache (`wattsentry-windows-v1`, the arrays #14 trains on) for
-  the demo sites and the replay week plus 15 days of history. It has the `ArraySource` interface, so the exact
-  training-time feature code (`wattsentry.model.features.gather/build/site_inputs`) builds the model inputs. Story
-  overlays (e.g. the string outage at the demo site) are applied to this copy before any model runs.
-- `ModelBank`: runs every ONNX member over whole UTC days (the windows the models were trained on) for all sites:
-    pvnet_fc (M1, forecast mode: noisy forecast weather)  -> day-ahead PV for the planner
-    pvnet.s* (M1 seed ensemble, nowcast: ERA5 weather)    -> expected PV for SiteHealth + qualify's measured loss
-    loadnet.s* (M2 seed ensemble; forecast weather)       -> day-ahead load; nowcast q50 = M4's m2 input
-    sitehealth (M4)                                       -> fault probabilities on the trailing 24 h at any tick
-  Results live on the global 15-min axis, so a local-day prediction (00:00 Europe/Bucharest = 21:00 UTC) is a plain
-  slice: steps 0-11 come from the previous UTC day's forecast. SiteHealth windows end exactly at the asking tick
-  (M4 was trained on 24 h windows ending at arbitrary steps), so it never sees the future.
-- `WindBank`: WindNBM (M6, onnx + LightGBM) scored once per park over the week + 28 days of history; per-turbine
-  daily envelopes carry the per-step M6 classes in `extra["step_classes"]` for the loop's per-tick qualify.
-
-Every adapter falls back per call to the mock (`MockPredictor`) if its inputs are missing or a model raises; the
-envelope then has `extra["is_fallback"] = 1` (-> `predictions.is_fallback`) and the counts land in runs.notes.
+"""Real model predictors for the replay: the promoted ONNX weights in models/ behind the loop's Predictor interface
+(onnxruntime only). `FleetSlice` is an in-memory copy of the window cache for the demo sites (so the training-time
+feature code builds the inputs), `ModelBank` runs M1 / M2 / M4 over whole UTC days (local-day predictions are plain
+slices of the global 15-min axis), `WindBank` runs WindNBM (M6) per park. Every adapter falls back per call to
+`MockPredictor` (envelope `extra["is_fallback"] = 1`); counts land in runs.notes.
 """
 
 from __future__ import annotations
@@ -35,6 +17,8 @@ import numpy as np
 
 from wattsentry.contracts import DAY_STEPS, MockPredictor, Prediction, PvFault, Window
 
+from .audit import parse_iso
+
 H = DAY_STEPS
 STEP_S = 900
 FAULTS = [f.value for f in PvFault]
@@ -45,17 +29,9 @@ SLICE_ARRAYS = ("pv_ac", "pv_healthy", "load", "batt", "soc", "inv_v", "inv_stat
 LOC_ARRAYS = ("weather_act", "weather_fc", "geom")
 
 
-def _ts(t: str | int | datetime) -> int:
-    if isinstance(t, (int, np.integer)):
-        return int(t)
-    if isinstance(t, datetime):
-        return int(t.timestamp())
-    return int(datetime.fromisoformat(str(t).replace("Z", "+00:00")).timestamp())
-
-
 # ============================================================================================ data slice
 class FleetSlice:
-    """In-memory slice of #10's window cache: `sites` (indices into the cache) x [t_from, t_to) (whole UTC days).
+    """In-memory slice of the window cache: `sites` (indices into the cache) x [t_from, t_to) (whole UTC days).
     Implements what `wattsentry.model.features.gather` needs from an ArraySource."""
 
     def __init__(self, root: Path, site_idx: Sequence[int], t_from: int, t_to: int):
@@ -102,7 +78,7 @@ class FleetSlice:
     def array(self, name: str) -> np.ndarray:
         return self._a[name]
 
-    def has(self, name: str) -> bool:  # ArraySource API (#14)
+    def has(self, name: str) -> bool:
         return name in self._a
 
     def site_meta(self, key: str, dtype=np.float32) -> np.ndarray:
@@ -375,11 +351,11 @@ class WindBank:
         th = float(self.m.cal["class_thresholds"]["curtailment"])
         for pid, a in arrays.items():
             s = self.m.score_park(a["turbines"], a["ts"], a["telemetry"], a["meteo"], a.get("weather"), a.get("err"))
-            # Park consensus on M6's own curtailment probabilities. #41's decide() vetoes curtailment unless >= 15 %
+            # Park consensus on M6's own curtailment probabilities. M6's decide() vetoes curtailment unless >= 15 %
             # of the park sits at one common power ceiling; a cap to 0 % leaves noisy near-zero power, so the veto
             # turns a park-wide cap the classifier is sure about into "normal". Replay rule: where >= 50 % of the
             # park's reporting turbines have p_curtailment >= its class threshold in the same step, those turbines
-            # are curtailment (count in runs.notes, error analysis in team/insights.md).
+            # are curtailment (count in runs.notes).
             cls = s["cls"].copy()
             hit = (s["probs"][..., ci] >= th) & np.isfinite(s["power"])
             frac = hit.sum(1) / np.maximum(np.isfinite(s["power"]).sum(1), 1)
@@ -395,7 +371,7 @@ class WindBank:
     def day(self, turbine_id: str, t0: str) -> dict[str, Any]:
         pid, j = self.col[turbine_id]
         s = self.scores[pid]
-        i0 = int(np.searchsorted(s["ts"], np.datetime64(datetime.fromtimestamp(_ts(t0), timezone.utc)
+        i0 = int(np.searchsorted(s["ts"], np.datetime64(datetime.fromtimestamp(parse_iso(t0), timezone.utc)
                                                         .replace(tzinfo=None), "m")))
         if i0 + H > len(s["ts"]):
             raise ValueError("wind arrays do not cover the day")

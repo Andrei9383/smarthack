@@ -1,10 +1,10 @@
-"""Imbalance level 3 (card I8 #178, spec I step 10): the supplier dispatches enrolled home batteries in the 15:00 LP.
+"""Imbalance level 3: the supplier dispatches enrolled home batteries in the 15:00 LP.
 
-Level 2 (I5/I6, ``sentinel_id``) re-forecasts 16:00-24:00 local at 15:00 and trades the gap to the day-ahead purchase
+Level 2 (``sentinel_id``) re-forecasts 16:00-24:00 local at 15:00 and trades the gap to the day-ahead purchase
 on PI. Level 3 solves the same decision as one LP that may also schedule the batteries of enrolled homes:
 
     min  sum_t traded_t * (pi_hat_t - pzu_t)                                    intraday term (PI price forecast)
-       + sum_t (1/M) sum_m [a |pzu_t| short_tm + b |pzu_t| long_tm]             expected imbalance (X1 #158 a, b)
+       + sum_t (1/M) sum_m [a |pzu_t| short_tm + b |pzu_t| long_tm]             expected imbalance
     s.t. short_tm - long_tm = y_tm - bought_t - traded_t + kappa * flex_t       M quantile nodes y of the 15:00 band
          flex_t = KW_TO_MWH * sum_i (c_it - d_it - bhat_it)                     change in enrolled net import
          e_it = e_i,t-1 + eta_c c_it dt - d_it dt / eta_d,   lb_i <= e_it <= hi_i,  0 <= c, d <= p_max
@@ -14,17 +14,17 @@ on PI. Level 3 solves the same decision as one LP that may also schedule the bat
 - ``bhat`` / ``ebase`` = what the enrolled battery would have done under its own self-consumption rule (forecast from
   live SoC + persistence of yesterday's PV/load), so flex = 0 (leave the batteries alone) is always feasible and the
   LP is never worse than its own no-battery version on the plan.
-- ``lb_i`` = the comfort floor max(soc_min * E, comfort_reserve) (team/contracts/opt.md), lowered to what the rule
+- ``lb_i`` = the comfort floor max(soc_min * E, comfort_reserve), lowered to what the rule
   itself would reach, so following the rule stays feasible.
 - ``kappa`` = the P10 promise: the plan counts only the 10th percentile of the share of enrolled homes that comply
-  (each home-day opts out with probability p, spec ``noncompliance_prob``); the rest of the gap is traded on PI.
+  (each home-day opts out with probability ``noncompliance_prob``); the rest of the gap is traded on PI.
 - Per-step objective = the newsvendor expected cost on the marginal 15:00 distribution (split-normal through the
   calibrated P10/P50/P90), so it needs no scenario coupling across steps.
 
 Pure numpy + scipy (HiGHS through ``scipy.optimize.linprog``), no cvxpy: runs in the check sandbox and locally.
 
-Labels: homes, batteries, feeders = synthetic RO (fleet #11); PZU/PI = real RO (OPCOM); a, b = proxy (X1 #158);
-enrolment share and noncompliance = assumptions (spec I step 2: share_enrolled 0.10, noncompliance_prob 0.10).
+Labels: homes, batteries, feeders = synthetic RO; PZU/PI = real RO (OPCOM); a, b = proxy;
+enrolment share and noncompliance = assumptions (share_enrolled 0.10, noncompliance_prob 0.10).
 """
 
 from __future__ import annotations
@@ -75,10 +75,6 @@ def enrolment_order(rows: Sequence[Mapping[str, Any]], seed: int = 0) -> np.ndar
     return bat[np.random.default_rng(seed + 178).permutation(len(bat))]
 
 
-def select_enrolled(rows: Sequence[Mapping[str, Any]], share: float, seed: int = 0) -> np.ndarray:
-    order = enrolment_order(rows, seed)
-    return np.sort(order[:int(round(float(share) * len(order)))])
-
 
 def enrolled_from_rows(rows: Sequence[Mapping[str, Any]], idx: Sequence[int], feeder_key: str = "feeder_id"
                        ) -> Enrolled:
@@ -125,7 +121,7 @@ def quantile_nodes(bands: np.ndarray, m: int = 20) -> np.ndarray:
 def self_consumption_rollout(pv: np.ndarray, load: np.ndarray, e0: np.ndarray, en: Enrolled
                              ) -> tuple[np.ndarray, np.ndarray]:
     """The self-consumption rule (physical floor soc_min) on (N, T) kW from e0 (N,) kWh -> (batt kW + charge,
-    e kWh at the end of each step). Same rule as ``wattsentry.contracts.self_consumption_step`` / K1."""
+    e kWh at the end of each step). Same rule as ``wattsentry.contracts.self_consumption_step``."""
     return track_schedule(np.asarray(pv, float) - np.asarray(load, float), e0, en, floor=en.e_phys_kwh)
 
 

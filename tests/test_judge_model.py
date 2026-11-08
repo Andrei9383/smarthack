@@ -1,4 +1,4 @@
-"""J3 (#148): Judge validity model on synthetic rows: calibration, thresholds, persistence, reasons."""
+"""Judge validity model on synthetic rows: calibration, thresholds, persistence, reasons."""
 
 from __future__ import annotations
 

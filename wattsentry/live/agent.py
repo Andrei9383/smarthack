@@ -1,18 +1,9 @@
-"""The agent decides each live tick (card #129, EXPERIMENT, merge=never).
+"""The agent decides each live tick: the replay's own `run_policy` (policy `sentinel`) driven one tick at a time.
 
-Not a new policy: the replay's own `run_policy` (wattsentry/agent/loop.py, policy `sentinel`, the code behind
-replay#506) driven one tick at a time. It runs in a worker thread and stops after every tick (LoopConfig.on_tick)
-until the live feed has handled the same 15-min step, so its decisions appear as the readings arrive:
-- at local midnight: qualify + day-ahead feeder LP + P10 commitment (from the day-ahead forecasts, like #506);
-- every tick: qualify on telemetry age / measured loss, triage (work orders, alerts, reviews), each pool battery's
-  planned set-point clipped to what the battery can do now, feeder export vs limit.
-Because it is the same code, fed the same #506 week it gives the same KPIs (the gate), and decisions only use what
-has arrived (tests/test_live_agent.py perturbs the future and checks nothing before it moves). What it is not: a
-re-plan from each new reading (the plan stays day-ahead + clip, optionally hourly re-solve); that would be a
-different policy with its own KPIs.
-
-Tables (same SQLite as #128, team/contracts/live.md "Agent tables"): live_agent_steps (per battery home and tick),
-live_agent_feeders (per feeder and tick), live_agent_actions (work orders / alerts / reviews / schedules issued).
+It runs in a worker thread and stops after every tick (LoopConfig.on_tick) until the live feed has handled the same
+15-min step, so decisions appear as the readings arrive and only use what has arrived. Same code as the replay, so
+the same week gives the same KPIs (`gate`). Tables (same SQLite as the feed): live_agent_steps (per battery home and
+tick), live_agent_feeders (per feeder and tick), live_agent_actions (actions issued).
 """
 
 from __future__ import annotations
@@ -71,9 +62,6 @@ _DONE = object()
 class _TickSink(_MemSink):
     """Keeps only what the current tick produced; LiveAgent drains it into SQLite at each tick."""
 
-    def __init__(self):
-        super().__init__()
-
     def has_table(self, table):
         return False  # no asset_steps rows
 
@@ -86,13 +74,13 @@ class LiveAgent:
     """`advance()` lets run_policy do one more tick and returns that tick's state (None when the week is over)."""
 
     def __init__(self, world: Any, con: sqlite3.Connection, run_id: str, *, comps: Any = None,
-                 resolve_hourly: bool = False, judge: bool = False, feeders: Optional[list[str]] = None):
+                 judge: bool = False, feeders: Optional[list[str]] = None):
         self.world, self.con, self.run_id = world, con, run_id
         con.executescript(SCHEMA)
         self.feeders = set(feeders or world.feeders)
         self.comps = comps or default_components(world, judge=judge)
         self.sink = _TickSink()
-        self.cfg = LoopConfig(policy="sentinel", run_id=run_id, resolve_hourly=resolve_hourly, write_inputs=False,
+        self.cfg = LoopConfig(policy="sentinel", run_id=run_id, write_inputs=False,
                               step_predictions=False, write_schedules=False, judge=judge, on_tick=self._on_tick)
         self._out: queue.Queue = queue.Queue(maxsize=1)
         self._go = threading.Semaphore(0)
@@ -144,11 +132,6 @@ class LiveAgent:
             n += 1
         return n
 
-    def finish(self) -> Optional[PolicyResult]:
-        while self.advance() is not None:
-            pass
-        return self.result
-
     def _write(self, st: dict) -> None:
         w, ts = self.world, iso(st["ts"])
         pool = {s for f, ss in st["pool"].items() for s in ss}
@@ -198,8 +181,8 @@ def _kpis(r: PolicyResult) -> dict[str, Any]:
 
 
 def gate(world: Any, db: Any = None, comps: Any = None, judge: bool = False) -> dict[str, Any]:
-    """#129 gate: the whole week tick by tick through LiveAgent vs the batch loop on the same world and components.
-    Also the baseline rule for context (#506: 6645 -> 1905 min, 1397 -> 94.5 kWh, P10 92.0%, 0 breaches)."""
+    """The whole week tick by tick through LiveAgent vs the batch loop on the same world and components (identical
+    KPIs and action ids expected), plus the baseline rule for context."""
     comps = comps or default_components(world, judge=judge)
 
     def cfg(policy: str, rid: str) -> LoopConfig:

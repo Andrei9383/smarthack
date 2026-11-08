@@ -1,7 +1,4 @@
-"""Prediction envelope: the one output shape every model and baseline returns (plan §3.2, §3.4).
-
-Spec: team/contracts/model.md. Stdlib only, so it imports anywhere (sandbox, workers, replay).
-"""
+"""Prediction envelope: the one output shape every model and baseline returns. Stdlib only, so it imports anywhere."""
 
 from __future__ import annotations
 
@@ -16,7 +13,7 @@ DAY_STEPS = 96  # 24 h at 15 min
 
 
 class ModelId(str, Enum):
-    """Registry ids (plan §3.2). Baselines and the mock use the same envelope."""
+    """Registry ids. Baselines and the mock use the same envelope."""
 
     PVNET = "pvnet"  # M1
     LOADNET = "loadnet"  # M2
@@ -36,16 +33,8 @@ class ModelId(str, Enum):
     MOCK = "mock"
 
 
-class AssetKind(str, Enum):
-    SITE = "site"  # prosumer site (PV + battery + load)
-    TURBINE = "turbine"
-    FEEDER = "feeder"
-    ZONE = "zone"  # demand zone: county / locality / feeder
-    PARK = "park"
-
-
 class PvFault(str, Enum):
-    """M4 SiteHealth classes (8, incl. healthy). Same labels as the PV fault injector (#12)."""
+    """M4 SiteHealth classes (8, incl. healthy). Same labels as the PV fault injector."""
 
     HEALTHY = "healthy"
     SOILING = "soiling"
@@ -58,7 +47,7 @@ class PvFault(str, Enum):
 
 
 class WindAnomaly(str, Enum):
-    """M6 WindNBM classes (plan §3.5). Same labels as the wind fault injector (#23)."""
+    """M6 WindNBM classes. Same labels as the wind fault injector."""
 
     NORMAL = "normal"
     FAULT_STOP = "fault_stop"
@@ -75,7 +64,7 @@ def _floats(xs: Optional[Sequence[float]]) -> Optional[list[float]]:
 
 
 def parse_utc(ts: str) -> datetime:
-    """ISO 8601 UTC timestamp, e.g. '2025-06-01T10:00:00Z'. Storage is always UTC (plan §3.4)."""
+    """ISO 8601 UTC timestamp, e.g. '2025-06-01T10:00:00Z'. Storage is always UTC."""
     dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     if dt.tzinfo is None or dt.utcoffset().total_seconds() != 0:
         raise ValueError(f"timestamp must be UTC with an explicit offset: {ts!r}")
@@ -98,7 +87,7 @@ class Prediction:
     q10: list[float]
     q50: list[float]
     q90: list[float]
-    ood_score: float = 0.0  # 0 = in-distribution; thresholds tuned on validation (#27)
+    ood_score: float = 0.0  # 0 = in-distribution; thresholds tuned on validation
     member_std: float = 0.0  # ensemble spread of q50, same unit
     fault_probs: Optional[dict[str, float]] = None  # PvFault -> p, sums to 1 (M4)
     anomaly_class: Optional[str] = None  # WindAnomaly value (M6)
@@ -145,7 +134,6 @@ class Prediction:
         if self.anomaly_class is not None and self.anomaly_class not in {a.value for a in WindAnomaly}:
             raise ValueError(f"unknown anomaly_class {self.anomaly_class!r}")
 
-    # -- helpers consumers use -------------------------------------------------
     @property
     def p_fault(self) -> float:
         """P(any fault) = 1 - P(healthy). 0 if the model has no fault head."""
@@ -159,10 +147,6 @@ class Prediction:
             return None
         return max(self.fault_probs.items(), key=lambda kv: kv[1])[0]
 
-    def interval_width(self) -> float:
-        """Mean q90 - q10, the 'not sure' signal next to member_std and ood_score."""
-        return sum(c - a for a, c in zip(self.q10, self.q90)) / self.horizon
-
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -173,10 +157,7 @@ class Prediction:
 
 @runtime_checkable
 class Predictor(Protocol):
-    """`predict(asset, window) -> Prediction` — what #14, #15, #41 and MockPredictor implement.
-
-    `asset` is a metadata row (dict, see data.md / wind.md); `window` is a Window (see model.md).
-    """
+    """`predict(asset, window) -> Prediction`; `asset` is a metadata row (dict), `window` a Window."""
 
     model: str
     model_version: str

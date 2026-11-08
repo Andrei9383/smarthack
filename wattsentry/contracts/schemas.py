@@ -1,6 +1,5 @@
-"""Parquet table schemas (column -> dtype). Spec + units: team/contracts/data.md and wind.md.
+"""Parquet table schemas (column -> dtype), stdlib only: the data loaders and simulators write tables that match them.
 
-Stdlib only: #10 builds the Pandera checks from these dicts, #9/#11/#12/#22/#23 write tables that match them.
 dtypes use Arrow names; `timestamp[UTC]` = timezone-aware UTC. Columns ending in `?` are nullable.
 """
 
@@ -15,7 +14,7 @@ SITES = {
     "site_id": "string",  # "S0001"
     "feeder_id": "string",  # true feeder (simulator truth)
     "phase": "string",  # true phase: "A" | "B" | "C" | "ABC"
-    "gis_feeder_id": "string",  # as the GIS records it (may be wrong, #13)
+    "gis_feeder_id": "string",  # as the GIS records it (may be wrong)
     "gis_phase": "string",
     "locality": "string",  # real RO locality name
     "county": "string",  # judet, e.g. "Constanta"
@@ -48,12 +47,12 @@ FEEDERS = {
     "lon": "float64",
     "g_max_kw": "float64",
     "g_conservative_kw": "float64",
-    "tau": "float64",  # GIS trust from #13; 1.0 until it lands
+    "tau": "float64",  # GIS trust in [0, 1]
     "n_sites": "int32",
     "congested": "bool",  # simulator design flag, for reporting only
 }
 
-# 15-min, one row per site per step. Power + = produced / charging / consumed (see data.md sign table).
+# 15-min, one row per site per step. Power + = produced / charging / consumed.
 TELEMETRY = {
     "ts": "timestamp[UTC]",
     "site_id": "string",

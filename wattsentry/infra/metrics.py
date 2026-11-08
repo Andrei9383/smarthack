@@ -19,13 +19,3 @@ def emit(name: str, value: float, prefix: str = "") -> str:
         data[name] = value
         p.write_text(json.dumps(data))
     return name
-
-
-class Metrics:
-    """Per-model emitter: remembers every value it emitted (for the report / manifest)."""
-
-    def __init__(self, prefix: str = ""):
-        self.prefix, self.values = prefix, {}
-
-    def emit(self, name: str, value: float) -> None:
-        self.values[emit(name, value, self.prefix)] = float(value)

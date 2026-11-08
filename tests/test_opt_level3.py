@@ -1,4 +1,4 @@
-"""Card I8 #178: imbalance level 3, enrolled batteries in the 15:00 LP (scipy HiGHS, no cvxpy needed)."""
+"""Imbalance level 3, enrolled batteries in the 15:00 LP (scipy HiGHS, no cvxpy needed)."""
 
 from __future__ import annotations
 
@@ -19,13 +19,11 @@ def homes(n=2, cap=10.0, p=5.0, reserve=2.0, feeder=None):
     return rows, L3.enrolled_from_rows(rows, np.arange(n))
 
 
-def test_enrolment_is_nested_and_deterministic():
+def test_enrolment_order_is_battery_homes_and_deterministic():
     rows = [{"site_id": f"S{i}", "battery_kwh": (10.0 if i % 2 else 0.0)} for i in range(40)]
-    small, big = L3.select_enrolled(rows, 0.25), L3.select_enrolled(rows, 0.5)
-    assert len(small) == 5 and len(big) == 10
-    assert set(small) <= set(big)
-    assert all(rows[i]["battery_kwh"] > 0 for i in big)
-    assert np.array_equal(small, L3.select_enrolled(rows, 0.25))
+    order = L3.enrolment_order(rows)
+    assert sorted(order) == list(range(1, 40, 2))
+    assert np.array_equal(order, L3.enrolment_order(rows))
 
 
 def test_commit_factor_is_the_p10_compliance_share():
@@ -156,7 +154,7 @@ def test_run_day_noncompliant_homes_keep_the_rule():
 
 
 class _FakeSource:
-    """Minimal #10 window source: sites rows + (S, steps) arrays, days from 2025-06-01 UTC."""
+    """Minimal window source: sites rows + (S, steps) arrays, days from 2025-06-01 UTC."""
 
     def __init__(self, n_sites=12, n_days=5, seed=0):
         rng = np.random.default_rng(seed)
