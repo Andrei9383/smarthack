@@ -121,3 +121,22 @@ touched, so the KPIs above are unchanged.
 | `voltage.json` | G2, topology non-RO (IEEE European LV feeder), homes synthetic RO | busbar 1.03 pu: 118 -> 79 steps over 253 V, inverter trips 858 -> 472 kWh. `run_id` added by hand (voltage.py writes it only after the file) |
 
 Without `voltage.json` the Feeders grid sheet leaves the voltage section out.
+
+## Feature I imbalance replay: `demo/imbalance.sqlite` (card #193)
+The `imbalance` router reads `positions` / `portfolio_forecast` / `imbalance_kpis` from `SENTINEL_IMBALANCE_DB`, else
+`demo/imbalance.sqlite`, else the app DB. Kept out of `demo/sentinel.sqlite` so replay#506's file stays byte-identical
+and under 50 MB. Source: **imbalance#1071** (card #184, server-gpu, commit `101f250c5d`, after the #186 PZU timestamp
+fix, Rust kernels), `replay.py --mode imbalance`, 600 homes, test year 2025-01-01..2025-12-30. Copied out of the run
+log by imbalance#1145 (card #203, `scripts/demo_data_dump.py imbalance --from-run 1071`) and built with
+`scripts/demo_imbalance_db.py`. Labels: synthetic RO quantities, real RO PZU prices, proxy imbalance penalty a, b.
+- `imbalance_kpis`: all rows of the run = the whole-replay totals (`getPolicyComparison` without a window).
+- `positions`, `portfolio_forecast` (day-ahead only): 2025-05-28T21:00Z .. 2025-06-11T21:00Z, the demo week ± 3 days
+  (a full year of positions is 20 MB of CSV, and lab logs keep ~1 MB per run). Price columns are left NULL.
+
+| policy (whole replay, run 1071) | avoidable lei | lei/MWh injected | abs dev MWh | bought for nothing 18-21 MWh | vs profile |
+|---|---|---|---|---|---|
+| profile (today's method) | 873,110 | 354.2 | 1607 | 109.9 | 0 % |
+| persistence | 708,778 | 287.5 | 1499 | 52.4 | -18.8 % |
+| forecast_only | 564,822 | 229.1 | 1011 | 55.9 | -35.3 % |
+| sentinel (L1, PZU only) | 177,397 | 72.0 | 388 | 44.9 | -79.7 % |
+| sentinel_id (L2, +15:00 correction, PI = PZU) | 165,885 | 67.3 | 355 | 40.0 | -81.0 % |

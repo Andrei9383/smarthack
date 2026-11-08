@@ -3,8 +3,8 @@
     python scripts/demo_data_load.py run.log --out /tmp/imb && python scripts/demo_imbalance_db.py /tmp/imb
 
 Tables and index names mirror sentinel/eval/imbalance_replay.py TABLES (= packages/db/src/schema/imbalance.ts).
-positions + imbalance_kpis: the whole replay (the UI's "whole replay" waterfall sums positions). portfolio_forecast:
-day-ahead rows of the demo month only (the UI draws the band for one day of the demo week), to keep the file small.
+imbalance_kpis: the whole replay (the API's whole-replay totals). positions + portfolio_forecast (day-ahead): the ts
+window the dump printed (default the demo week +- 3 days; the UI shows one day of the demo week at a time).
 Prices (pzu_lei_mwh / pi_lei_mwh) are left NULL: OPCOM data, internal use only, and the UI does not read them.
 """
 
@@ -57,8 +57,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("src", type=Path, help="directory with positions.csv, portfolio_forecast_da.csv, imbalance_kpis.csv")
     ap.add_argument("--out", type=Path, default=Path("demo/imbalance.sqlite"))
-    ap.add_argument("--pf-from", default="2025-05-31T21:00:00Z", help="first portfolio_forecast ts kept (UTC)")
-    ap.add_argument("--pf-to", default="2025-07-01T21:00:00Z", help="end of the portfolio_forecast ts kept (UTC)")
+    ap.add_argument("--pf-from", default="2025-05-28T21:00:00Z", help="first portfolio_forecast ts kept (UTC)")
+    ap.add_argument("--pf-to", default="2025-06-11T21:00:00Z", help="end of the portfolio_forecast ts kept (UTC)")
     a = ap.parse_args()
     a.out.unlink(missing_ok=True)
     con = sqlite3.connect(a.out)
