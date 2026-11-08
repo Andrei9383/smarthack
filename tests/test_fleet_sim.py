@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.sim.fleet import BatteryParams, FleetConfig, apply_power, generate, self_consumption_step
-from sentinel.sim.fleet.ro_calendar import orthodox_easter, ro_holidays
+from wattsentry.sim.fleet import BatteryParams, FleetConfig, apply_power, generate, self_consumption_step
+from wattsentry.sim.fleet.ro_calendar import orthodox_easter, ro_holidays
 
 TINY = FleetConfig(n_sites=40, n_feeders=3, n_congested=1, start_year=2024, end_year=2024)
 
@@ -26,7 +26,7 @@ def world(tmp_path_factory):
 
 
 def test_contract_columns(world):
-    schemas = pytest.importorskip("sentinel.contracts.schemas")
+    schemas = pytest.importorskip("wattsentry.contracts.schemas")
     for table, df in (("sites", world["sites"]), ("feeders", world["feeders"]), ("telemetry", world["tel"])):
         assert schemas.check_columns(table, df.columns) == []
 
@@ -73,7 +73,7 @@ def test_deterministic(tmp_path):
 
 
 def test_battery_matches_contract():
-    opt = pytest.importorskip("sentinel.contracts.opt")
+    opt = pytest.importorskip("wattsentry.contracts.opt")
     rng = np.random.default_rng(0)
     n = 200
     specs = [opt.BatterySpec(capacity_kwh=float(rng.choice([0, 5, 10, 13.5])), p_max_kw=float(rng.uniform(2, 5)),
@@ -111,9 +111,9 @@ def test_ro_calendar():
 
 @pytest.mark.parametrize("fmt", ["contract", "old"])
 def test_raw_weather(tmp_path, monkeypatch, fmt):
-    from sentinel.sim.fleet import weather as wmod
-    from sentinel.sim.fleet.localities import BY_ID
-    from sentinel.sim.fleet.ro_calendar import utc_index
+    from wattsentry.sim.fleet import weather as wmod
+    from wattsentry.sim.fleet.localities import BY_ID
+    from wattsentry.sim.fleet.ro_calendar import utc_index
 
     locs = [BY_ID["voluntari"], BY_ID["floresti"]]
     hours = pd.date_range("2023-12-31 20:00", "2025-01-01 02:00", freq="h", tz="UTC")
@@ -132,7 +132,7 @@ def test_raw_weather(tmp_path, monkeypatch, fmt):
         df["locality_id"] = df.locality_id.str.removeprefix("loc:")
     path = tmp_path / "w.parquet"
     df.to_parquet(path)
-    monkeypatch.setenv("SENTINEL_WEATHER", str(path))
+    monkeypatch.setenv("WATTSENTRY_WEATHER", str(path))
     assert wmod.weather_key() == f"w-{path.stat().st_size}"
     ts = utc_index(2024)
     w = wmod.load_weather(locs, ts, seed=0)
@@ -143,10 +143,10 @@ def test_raw_weather(tmp_path, monkeypatch, fmt):
 
 def test_raw_weather_interval_start(tmp_path, monkeypatch):
     """#9 stamps hourly means at interval start: a GHI symmetric around solar noon must stay centred on it."""
-    from sentinel.sim.fleet import solar
-    from sentinel.sim.fleet import weather as wmod
-    from sentinel.sim.fleet.localities import BY_ID
-    from sentinel.sim.fleet.ro_calendar import utc_index
+    from wattsentry.sim.fleet import solar
+    from wattsentry.sim.fleet import weather as wmod
+    from wattsentry.sim.fleet.localities import BY_ID
+    from wattsentry.sim.fleet.ro_calendar import utc_index
 
     loc = BY_ID["voluntari"]
     ts15 = utc_index(2024)
@@ -157,7 +157,7 @@ def test_raw_weather_interval_start(tmp_path, monkeypatch):
                        "temp_c": 10.0, "wind10_ms": 3.0, "snow_cm": 0.0, "source": "era5"})
     path = tmp_path / "w.parquet"
     df.to_parquet(path)
-    monkeypatch.setenv("SENTINEL_WEATHER", str(path))
+    monkeypatch.setenv("WATTSENTRY_WEATHER", str(path))
     w = wmod.load_weather([loc], ts15, seed=0)
     got, want = w.data["ghi"][0], cs.to_numpy()
     day = slice(96 * 172, 96 * 173)  # a June day
@@ -166,7 +166,7 @@ def test_raw_weather_interval_start(tmp_path, monkeypatch):
 
 
 def test_local_day_index_dst():
-    from sentinel.sim.fleet.ro_calendar import local_features, utc_index
+    from wattsentry.sim.fleet.ro_calendar import local_features, utc_index
 
     for y in (2022, 2023, 2024, 2025):
         cal = local_features(utc_index(y))

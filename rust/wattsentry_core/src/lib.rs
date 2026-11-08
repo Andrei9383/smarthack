@@ -1,0 +1,328 @@
+//! wattsentry._core: Rust kernels (team/infra.md §1-4). Each has a Python twin in `wattsentry/kernels` (the source of
+//! truth, which also validates and reshapes inputs). The GIL is released; work is parallel over rows with rayon.
+
+use numpy::ndarray::{Array2, Array3};
+use numpy::{IntoPyArray, PyArray2, PyArray3, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray3,
+            PyReadwriteArray1, PyReadwriteArray2, PyUntypedArrayMethods};
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+
+mod battery_resim;
+mod cusum;
+mod features;
+mod median;
+mod pvac;
+mod rollout;
+mod rolling;
+mod scatter;
+mod strategies;
+mod selfcons;
+mod scenarios;
+mod windows;
+
+/// cusum_two_sided(x f64[m, n], k, h, cap=None) -> (s_pos f64[m, n], s_neg f64[m, n], alarm bool[m, n])
+#[pyfunction]
+#[pyo3(signature = (x, k, h, cap=None))]
+fn cusum_two_sided<'py>(
+    py: Python<'py>,
+    x: PyReadonlyArray2<'py, f64>,
+    k: f64,
+    h: f64,
+    cap: Option<f64>,
+) -> PyResult<(Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<f64>>, Bound<'py, PyArray2<bool>>)> {
+    if !k.is_finite() || !h.is_finite() {
+        return Err(PyValueError::new_err("k and h must be finite"));
+    }
+    let cap = match cap {
+        None => f64::INFINITY,
+        Some(c) if c.is_finite() && c >= 0.0 => c,
+        Some(_) => return Err(PyValueError::new_err("cap must be finite and >= 0 (or None)")),
+    };
+    let (m, n) = (x.shape()[0], x.shape()[1]);
+    let xs = x.as_slice().map_err(|_| PyValueError::new_err("x must be C-contiguous"))?;
+    let (sp, sn, al) = py.detach(|| cusum::cusum_2d(xs, m, n, k, h, cap));
+    let to2 = |e: numpy::ndarray::ShapeError| PyValueError::new_err(e.to_string());
+    let sp = Array2::from_shape_vec((m, n), sp).map_err(to2)?.into_pyarray(py);
+    let sn = Array2::from_shape_vec((m, n), sn).map_err(to2)?.into_pyarray(py);
+    let al = Array2::from_shape_vec((m, n), al).map_err(to2)?.into_pyarray(py);
+    Ok((sp, sn, al))
+}
+
+/// battery_rollout(req f64[n, s, t], soc0 f64[n, s], cap, pmax, eta_c, eta_d, e_lo, e_hi: f64[s], dt)
+///   -> (soc f64[n, s, t], batt f64[n, s, t])
+#[pyfunction]
+#[pyo3(signature = (req, soc0, cap, pmax, eta_c, eta_d, e_lo, e_hi, dt))]
+#[allow(clippy::too_many_arguments)]
+fn battery_rollout<'py>(
+    py: Python<'py>,
+    req: PyReadonlyArray3<'py, f64>,
+    soc0: PyReadonlyArray2<'py, f64>,
+    cap: PyReadonlyArray1<'py, f64>,
+    pmax: PyReadonlyArray1<'py, f64>,
+    eta_c: PyReadonlyArray1<'py, f64>,
+    eta_d: PyReadonlyArray1<'py, f64>,
+    e_lo: PyReadonlyArray1<'py, f64>,
+    e_hi: PyReadonlyArray1<'py, f64>,
+    dt: f64,
+) -> PyResult<(Bound<'py, PyArray3<f64>>, Bound<'py, PyArray3<f64>>)> {
+    let (n, s, t) = (req.shape()[0], req.shape()[1], req.shape()[2]);
+    let contig = |e| PyValueError::new_err(format!("{e}: inputs must be C-contiguous"));
+    let r = req.as_slice().map_err(contig)?;
+    let s0 = soc0.as_slice().map_err(contig)?;
+    if s0.len() != n * s {
+        return Err(PyValueError::new_err("soc0 must have shape (n, s)"));
+    }
+    let sl = [&cap, &pmax, &eta_c, &eta_d, &e_lo, &e_hi].map(|a| a.as_slice());
+    let sl: Vec<&[f64]> = sl.into_iter().collect::<Result<_, _>>().map_err(contig)?;
+    if sl.iter().any(|v| v.len() != s) {
+        return Err(PyValueError::new_err("battery arrays must have shape (s,)"));
+    }
+    let p = rollout::Params { cap: sl[0], pmax: sl[1], eta_c: sl[2], eta_d: sl[3], e_lo: sl[4], e_hi: sl[5] };
+    let (soc, batt) = py.detach(|| rollout::rollout_3d(r, s0, n, s, t, &p, dt));
+    let to3 = |e: numpy::ndarray::ShapeError| PyValueError::new_err(e.to_string());
+    let soc = Array3::from_shape_vec((n, s, t), soc).map_err(to3)?.into_pyarray(py);
+    let batt = Array3::from_shape_vec((n, s, t), batt).map_err(to3)?.into_pyarray(py);
+    Ok((soc, batt))
+}
+
+/// K2 window gathers: out[b] = conv(src[rows[b], starts[b]*step + offset ..][..length]); the Python wrapper
+/// `wattsentry.kernels.windows.window_gather_rust` views arrays as bytes (same dtype) or float16 bits.
+macro_rules! window_gather {
+    ($name:ident, $src:ty, $out:ty, $conv:expr) => {
+        #[pyfunction]
+        #[allow(clippy::too_many_arguments)]
+        fn $name<'py>(py: Python<'py>, src: PyReadonlyArray2<'py, $src>, rows: PyReadonlyArray1<'py, i64>,
+                      starts: PyReadonlyArray1<'py, i64>, step: i64, offset: i64, length: i64,
+                      mut out: PyReadwriteArray2<'py, $out>) -> PyResult<()> {
+            if rows.len() != starts.len() {
+                return Err(PyValueError::new_err("rows and starts must have the same length"));
+            }
+            if length < 0 {
+                return Err(PyValueError::new_err("length must be >= 0"));
+            }
+            let (b, length) = (rows.len(), length as usize);
+            if out.shape() != [b, length] {
+                return Err(PyValueError::new_err(format!("out must have shape ({b}, {length}), got {:?}", out.shape())));
+            }
+            let (r, w) = (src.shape()[0], src.shape()[1]);
+            let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+            let (s, ro, st) = (src.as_slice().map_err(contig)?, rows.as_slice().map_err(contig)?,
+                               starts.as_slice().map_err(contig)?);
+            let o = out.as_slice_mut().map_err(contig)?;
+            let conv = $conv;
+            py.detach(|| windows::gather(s, r, w, ro, st, step, offset, length, o, conv)).map_err(PyValueError::new_err)
+        }
+    };
+}
+window_gather!(window_gather_bytes, u8, u8, |x: u8| x);
+window_gather!(window_gather_f16_f32, u16, f32, {
+    let t = windows::f16_table();
+    move |h: u16| f32::from_bits(t[h as usize])
+});
+
+/// rolling_mean(x: f64[t, m], w: int) -> f64[t, m]
+///
+/// Causal NaN-aware rolling mean over the last w rows; the Python wrapper
+/// `wattsentry.kernels.rolling.rolling_mean_rust` reshapes (T, ...) input to 2-D.
+#[pyfunction]
+fn rolling_mean<'py>(py: Python<'py>, x: PyReadonlyArray2<'py, f64>, w: i64) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    if w < 0 {
+        return Err(PyValueError::new_err("w must be >= 0"));
+    }
+    let (t, m) = (x.shape()[0], x.shape()[1]);
+    let xs = x.as_slice().map_err(|_| PyValueError::new_err("x must be C-contiguous"))?;
+    let out = py.detach(|| rolling::rolling_mean_2d(xs, t, m, w as usize));
+    Ok(Array2::from_shape_vec((t, m), out).map_err(|e| PyValueError::new_err(e.to_string()))?.into_pyarray(py))
+}
+
+/// scatter_telemetry(ti, tj, sk: i64[n], v: f64[n], is_code: bool[n], scale: f64[s, m], t: int)
+///   -> (sens f32[s, t, m], err i32[t, m])
+///
+/// Long telemetry rows -> bin means per (sensor, step, turbine) + last code per bin; see `scatter.rs`.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn scatter_telemetry<'py>(
+    py: Python<'py>,
+    ti: PyReadonlyArray1<'py, i64>,
+    tj: PyReadonlyArray1<'py, i64>,
+    sk: PyReadonlyArray1<'py, i64>,
+    v: PyReadonlyArray1<'py, f64>,
+    is_code: PyReadonlyArray1<'py, bool>,
+    scale: PyReadonlyArray2<'py, f64>,
+    t: usize,
+) -> PyResult<(Bound<'py, PyArray3<f32>>, Bound<'py, PyArray2<i32>>)> {
+    let contig = |_| PyValueError::new_err("inputs must be C-contiguous");
+    let (s, m) = (scale.shape()[0], scale.shape()[1]);
+    let (a, j, k, x, c, sc) = (ti.as_slice().map_err(contig)?, tj.as_slice().map_err(contig)?,
+                               sk.as_slice().map_err(contig)?, v.as_slice().map_err(contig)?,
+                               is_code.as_slice().map_err(contig)?, scale.as_slice().map_err(contig)?);
+    let n = x.len();
+    if a.len() != n || j.len() != n || k.len() != n || c.len() != n {
+        return Err(PyValueError::new_err("ti, tj, sk, v, is_code must have the same length"));
+    }
+    let (sens, err) = py.detach(|| scatter::scatter(a, j, k, x, c, sc, s, t, m));
+    let e = |e: numpy::ndarray::ShapeError| PyValueError::new_err(e.to_string());
+    Ok((Array3::from_shape_vec((s, t, m), sens).map_err(e)?.into_pyarray(py),
+        Array2::from_shape_vec((t, m), err).map_err(e)?.into_pyarray(py)))
+}
+
+fn k4_len(name: &str, len: usize, n: usize) -> PyResult<()> {
+    if len == n { Ok(()) } else { Err(PyValueError::new_err(format!("{name}: expected {n} elements, got {len}"))) }
+}
+
+/// pv_features(wx f32[b, H*7], geom f32[b, H*3], pvclear f32[b, H], pvlib f32[b, H], hist f32[b, hh>=14*H],
+///             kwp f32[b], seq f32[b, H*17], ref f32[b, 168], summ f32[b, 14*5], night u8[b, H])
+///
+/// K4: fills the output buffers. The wrapper `wattsentry.kernels.features.pv_features_rust` allocates and reshapes.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn pv_features<'py>(
+    py: Python<'py>,
+    wx: PyReadonlyArray2<'py, f32>,
+    geom: PyReadonlyArray2<'py, f32>,
+    pvclear: PyReadonlyArray2<'py, f32>,
+    pvlib: PyReadonlyArray2<'py, f32>,
+    hist: PyReadonlyArray2<'py, f32>,
+    kwp: PyReadonlyArray1<'py, f32>,
+    mut seq: PyReadwriteArray2<'py, f32>,
+    mut refh: PyReadwriteArray2<'py, f32>,
+    mut summ: PyReadwriteArray2<'py, f32>,
+    mut night: PyReadwriteArray2<'py, u8>,
+) -> PyResult<()> {
+    use features::{H, PV_SEQ, PV_SUM, REFH};
+    let (b, hh) = (hist.shape()[0], hist.shape()[1]);
+    if hh < 14 * H {
+        return Err(PyValueError::new_err("hist must have >= 14*96 steps"));
+    }
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let (wx, geom, clear, pvlib, hist, kwp) = (wx.as_slice().map_err(contig)?, geom.as_slice().map_err(contig)?,
+        pvclear.as_slice().map_err(contig)?, pvlib.as_slice().map_err(contig)?, hist.as_slice().map_err(contig)?,
+        kwp.as_slice().map_err(contig)?);
+    let (seq, refh, summ, night) = (seq.as_slice_mut().map_err(contig)?, refh.as_slice_mut().map_err(contig)?,
+        summ.as_slice_mut().map_err(contig)?, night.as_slice_mut().map_err(contig)?);
+    for (name, len, n) in [("wx", wx.len(), b * H * 7), ("geom", geom.len(), b * H * 3), ("pvclear", clear.len(), b * H),
+                           ("pvlib", pvlib.len(), b * H), ("kwp", kwp.len(), b), ("seq", seq.len(), b * H * PV_SEQ),
+                           ("ref", refh.len(), b * REFH), ("summ", summ.len(), b * 14 * PV_SUM),
+                           ("night", night.len(), b * H)] {
+        k4_len(name, len, n)?;
+    }
+    py.detach(|| features::pv_batch(wx, geom, clear, pvlib, hist, hh, kwp, seq, refh, summ, night));
+    Ok(())
+}
+
+/// load_features(wx f32[b, H*7], cal f32[b, H*8], hist f32[b, 14*H], seq f32[b, H*14], ref f32[b, 168],
+///               summ f32[b, 14*4], scale f32[b])
+///
+/// K4: fills the output buffers. The wrapper `wattsentry.kernels.features.load_features_rust` allocates and reshapes.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn load_features<'py>(
+    py: Python<'py>,
+    wx: PyReadonlyArray2<'py, f32>,
+    cal: PyReadonlyArray2<'py, f32>,
+    hist: PyReadonlyArray2<'py, f32>,
+    mut seq: PyReadwriteArray2<'py, f32>,
+    mut refh: PyReadwriteArray2<'py, f32>,
+    mut summ: PyReadwriteArray2<'py, f32>,
+    mut scale: PyReadwriteArray1<'py, f32>,
+) -> PyResult<()> {
+    use features::{H, LOAD_SEQ, LOAD_SUM, REFH};
+    let b = hist.shape()[0];
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let (wx, cal, hist) = (wx.as_slice().map_err(contig)?, cal.as_slice().map_err(contig)?,
+                           hist.as_slice().map_err(contig)?);
+    let (seq, refh, summ, scale) = (seq.as_slice_mut().map_err(contig)?, refh.as_slice_mut().map_err(contig)?,
+        summ.as_slice_mut().map_err(contig)?, scale.as_slice_mut().map_err(contig)?);
+    for (name, len, n) in [("wx", wx.len(), b * H * 7), ("cal", cal.len(), b * H * 8), ("hist", hist.len(), b * 14 * H),
+                           ("seq", seq.len(), b * H * LOAD_SEQ), ("ref", refh.len(), b * REFH),
+                           ("summ", summ.len(), b * 14 * LOAD_SUM), ("scale", scale.len(), b)] {
+        k4_len(name, len, n)?;
+    }
+    py.detach(|| features::load_batch(wx, cal, hist, seq, refh, summ, scale));
+    Ok(())
+}
+
+/// site_features(pv, m1 [b, H*3], m2, geom [b, H*3], pvlib, pvclear, volt, status i8, soc, batt, load, valid,
+///               hist_pv [b, hh], hist_load [b, hl], hist_volt, hist_status i8, hist_soc, hist_batt [b, ht],
+///               kwp, battery_kw, battery_kwh, has_batt f32[b], seq f32[b, H*18], summ f32[b, 14*8])
+///
+/// Per-step arrays are f32 [b, H] unless noted. Fills the output buffers; the wrapper
+/// `wattsentry.kernels.features.site_features_rust` allocates and reshapes.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+fn site_features<'py>(
+    py: Python<'py>,
+    pv: PyReadonlyArray2<'py, f32>, m1: PyReadonlyArray2<'py, f32>, m2: PyReadonlyArray2<'py, f32>,
+    geom: PyReadonlyArray2<'py, f32>, pvlib: PyReadonlyArray2<'py, f32>, pvclear: PyReadonlyArray2<'py, f32>,
+    volt: PyReadonlyArray2<'py, f32>, status: PyReadonlyArray2<'py, i8>, soc: PyReadonlyArray2<'py, f32>,
+    batt: PyReadonlyArray2<'py, f32>, load: PyReadonlyArray2<'py, f32>, valid: PyReadonlyArray2<'py, f32>,
+    hist_pv: PyReadonlyArray2<'py, f32>, hist_load: PyReadonlyArray2<'py, f32>, hist_volt: PyReadonlyArray2<'py, f32>,
+    hist_status: PyReadonlyArray2<'py, i8>, hist_soc: PyReadonlyArray2<'py, f32>,
+    hist_batt: PyReadonlyArray2<'py, f32>, kwp: PyReadonlyArray1<'py, f32>, bkw: PyReadonlyArray1<'py, f32>,
+    bkwh: PyReadonlyArray1<'py, f32>, has_batt: PyReadonlyArray1<'py, f32>,
+    mut seq: PyReadwriteArray2<'py, f32>, mut summ: PyReadwriteArray2<'py, f32>,
+) -> PyResult<()> {
+    use features::{H, SITE_SEQ, SITE_SUM};
+    let (b, hh, hl, ht) = (pv.shape()[0], hist_pv.shape()[1], hist_load.shape()[1], hist_volt.shape()[1]);
+    if hh < 14 * H || ht < 14 * H || hl == 0 {
+        return Err(PyValueError::new_err("hist_pv / hist_volt must have >= 14*96 steps, hist_load >= 1"));
+    }
+    let contig = |e| PyValueError::new_err(format!("{e}: arrays must be C-contiguous"));
+    let x = features::Site {
+        pv: pv.as_slice().map_err(contig)?, m1: m1.as_slice().map_err(contig)?, m2: m2.as_slice().map_err(contig)?,
+        geom: geom.as_slice().map_err(contig)?, pvlib: pvlib.as_slice().map_err(contig)?,
+        clear: pvclear.as_slice().map_err(contig)?, volt: volt.as_slice().map_err(contig)?,
+        status: status.as_slice().map_err(contig)?, soc: soc.as_slice().map_err(contig)?,
+        batt: batt.as_slice().map_err(contig)?, load: load.as_slice().map_err(contig)?,
+        valid: valid.as_slice().map_err(contig)?, hist_pv: hist_pv.as_slice().map_err(contig)?,
+        hist_load: hist_load.as_slice().map_err(contig)?, hist_volt: hist_volt.as_slice().map_err(contig)?,
+        hist_status: hist_status.as_slice().map_err(contig)?, hist_soc: hist_soc.as_slice().map_err(contig)?,
+        hist_batt: hist_batt.as_slice().map_err(contig)?, hh, hl, ht, kwp: kwp.as_slice().map_err(contig)?,
+        bkw: bkw.as_slice().map_err(contig)?, bkwh: bkwh.as_slice().map_err(contig)?,
+        has_batt: has_batt.as_slice().map_err(contig)?,
+    };
+    let (seq, summ) = (seq.as_slice_mut().map_err(contig)?, summ.as_slice_mut().map_err(contig)?);
+    for (name, len, n) in [("m1", x.m1.len(), b * H * 3), ("geom", x.geom.len(), b * H * 3), ("pv", x.pv.len(), b * H),
+                           ("m2", x.m2.len(), b * H), ("pvlib", x.pvlib.len(), b * H), ("pvclear", x.clear.len(), b * H),
+                           ("volt", x.volt.len(), b * H), ("status", x.status.len(), b * H),
+                           ("soc", x.soc.len(), b * H), ("batt", x.batt.len(), b * H), ("load", x.load.len(), b * H),
+                           ("valid", x.valid.len(), b * H), ("hist_pv", x.hist_pv.len(), b * hh),
+                           ("hist_load", x.hist_load.len(), b * hl), ("hist_volt", x.hist_volt.len(), b * ht),
+                           ("hist_status", x.hist_status.len(), b * ht), ("hist_soc", x.hist_soc.len(), b * ht),
+                           ("hist_batt", x.hist_batt.len(), b * ht), ("kwp", x.kwp.len(), b), ("bkw", x.bkw.len(), b),
+                           ("bkwh", x.bkwh.len(), b), ("has_batt", x.has_batt.len(), b),
+                           ("seq", seq.len(), b * H * SITE_SEQ), ("summ", summ.len(), b * 14 * SITE_SUM)] {
+        k4_len(name, len, n)?;
+    }
+    py.detach(|| features::site_batch(&x, seq, summ));
+    Ok(())
+}
+
+/// Number of rayon worker threads (for the bench log).
+#[pyfunction]
+fn num_threads() -> usize {
+    rayon::current_num_threads()
+}
+
+#[pymodule]
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add_function(wrap_pyfunction!(cusum_two_sided, m)?)?;
+    m.add_function(wrap_pyfunction!(battery_rollout, m)?)?;
+    m.add_function(wrap_pyfunction!(window_gather_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(window_gather_f16_f32, m)?)?;
+    m.add_function(wrap_pyfunction!(pv_features, m)?)?;
+    m.add_function(wrap_pyfunction!(load_features, m)?)?;
+    m.add_function(wrap_pyfunction!(site_features, m)?)?;
+    m.add_function(wrap_pyfunction!(rolling_mean, m)?)?;
+    m.add_function(wrap_pyfunction!(scatter_telemetry, m)?)?;
+    m.add_function(wrap_pyfunction!(selfcons::self_consumption, m)?)?;
+    m.add_function(wrap_pyfunction!(median::rolling_median, m)?)?;
+    m.add_function(wrap_pyfunction!(median::binned_median_mad, m)?)?;
+    m.add_function(wrap_pyfunction!(pvac::pv_ac_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(battery_resim::battery_resim, m)?)?;
+    m.add_function(wrap_pyfunction!(strategies::battery_strategies, m)?)?;
+    m.add_function(wrap_pyfunction!(scenarios::park_scenarios, m)?)?;
+    m.add_function(wrap_pyfunction!(num_threads, m)?)?;
+    Ok(())
+}

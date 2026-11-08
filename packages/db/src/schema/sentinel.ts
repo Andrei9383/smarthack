@@ -107,7 +107,7 @@ export const assets = sqliteTable(
 );
 
 // The assets columns without the I7 additions (#177): `select(assetColumns)` keeps reading DBs replayed before
-// contract/meter existed (demo/sentinel.sqlite), where `select()` would ask for missing columns.
+// contract/meter existed (demo/wattsentry.sqlite), where `select()` would ask for missing columns.
 const { contract: _contract, meter: _meter, ...assetColumns } = getTableColumns(assets);
 export { assetColumns };
 
@@ -138,7 +138,7 @@ export const measurements = sqliteTable(
     gearboxTempC: real("gearbox_temp_c"),
     genTempC: real("gen_temp_c"),
     transformerTempC: real("transformer_temp_c"),
-    errorCode: integer("error_code"), // PPC integral fault code, see sentinel/contracts/wind.py
+    errorCode: integer("error_code"), // PPC integral fault code, see wattsentry/contracts/wind.py
     dataQuality: text("data_quality").default("ok"),
   },
   (table) => [
@@ -409,7 +409,7 @@ export const parkForecasts = sqliteTable(
 
 // ---------------------------------------------------------------- wind actions (W2-W5, card #170)
 
-// W3: one row per policy x park x 15-min step (sentinel/eval/wind_portfolio.py).
+// W3: one row per policy x park x 15-min step (wattsentry/eval/wind_portfolio.py).
 export const windPositions = sqliteTable(
   "wind_positions",
   {
@@ -466,7 +466,7 @@ export const turbineAvailability = sqliteTable(
   ],
 );
 
-// W5: park battery per variant x park x step (sentinel/opt/park_battery.py).
+// W5: park battery per variant x park x step (wattsentry/opt/park_battery.py).
 export const parkBattery = sqliteTable(
   "park_battery",
   {
@@ -570,7 +570,7 @@ export const auditLog = sqliteTable(
 );
 
 // ---------------------------------------------------------------- judge (trust filter, team/judge-design.md §8)
-// Written by the replay's Judge slot (sentinel/judge/slot.py, #149). Additive: no existing query reads them, and a
+// Written by the replay's Judge slot (wattsentry/judge/slot.py, #149). Additive: no existing query reads them, and a
 // DB built before these tables existed still works (the replay skips tables a schema lacks).
 
 // One graded outcome per witness x asset x day x score (§5): telemetry d+1, crew/audit visits, delayed events.

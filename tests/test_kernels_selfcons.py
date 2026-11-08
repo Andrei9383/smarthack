@@ -1,12 +1,12 @@
-"""K7 fleet self-consumption: Python reference == sentinel.sim.fleet.battery.simulate_self_consumption, Rust == Python
+"""K7 fleet self-consumption: Python reference == wattsentry.sim.fleet.battery.simulate_self_consumption, Rust == Python
 bit for bit (compared as raw bits, so -0.0 vs +0.0 and NaN payloads count) (#135)."""
 
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels.selfcons import self_consumption_py
-from sentinel.sim.fleet.battery import BatteryParams, simulate_self_consumption
+from wattsentry import kernels
+from wattsentry.kernels.selfcons import self_consumption_py
+from wattsentry.sim.fleet.battery import BatteryParams, simulate_self_consumption
 
 
 def make(rng, n=7, t=96 * 3):
@@ -40,7 +40,7 @@ def test_reference_is_battery_module():
     assert same(self_consumption_py(p, pv, load, 0.25), simulate_self_consumption(p, pv, load, 0.25))
 
 
-rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 @rust
@@ -65,13 +65,13 @@ def test_rust_parity_carry_over_and_fallback():
 @rust
 def test_rust_parity_on_fleet():
     """The simulator's own inputs (tiny world, synthetic weather): same bits as the reference."""
-    from sentinel.sim.fleet.config import DT_H, FleetConfig
-    from sentinel.sim.fleet.load import simulate_load
-    from sentinel.sim.fleet.localities import BY_ID
-    from sentinel.sim.fleet.pv import simulate_pv
-    from sentinel.sim.fleet.ro_calendar import local_features, utc_index
-    from sentinel.sim.fleet.sites import build_world
-    from sentinel.sim.fleet.weather import load_weather
+    from wattsentry.sim.fleet.config import DT_H, FleetConfig
+    from wattsentry.sim.fleet.load import simulate_load
+    from wattsentry.sim.fleet.localities import BY_ID
+    from wattsentry.sim.fleet.pv import simulate_pv
+    from wattsentry.sim.fleet.ro_calendar import local_features, utc_index
+    from wattsentry.sim.fleet.sites import build_world
+    from wattsentry.sim.fleet.weather import load_weather
 
     cfg = FleetConfig(n_sites=40, n_feeders=3, n_congested=1, start_year=2024, end_year=2024,
                       weather_source="synthetic")

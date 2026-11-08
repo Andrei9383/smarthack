@@ -5,7 +5,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from "@sentinel-app/ui/components/tabs";
+} from "@wattsentry/ui/components/tabs";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, CheckCircle2, ChevronDown, ScrollText, UserRoundCheck, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";

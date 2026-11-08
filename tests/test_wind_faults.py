@@ -11,12 +11,12 @@ import numpy as np
 import polars as pl
 import pytest
 
-from sentinel.contracts.envelope import WindAnomaly
-from sentinel.contracts.schemas import check_columns
-from sentinel.model.wind.data import CLASS_INDEX, _ts_index, fault_labels_table, labels_from_episodes
-from sentinel.sim.wind.config import WindSimConfig
-from sentinel.sim.wind.generate import generate_clean
-from sentinel.sim.wind_faults import KIND_CLASS, KINDS, FaultConfig, inject
+from wattsentry.contracts.envelope import WindAnomaly
+from wattsentry.contracts.schemas import check_columns
+from wattsentry.model.wind.data import CLASS_INDEX, _ts_index, fault_labels_table, labels_from_episodes
+from wattsentry.sim.wind.config import WindSimConfig
+from wattsentry.sim.wind.generate import generate_clean
+from wattsentry.sim.wind_faults import KIND_CLASS, KINDS, FaultConfig, inject
 
 CFG = WindSimConfig(start="2024-01-01", end="2024-02-15", max_turbines_per_park=5)
 BASE = FaultConfig()

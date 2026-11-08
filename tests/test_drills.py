@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.contracts import MockPredictor, Window
-from sentinel.data.drills import DAY, DRILLS, telemetry_drill
+from wattsentry.contracts import MockPredictor, Window
+from wattsentry.data.drills import DAY, DRILLS, telemetry_drill
 
 T0 = pd.Timestamp("2025-06-10T00:00:00Z")
 
@@ -65,8 +65,8 @@ def test_drill_signatures():
 
 def test_telemetry_drills_caught_by_quality_checks():
     pytest.importorskip("pandera")
-    from sentinel.data.schemas import quality_report
-    from sentinel.sim.fleet.solar import solar_position
+    from wattsentry.data.schemas import quality_report
+    from wattsentry.sim.fleet.solar import solar_position
 
     ts = pd.date_range("2024-06-01", periods=DAY * 5, freq="15min", tz="UTC")
     zen, _ = solar_position(ts, 44.49, 26.18)

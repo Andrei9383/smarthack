@@ -28,9 +28,9 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from sentinel.contracts import DAY_STEPS, Prediction, PvFault, Window
-from sentinel.eval import metrics as M
-from sentinel.eval.report import Report, emit
+from wattsentry.contracts import DAY_STEPS, Prediction, PvFault, Window
+from wattsentry.eval import metrics as M
+from wattsentry.eval.report import Report, emit
 
 H = DAY_STEPS
 HIST_DAYS = 14
@@ -50,10 +50,10 @@ def load_predictors(names: list[str], models_dir: Path, fleet_dir: Path | None) 
     out: dict[str, dict] = {}
     for name in names:
         if name == "mock":
-            from sentinel.contracts.mock import MockPredictor
+            from wattsentry.contracts.mock import MockPredictor
             out["mock"] = {k: MockPredictor(k) for k in ("pv", "load", "sitehealth")}
         elif name == "onnx":
-            from sentinel.model.predictor import load_predictor
+            from wattsentry.model.predictor import load_predictor
             for kind, model in (("pv", "pvnet"), ("load", "loadnet"), ("sitehealth", "sitehealth")):
                 try:
                     out[model] = {kind: load_predictor(model, models_dir)}
@@ -61,7 +61,7 @@ def load_predictors(names: list[str], models_dir: Path, fleet_dir: Path | None) 
                     print(f"skip {model}: {e}")
         elif name == "baselines":
             try:
-                from sentinel.eval.baselines.pv import predictors
+                from wattsentry.eval.baselines.pv import predictors
             except ImportError as e:
                 print(f"skip baselines: #15 not on this branch ({e})")
                 continue
@@ -107,9 +107,9 @@ FLEET = "default"  # set from --fleet
 
 
 def fleet(quick: bool) -> tuple[Path, Path]:
-    from sentinel.sim.faults.dataset import inject_dataset
-    from sentinel.sim.fleet.config import FleetConfig
-    from sentinel.sim.fleet.generate import generate
+    from wattsentry.sim.faults.dataset import inject_dataset
+    from wattsentry.sim.fleet.config import FleetConfig
+    from wattsentry.sim.fleet.generate import generate
     if FLEET != "default":
         cfg = FleetConfig(**FLEETS[FLEET])
     else:
@@ -186,7 +186,7 @@ def score_forecasts(rep: Report, block: str, label: str, preds_by_model: dict, t
 
 
 def soiling_min() -> float:
-    from sentinel.agent.qualify import load_thresholds
+    from wattsentry.agent.qualify import load_thresholds
     return float(load_thresholds()["site"]["soiling_confident"])
 
 
@@ -340,7 +340,7 @@ def block_pvdaq(rep: Report, preds: dict, args) -> None:
     score_forecasts(rep, "pvdaq", "non_RO", out, truth, "pv")
 
     # Same systems with #12's injector on top (PV-side faults only: no battery, voltage or load here).
-    from sentinel.sim.faults.inject import inject
+    from wattsentry.sim.faults.inject import inject
     long = pd.concat([pd.DataFrame({"ts": t["ts"], "site_id": sid, "pv_ac_w": np.nan_to_num(t["pv_ac_w"])})
                       for sid, (t, _) in tels.items()])
     meta = pd.DataFrame([dict(site_id=s.system_id, lat=s.lat, lon=s.lon, inverter_kw=s.kwp) for s in
@@ -382,9 +382,9 @@ def block_real_ro(rep: Report, args) -> None:
 
 def block_drills(rep: Report, preds: dict, args) -> None:
     try:
-        from sentinel.data import drills
+        from wattsentry.data import drills
     except ImportError:
-        print("drills: sentinel.data.drills (#28) not on this branch; skipped")
+        print("drills: wattsentry.data.drills (#28) not on this branch; skipped")
         emit("drills_available", 0)
         return
     emit("drills_available", 1)

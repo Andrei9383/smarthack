@@ -6,12 +6,12 @@ import json
 import numpy as np
 import pytest
 
-from sentinel.eval.baselines.wind.curve import data_inputs
-from sentinel.model.wind.data import POWER, make_splits
-from sentinel.model.wind.synth import SynthConfig, generate
-from sentinel.model.windpower import WindPowerModel, park_aggregate
-from sentinel.model.windpower.binned import BinnedPower, fit_binned
-from sentinel.model.windpower.features import FEATS, build, build_data, gather, weather_per_turbine
+from wattsentry.eval.baselines.wind.curve import data_inputs
+from wattsentry.model.wind.data import POWER, make_splits
+from wattsentry.model.wind.synth import SynthConfig, generate
+from wattsentry.model.windpower import WindPowerModel, park_aggregate
+from wattsentry.model.windpower.binned import BinnedPower, fit_binned
+from wattsentry.model.windpower.features import FEATS, build, build_data, gather, weather_per_turbine
 
 
 @pytest.fixture(scope="module")
@@ -88,7 +88,7 @@ def test_predict_api_binned_only(setup, tmp_path):
 def test_train_end_to_end_and_onnx_api(tmp_path):
     pytest.importorskip("torch")
     pytest.importorskip("onnx")
-    from sentinel.model.windpower.train import main
+    from wattsentry.model.windpower.train import main
 
     r = main(["--synth", "--synth-days", "45", "--synth-scale", "0.1", "--epochs", "1", "--max-rows", "20000",
               "--out", str(tmp_path)])

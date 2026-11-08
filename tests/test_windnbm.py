@@ -12,9 +12,9 @@ if sys.platform == "darwin":  # torch + lightgbm OpenMP runtimes clash on macOS 
 import numpy as np
 import pytest
 
-from sentinel.contracts import WindAnomaly, is_error_code, parse_tag
-from sentinel.contracts.wind import SENSORS, TURBINE_META_COLUMNS
-from sentinel.model.wind.data import (
+from wattsentry.contracts import WindAnomaly, is_error_code, parse_tag
+from wattsentry.contracts.wind import SENSORS, TURBINE_META_COLUMNS
+from wattsentry.model.wind.data import (
     ACTIONABLE,
     CLASS_INDEX,
     CLASSES,
@@ -26,11 +26,11 @@ from sentinel.model.wind.data import (
     turbines_table,
     weather_table,
 )
-from sentinel.model.wind.features import clf_features, curtail_ok, decide, neighbours_for
-from sentinel.model.wind.metrics import event_metrics
-from sentinel.model.wind.physics import CLASS_2500, air_density, density_normalise, shear_to_hub, v_norm_from
-from sentinel.model.wind.synth import SynthConfig, generate
-from sentinel.model.wind.windmon_rules import windmon_classes, windmon_flags
+from wattsentry.model.wind.features import clf_features, curtail_ok, decide, neighbours_for
+from wattsentry.model.wind.metrics import event_metrics
+from wattsentry.model.wind.physics import CLASS_2500, air_density, density_normalise, shear_to_hub, v_norm_from
+from wattsentry.model.wind.synth import SynthConfig, generate
+from wattsentry.model.wind.windmon_rules import windmon_classes, windmon_flags
 
 TINY = SynthConfig(days=30, scale=0.08)
 
@@ -268,8 +268,8 @@ def test_train_export_predict_end_to_end(tmp_path):
 
     pytest.importorskip("torch")
     pytest.importorskip("onnx")
-    from sentinel.model.wind.predictor import WindNBMPredictor, window_from_data
-    from sentinel.model.wind.train import main
+    from wattsentry.model.wind.predictor import WindNBMPredictor, window_from_data
+    from wattsentry.model.wind.train import main
 
     main(["--synth", "--days", "120", "--scale", "0.12", "--epochs", "1", "--steps-per-epoch", "10", "--batch", "32",
           "--clf-rounds", "15", "--max-minutes", "2", "--device", "cpu", "--out", str(tmp_path), "--no-eval-seen"])
@@ -286,8 +286,8 @@ def test_train_export_predict_end_to_end(tmp_path):
 
 def test_label_free_normal_selection_beats_base_rate():
     """#70: telemetry-only normal selection is cleaner than taking every step, and never peeks at the labels."""
-    from sentinel.model.wind.features import density_inputs
-    from sentinel.model.wind.normal_select import select_normal, selection_quality
+    from wattsentry.model.wind.features import density_inputs
+    from wattsentry.model.wind.normal_select import select_normal, selection_quality
 
     d = generate(SynthConfig(days=120, scale=0.12))
     vn, vm, _ = density_inputs(d.sensors, d.meteo, d.weather["pressure_hpa"][:, d.park_of])

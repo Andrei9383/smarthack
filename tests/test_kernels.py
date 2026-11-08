@@ -1,16 +1,16 @@
-"""K3 CUSUM + kernel dispatch (team/infra.md §1-4). Rust parity tests skip when ``sentinel._core`` is not built."""
+"""K3 CUSUM + kernel dispatch (team/infra.md §1-4). Rust parity tests skip when ``wattsentry._core`` is not built."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.eval.baselines.pv.cusum import cusum_two_sided as pv_cusum
-from sentinel.kernels import cusum_two_sided, cusum_two_sided_py
-from sentinel.kernels.cusum import cusum_two_sided_py as ref
+from wattsentry import kernels
+from wattsentry.eval.baselines.pv.cusum import cusum_two_sided as pv_cusum
+from wattsentry.kernels import cusum_two_sided, cusum_two_sided_py
+from wattsentry.kernels.cusum import cusum_two_sided_py as ref
 
-needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 def _loop(x, k, h, cap=np.inf):
@@ -41,12 +41,12 @@ def _loop_2d(x, k, h, cap=np.inf):
 def test_registry_and_backend(monkeypatch):
     assert "cusum_two_sided" in kernels.names()
     assert cusum_two_sided_py is ref and kernels.get("cusum_two_sided", "python") is ref
-    monkeypatch.setenv("SENTINEL_KERNELS", "python")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "python")
     assert kernels.backend() == "python"
     assert kernels.get("cusum_two_sided") is cusum_two_sided_py
-    monkeypatch.setenv("SENTINEL_KERNELS", "auto")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "auto")
     assert kernels.backend() == ("rust" if kernels.rust_available() else "python")
-    monkeypatch.setenv("SENTINEL_KERNELS", "bogus")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "bogus")
     with pytest.raises(ValueError):
         kernels.backend()
     with pytest.raises(KeyError):
@@ -56,10 +56,10 @@ def test_registry_and_backend(monkeypatch):
 def test_forced_rust_without_extension(monkeypatch):
     if kernels.rust_available():
         pytest.skip("extension is built")
-    monkeypatch.setenv("SENTINEL_KERNELS", "rust")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "rust")
     with pytest.raises(ImportError):
         kernels.backend()
-    monkeypatch.setenv("SENTINEL_KERNELS", "auto")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "auto")
     assert kernels.backend() == "python"
 
 
@@ -111,7 +111,7 @@ def test_dispatched_runs_on_current_backend():
 
 
 def _old_pv_cusum(x, k, h):
-    """Verbatim copy of the pre-#49 numpy baseline in sentinel/eval/baselines/pv/cusum.py."""
+    """Verbatim copy of the pre-#49 numpy baseline in wattsentry/eval/baselines/pv/cusum.py."""
     x = np.asarray(x, np.float64)
     one_d = x.ndim == 1
     x2 = np.atleast_2d(x)
@@ -132,7 +132,7 @@ def _old_pv_cusum(x, k, h):
 @pytest.mark.parametrize("backend", ["python", pytest.param("rust", marks=needs_rust)])
 @pytest.mark.parametrize("shape,k,h", [((30, 2000), 0.1, 0.1), ((1500,), 0.5, 4.0), ((6, 400), 0.0, 2.0)])
 def test_pv_wrapper_unchanged(monkeypatch, backend, shape, k, h):
-    monkeypatch.setenv("SENTINEL_KERNELS", backend)
+    monkeypatch.setenv("WATTSENTRY_KERNELS", backend)
     rng = np.random.default_rng(11)
     x = rng.standard_normal(shape) * 0.7 + 0.2
     x[rng.random(shape) < 0.05] = np.nan
@@ -187,9 +187,9 @@ def test_cap_parity_rust_vs_python(cap):
 
 @needs_rust
 def test_rust_backend_and_bad_scalars(monkeypatch):
-    monkeypatch.setenv("SENTINEL_KERNELS", "auto")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "auto")
     assert kernels.backend() == "rust"
-    monkeypatch.setenv("SENTINEL_KERNELS", "rust")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "rust")
     assert kernels.get("cusum_two_sided") is not cusum_two_sided_py
     with pytest.raises(ValueError):
         kernels.get("cusum_two_sided", "rust")(np.zeros(3), 0.5, np.inf)

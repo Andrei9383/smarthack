@@ -2,15 +2,15 @@
 
 // Congestion notices (#120): the agent's day-ahead congestion level for this feeder and the household
 // emails it sends through Resend. Server side: packages/api/src/routers/notify.ts.
-import type { CongestionLevelValue, HouseholdItem } from "@sentinel-app/api/contract/notify";
-import { Button } from "@sentinel-app/ui/components/button";
+import type { CongestionLevelValue, HouseholdItem } from "@wattsentry/api/contract/notify";
+import { Button } from "@wattsentry/ui/components/button";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@sentinel-app/ui/components/sheet";
+} from "@wattsentry/ui/components/sheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BatteryCharging, Car, Mail, MailCheck, Send, ShieldCheck } from "lucide-react";
 import { useState } from "react";

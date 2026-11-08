@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import type { ReactNode } from "react";
 
 import { MODES, type ModeId } from "@/modes/registry";

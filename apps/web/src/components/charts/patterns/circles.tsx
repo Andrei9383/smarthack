@@ -1,4 +1,4 @@
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { Pattern } from "./pattern";
 
 export interface PatternCirclesProps {

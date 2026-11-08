@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.data.splits import SPLITS, check_no_leakage, make_splits, turbine_split, unseen_park
+from wattsentry.data.splits import SPLITS, check_no_leakage, make_splits, turbine_split, unseen_park
 
 DAYS = pd.date_range("2022-01-01", "2025-12-30", freq="D", tz="UTC")
 
@@ -54,7 +54,7 @@ def test_leakage_detected():
 
 def _telemetry(n=96 * 3):
     ts = pd.date_range("2024-06-01", periods=n, freq="15min", tz="UTC")
-    from sentinel.sim.fleet.solar import solar_position
+    from wattsentry.sim.fleet.solar import solar_position
 
     zen, _ = solar_position(ts, 44.49, 26.18)
     pv = np.round(np.clip(np.cos(np.radians(zen)), 0, None) * 4000, 0)
@@ -67,7 +67,7 @@ SITES = pd.DataFrame({"site_id": ["S0001"], "lat": [44.49], "lon": [26.18], "inv
 
 def test_quality_report_issues():
     pytest.importorskip("pandera")
-    from sentinel.data.schemas import quality_report, validate_telemetry
+    from wattsentry.data.schemas import quality_report, validate_telemetry
 
     df = _telemetry()
     validate_telemetry(df)
@@ -87,18 +87,18 @@ def test_quality_report_issues():
 
 
 def test_window_cache_deterministic(tmp_path, monkeypatch):
-    pytest.importorskip("sentinel.model.physics")
+    pytest.importorskip("wattsentry.model.physics")
     pytest.importorskip("pvlib")
-    from sentinel.data.windows import FAULTS, build_windows
-    from sentinel.sim.faults import FaultConfig
-    from sentinel.sim.fleet import FleetConfig
+    from wattsentry.data.windows import FAULTS, build_windows
+    from wattsentry.sim.faults import FaultConfig
+    from wattsentry.sim.fleet import FleetConfig
 
-    monkeypatch.setenv("SENTINEL_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("WATTSENTRY_CACHE", str(tmp_path / "cache"))
     cfg = FleetConfig(n_sites=16, n_feeders=2, n_congested=1, start_year=2024, end_year=2024)
     a = build_windows(fleet_cfg=cfg, fault_cfg=FaultConfig(faulty_share=0.3), out=tmp_path / "a", log=lambda *_: None)
     b = build_windows(fleet_cfg=cfg, fault_cfg=FaultConfig(faulty_share=0.3), out=tmp_path / "b", log=lambda *_: None)
     ia, ib = json.loads((a / "index.json").read_text()), json.loads((b / "index.json").read_text())
-    assert ia["format"] == "sentinel-windows-v1" and ia["faults"] == FAULTS
+    assert ia["format"] == "wattsentry-windows-v1" and ia["faults"] == FAULTS
     assert ia["n_steps"] % 96 == 0 and pd.Timestamp(ia["t_start"]).hour == 0
     for name, meta in ia["arrays"].items():
         x, y = np.load(a / meta["file"]), np.load(b / meta["file"])
@@ -111,7 +111,7 @@ def test_window_cache_deterministic(tmp_path, monkeypatch):
     assert eps and all(fault[e["site"], e["onset"]] == FAULTS.index(e["fault"]) for e in eps)
     sites = json.loads((a / "sites.json").read_text())
     assert {"site_id", "loc_idx", "split", "kwp_recorded", "meta_wrong"} <= set(sites[0])
-    # sentinel.model.data (#14) can open it, when present
-    data = pytest.importorskip("sentinel.model.data")
+    # wattsentry.model.data (#14) can open it, when present
+    data = pytest.importorskip("wattsentry.model.data")
     src = data.ArraySource(a)
     assert src.n_steps == T

@@ -12,9 +12,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sentinel.model import features as F  # noqa: E402
-from sentinel.model.data import ArraySource, H  # noqa: E402
-from sentinel.model.synth import SynthConfig, generate  # noqa: E402
+from wattsentry.model import features as F  # noqa: E402
+from wattsentry.model.data import ArraySource, H  # noqa: E402
+from wattsentry.model.synth import SynthConfig, generate  # noqa: E402
 
 SMALL = SynthConfig(n_sites=8, days=40, seed=5)
 

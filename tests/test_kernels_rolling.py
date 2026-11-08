@@ -5,11 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels import rolling_mean, rolling_mean_py as ref
-from sentinel.model.wind.features import rmean
+from wattsentry import kernels
+from wattsentry.kernels import rolling_mean, rolling_mean_py as ref
+from wattsentry.model.wind.features import rmean
 
-needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 def _loop(x, w):

@@ -18,7 +18,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 
 type MapLibreModule = typeof MapLibreGL;
 

@@ -1,15 +1,15 @@
-"""Card #129 (experiment): the replay agent decides each live tick (sentinel/live/agent.py)."""
+"""Card #129 (experiment): the replay agent decides each live tick (wattsentry/live/agent.py)."""
 
 from __future__ import annotations
 
 import dataclasses
 
-from sentinel.agent.world import MockWorld
-from sentinel.live import store
-from sentinel.live.agent import LiveAgent, gate
-from sentinel.live.feed import LiveFeed, parse, run_speed
-from sentinel.live.forecast import iso
-from sentinel.live.source import SimulatedSource
+from wattsentry.agent.world import MockWorld
+from wattsentry.live import store
+from wattsentry.live.agent import LiveAgent, gate
+from wattsentry.live.feed import LiveFeed, parse, run_speed
+from wattsentry.live.forecast import iso
+from wattsentry.live.source import SimulatedSource
 
 STEP = 900
 

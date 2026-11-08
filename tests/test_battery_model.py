@@ -10,12 +10,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("sentinel.kernels.strategies")  # K8 lands with I2 #172
+pytest.importorskip("wattsentry.kernels.strategies")  # K8 lands with I2 #172
 
-from sentinel.model.battery import classifier as C
-from sentinel.model.battery import data as D
-from sentinel.model.battery import features as F
-from sentinel.model.battery import net_model as N
+from wattsentry.model.battery import classifier as C
+from wattsentry.model.battery import data as D
+from wattsentry.model.battery import features as F
+from wattsentry.model.battery import net_model as N
 
 HIDDEN = {"pv_kw", "load_kw", "batt_kw", "soc_kwh", "strategy", "has_battery", "cap_kwh", "p_kw", "reserve_frac",
           "k_top", "eta", "pv_ac_w", "load_w"}
@@ -23,8 +23,8 @@ HIDDEN = {"pv_kw", "load_kw", "batt_kw", "soc_kwh", "strategy", "has_battery", "
 
 def _world(n_days: int = 40, homes: pd.DataFrame | None = None, seed: int = 0) -> D.World:
     """A small public World (no files): March-April 2024 local days (no DST change before Mar 31 handled by cal)."""
-    from sentinel.kernels.strategies import day_rank_median
-    from sentinel.sim.fleet.ro_calendar import local_features
+    from wattsentry.kernels.strategies import day_rank_median
+    from wattsentry.sim.fleet.ro_calendar import local_features
 
     ts = pd.date_range(pd.Timestamp("2024-05-01", tz=D.TZ).tz_convert("UTC"), periods=n_days * 96, freq="15min")
     cal = local_features(ts)
@@ -58,7 +58,7 @@ def test_feature_names_never_hidden():
     assert not HIDDEN & set(F.CLS_FEATURES)
     assert not HIDDEN & set(F.ROW_FEATURES)
     try:
-        from sentinel.sim.prosumers_v2 import FORBIDDEN_COLUMNS
+        from wattsentry.sim.prosumers_v2 import FORBIDDEN_COLUMNS
     except ImportError:
         return
     assert not set(FORBIDDEN_COLUMNS) & (set(F.CLS_FEATURES) | set(F.ROW_FEATURES))
@@ -66,7 +66,7 @@ def test_feature_names_never_hidden():
 
 def test_hidden_files_read_only_by_labels_and_truth():
     src = {m.__name__: inspect.getsource(m) for m in (D, F, C, N)}
-    from sentinel.model.battery import api, train
+    from wattsentry.model.battery import api, train
 
     src.update({m.__name__: inspect.getsource(m) for m in (api, train)})
     for name, s in src.items():
@@ -214,17 +214,17 @@ def test_classifier_and_quantile_roundtrip(tmp_path):
 def test_registered_in_train_py():
     import train
 
-    assert train.REGISTRY["battery"] == "sentinel.model.battery.train:main"
+    assert train.REGISTRY["battery"] == "wattsentry.model.battery.train:main"
 
 
 # ------------------------------------------------------------------------------------------- end to end (slow)
 @pytest.mark.slow
 def test_end_to_end_tiny(tmp_path):
-    gen = pytest.importorskip("sentinel.sim.prosumers_v2")
+    gen = pytest.importorskip("wattsentry.sim.prosumers_v2")
     out = gen.generate(gen.ProsumerConfig(n_homes=80, n_localities=2, chunk_homes=80, start_year=2022,
                                           end_year=2025), out_dir=tmp_path / "pv2", log=lambda *a: None)
-    from sentinel.model.battery import BatteryModel
-    from sentinel.model.battery.train import run
+    from wattsentry.model.battery import BatteryModel
+    from wattsentry.model.battery.train import run
 
     res = run(["--data-dir", str(out), "--chunk", "80", "--rounds", "30", "--rows-per-chunk", "5000",
                "--val-homes", "20", "--out", str(tmp_path / "run")])

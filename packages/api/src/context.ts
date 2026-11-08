@@ -1,5 +1,5 @@
-import type { Session } from "@sentinel-app/auth";
-import type { Database } from "@sentinel-app/db";
+import type { Session } from "@wattsentry/auth";
+import type { Database } from "@wattsentry/db";
 
 export type Context = {
   session: Session | null;

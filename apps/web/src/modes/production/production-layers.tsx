@@ -1,6 +1,6 @@
 "use client";
 
-import { MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
+import { MapMarker, MarkerContent, useMap } from "@wattsentry/ui/components/map";
 import { useQuery } from "@tanstack/react-query";
 import { Sun, Wind } from "lucide-react";
 import type { ImageSource, Map as MapLibreMap } from "maplibre-gl";

@@ -13,7 +13,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { type LineConfig, type Margin, useStableMargin } from "./chart-context";
 import { ChartLoadingLabel } from "./chart-loading-label";
 import { ParentSize } from "./chart-parent-size";

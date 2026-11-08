@@ -8,11 +8,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.agent import loop as L
-from sentinel.agent.replay import replay
-from sentinel.agent.world import MockWorld
-from sentinel.judge import slot as S
-from sentinel.judge.verdict import (DONT_USE, LEDGER_ONLY, OUTPUT_COLUMNS, RULE_BAD_INPUT, RULE_DONT_USE,
+from wattsentry.agent import loop as L
+from wattsentry.agent.replay import replay
+from wattsentry.agent.world import MockWorld
+from wattsentry.judge import slot as S
+from wattsentry.judge.verdict import (DONT_USE, LEDGER_ONLY, OUTPUT_COLUMNS, RULE_BAD_INPUT, RULE_DONT_USE,
                                     RULE_NO_RECORD, RULE_SAFETY, RULE_USE, RULE_WIDEN, USE, WIDEN, Thresholds,
                                     apply_rules, verdict_rows)
 
@@ -275,8 +275,8 @@ def test_db_without_judge_tables_still_replays(tmp_path):
 def test_with_the_j1_grader_and_j2_ledger_outcomes_feed_trust(tmp_path):
     """Once #146 (grader) and #147 (ledger) are in: outcomes are written and graded evidence reaches the verdicts,
     still without changing a decision."""
-    grader = pytest.importorskip("sentinel.judge.grader")
-    ledger = pytest.importorskip("sentinel.judge.ledger")
+    grader = pytest.importorskip("wattsentry.judge.grader")
+    ledger = pytest.importorskip("wattsentry.judge.ledger")
     if not (hasattr(grader, "grade") and hasattr(ledger, "Ledger")):
         pytest.skip("J1 / J2 APIs not merged")
     rep = replay(["sentinel"], tmp_path / "g.sqlite", world=MockWorld(days=3, scale=0.3), force_fallback=True,

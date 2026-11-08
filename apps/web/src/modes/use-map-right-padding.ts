@@ -1,4 +1,4 @@
-import { useMap } from "@sentinel-app/ui/components/map";
+import { useMap } from "@wattsentry/ui/components/map";
 import { useEffect } from "react";
 
 // Keeps the map's focus clear of a right-side panel; resets when the mode unmounts.

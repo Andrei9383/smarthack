@@ -7,7 +7,7 @@ import { useState } from "react";
 import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SheetSection } from "@/panels/disclosure";
 import { orpc } from "@/utils/orpc";
 
-import { BASELINE_SERIES, SENTINEL_SERIES } from "./colors";
+import { BASELINE_SERIES, WATTSENTRY_SERIES } from "./colors";
 
 import { ChartLegend, EmptyNote } from "./ui";
 
@@ -27,7 +27,7 @@ function PairBars({ without, withS, max, unit }: { without: number; withS: numbe
     <div className="space-y-1">
       {[
         { label: "Without", value: without, color: BASELINE_SERIES },
-        { label: "WattSentry", value: withS, color: SENTINEL_SERIES },
+        { label: "WattSentry", value: withS, color: WATTSENTRY_SERIES },
       ].map((bar) => (
         <div key={bar.label} className="flex items-center gap-2 text-caption">
           <span className="w-14 shrink-0 text-text-secondary">{bar.label}</span>
@@ -109,7 +109,7 @@ function GridSheet({
               {hosting.variant === "batteries" ? "new homes get batteries in the fleet's share" : "new homes without battery"}).
               In total: <span className="font-medium text-foreground tabular-nums">+{fmt(hosting.totalWith - hosting.totalWithout)}</span>.
             </p>
-            <ChartLegend items={[{ label: "Without", color: BASELINE_SERIES }, { label: "WattSentry", color: SENTINEL_SERIES }]} />
+            <ChartLegend items={[{ label: "Without", color: BASELINE_SERIES }, { label: "WattSentry", color: WATTSENTRY_SERIES }]} />
             <ul className="divide-y divide-border">
               {hosting.feeders.map((f) => (
                 <li key={f.feederId} className={`py-2 ${f.feederId === feederId ? "font-semibold" : ""}`}>

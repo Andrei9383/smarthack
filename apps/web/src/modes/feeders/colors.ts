@@ -19,7 +19,7 @@ onPaletteTheme((palette) => {
 });
 
 // Charts: WattSentry is always --sentinel, the baseline always --chart-baseline (ink at 45%).
-export const SENTINEL_SERIES = "var(--sentinel)";
+export const WATTSENTRY_SERIES = "var(--sentinel)";
 export const BASELINE_SERIES = "var(--chart-baseline)";
 export const LIMIT_SERIES = "var(--status-critical)";
 export const SOC_SERIES = "var(--status-soc)";

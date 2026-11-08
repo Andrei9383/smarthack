@@ -10,8 +10,8 @@ Campaign #139 (#202) replaced M2 LoadNet, M1 forecast mode and M6 WindNBM and ad
 record at the end. M1 nowcast and M4 are still #14's runs.
 
 All files are ONNX + calibration JSON (onnxruntime only, no torch); `.pt` checkpoints are not committed. ~18 MB.
-Loaded by `sentinel.model.predictor.load_predictor(model, "models/")` (eval.py) and by the replay
-(`sentinel/agent/predictors.py`; `$SENTINEL_MODELS` overrides the directory).
+Loaded by `wattsentry.model.predictor.load_predictor(model, "models/")` (eval.py) and by the replay
+(`wattsentry/agent/predictors.py`; `$WATTSENTRY_MODELS` overrides the directory).
 
 | file | model | lab run | worker | commit | data label | test split 2025 (train.py, synthetic RO fleet) |
 |---|---|---|---|---|---|---|
@@ -63,13 +63,13 @@ numbers exactly.
 
 Judge priors: the LoadNet calibration JSONs keep the eval#699 `priors` block of the members they replace (labelled
 "carried over", same recipe). `windnbm.priors.json` is rebuilt from `reports/r674-windnbm.report.json` with
-`sentinel.judge.priors.wind_priors` (alarm precision 0.873, was 0.763 from r135). `reports/r135-windnbm.*` stay because
-`sentinel/judge/priors.py` still reads r135 by name; rerunning `python -m sentinel.judge.priors` would bring back the
+`wattsentry.judge.priors.wind_priors` (alarm precision 0.873, was 0.763 from r135). `reports/r135-windnbm.*` stay because
+`wattsentry/judge/priors.py` still reads r135 by name; rerunning `python -m wattsentry.judge.priors` would bring back the
 r135 wind priors until that path is updated.
 
 ## T7 promotion (#145)
 
-- **Promoted:** J3 Judge #148 train#908 (first trained Judge; installed with `python -m sentinel.judge.train --apply`
+- **Promoted:** J3 Judge #148 train#908 (first trained Judge; installed with `python -m wattsentry.judge.train --apply`
   from the run log). The slot now passes `witness` as `model` to `Judge.predict` (it raised KeyError once weights existed).
 - **Kept (not better):** M4 SiteHealth #391 (#142 train#746 PR-AUC 0.696 < 0.706); M1 PVNet nowcast #383-386
   (#141 #676-679 within noise). The other campaign models were promoted by #202 (above).

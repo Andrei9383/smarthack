@@ -4,8 +4,8 @@
 // forecast ahead of it, how close the last prediction was, and a warning when the forecast crosses
 // the limit. Source: the #128 loop when it runs (LIVE_DB), else the replay day at the replay clock.
 // Readings are simulated either way and the row says so. Server: packages/api/src/routers/live.ts.
-import type { CongestionLevelValue } from "@sentinel-app/api/contract/notify";
-import { liveView, type LiveFeeder, type LiveTick } from "@sentinel-app/api/contract/live";
+import type { CongestionLevelValue } from "@wattsentry/api/contract/notify";
+import { liveView, type LiveFeeder, type LiveTick } from "@wattsentry/api/contract/live";
 import { useQuery } from "@tanstack/react-query";
 import { Activity } from "lucide-react";
 import { useMemo, useState } from "react";

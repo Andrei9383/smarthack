@@ -10,7 +10,7 @@
  ],
  "calibration": {
   "year": 2024,
-  "policy": "profile (minimal stand-in, see sentinel.eval.imbalance.profile_position; I3 #173 not merged)",
+  "policy": "profile (minimal stand-in, see wattsentry.eval.imbalance.profile_position; I3 #173 not merged)",
   "fleet": "fleet-95a35657eb80",
   "n_homes": 600,
   "kwp": 3553.7,
@@ -37,5 +37,5 @@
   "lei_per_mwh_injected": 345.3,
   "note": "same frozen a, b on the test year; not used to fit"
  },
- "lab_run": "train_cpu#725 (python -m sentinel.eval.imbalance --calibrate; identical to the local run)"
+ "lab_run": "train_cpu#725 (python -m wattsentry.eval.imbalance --calibrate; identical to the local run)"
 }

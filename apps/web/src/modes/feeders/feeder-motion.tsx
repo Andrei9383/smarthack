@@ -1,6 +1,6 @@
 "use client";
 
-import { useMap } from "@sentinel-app/ui/components/map";
+import { useMap } from "@wattsentry/ui/components/map";
 import type { GeoJSONSource } from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 

@@ -1,6 +1,6 @@
 import { index, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-// Feature I (#177, spec I step 9a). Written by sentinel/eval/imbalance_replay.py (#176, `TABLES`): it drops and
+// Feature I (#177, spec I step 9a). Written by wattsentry/eval/imbalance_replay.py (#176, `TABLES`): it drops and
 // recreates these tables, so columns and index names mirror that writer. ts / issue_time = ISO-8601 UTC text,
 // quantities MWh per 15-min step, + = the portfolio takes from the grid.
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { useMemo, useState } from "react";
 
 import { DetailsLink, DetailsSheet, SectionHeader, SheetSection } from "@/panels/disclosure";

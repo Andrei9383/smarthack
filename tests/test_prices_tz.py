@@ -13,7 +13,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from sentinel.data.download import _parse_opcom_pzu
+from wattsentry.data.download import _parse_opcom_pzu
 
 RAW = Path(__file__).resolve().parents[1] / "data" / "raw"
 UTC = dt.timezone.utc

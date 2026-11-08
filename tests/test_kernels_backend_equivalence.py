@@ -1,9 +1,9 @@
 """Backend equivalence for every registered kernel (#179, team/infra.md §1).
 
-For each kernel in ``sentinel.kernels`` the Python reference and the Rust copy must give the same output on random
-inputs. Inputs come from the bench cases (``sentinel.kernels.bench.CASES``) at small scales and several seeds, so a
+For each kernel in ``wattsentry.kernels`` the Python reference and the Rust copy must give the same output on random
+inputs. Inputs come from the bench cases (``wattsentry.kernels.bench.CASES``) at small scales and several seeds, so a
 kernel added with a bench entry is covered here without editing this file. Comparison is the bench's own rule
-(bit-exact, or the case's stated float tolerance). Skipped when ``sentinel._core`` is not built (check); runs in
+(bit-exact, or the case's stated float tolerance). Skipped when ``wattsentry._core`` is not built (check); runs in
 ``rustcheck``.
 """
 
@@ -12,10 +12,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels import bench
+from wattsentry import kernels
+from wattsentry.kernels import bench
 
-needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 SEEDS = (0, 1, 2)
 SCALES = (0.01, 0.05, 0.2)
@@ -38,7 +38,7 @@ def test_every_kernel_has_a_bench_case():
     """A kernel without a bench case has no speedup number and no coverage below (team/infra.md §1.3)."""
     covered = {c[0] for c in bench.CASES}
     missing = sorted(set(kernels.names()) - covered)
-    assert not missing, f"kernels registered without a bench case in sentinel/kernels/bench.py: {missing}"
+    assert not missing, f"kernels registered without a bench case in wattsentry/kernels/bench.py: {missing}"
 
 
 def test_every_bench_case_is_a_registered_kernel():
@@ -71,10 +71,10 @@ def test_python_and_rust_agree(case, seed, scale):
 @needs_rust
 @pytest.mark.parametrize("case", bench.CASES, ids=_case_id)
 def test_dispatch_env_picks_backend(case, monkeypatch):
-    """SENTINEL_KERNELS=python|rust routes ``get`` to the matching implementation."""
+    """WATTSENTRY_KERNELS=python|rust routes ``get`` to the matching implementation."""
     kernel = case[0]
     py, rs = kernels._REGISTRY[kernel]
-    monkeypatch.setenv("SENTINEL_KERNELS", "python")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "python")
     assert kernels.get(kernel) is py
-    monkeypatch.setenv("SENTINEL_KERNELS", "rust")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "rust")
     assert kernels.get(kernel) is rs

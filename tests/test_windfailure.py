@@ -12,13 +12,13 @@ import json
 import numpy as np
 import pytest
 
-from sentinel.contracts.envelope import Prediction, Window
-from sentinel.model.wind.synth import SynthConfig, generate
-from sentinel.model.windfailure import COMPONENTS, thermal
-from sentinel.model.windfailure.features import FEATURES, daily_features, feature_index
-from sentinel.model.windfailure.labels import Failure, daily_targets, day_grid, failures_from_episodes
-from sentinel.model.windfailure.metrics import evaluate_alarms
-from sentinel.model.windfailure.train import day_folds
+from wattsentry.contracts.envelope import Prediction, Window
+from wattsentry.model.wind.synth import SynthConfig, generate
+from wattsentry.model.windfailure import COMPONENTS, thermal
+from wattsentry.model.windfailure.features import FEATURES, daily_features, feature_index
+from wattsentry.model.windfailure.labels import Failure, daily_targets, day_grid, failures_from_episodes
+from wattsentry.model.windfailure.metrics import evaluate_alarms
+from wattsentry.model.windfailure.train import day_folds
 
 SMALL = SynthConfig(days=400, scale=0.3)
 
@@ -120,7 +120,7 @@ def test_event_metrics_episode_rules():
 
 @pytest.fixture(scope="module")
 def trained(tmp_path_factory, small):
-    from sentinel.model.windfailure import train
+    from wattsentry.model.windfailure import train
 
     out = tmp_path_factory.mktemp("wf")
     rep = train.main(["--data", "synth", "--synth-days", str(SMALL.days), "--synth-scale", str(SMALL.scale),
@@ -139,8 +139,8 @@ def test_pipeline_artifacts_and_no_heldout_training(trained, small):
     assert sp["holdout_park"] == "WP2"
     # the residual model was fitted on training parks only: refitting without the held-out park reproduces it
     cal = json.loads((out / "windfailure_thresholds.json").read_text())
-    from sentinel.model.wind.data import make_splits
-    from sentinel.model.windfailure.train import day_folds as folds
+    from wattsentry.model.wind.data import make_splits
+    from wattsentry.model.windfailure.train import day_folds as folds
 
     s = make_splits(small, "WP2")
     days = day_grid(small.ts)
@@ -155,7 +155,7 @@ def test_pipeline_artifacts_and_no_heldout_training(trained, small):
 
 @pytest.mark.slow  # trains LightGBM on 400 synthetic days (#179: run in rustcheck)
 def test_predictor_output_shape(trained, small):
-    from sentinel.model.windfailure.predictor import WindFailurePredictor
+    from wattsentry.model.windfailure.predictor import WindFailurePredictor
 
     out, _ = trained
     p = WindFailurePredictor(out)
@@ -173,8 +173,8 @@ def test_predictor_output_shape(trained, small):
 
 
 def test_care_score_and_skip(monkeypatch, tmp_path):
-    from sentinel.eval.care import download
-    from sentinel.eval.care.score import care_score, column_map, earliness_weights
+    from wattsentry.eval.care import download
+    from wattsentry.eval.care.score import care_score, column_map, earliness_weights
 
     n = 200
     truth = np.zeros(n, bool)
@@ -204,8 +204,8 @@ def test_nbm_residual_source_smoke(tmp_path):
     pytest.importorskip("torch")
     import argparse
 
-    from sentinel.model.wind.data import make_splits
-    from sentinel.model.windfailure.residuals_nbm import nbm_residuals
+    from wattsentry.model.wind.data import make_splits
+    from wattsentry.model.windfailure.residuals_nbm import nbm_residuals
 
     d = generate(SynthConfig(days=40, scale=0.08))
     sp = make_splits(d)

@@ -7,7 +7,7 @@ import {
   useConversationMode,
   useConversationStatus,
 } from "@elevenlabs/react";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { Mic, MicOff, PhoneOff, X } from "lucide-react";
 import { parseAsString, useQueryStates } from "nuqs";
 import { type ReactNode, useState, useSyncExternalStore } from "react";

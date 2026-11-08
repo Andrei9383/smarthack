@@ -1,6 +1,6 @@
 "use client";
 
-import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
+import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@wattsentry/ui/components/map";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";

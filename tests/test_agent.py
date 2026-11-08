@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from sentinel.agent import loop as L
-from sentinel.agent.audit import (ALLOWED_DROPS, FALLBACK_SQL, AuditDB, SchemaMismatch, Ts, allowed_drop,
+from wattsentry.agent import loop as L
+from wattsentry.agent.audit import (ALLOWED_DROPS, FALLBACK_SQL, AuditDB, SchemaMismatch, Ts, allowed_drop,
                                   find_schema_files, format_time)
-from sentinel.agent.replay import METRICS, replay
-from sentinel.agent.world import MockWorld
-from sentinel.contracts import PAYLOAD_KEYS, Action, input_hash
+from wattsentry.agent.replay import METRICS, replay
+from wattsentry.agent.world import MockWorld
+from wattsentry.contracts import PAYLOAD_KEYS, Action, input_hash
 
 TABLES = ["asset_steps", "runs", "kpis", "feeders", "parks", "assets", "measurements", "predictions", "statuses", "feeder_curves",
           "commitments", "schedules", "work_orders", "alerts", "review_queue", "gis_flags", "park_forecasts",
@@ -219,7 +219,7 @@ def test_replay_with_default_components_prints_metrics(tmp_path, capsys):
 
 
 def test_actions_validate_against_contract():
-    from sentinel.agent import actions as A
+    from wattsentry.agent import actions as A
 
     rec = A.audit("v", {"x": 1}, {}, None, "ok")
     a = A.battery_schedule("2025-06-16T00:00:00Z", "sentinel", "r", "S1", "F1", [0.0] * 96, rec)
@@ -270,7 +270,7 @@ def test_blind_haircut_removes_the_blind_share_by_step():
 
 # --- stage 2: predictor versions, #24 WindMon baseline, energy over the limit, online conformal commitment ----
 def test_predictor_versions_ignore_the_unused_zone_mock():
-    from sentinel.contracts import MockPredictor
+    from wattsentry.contracts import MockPredictor
 
     w = MockWorld(days=1, scale=0.4, with_wind=False)
     real = type("P", (), {"model": "pvnet", "model_version": "pvnet-383-s0"})()
@@ -281,7 +281,7 @@ def test_predictor_versions_ignore_the_unused_zone_mock():
 
 
 def test_baseline_wind_alerts_use_the_24_windmon_rules():
-    pytest.importorskip("sentinel.eval.baselines.wind.windmon_rules")
+    pytest.importorskip("wattsentry.eval.baselines.wind.windmon_rules")
     w = MockWorld(days=2, scale=0.4)
     comps = L.default_components(w)
     assert comps.sources["wind_baseline"].startswith("real:") and comps.windmon_flags is not None
@@ -311,7 +311,7 @@ def test_energy_over_limit_and_overshoot_kpis(small):
 def test_online_conformal_uses_only_past_days_and_widens_too_narrow_bands():
     import numpy as np
 
-    pytest.importorskip("sentinel.eval.uncertainty.conformal")
+    pytest.importorskip("wattsentry.eval.uncertainty.conformal")
     cfg = L.LoopConfig()
     assert L._fit_conformal({"pv": [], "load": []}, cfg) == {}  # day 0: nothing replayed yet
     rng = np.random.default_rng(0)

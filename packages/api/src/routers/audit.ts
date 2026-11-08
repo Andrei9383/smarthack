@@ -1,7 +1,7 @@
 // Audit trail (#32): every action the agent took, with the model version, input hash, prediction
 // and threshold it was based on, and committed vs realised where it was a commitment.
 import { implement } from "@orpc/server";
-import { auditLog } from "@sentinel-app/db/schema/sentinel";
+import { auditLog } from "@wattsentry/db/schema/sentinel";
 import { and, desc, eq, lte, type SQL } from "drizzle-orm";
 
 import type { Context } from "../context";

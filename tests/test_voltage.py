@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sentinel.gridtwin import voltage as V
+from wattsentry.gridtwin import voltage as V
 
 
 # ------------------------------------------------------------------------------------------ pure numpy parts

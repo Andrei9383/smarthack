@@ -1,6 +1,6 @@
 // Congestion notices (card #120): day-ahead congestion forecast per feeder and household emails via Resend.
 import { implement } from "@orpc/server";
-import type { Database } from "@sentinel-app/db";
+import type { Database } from "@wattsentry/db";
 import {
   assetColumns,
   assets,
@@ -10,7 +10,7 @@ import {
   measurements,
   runs,
   schedules,
-} from "@sentinel-app/db/schema/sentinel";
+} from "@wattsentry/db/schema/sentinel";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lt } from "drizzle-orm";
 
 import type { Context } from "../context";

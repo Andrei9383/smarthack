@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.eval import imbalance_replay as R
+from wattsentry.eval import imbalance_replay as R
 
 A, B = 1.0, 0.5
 
@@ -132,7 +132,7 @@ def test_write_sqlite_replaces_only_its_tables(tmp_path):
 
 
 def test_replay_mode_dispatch(monkeypatch):
-    from sentinel.agent import replay
+    from wattsentry.agent import replay
 
     seen = {}
     monkeypatch.setattr(R, "main", lambda argv: seen.setdefault("argv", list(argv)) or "ok")
@@ -146,7 +146,7 @@ def test_v2_profile_position_uses_same_month_last_year():
     """#184: profile position on data-v2 = month m-12 metered totals spread by the standard profile."""
     from types import SimpleNamespace
 
-    from sentinel.eval.imbalance_v2 import profile_net_kwh
+    from wattsentry.eval.imbalance_v2 import profile_net_kwh
 
     n_m, per = 24, 4  # 24 months x 4 steps each
     midx = np.repeat(np.arange(n_m), per)

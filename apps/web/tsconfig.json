@@ -22,7 +22,7 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "@sentinel-app/ui/*": ["../../packages/ui/src/*"]
+      "@wattsentry/ui/*": ["../../packages/ui/src/*"]
     }
   },
   "include": [

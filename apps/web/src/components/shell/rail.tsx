@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { AudioLines, BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { ReactNode } from "react";
 

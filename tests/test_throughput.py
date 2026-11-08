@@ -9,9 +9,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sentinel.model.data import ArraySource, H  # noqa: E402
-from sentinel.model.harness import Throughput, compile_net  # noqa: E402
-from sentinel.model.synth import SynthConfig, generate  # noqa: E402
+from wattsentry.model.data import ArraySource, H  # noqa: E402
+from wattsentry.model.harness import Throughput, compile_net  # noqa: E402
+from wattsentry.model.synth import SynthConfig, generate  # noqa: E402
 
 
 def test_throughput_metrics_cpu():
@@ -40,9 +40,9 @@ def small_src(tmp_path_factory):
 @pytest.mark.parametrize("model", ["pvnet", "loadnet"])
 def test_val_cache_matches_collect(small_src, model):
     pytest.importorskip("torch")
-    from sentinel.model import features as F
-    from sentinel.model import forecast as FC
-    from sentinel.model import metrics as M
+    from wattsentry.model import features as F
+    from wattsentry.model import forecast as FC
+    from wattsentry.model import metrics as M
 
     kind = FC.SPECS[model]["kind"]
     args = FC.parse_args(model, ["--d-model", "16", "--ff", "32", "--layers", "1", "--pointwise", "8"])

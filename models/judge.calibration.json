@@ -18,7 +18,7 @@
   "sites": "all",
   "burn_in": 21
  },
- "ledger": "sentinel.judge.ledger",
+ "ledger": "wattsentry.judge.ledger",
  "grader": "stand-in (rows.grade_*)",
  "metrics_2025": {
   "forecast_judge": {

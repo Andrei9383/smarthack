@@ -8,7 +8,7 @@ import {
   parks,
   runs,
   windPositions,
-} from "@sentinel-app/db/schema/sentinel";
+} from "@wattsentry/db/schema/sentinel";
 import { type AnyColumn, and, asc, desc, eq, gte, isNotNull, lt, sql, type SQL } from "drizzle-orm";
 
 import type { CountySeriesPoint } from "../contract/production";

@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sentinel.judge import priors as P
-from sentinel.judge.buckets import ROOT, bucket_key
+from wattsentry.judge import priors as P
+from wattsentry.judge.buckets import ROOT, bucket_key
 
 
 def test_calibration_peaks_at_80_percent_hit():

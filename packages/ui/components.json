@@ -12,11 +12,11 @@
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@sentinel-app/ui/components",
-    "utils": "@sentinel-app/ui/lib/utils",
-    "hooks": "@sentinel-app/ui/hooks",
-    "lib": "@sentinel-app/ui/lib",
-    "ui": "@sentinel-app/ui/components"
+    "components": "@wattsentry/ui/components",
+    "utils": "@wattsentry/ui/lib/utils",
+    "hooks": "@wattsentry/ui/hooks",
+    "lib": "@wattsentry/ui/lib",
+    "ui": "@wattsentry/ui/components"
   },
   "menuColor": "default",
   "menuAccent": "subtle",

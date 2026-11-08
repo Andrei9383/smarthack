@@ -6,7 +6,7 @@ import {
   feeders,
   gisFlags,
   schedules,
-} from "@sentinel-app/db/schema/sentinel";
+} from "@wattsentry/db/schema/sentinel";
 import { and, asc, eq, gt, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -37,11 +37,11 @@ function quantile(sorted: number[], q: number): number {
   return a + (b - a) * (position - low);
 }
 
-// Feature G documents: SENTINEL_GRID_DIR holds hosting_capacity.json (G1), voltage.json (G2) and
+// Feature G documents: WATTSENTRY_GRID_DIR holds hosting_capacity.json (G1), voltage.json (G2) and
 // dso_value.json (G3); also tried: each writer's default --out, then the committed demo copies (demo/grid, #193),
 // from the repo root or apps/web.
 type Doc = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-const GRID_DIRS = [process.env.SENTINEL_GRID_DIR, "out/grid", "out/grid/g1", "out/hosting_capacity", ".lab-out/voltage", "demo/grid", "."]
+const GRID_DIRS = [process.env.WATTSENTRY_GRID_DIR, "out/grid", "out/grid/g1", "out/hosting_capacity", ".lab-out/voltage", "demo/grid", "."]
   .filter((d): d is string => Boolean(d))
   .flatMap((d) => [resolve(d), resolve("../..", d)]);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { Search } from "lucide-react";
 
 import { DemoKeys } from "@/demo/demo-jumps";

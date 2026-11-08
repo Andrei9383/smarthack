@@ -12,7 +12,7 @@ import {
   statuses,
   turbineAvailability,
   workOrders,
-} from "@sentinel-app/db/schema/sentinel";
+} from "@wattsentry/db/schema/sentinel";
 import { and, asc, desc, eq, lte, sql, type SQL } from "drizzle-orm";
 
 import type { Context } from "../context";

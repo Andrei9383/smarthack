@@ -4,8 +4,8 @@ byte for byte."""
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels.windows import window_gather_py
+from wattsentry import kernels
+from wattsentry.kernels.windows import window_gather_py
 
 H, HH = 96, 14 * 96
 
@@ -18,7 +18,7 @@ def fancy(arr, rows, starts, offset, length, dtype):
 
 @pytest.fixture(scope="module")
 def cache(tmp_path_factory):
-    """Small sentinel-windows-v1-style arrays written as .npy and reopened as read-only memmaps."""
+    """Small wattsentry-windows-v1-style arrays written as .npy and reopened as read-only memmaps."""
     d = tmp_path_factory.mktemp("win")
     rng = np.random.default_rng(0)
     S, L, T = 9, 3, 40 * H
@@ -58,7 +58,7 @@ def test_reference_bounds_and_out(cache):
     assert window_gather_py(a, [], [], 0, H, np.float32).shape == (0, H)
 
 
-rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 def _both(*args, **kw):

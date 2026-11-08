@@ -1,4 +1,4 @@
-import type { ZoneDemandItem } from "@sentinel-app/api/contract/demand";
+import type { ZoneDemandItem } from "@wattsentry/api/contract/demand";
 
 export type Zone = {
   id: string;

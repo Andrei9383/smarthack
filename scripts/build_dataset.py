@@ -2,10 +2,10 @@
 """Build a demo database for one fleet size, calibrated to public Romanian data (team/datasets.md).
 
 Runs fleet -> faults -> windows -> wind -> grid-twin -> replay into its own directories, so the default
-fleet, its window cache and demo/sentinel.sqlite are untouched. Every feeder is planned and scored; only
+fleet, its window cache and demo/wattsentry.sqlite are untouched. Every feeder is planned and scored; only
 some homes keep per-step rows, because 15-minute rows for every home are what fills a database.
 
-  python scripts/build_dataset.py --homes 600 --out demo/   # -> demo/sentinel-homes600.sqlite (gzip it, #211)
+  python scripts/build_dataset.py --homes 600 --out demo/   # -> demo/wattsentry-homes600.sqlite (gzip it, #211)
 
 Ported from card #118 (Tudor) in #215 without the PPC service-area option (`--zones ppc`): its localities, weather
 file and parks are only on card/118.
@@ -21,12 +21,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-from sentinel.agent.replay import replay
-from sentinel.agent.world import SimWorld
-from sentinel.data.windows import build_windows
-from sentinel.sim.fleet import FleetConfig, generate
-from sentinel.sim.fleet.weather import weather_key
-from sentinel.sim.faults import FaultConfig, inject_dataset
+from wattsentry.agent.replay import replay
+from wattsentry.agent.world import SimWorld
+from wattsentry.data.windows import build_windows
+from wattsentry.sim.fleet import FleetConfig, generate
+from wattsentry.sim.fleet.weather import weather_key
+from wattsentry.sim.faults import FaultConfig, inject_dataset
 
 SITES_PER_FEEDER = 25
 CONGESTED_SHARE = 0.25  # our assumption: public data gives no share of congested LV feeders
@@ -72,12 +72,12 @@ def main() -> None:
     faults = inject_dataset(fleet, FaultConfig())
     windows = build_windows(fleet_dir=fleet, fault_dir=faults, out=fleet.parent / f"windows-{name}")
     twin = fleet.parent / f"gridtwin-{name}"
-    subprocess.run([sys.executable, "-m", "sentinel.gridtwin.run", "--fleet", str(fleet), "--out", str(twin),
+    subprocess.run([sys.executable, "-m", "wattsentry.gridtwin.run", "--fleet", str(fleet), "--out", str(twin),
                     "--start", "2025-01-01", "--days", "150"], check=True)  # nights before the June demo week only (#215)
     parks = ALL_PARKS
     if not a.no_wind:
-        subprocess.run([sys.executable, "-m", "sentinel.sim.wind", "--no-plots"], check=True)
-    os.environ["SENTINEL_GRIDTWIN"] = str(twin)
+        subprocess.run([sys.executable, "-m", "wattsentry.sim.wind", "--no-plots"], check=True)
+    os.environ["WATTSENTRY_GRIDTWIN"] = str(twin)
     built = time.perf_counter() - t0
     print(f"LAB_METRIC data_build_seconds={built:.0f}", flush=True)
 
@@ -86,7 +86,7 @@ def main() -> None:
     per_feeder = a.detail_per_feeder if a.detail_per_feeder is not None else DETAIL_HOMES_PER_FEEDER.get(a.homes, 2)
     detail = detail_sites(world, per_feeder)
     a.out.mkdir(parents=True, exist_ok=True)
-    db = a.out / f"sentinel-{name}.sqlite"
+    db = a.out / f"wattsentry-{name}.sqlite"
     t1 = time.perf_counter()
     replay(("baseline", "sentinel"), db, world=world, days=a.days, detail_sites=detail)
     print(f"LAB_METRIC homes={len(world.sites)}", flush=True)

@@ -1,5 +1,5 @@
 import { implement } from "@orpc/server";
-import { zoneDemand } from "@sentinel-app/db/schema/sentinel";
+import { zoneDemand } from "@wattsentry/db/schema/sentinel";
 import { and, asc, eq, gte, lt } from "drizzle-orm";
 
 import type { Context } from "../context";

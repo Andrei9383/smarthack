@@ -1,7 +1,7 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
-import type { AppRouterClient } from "@sentinel-app/api/routers/index";
+import type { AppRouterClient } from "@wattsentry/api/routers/index";
 import { environmentManager, QueryCache, QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 

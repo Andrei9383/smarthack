@@ -7,7 +7,7 @@ import path from "node:path";
 function resolveDatabaseUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const roots = [process.cwd(), path.resolve(process.cwd(), "../..")];
-  for (const file of ["demo/sentinel.sqlite", "demo/fixtures.sqlite"]) {
+  for (const file of ["demo/wattsentry.sqlite", "demo/fixtures.sqlite"]) {
     for (const root of roots) {
       const candidate = path.join(/*turbopackIgnore: true*/ root, file);
       if (existsSync(candidate)) return `file:${candidate}`;

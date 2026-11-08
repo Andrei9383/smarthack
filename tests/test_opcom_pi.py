@@ -6,7 +6,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from sentinel.data import opcom_pi as o
+from wattsentry.data import opcom_pi as o
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-from sentinel.judge.adapter import MemoryVerdicts, Verdict
-from sentinel.model.windpower.availability import (AvailConfig, M6Batch, M7Batch, StopSurvival, availability,
+from wattsentry.judge.adapter import MemoryVerdicts, Verdict
+from wattsentry.model.windpower.availability import (AvailConfig, M6Batch, M7Batch, StopSurvival, availability,
                                                    fit_icing_factor, icing_risk, judge_reads, stop_runs_h)
-from sentinel.model.windpower.scenarios import (ParkConformal, common_levels, park_forecast, park_scenarios,
+from wattsentry.model.windpower.scenarios import (ParkConformal, common_levels, park_forecast, park_scenarios,
                                                 quantile_at, scen_quantiles)
 
 IDS = ["WP1.T1", "WP1.T2", "WP1.T3", "WP1.T4", "WP1.T5", "WP1.T6", "WP1.T7", "WP1.T8"]
@@ -133,12 +133,12 @@ def test_conformal_reaches_80pct():
 def test_park_forecast_binned_end_to_end(tmp_path):
     import json
 
-    from sentinel.eval.baselines.wind.curve import data_inputs
-    from sentinel.model.wind.data import POWER, make_splits
-    from sentinel.model.wind.synth import SynthConfig, generate
-    from sentinel.model.windpower import WindPowerModel
-    from sentinel.model.windpower.binned import fit_binned
-    from sentinel.model.windpower.features import weather_per_turbine
+    from wattsentry.eval.baselines.wind.curve import data_inputs
+    from wattsentry.model.wind.data import POWER, make_splits
+    from wattsentry.model.wind.synth import SynthConfig, generate
+    from wattsentry.model.windpower import WindPowerModel
+    from wattsentry.model.windpower.binned import fit_binned
+    from wattsentry.model.windpower.features import weather_per_turbine
 
     d = generate(SynthConfig(days=20, scale=0.1))
     sp = make_splits(d)
@@ -168,8 +168,8 @@ def test_park_forecast_binned_end_to_end(tmp_path):
 
 
 def test_eval_origin_reads():
-    from sentinel.model.wind.data import CLASS_INDEX
-    from sentinel.model.windpower.avail_eval import WIN, origin_batch, run_length
+    from wattsentry.model.wind.data import CLASS_INDEX
+    from wattsentry.model.windpower.avail_eval import WIN, origin_batch, run_length
 
     T, N = 200, 3
     cls = np.zeros((T, N), np.uint8)
@@ -188,7 +188,7 @@ def test_eval_origin_reads():
 def test_config_roundtrip(tmp_path):
     import json
 
-    from sentinel.model.windpower.scenarios import load_config
+    from wattsentry.model.windpower.scenarios import load_config
 
     s = StopSurvival.fit(np.r_[np.full(50, 2.0), np.full(50, 48.0)])
     p = tmp_path / "w2_park.json"

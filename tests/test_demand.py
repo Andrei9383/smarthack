@@ -7,8 +7,8 @@ from datetime import date
 import numpy as np
 import pytest
 
-from sentinel.contracts import PAYLOAD_KEYS, Action, Prediction
-from sentinel.demand import (
+from wattsentry.contracts import PAYLOAD_KEYS, Action, Prediction
+from wattsentry.demand import (
     ROW_FIELDS,
     DemandNet,
     aggregate_scenarios,
@@ -21,9 +21,9 @@ from sentinel.demand import (
     zone_demand_actions,
     zone_demand_rows,
 )
-from sentinel.demand.data import load_national, synthetic_ro_load
-from sentinel.demand.model import NationalShape, default_split, evaluate_zone, nmae, peak_hour_error
-from sentinel.demand.train import demo_hierarchy, main
+from wattsentry.demand.data import load_national, synthetic_ro_load
+from wattsentry.demand.model import NationalShape, default_split, evaluate_zone, nmae, peak_hour_error
+from wattsentry.demand.train import demo_hierarchy, main
 
 T0_WINTER = "2025-01-14T22:00:00Z"  # local midnight, Europe/Bucharest (UTC+2)
 T0_SUMMER = "2025-07-14T21:00:00Z"  # local midnight (UTC+3)

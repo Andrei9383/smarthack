@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 
 // Shape-coded status marks, styled like the indicator LEDs on a control panel: a domed fill,
 // a specular highlight and a soft contact shadow. Shape carries meaning as well as colour, so

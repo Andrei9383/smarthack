@@ -1,7 +1,7 @@
 import { implement } from "@orpc/server";
-import { createDb, type Database } from "@sentinel-app/db";
-import { imbalanceKpis, portfolioForecast, positions, siteStrategy } from "@sentinel-app/db/schema/imbalance";
-import { assets } from "@sentinel-app/db/schema/sentinel";
+import { createDb, type Database } from "@wattsentry/db";
+import { imbalanceKpis, portfolioForecast, positions, siteStrategy } from "@wattsentry/db/schema/imbalance";
+import { assets } from "@wattsentry/db/schema/sentinel";
 import { and, asc, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -15,9 +15,9 @@ const DAY_MS = 86_400_000;
 const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
 
 // The imbalance replay's tables (positions, portfolio_forecast) live in their own file when one exists:
-// SENTINEL_IMBALANCE_DB, else demo/imbalance.sqlite (#193; kept out of demo/sentinel.sqlite so replay#506's file
+// WATTSENTRY_IMBALANCE_DB, else demo/imbalance.sqlite (#193; kept out of demo/wattsentry.sqlite so replay#506's file
 // stays byte-identical and under R18's 50 MB). Otherwise they are read from the app DB.
-const IMBALANCE_FILE = [process.env.SENTINEL_IMBALANCE_DB, "demo/imbalance.sqlite"]
+const IMBALANCE_FILE = [process.env.WATTSENTRY_IMBALANCE_DB, "demo/imbalance.sqlite"]
   .filter((p): p is string => Boolean(p))
   .flatMap((p) => [resolve(p), resolve("../..", p)])
   .find(existsSync);

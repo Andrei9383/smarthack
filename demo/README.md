@@ -1,4 +1,4 @@
-# demo/sentinel.sqlite — the demo replay (card #29)
+# demo/wattsentry.sqlite — the demo replay (card #29)
 
 **Label: synthetic RO** (ERA5-driven simulator: #11 fleet + #12 faults, #22/#23 wind) with **real OPCOM prices**.
 **Weights: fleet-trained** — M1/M2/M4 are #14's train#383-392 on the shared #11 fleet + #12 faults (#10 windows,
@@ -8,9 +8,9 @@ train 2022-23 / val 2024 / test 2025; the demo week is in the test year), M6 Win
 | | |
 |---|---|
 | Lab run | **replay#506** (card #29, worker rtx5070, commit `4ad365d074`, `--gpu-mem 12G`) |
-| Command | `python -m sentinel.data.windows && python -m sentinel.sim.wind --no-plots && python -m sentinel.gridtwin.run && python replay.py --world sim --policy baseline,sentinel --out $LAB_OUTPUT_DIR/sentinel.sqlite` |
-| File | the exact worker output: `scp rtx5070:/var/lib/lab-gpu/work/outputs/506/sentinel.sqlite`, sha256 `25b178dfe6539b4ad2639a6cd5d87c070254befb76da35d4b6418ba4d241d196` (= the `sha256sum` line at the end of `lab logs 506`); 245,591 rows, `PRAGMA integrity_check` ok |
-| Verify | `shasum -a 256 demo/sentinel.sqlite` against `lab logs 506`. Rebuilding locally (`LAB_RUN_ID=506 python replay.py --world sim --policy baseline,sentinel --out /tmp/s.sqlite` after the cache commands) gives the same stories, row count and LAB_METRICs but not the same bytes (wall-clock `runs.created_at`) |
+| Command | `python -m wattsentry.data.windows && python -m wattsentry.sim.wind --no-plots && python -m wattsentry.gridtwin.run && python replay.py --world sim --policy baseline,sentinel --out $LAB_OUTPUT_DIR/wattsentry.sqlite` |
+| File | the exact worker output: `scp rtx5070:/var/lib/lab-gpu/work/outputs/506/wattsentry.sqlite`, sha256 `25b178dfe6539b4ad2639a6cd5d87c070254befb76da35d4b6418ba4d241d196` (= the `sha256sum` line at the end of `lab logs 506`); 245,591 rows, `PRAGMA integrity_check` ok |
+| Verify | `shasum -a 256 demo/wattsentry.sqlite` against `lab logs 506`. Rebuilding locally (`LAB_RUN_ID=506 python replay.py --world sim --policy baseline,sentinel --out /tmp/s.sqlite` after the cache commands) gives the same stories, row count and LAB_METRICs but not the same bytes (wall-clock `runs.created_at`) |
 | Size | 45.7 MB (R18 < 50 MB), strict schema mode |
 | Week | `runs.week_start = 2025-06-02`: Mon 2 – Sun 8 June 2025, 00:00 Europe/Bucharest (= 2025-06-01T21:00Z, the app's `WEEK_START_UTC`); `ts` in UTC |
 | Runs | `506:baseline`, `506:sentinel` |
@@ -22,18 +22,18 @@ train 2022-23 / val 2024 / test 2025; the demo week is in the test year), M6 Win
   10/12/14/16 h, expected power from the M1 nowcast ensemble `pvnet-383-s0x4`), M6 WindNBM (`windnbm-r135`,
   per-step classes), planner LP (#18) with aggregate backup, qualify + triage (#26), committer (#27), demand (#44),
   grid-twin (#13: tau + effective G per feeder, 11 GIS flags), baseline wind alerts from WindMon's four rules (#24,
-  `sentinel.eval.baselines.wind.windmon_rules`, on all PPC sensors of the #22 cache). 0 prediction fallbacks
+  `wattsentry.eval.baselines.wind.windmon_rules`, on all PPC sensors of the #22 cache). 0 prediction fallbacks
   (`predictions.is_fallback`); no fallback component. The LP (#18, with #80's negative-price fix) is optimal on all
   35 feeder-days (`runs.notes.plan_status`).
 - P10 commitment: the committer samples PV/load bands recalibrated online by split conformal
-  (`sentinel.eval.uncertainty.conformal`, hourly buckets) on the replay's past days only (observed telemetry;
+  (`wattsentry.eval.uncertainty.conformal`, hourly buckets) on the replay's past days only (observed telemetry;
   site-days off the forecast by > 3x in energy are dropped, offsets clipped to ±2 band widths); day 0 is
   uncalibrated. `runs.notes.commit_calibration` has n and raw coverage per day.
 - Telemetry loss (#78 drills): every telemetry read goes through `World.observed_site_day` (physics stays
   `site_day`); a pool site dropped only for missing telemetry keeps running the schedule on its device, rejoins the
   pool when fresh, and flex expected to be blind is not committed (`commitments.haircut_h` per step; loop.py
   docstring).
-- M6 park-consensus rule (replay only, `sentinel/agent/predictors.py`): #41's `decide()` vetoes curtailment unless
+- M6 park-consensus rule (replay only, `wattsentry/agent/predictors.py`): #41's `decide()` vetoes curtailment unless
   15 % of the park sits at one power ceiling; a cap to 0 % leaves noisy near-zero power, so the 70-turbine cap
   below came out "normal" although the classifier gave p(non-normal) ≈ 0.999. The replay marks steps where ≥ 50 %
   of the park has p(curtailment) ≥ its threshold (`runs.notes.wind_m6_park_consensus_steps`).
@@ -43,9 +43,9 @@ train 2022-23 / val 2024 / test 2025; the demo week is in the test year), M6 Win
   tree from the substation head (the feeder's locality centre in #11's feeders table) through the feeder's sites
   (`replay.feeder_line`, <= 200 points). A plausible radial layout, not a surveyed one.
 - Feeder `tau`, `limit_kw` (= G_f = tau·G_max + (1-tau)·G_conservative, only ever tightens) and `gis_trust`
-  (`low` if tau < 0.8) come from the grid-twin (#13: `python -m sentinel.gridtwin.run`, cache
-  ~/.cache/sentinel/data-v4/gridtwin; in-process fallback, else contract G with tau = 1). `gis_flags` rows are the
-  twin's phase / feeder flags on demo sites (Point geometry), audited as `gridtwin:sentinel.gridtwin.twin@#13`.
+  (`low` if tau < 0.8) come from the grid-twin (#13: `python -m wattsentry.gridtwin.run`, cache
+  ~/.cache/wattsentry/data-v4/gridtwin; in-process fallback, else contract G with tau = 1). `gis_flags` rows are the
+  twin's phase / feeder flags on demo sites (Point geometry), audited as `gridtwin:wattsentry.gridtwin.twin@#13`.
 
 ## Mock world (`replay.py --world mock`)
 Same ids and week as this file (F7, 1042, WP01.TIDxx, F5/F6/F8, week from 2025-06-01T21:00Z), so the UI can be
@@ -103,15 +103,15 @@ Earlier runs: 322 (interim weights, LP fallback on 10 days) 2880 min / P10 83.4 
 2565 min / P10 82.2 % / 15.0 %; 506 = fleet-trained weights + conformal commitment + #24 WindMon baseline.
 
 Reproduce: `make replay-demo` builds the caches in `.lab-out/reproduce/` (~6 min) and runs replay#506's commands
-(~20 s); its KPIs match #506. It refuses to overwrite `demo/sentinel.sqlite` unless `PROMOTE=1`.
+(~20 s); its KPIs match #506. It refuses to overwrite `demo/wattsentry.sqlite` unless `PROMOTE=1`.
 
 ## Feature G grid documents: `demo/grid/` (card #193)
-`feeders.getGrid` reads `SENTINEL_GRID_DIR`, then the writers' default `--out` dirs, then `demo/grid/`. The three files
+`feeders.getGrid` reads `WATTSENTRY_GRID_DIR`, then the writers' default `--out` dirs, then `demo/grid/`. The three files
 are the exact outputs of **replay#1092** (card #193, worker laptop, commit `359d88fe5e`, Rust kernels), copied out of
 the run log with `scripts/demo_data_load.py` (sha256 checked against the log markers):
 `lab submit 193 --run replay --needs gpu --cmd ".venv/bin/python scripts/demo_data_dump.py grid"` = G3
-`python -m sentinel.eval.dso_value --world sim --build-caches --run-g1` (G1 hosting capacity in the same run) and
-G2 `python -m sentinel.gridtwin.voltage --world sim`. Same week and world as replay#506; `demo/sentinel.sqlite` is not
+`python -m wattsentry.eval.dso_value --world sim --build-caches --run-g1` (G1 hosting capacity in the same run) and
+G2 `python -m wattsentry.gridtwin.voltage --world sim`. Same week and world as replay#506; `demo/wattsentry.sqlite` is not
 touched, so the KPIs above are unchanged.
 
 | file | what | numbers (run 1092) |
@@ -123,8 +123,8 @@ touched, so the KPIs above are unchanged.
 Without `voltage.json` the Feeders grid sheet leaves the voltage section out.
 
 ## Feature I imbalance replay: `demo/imbalance.sqlite` (card #193)
-The `imbalance` router reads `positions` / `portfolio_forecast` / `imbalance_kpis` from `SENTINEL_IMBALANCE_DB`, else
-`demo/imbalance.sqlite`, else the app DB. Kept out of `demo/sentinel.sqlite` so replay#506's file stays byte-identical
+The `imbalance` router reads `positions` / `portfolio_forecast` / `imbalance_kpis` from `WATTSENTRY_IMBALANCE_DB`, else
+`demo/imbalance.sqlite`, else the app DB. Kept out of `demo/wattsentry.sqlite` so replay#506's file stays byte-identical
 and under 50 MB. Source: **imbalance#1071** (card #184, server-gpu, commit `101f250c5d`, after the #186 PZU timestamp
 fix, Rust kernels), `replay.py --mode imbalance`, 600 homes, test year 2025-01-01..2025-12-30. Copied out of the run
 log by imbalance#1145 (card #203, `scripts/demo_data_dump.py imbalance --from-run 1071`) and built with

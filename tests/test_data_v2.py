@@ -10,9 +10,9 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from sentinel.sim.prosumers_v2 import FORBIDDEN_COLUMNS, ProsumerConfig, generate, load_training, load_truth
-from sentinel.sim.prosumers_v2.metering import settle_on_profile
-from sentinel.sim.prosumers_v2.prices import PRICES, pzu_15min
+from wattsentry.sim.prosumers_v2 import FORBIDDEN_COLUMNS, ProsumerConfig, generate, load_training, load_truth
+from wattsentry.sim.prosumers_v2.metering import settle_on_profile
+from wattsentry.sim.prosumers_v2.prices import PRICES, pzu_15min
 
 TZ = "Europe/Bucharest"
 # Small, battery-heavy world so every strategy shows up.
@@ -67,7 +67,7 @@ def test_attributes(ds):
 
 
 def test_default_shares():
-    from sentinel.sim.prosumers_v2.homes import build_homes
+    from wattsentry.sim.prosumers_v2.homes import build_homes
 
     h = build_homes(ProsumerConfig(n_homes=5000))
     assert abs(h.has_battery.mean() - 0.20) < 0.02
@@ -169,7 +169,7 @@ def test_deterministic_and_backend_independent(tmp_path, monkeypatch):
     cfg = ProsumerConfig(n_homes=24, n_localities=2, chunk_homes=12, start_year=2024, end_year=2024,
                          share_battery=0.6, share_maxcontrol_of_battery=0.5)
     a = generate(cfg, out_dir=tmp_path / "a", log=lambda *_: None, workers=1)
-    monkeypatch.setenv("SENTINEL_KERNELS", "python")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "python")
     b = generate(cfg, out_dir=tmp_path / "b", log=lambda *_: None, workers=2)
     for f in sorted(a.rglob("*.parquet")):
         assert pq.read_table(f).equals(pq.read_table(b / f.relative_to(a))), f.relative_to(a)
@@ -177,14 +177,14 @@ def test_deterministic_and_backend_independent(tmp_path, monkeypatch):
 
 # ----------------------------------------------------------------------------- the existing fleet stays as it is
 FLEET_TINY = dict(n_sites=12, n_feeders=2, n_congested=1, start_year=2024, end_year=2024, weather_source="synthetic")
-# Measured on main before #172 (sentinel.sim.fleet untouched by this card). Sums, so last-ulp platform noise passes.
+# Measured on main before #172 (wattsentry.sim.fleet untouched by this card). Sums, so last-ulp platform noise passes.
 FLEET_GOLDEN = {"pv_ac_w": 314356850.0, "load_w": 317311693.0, "batt_w": 3377508.0, "grid_w": -6332516.0,
                 "inv_voltage_v": 98585693.38804626, "soc": 82326.93044994771}
 
 
 def test_fleet_unchanged(tmp_path):
-    from sentinel.sim.fleet import DATA_VERSION, FleetConfig
-    from sentinel.sim.fleet import generate as fleet_generate
+    from wattsentry.sim.fleet import DATA_VERSION, FleetConfig
+    from wattsentry.sim.fleet import generate as fleet_generate
 
     if DATA_VERSION != 4:
         pytest.skip(f"fleet moved to data-v{DATA_VERSION} on purpose; golden values are for data-v4")

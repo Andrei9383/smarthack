@@ -20,13 +20,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sentinel.live import store  # noqa: E402
-from sentinel.live.feed import LiveFeed, parse, run_realtime, run_speed, summary  # noqa: E402
-from sentinel.live.source import SimulatedSource  # noqa: E402
+from wattsentry.live import store  # noqa: E402
+from wattsentry.live.feed import LiveFeed, parse, run_realtime, run_speed, summary  # noqa: E402
+from wattsentry.live.source import SimulatedSource  # noqa: E402
 
 
 def make_world(kind: str, days: int, seed: int, scale: float, wind: bool = False):
-    from sentinel.agent.world import MockWorld, SimWorld
+    from wattsentry.agent.world import MockWorld, SimWorld
 
     if kind == "mock":
         return MockWorld(days=days, seed=seed, scale=scale, with_wind=wind)
@@ -37,7 +37,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--world", choices=("sim", "mock"), default="sim")
     ap.add_argument("--feeders", default="", help="comma-separated feeder ids (default: F7,F10 if present, else all)")
-    ap.add_argument("--db", default=None, help="SQLite path (default $SENTINEL_LIVE_DB or demo/live.sqlite)")
+    ap.add_argument("--db", default=None, help="SQLite path (default $WATTSENTRY_LIVE_DB or demo/live.sqlite)")
     ap.add_argument("--run-id", default=None, help="default live-<world>")
     ap.add_argument("--speed", type=float, default=None,
                     help="virtual clock: seconds between ticks (0 = as fast as possible); omit for real time")
@@ -54,7 +54,7 @@ def main(argv=None) -> int:
 
     world = make_world(a.world, a.days, a.seed, a.scale, wind=a.gate)  # gate: replay#506's world (wind + judge on)
     if a.gate:
-        from sentinel.live.agent import gate
+        from wattsentry.live.agent import gate
 
         g = gate(world, a.db, judge=True)
         for k, v in g.items():
@@ -67,7 +67,7 @@ def main(argv=None) -> int:
     run_id = a.run_id or f"live-{a.world}"
     agent = None
     if a.agent:
-        from sentinel.live.agent import LiveAgent
+        from wattsentry.live.agent import LiveAgent
 
         agent = LiveAgent(world, con, f"{run_id}:agent", feeders=sorted(src.feeders()))
     feed = LiveFeed(src, con, run_id, world=a.world, clock=clock, agent=agent,

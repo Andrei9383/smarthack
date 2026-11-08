@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { curveMonotoneX } from "d3-shape";
 import { domAnimation, LazyMotion, useReducedMotion } from "motion/react";
 import { useId, useMemo } from "react";

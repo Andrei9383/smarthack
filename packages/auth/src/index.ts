@@ -1,6 +1,6 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
-import type { Database } from "@sentinel-app/db";
-import * as schema from "@sentinel-app/db/schema/auth";
+import type { Database } from "@wattsentry/db";
+import * as schema from "@wattsentry/db/schema/auth";
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
 

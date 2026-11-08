@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { BatteryCharging, Radio, UserRound, Wrench, X } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 

@@ -1,4 +1,4 @@
-"""Real-model adapters for the replay (card #29): sentinel/agent/predictors.py.
+"""Real-model adapters for the replay (card #29): wattsentry/agent/predictors.py.
 
 ONNX tests skip when models/ has no promoted weights; the SimWorld test skips without #10's window cache."""
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from sentinel.contracts import Window
+from wattsentry.contracts import Window
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ROOT / "models"
@@ -26,7 +26,7 @@ def _ts(*a) -> int:
 @pytest.fixture(scope="module")
 def synth_windows(tmp_path_factory):
     pytest.importorskip("onnxruntime")
-    from sentinel.model.synth import SynthConfig, generate
+    from wattsentry.model.synth import SynthConfig, generate
 
     out = tmp_path_factory.mktemp("win") / "w"
     return generate(SynthConfig(n_sites=6, start="2025-05-01", days=40, seed=3), out=out, verbose=False)
@@ -34,7 +34,7 @@ def synth_windows(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def bank(synth_windows):
-    from sentinel.agent.predictors import FleetSlice, ModelBank
+    from wattsentry.agent.predictors import FleetSlice, ModelBank
 
     src = FleetSlice(synth_windows, list(range(6)), _ts(2025, 5, 3), _ts(2025, 6, 9))
     return ModelBank(src, MODELS)
@@ -55,7 +55,7 @@ def test_bank_runs_all_members(bank):
 
 @needs_models
 def test_adapters_real_and_fallback(bank):
-    from sentinel.agent.predictors import LoadForecastAdapter, PvForecastAdapter, SiteHealthAdapter
+    from wattsentry.agent.predictors import LoadForecastAdapter, PvForecastAdapter, SiteHealthAdapter
 
     index = {s["site_id"]: i for i, s in enumerate(bank.src.sites)}
     step_of = lambda t0: bank.src.step(int(datetime.fromisoformat(t0.replace("Z", "+00:00")).timestamp()))  # noqa
@@ -74,16 +74,16 @@ def test_adapters_real_and_fallback(bank):
 
 
 def test_simworld_missing_cache_is_clear(tmp_path, monkeypatch):
-    from sentinel.agent.world import SimWorld
+    from wattsentry.agent.world import SimWorld
 
-    monkeypatch.setenv("SENTINEL_WINDOWS", str(tmp_path / "none"))
+    monkeypatch.setenv("WATTSENTRY_WINDOWS", str(tmp_path / "none"))
     with pytest.raises(FileNotFoundError, match="window cache"):
         SimWorld()
 
 
 def _have_windows() -> bool:
     try:
-        from sentinel.agent.world import find_windows
+        from wattsentry.agent.world import find_windows
 
         d = find_windows()
         return d is not None and (Path(d) / "index.json").exists() and not os.environ.get("CI")
@@ -94,7 +94,7 @@ def _have_windows() -> bool:
 @needs_models
 @pytest.mark.skipif(not _have_windows(), reason="no #10 window cache")
 def test_simworld_demo_ids_and_story():
-    from sentinel.agent.world import HERO_FEEDER_ID, STORY_SITE_ID, SimWorld
+    from wattsentry.agent.world import HERO_FEEDER_ID, STORY_SITE_ID, SimWorld
 
     w = SimWorld(wind=False)
     assert w.week_start == "2025-06-02" and w.day_t0(0) == "2025-06-01T21:00:00Z"

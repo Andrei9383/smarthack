@@ -1,6 +1,6 @@
 # Demo readiness checklist (card #62)
 
-Demo data: `demo/sentinel.sqlite` = replay#506 (runs `506:baseline`, `506:sentinel`, week Mon 2 – Sun 8 June 2025).
+Demo data: `demo/wattsentry.sqlite` = replay#506 (runs `506:baseline`, `506:sentinel`, week Mon 2 – Sun 8 June 2025).
 Write what you saw on card #62 (`lab note 62 "..."`), one line per section.
 
 ## 0. Automated smoke check (1 min)

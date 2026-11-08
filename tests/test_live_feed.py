@@ -7,11 +7,11 @@ import sqlite3
 
 import pytest
 
-from sentinel.agent.world import MockWorld
-from sentinel.live import store
-from sentinel.live.feed import LiveFeed, map_wall, parse, realtime_step, run_speed
-from sentinel.live.forecast import cos_zenith, err_flag, flag, iso
-from sentinel.live.source import SimulatedSource
+from wattsentry.agent.world import MockWorld
+from wattsentry.live import store
+from wattsentry.live.feed import LiveFeed, map_wall, parse, realtime_step, run_speed
+from wattsentry.live.forecast import cos_zenith, err_flag, flag, iso
+from wattsentry.live.source import SimulatedSource
 
 START = parse("2025-06-04T08:00:00Z")  # hero day morning: PV ramping up
 STEP = 900

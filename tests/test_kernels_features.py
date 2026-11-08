@@ -4,9 +4,9 @@ bit for bit except the trig channels (cos/sin of zenith/azimuth: <= 1 ulp)."""
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels.features import load_features_py, pv_features_py
-from sentinel.model import features as F
+from wattsentry import kernels
+from wattsentry.kernels.features import load_features_py, pv_features_py
+from wattsentry.model import features as F
 
 H, HH = 96, 14 * 96
 TRIG = [7, 8, 9]  # pv seq channels cos_zen, sin_az, cos_az
@@ -59,19 +59,19 @@ def test_build_uses_dispatch(monkeypatch):
            "hist_pv": r["hist"], "hist_load": load_args(r)[2], "kwp_recorded": r["kwp"], "azimuth_recorded": r["kwp"],
            "tilt_recorded": r["kwp"], "inverter_kw": r["kwp"], "lat": r["kwp"], "lon": r["kwp"],
            "has_batt": np.zeros(16), "doy_sin": np.zeros(16), "doy_cos": np.ones(16), "arch_idx": np.arange(16) % 6 - 1}
-    monkeypatch.setenv("SENTINEL_KERNELS", "python")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "python")
     ref = {k: F.build(k, raw) for k in ("pv", "load")}
     assert np.array_equal(ref["pv"]["seq"], pv_features_py(*pv_args(r))[0], equal_nan=True)
     if not kernels.rust_available():
         return
-    monkeypatch.setenv("SENTINEL_KERNELS", "rust")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "rust")
     for k in ("pv", "load"):
         got = F.build(k, raw)
         for key, a in ref[k].items():
             np.testing.assert_allclose(got[key], a, rtol=0, atol=1e-6, err_msg=f"{k}.{key}")
 
 
-rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 @rust
@@ -111,7 +111,7 @@ def test_rust_size_errors():
 
 def site_raw(B=64, seed=0):
     """M4 site window (site_inputs) with NaN / inf / no-battery / frozen edge cases."""
-    from sentinel.kernels.bench import site_raw as bench_site_raw
+    from wattsentry.kernels.bench import site_raw as bench_site_raw
 
     raw = bench_site_raw(B / 256, np.random.default_rng(seed))[0]
     raw["pv"][2, 50], raw["m1"][3, 20, 1], raw["hist_soc"][4, -30], raw["hist_volt"][5, -9] = np.nan, np.nan, np.nan, np.inf

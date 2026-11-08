@@ -1,7 +1,7 @@
 "use client";
 
-import { useMap } from "@sentinel-app/ui/components/map";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { useMap } from "@wattsentry/ui/components/map";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { Maximize, Minus, Plus } from "lucide-react";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import type { ReactNode } from "react";
