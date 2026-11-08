@@ -6,10 +6,7 @@ import type { ReactNode } from "react";
 import type { StatusKind } from "@/components/brand/status-mark";
 
 // Small presentational pieces shared by the O&M panel, the turbine drawer and the park report.
-
-/** 11px uppercase section label (ui-style §4), in text-secondary so it survives a projector. */
-export const SECTION_LABEL =
-  "text-[11px] font-medium tracking-[.04em] text-text-secondary uppercase";
+// Section titles use the `section-title` utility; the provenance pill is components/provenance-pill.
 
 export type Tone = "ok" | "warn" | "review" | "unknown" | "critical" | "info";
 
@@ -48,22 +45,6 @@ export const TONE_PILL: Record<Tone, string> = {
   critical: "bg-status-critical/10 text-status-critical",
   info: "bg-status-forecast/10 text-status-forecast",
 };
-
-/** Data provenance (synthetic RO / real RO / non-RO): one neutral pill per panel header. */
-export function ProvenancePill({ label }: { label: string }) {
-  const l = label.toLowerCase();
-  const dot = l.includes("non")
-    ? "bg-status-forecast"
-    : l.includes("synthetic")
-      ? "bg-status-unknown"
-      : "bg-status-ok";
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 align-middle text-[11px] font-medium whitespace-nowrap text-text-secondary">
-      <span className={`inline-block size-1.5 rounded-full ${dot}`} />
-      {label}
-    </span>
-  );
-}
 
 /** A thin 0–1 meter with its value beside it, for confidence and other shares. */
 export function Meter({
@@ -108,7 +89,7 @@ export function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-5 text-center">
       <Icon className="size-5 text-muted-foreground" aria-hidden />
-      <p className="text-xs text-muted-foreground">{children}</p>
+      <p className="text-caption text-muted-foreground">{children}</p>
     </div>
   );
 }
@@ -116,7 +97,7 @@ export function EmptyState({
 /** Explanatory note as a soft info callout instead of floating grey text. */
 export function InfoNote({ children }: { children: ReactNode }) {
   return (
-    <div className="flex gap-2 rounded-lg border border-status-forecast/20 bg-status-forecast/5 p-2.5 text-[11px] leading-relaxed text-text-secondary">
+    <div className="flex gap-2 rounded-lg border border-status-forecast/20 bg-status-forecast/5 p-2.5 text-caption leading-relaxed text-text-secondary">
       <Info
         className="mt-px size-3.5 shrink-0 text-status-forecast"
         aria-hidden

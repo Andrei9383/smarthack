@@ -12,6 +12,7 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { StatusMark } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
+import { ProvenancePill } from "@/components/provenance-pill";
 import { useInspectorEmbedded, useShowOwnPill } from "@/components/shell/inspector-embedded";
 import { dayLabel, dayOfStep, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
@@ -21,19 +22,24 @@ import {
   Metric,
   MetricRow,
   PopList,
+  RowButton,
+  SectionHeader,
+  SheetSection,
+  StatusPill,
 } from "@/panels/disclosure";
 import { useSelectedSite } from "@/panels/site/use-site";
 import { dayName, hhmm, wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
 import { ParkReport } from "./park-report";
-import { EmptyState, Meter, ProvenancePill, TONE_BG, TONE_KIND, TONE_TEXT, type Tone } from "./ui";
+import { EmptyState, Meter, TONE_BG, TONE_KIND, TONE_TEXT, type Tone } from "./ui";
 import { useAlerts, useOmAssets, useReplayTs, useReviewQueue, useWorkOrders } from "./use-om-data";
 import { OM_TABS, useFocusedPark, useOmTab, useSelectedTurbine } from "./use-om-state";
 
-// Glance first (card #125): one sentence, three numbers with their breakdowns in popovers, the
-// focused park, and the top 3 work orders. Every list (work orders, review queue, alerts, audit)
-// opens in full in the Details sheet, on the tab that `?omTab` names.
+// Calm glance (#199): one status pill, three numbers each with one pill, the focused park, and the
+// top 5 work orders. The status breakdowns (by crew, turbines, homes) sit in their own Details
+// sheet; every list (work orders, review queue, alerts, audit) opens in full in the repair-queue
+// sheet, on the tab that `?omTab` names.
 
 const SEVERITY_TONE: Record<string, Tone> = {
   critical: "critical",
@@ -66,7 +72,7 @@ const TAB_LABELS: Record<(typeof OM_TABS)[number], string> = {
   alerts: "Alerts",
   audit: "Audit",
 };
-const TOP_N = 3;
+const TOP_N = 5;
 
 // an excluded turbine is stopped (red); grey is for excluded homes
 const TURBINE_CHIP: Record<string, string> = {
@@ -179,36 +185,17 @@ function TopOrderRow({ o, index, selected, onOpen }: { o: Order; index: number; 
         onClick={onOpen}
         className={`${ROW} grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-2.5 py-2 ${selected ? ROW_SELECTED : ROW_IDLE}`}
       >
-        <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{index + 1}</span>
+        <span className="text-caption text-muted-foreground tabular-nums">{index + 1}</span>
         <span className="min-w-0">
           <span className="flex items-baseline gap-1.5">
-            <span className="text-[13px] font-semibold text-foreground tabular-nums">{o.assetId}</span>
-            <span className="truncate text-xs text-text-secondary">{words(o.fault)}</span>
+            <span className="text-dense font-semibold text-foreground tabular-nums">{o.assetId}</span>
+            <span className="truncate text-caption text-text-secondary">{words(o.fault)}</span>
           </span>
-          <span className="block text-[11px] text-muted-foreground tabular-nums">
+          <span className="block text-caption text-muted-foreground tabular-nums">
             {lei(leiDay(o))} lei/day · {lostLabel(o)} lost
           </span>
         </span>
         <Status tone={tone}>{ACTION_WORDS[o.action] ?? o.action}</Status>
-      </button>
-    </li>
-  );
-}
-
-function TopReviewRow({ r, index, selected, onOpen }: { r: NonNullable<ReturnType<typeof useReviewQueue>["data"]>[number]; index: number; selected: boolean; onOpen: () => void }) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        className={`${ROW} grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-2.5 py-2 ${selected ? ROW_SELECTED : ROW_IDLE}`}
-      >
-        <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{index + 1}</span>
-        <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-foreground tabular-nums">Site {r.assetId}</span>
-          <span className="block font-mono text-[11px] text-muted-foreground tabular-nums">since {when(r.ts)}</span>
-        </span>
-        <Status tone="review">{reviewReason(r.reason)}</Status>
       </button>
     </li>
   );
@@ -225,33 +212,33 @@ function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number;
   return (
     <li className={`${ROW} py-2.5 ${selected ? ROW_SELECTED : ROW_IDLE}`} onClick={onOpen}>
       <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-2.5">
-        <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{index + 1}</span>
+        <span className="text-caption text-muted-foreground tabular-nums">{index + 1}</span>
         <span className="flex min-w-0 items-baseline gap-1.5">
-          <span className="truncate text-[13px] font-semibold text-foreground">{o.assetId}</span>
-          <span className="truncate text-xs text-text-secondary">{words(o.fault)}</span>
+          <span className="truncate text-dense font-semibold text-foreground">{o.assetId}</span>
+          <span className="truncate text-caption text-text-secondary">{words(o.fault)}</span>
         </span>
         <Status tone={tone}>
           {ACTION_WORDS[o.action] ?? o.action}
           {o.daysToVisit != null ? <span className="font-normal text-muted-foreground">≤ {o.daysToVisit} d</span> : null}
         </Status>
       </div>
-      <div className="mt-1 ml-[1.875rem] flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-secondary">
+      <div className="mt-1 ml-[1.875rem] flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-text-secondary">
         <span className="inline-flex items-center gap-1.5">
           Confidence
           <Meter width="w-10" value={o.confidence} label={`${Math.round(o.confidence * 100)}%`} />
         </span>
         <span className="whitespace-nowrap tabular-nums">
           Lost/day <span className="font-medium text-foreground">{lostLabel(o)}</span> ·{" "}
-          <span className="font-mono font-medium text-foreground">{lei(leiDay(o))}</span> lei
+          <span className="font-medium text-foreground">{lei(leiDay(o))}</span> lei
         </span>
         {o.triageScore != null ? (
           <span className="whitespace-nowrap tabular-nums">
-            Triage <span className="font-mono font-medium text-foreground">{lei(o.triageScore)}</span>
+            Triage <span className="font-medium text-foreground">{lei(o.triageScore)}</span>
           </span>
         ) : null}
         {o.bestRepairDay ? (
           <span className="whitespace-nowrap tabular-nums">
-            Cheapest repair <span className="font-mono font-medium text-status-ok">{dayName(o.bestRepairDay)}</span>
+            Cheapest repair <span className="font-medium text-status-ok">{dayName(o.bestRepairDay)}</span>
           </span>
         ) : null}
         <span className="whitespace-nowrap tabular-nums">
@@ -273,7 +260,7 @@ function WorkOrderRow({ o, index, selected, onOpen }: { o: Order; index: number;
         ) : null}
       </div>
       {why && detail ? (
-        <p className="mt-2 ml-[1.875rem] border-l-2 border-border pl-2.5 text-xs leading-relaxed text-text-secondary">{detail}</p>
+        <p className="mt-2 ml-[1.875rem] border-l-2 border-border pl-2.5 text-caption leading-relaxed text-text-secondary">{detail}</p>
       ) : null}
     </li>
   );
@@ -291,10 +278,10 @@ function WorkOrders({ onOpen }: { onOpen: (assetId: string, kind?: string) => vo
         return (
           <section key={crew.id} className="space-y-1.5">
             <div className="flex items-center justify-between gap-3 border-b border-border pb-1.5">
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="section-title">
                 {crew.label} <span className="font-normal text-muted-foreground tabular-nums">· top {rows.length}</span>
               </h3>
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-text-secondary">
+              <span className="inline-flex items-center gap-1.5 text-caption text-text-secondary">
                 <Meter value={rows.length ? todayCount / rows.length : 0} width="w-10" />
                 <span className="whitespace-nowrap tabular-nums">
                   {todayCount} / {rows.length} today
@@ -319,7 +306,7 @@ function WorkOrders({ onOpen }: { onOpen: (assetId: string, kind?: string) => vo
           </section>
         );
       })}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
+      <p className="text-caption leading-relaxed text-muted-foreground">
         Sensor faults go to a remote check, never a truck. Curtailment is logged under Alerts, never a work order.
       </p>
     </div>
@@ -332,7 +319,7 @@ function ReviewQueue({ onOpen }: { onOpen: (assetId: string) => void }) {
   if (!data?.length) return <EmptyState icon={UserRoundCheck}>No site waiting for a human yet.</EmptyState>;
   return (
     <div className="space-y-2">
-      <p className="text-xs leading-relaxed text-text-secondary">
+      <p className="text-dense leading-relaxed text-text-secondary">
         Out of the flexibility pool and no truck until a person decides: we do not act when the model is unsure.
       </p>
       <ul className="divide-y divide-border">
@@ -341,13 +328,13 @@ function ReviewQueue({ onOpen }: { onOpen: (assetId: string) => void }) {
             <button
               type="button"
               onClick={() => onOpen(r.assetId)}
-              className={`${ROW} py-2.5 text-xs ${selected === r.assetId ? ROW_SELECTED : ROW_IDLE}`}
+              className={`${ROW} py-2.5 text-caption ${selected === r.assetId ? ROW_SELECTED : ROW_IDLE}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[13px] font-semibold text-foreground">Site {r.assetId}</span>
+                <span className="text-dense font-semibold text-foreground">Site {r.assetId}</span>
                 <Status tone="review">{r.reason === "ood" ? "Unseen behaviour (OOD)" : reviewReason(r.reason)}</Status>
               </div>
-              <div className="mt-1 font-mono text-[11px] text-muted-foreground tabular-nums">
+              <div className="mt-1 text-caption text-muted-foreground tabular-nums">
                 since {when(r.ts)}
                 {r.oodScore != null ? ` · OOD ${r.oodScore.toFixed(2)}` : ""}
                 {r.intervalWidth != null ? ` · interval ${r.intervalWidth.toFixed(1)} kW` : ""}
@@ -371,13 +358,13 @@ function Alerts({ onOpen }: { onOpen: (assetId: string) => void }) {
         <li key={a.actionId}>
           <button
             type="button"
-            className={`${ROW} grid grid-cols-[3.75rem_minmax(0,1fr)] gap-x-3 py-2.5 text-xs ${a.assetId && selected === a.assetId ? ROW_SELECTED : ROW_IDLE}`}
+            className={`${ROW} grid grid-cols-[3.75rem_minmax(0,1fr)] gap-x-3 py-2.5 text-caption ${a.assetId && selected === a.assetId ? ROW_SELECTED : ROW_IDLE}`}
             onClick={() => (a.assetId ? onOpen(a.assetId) : null)}
           >
-            <span className="pt-px font-mono text-[11px] text-muted-foreground tabular-nums">{when(a.ts)}</span>
+            <span className="pt-px font-mono text-caption text-muted-foreground tabular-nums">{when(a.ts)}</span>
             <span className="min-w-0">
               <Status tone={SEVERITY_TONE[a.severity] ?? "unknown"}>{words(a.code)}</Status>
-              <span className="mt-1 block text-[13px] leading-snug text-foreground">{a.message}</span>
+              <span className="mt-1 block text-dense leading-snug text-foreground">{a.message}</span>
               <span className="mt-0.5 block text-muted-foreground tabular-nums">
                 {a.createsWorkOrder ? "Work order created" : "Logged · no work order"}
                 {a.curtailedMwh ? ` · ${a.curtailedMwh} MWh curtailed` : ""}
@@ -401,7 +388,7 @@ function Audit() {
   const rows = (logs.data ?? []).filter((r) => withCommitments || r.actionType !== "feeder_commitment").slice(0, 300);
   return (
     <div className="space-y-2">
-      <label className="flex items-center gap-2 text-xs text-text-secondary">
+      <label className="flex items-center gap-2 text-caption text-text-secondary">
         <input
           className="accent-primary"
           type="checkbox"
@@ -412,15 +399,15 @@ function Audit() {
       </label>
       {rows.length === 0 ? (
         logs.isLoading ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
+          <p className="text-caption text-muted-foreground">Loading…</p>
         ) : (
           <EmptyState icon={ScrollText}>No actions yet.</EmptyState>
         )
       ) : (
-        <ul className="divide-y divide-border text-xs">
+        <ul className="divide-y divide-border text-caption">
           {rows.map((r) => (
             <li key={r.id} className="grid grid-cols-[3.75rem_minmax(0,1fr)] gap-x-3 py-2.5">
-              <span className="pt-px font-mono text-[11px] text-muted-foreground tabular-nums">{when(r.ts)}</span>
+              <span className="pt-px font-mono text-caption text-muted-foreground tabular-nums">{when(r.ts)}</span>
               <div className="min-w-0">
                 <span className="font-semibold text-foreground">
                   {words(r.actionType)} · {r.assetId ?? r.feederId ?? r.parkId ?? "fleet"}
@@ -452,37 +439,77 @@ function Audit() {
   );
 }
 
-/** The two queues the agent produces, as peers: a segmented switch over the glance list. */
-function QueueSwitch({
-  value,
-  onChange,
-  counts,
-}: {
-  value: "orders" | "review";
-  onChange: (value: "orders" | "review") => void;
-  counts: { orders: number; review: number };
-}) {
+type Asset = NonNullable<ReturnType<typeof useOmAssets>["data"]>[number];
+
+/** The status breakdowns that used to sit in the glance popovers: by crew, turbines, home solar. */
+function StatusBreakdown({ orders, turbines, sites, today }: { orders: Order[]; turbines: Asset[]; sites: Asset[]; today: string }) {
+  const count = (list: Asset[], status: string) => list.filter((a) => a.status === status).length;
+  const tOk = count(turbines, "eligible");
+  const tDerated = count(turbines, "derated");
+  const tReview = count(turbines, "human_review");
+  const tStopped = count(turbines, "excluded");
   return (
-    <div role="tablist" aria-label="Queue" className="inline-flex rounded-lg bg-muted p-0.5">
-      {(["orders", "review"] as const).map((key) => {
-        const active = value === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onChange(key)}
-            className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-[background-color,box-shadow,color] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              active ? "bg-card text-foreground shadow-raised" : "text-text-secondary hover:text-foreground"
-            }`}
-          >
-            {key === "orders" ? "Top work orders" : "In review"}
-            <span className="text-[11px] text-muted-foreground tabular-nums">{counts[key]}</span>
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <SheetSection title="Work orders by crew">
+        <PopList
+          rows={CREWS.map((crew) => {
+            const rows = orders.filter((o) => crew.ids.includes(o.crewType));
+            return {
+              key: crew.id,
+              label: crew.label,
+              value: (
+                <>
+                  {rows.length}
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    · {rows.filter((o) => o.day === today).length} today
+                  </span>
+                </>
+              ),
+            };
+          })}
+        />
+        <p className="text-caption text-muted-foreground">
+          Sensor faults go to a remote check, never a truck. Curtailment is logged as an alert, never a work order.
+        </p>
+      </SheetSection>
+      <SheetSection title="Wind turbines">
+        <PopList
+          rows={[
+            { key: "ok", label: <Status tone="ok">Working</Status>, value: tOk },
+            { key: "der", label: <Status tone="warn">Derated</Status>, value: tDerated },
+            { key: "stop", label: <Status tone="critical">Stopped</Status>, value: tStopped },
+            { key: "rev", label: <Status tone="review">In review</Status>, value: tReview },
+            { key: "all", label: "Total", value: turbines.length },
+          ]}
+        />
+        <AvailabilityBar
+          total={turbines.length}
+          parts={[
+            { key: "ok", label: "Turbines ok", value: tOk, tone: "ok" },
+            { key: "derated", label: "Derated", value: tDerated, tone: "warn" },
+            { key: "review", label: "In review", value: tReview, tone: "review" },
+            { key: "stopped", label: "Stopped", value: tStopped, tone: "critical" },
+            {
+              key: "other",
+              label: "No status",
+              value: turbines.length - tOk - tDerated - tReview - tStopped,
+              tone: "unknown",
+            },
+          ]}
+        />
+        <p className="text-caption text-muted-foreground">Derated turbines still turn, at reduced power. Stopped ones need a crew.</p>
+      </SheetSection>
+      <SheetSection title="Residential sites">
+        <PopList
+          rows={[
+            { key: "el", label: <Status tone="ok">Eligible</Status>, value: count(sites, "eligible") },
+            { key: "der", label: <Status tone="warn">Derated</Status>, value: count(sites, "derated") },
+            { key: "rev", label: <Status tone="review">In review</Status>, value: count(sites, "human_review") },
+            { key: "ex", label: <Status tone="unknown">Excluded</Status>, value: count(sites, "excluded") },
+          ]}
+        />
+      </SheetSection>
+    </>
   );
 }
 
@@ -492,6 +519,7 @@ export function OmPanel() {
   const [park, setPark] = useFocusedPark();
   const [selectedTurbine, setTurbine] = useSelectedTurbine();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const embedded = useInspectorEmbedded();
@@ -503,15 +531,22 @@ export function OmPanel() {
   const selected = useSelectedAssetId();
   const today = bucharestDay(useReplayTs());
 
-  // Alerts and Audit only live in the sheet, so a link to them (?omTab=alerts) opens it.
+  // Review, Alerts and Audit only live in the sheet, so a link to them (?omTab=review, e.g. the
+  // Overview's "Open the review queue") opens it. A link that also opens an asset's drawer
+  // (an agent action) keeps just the drawer.
   useEffect(() => {
-    if (tab === "alerts" || tab === "audit") setSheetOpen(true);
+    if (tab === "alerts" || tab === "audit" || (tab === "review" && !selected)) setSheetOpen(true);
+    // Only a tab change opens the sheet (not a later change of the selected asset).
   }, [tab]);
 
   // Opening an asset from the sheet swaps the sheet for that asset's drawer.
   const openFromSheet = (assetId: string, kind?: string) => {
     setSheetOpen(false);
     void openAsset(assetId, kind);
+  };
+  const openQueue = (value: (typeof OM_TABS)[number]) => {
+    void setTab(value);
+    setSheetOpen(true);
   };
 
   const sites = (assets ?? []).filter((a) => a.assetKind === "prosumer");
@@ -521,170 +556,88 @@ export function OmPanel() {
 
   const tOk = count(turbines, "eligible");
   const tDerated = count(turbines, "derated");
-  const tReview = count(turbines, "human_review");
   const tStopped = count(turbines, "excluded");
   const sEligible = count(sites, "eligible");
   const sDerated = count(sites, "derated");
   const sReview = count(sites, "human_review");
-  const sExcluded = count(sites, "excluded");
   const orderList = orders ?? [];
   const reviewList = review ?? [];
   const todayOrders = orderList.filter((o) => o.day === today).length;
   const top = [...orderList].sort((a, b) => leiDay(b) - leiDay(a)).slice(0, TOP_N);
-  const listTab = tab === "review" ? "review" : "orders";
-
-  const sentence = (
-    <>
-      {plural(orderList.length, "repair job")} queued for the crews.{" "}
-      {tStopped > 0 ? (
-        <span className="text-status-critical">
-          {plural(tStopped, "turbine")} {tStopped === 1 ? "is" : "are"} stopped
-        </span>
-      ) : (
-        "Every turbine is turning"
-      )}
-      {reviewList.length > 0 ? (
-        <>
-          {" "}
-          and {plural(reviewList.length, "home site")} {reviewList.length === 1 ? "waits" : "wait"} for{" "}
-          <Term id="human-review">a person</Term>.
-        </>
-      ) : (
-        "."
-      )}
-    </>
-  );
 
   return (
     <aside className="absolute top-3 right-3 bottom-3 z-10 flex w-[440px] max-w-[calc(100%-1.5rem)] flex-col overflow-y-auto rounded-xl bg-card px-5 pt-4 pb-3 text-foreground shadow-floating">
-      <header className="flex items-center gap-2">
-        {embedded ? null : <h2 className="text-base font-semibold text-foreground">O&amp;M · operations and maintenance</h2>}
-        <p className="font-mono text-[11px] text-text-secondary tabular-nums">
-          As of {dayLabel(dayOfStep(step))} · {timeLabel(step)}
-        </p>
-        {run.data && showPill ? <ProvenancePill label={run.data.label} /> : null}
+      <header className="space-y-2">
+        {embedded ? null : <h2 className="text-title text-foreground">O&amp;M · operations and maintenance</h2>}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* The one status pill: is every turbine turning? */}
+          {tStopped > 0 ? (
+            <StatusPill status="critical">
+              <StatusMark kind="critical" size="xs" pulse />
+              {plural(tStopped, "turbine")} stopped
+            </StatusPill>
+          ) : (
+            <StatusPill status="ok">Every turbine is turning</StatusPill>
+          )}
+          <p className="font-mono text-caption text-muted-foreground tabular-nums">
+            As of {dayLabel(dayOfStep(step))} · {timeLabel(step)}
+          </p>
+          {run.data && showPill ? <ProvenancePill label={run.data.label} className="ml-auto" /> : null}
+        </div>
       </header>
 
-      <p className="pt-2 pb-3 text-[14px] leading-snug text-foreground">{sentence}</p>
-
-      <MetricRow className="border-y border-border py-2">
+      <MetricRow className="mt-4 py-1">
         <Metric
           label="Work orders"
           value={orderList.length}
-          sub={`${todayOrders} new today`}
-          popTitle="Work orders by crew"
-          pop={
-            <div className="space-y-2.5">
-              <PopList
-                rows={CREWS.map((crew) => {
-                  const rows = orderList.filter((o) => crew.ids.includes(o.crewType));
-                  return {
-                    key: crew.id,
-                    label: crew.label,
-                    value: (
-                      <>
-                        {rows.length}
-                        <span className="ml-1 font-normal text-muted-foreground">
-                          · {rows.filter((o) => o.day === today).length} today
-                        </span>
-                      </>
-                    ),
-                  };
-                })}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Sensor faults go to a remote check, never a truck. Curtailment is logged as an alert, never a work order.
-              </p>
-            </div>
-          }
+          sub={<StatusPill status="unknown">{todayOrders} new today</StatusPill>}
         />
         <Metric
           label="Turbines"
           value={tOk + tDerated}
           unit={`/ ${turbines.length}`}
-          tone={tStopped > 0 ? "text-foreground" : undefined}
-          sub={
-            tStopped > 0 ? (
-              <span className="inline-flex items-center gap-1 text-status-critical">
-                <StatusMark kind="critical" size="xs" pulse />
-                {tStopped} stopped
-              </span>
-            ) : (
-              `turning · ${tDerated} derated`
-            )
-          }
-          popTitle="Wind turbines"
-          pop={
-            <div className="space-y-2.5">
-              <PopList
-                rows={[
-                  { key: "ok", label: <Status tone="ok">Working</Status>, value: tOk },
-                  { key: "der", label: <Status tone="warn">Derated</Status>, value: tDerated },
-                  { key: "stop", label: <Status tone="critical">Stopped</Status>, value: tStopped },
-                  { key: "rev", label: <Status tone="review">In review</Status>, value: tReview },
-                  { key: "all", label: "Total", value: turbines.length },
-                ]}
-              />
-              <AvailabilityBar
-                total={turbines.length}
-                parts={[
-                  { key: "ok", label: "Turbines ok", value: tOk, tone: "ok" },
-                  { key: "derated", label: "Derated", value: tDerated, tone: "warn" },
-                  { key: "review", label: "In review", value: tReview, tone: "review" },
-                  { key: "stopped", label: "Stopped", value: tStopped, tone: "critical" },
-                  {
-                    key: "other",
-                    label: "No status",
-                    value: turbines.length - tOk - tDerated - tReview - tStopped,
-                    tone: "unknown",
-                  },
-                ]}
-              />
-              <p className="text-[11px] text-muted-foreground">
-                Derated turbines still turn, at reduced power. Stopped ones need a crew.
-              </p>
-            </div>
-          }
+          sub={<StatusPill status={tDerated > 0 ? "warn" : "ok"}>{tDerated} derated</StatusPill>}
         />
         <Metric
           label="Home solar"
           value={sEligible}
           unit={`/ ${sites.length}`}
-          sub={`ok · ${sDerated} derated`}
-          popTitle="Residential sites"
-          pop={
-            <PopList
-              rows={[
-                { key: "el", label: <Status tone="ok">Eligible</Status>, value: sEligible },
-                { key: "der", label: <Status tone="warn">Derated</Status>, value: sDerated },
-                { key: "rev", label: <Status tone="review">In review</Status>, value: sReview },
-                { key: "ex", label: <Status tone="unknown">Excluded</Status>, value: sExcluded },
-              ]}
-            />
+          sub={
+            sReview > 0 ? (
+              <StatusPill status="review">
+                {sReview} <Term id="human-review">in review</Term>
+              </StatusPill>
+            ) : (
+              <StatusPill status={sDerated > 0 ? "warn" : "ok"}>{sDerated} derated</StatusPill>
+            )
           }
         />
       </MetricRow>
 
       {park ? (
-        <section className="space-y-2.5 border-b border-border py-3.5">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-foreground">
-              Park {park}{" "}
-              <span className="font-normal text-muted-foreground tabular-nums">· {parkTurbines.length} turbines</span>
-            </h3>
-            <div className="flex items-center gap-1">
-              <DetailsLink onClick={() => setReportOpen(true)}>Daily report</DetailsLink>
-              <button
-                type="button"
-                onClick={() => setPark(null)}
-                aria-label="Close park"
-                className="grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-[repeat(14,minmax(0,1fr))] gap-[3px]">
+        <section className="mt-5 space-y-2.5">
+          <SectionHeader
+            as="h3"
+            title={
+              <>
+                Park {park} <span className="font-normal text-muted-foreground tabular-nums">· {parkTurbines.length} turbines</span>
+              </>
+            }
+            aside={
+              <>
+                <DetailsLink onClick={() => setReportOpen(true)}>Daily report</DetailsLink>
+                <button
+                  type="button"
+                  onClick={() => setPark(null)}
+                  aria-label="Close park"
+                  className="grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-surface-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  <X className="size-4" />
+                </button>
+              </>
+            }
+          />
+          <div className="grid grid-cols-[repeat(14,minmax(0,1fr))] gap-1">
             {parkTurbines.map((t) => (
               <button
                 key={t.id}
@@ -692,17 +645,17 @@ export function OmPanel() {
                 title={`${t.id}: ${t.status === "excluded" ? "stopped" : words(t.status)} (${words(t.reason)})`}
                 onClick={() => setTurbine(t.id)}
                 aria-label={`Turbine ${t.id}`}
-                className={`h-5 cursor-pointer rounded-[5px] text-[9px] font-medium shadow-raised tabular-nums transition-colors duration-150 ${turbineChip(t.status)} ${selectedTurbine === t.id ? "ring-2 ring-primary/60" : ""}`}
+                className={`h-6 cursor-pointer rounded-sm text-caption leading-none font-medium shadow-raised tabular-nums transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring ${turbineChip(t.status)} ${selectedTurbine === t.id ? "ring-2 ring-primary" : ""}`}
               >
                 {(t.id.split(".")[1] ?? t.id).replace(/^\D+/, "")}
               </button>
             ))}
           </div>
-          <p className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-text-secondary">
-            <Status tone="ok">Working</Status>
-            <Status tone="warn">Derated</Status>
-            <Status tone="critical">Stopped</Status>
-            <Status tone="review">In review</Status>
+          <p className="flex flex-wrap gap-x-3 gap-y-1">
+            <Status tone="ok" size="xs">Working</Status>
+            <Status tone="warn" size="xs">Derated</Status>
+            <Status tone="critical" size="xs">Stopped</Status>
+            <Status tone="review" size="xs">In review</Status>
           </p>
           <DetailsSheet
             open={reportOpen}
@@ -716,22 +669,17 @@ export function OmPanel() {
         </section>
       ) : null}
 
-      <section className="space-y-1 pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <QueueSwitch
-            value={listTab}
-            onChange={(value) => void setTab(value)}
-            counts={{ orders: orderList.length, review: reviewList.length }}
-          />
-          <DetailsLink onClick={() => setSheetOpen(true)}>
-            All {listTab === "review" ? reviewList.length : orderList.length}
-          </DetailsLink>
-        </div>
-        {listTab === "orders" ? (
-          top.length === 0 ? (
-            <p className="py-3 text-xs text-muted-foreground">No work orders yet at this time.</p>
-          ) : (
-            <ol className="divide-y divide-border">
+      <section className="mt-5">
+        <SectionHeader
+          as="h3"
+          title="Top work orders"
+          aside={<DetailsLink onClick={() => openQueue("orders")}>See all {orderList.length}</DetailsLink>}
+        />
+        {top.length === 0 ? (
+          <p className="py-3 text-dense text-muted-foreground">No work orders yet at this time.</p>
+        ) : (
+          <>
+            <ol className="mt-1 divide-y divide-border">
               {top.map((o, i) => (
                 <TopOrderRow
                   key={o.actionId}
@@ -742,26 +690,28 @@ export function OmPanel() {
                 />
               ))}
             </ol>
-          )
-        ) : reviewList.length === 0 ? (
-          <p className="py-3 text-xs text-muted-foreground">No site waiting for a person yet.</p>
-        ) : (
-          <ol className="divide-y divide-border">
-            {reviewList.slice(0, TOP_N).map((r, i) => (
-              <TopReviewRow
-                key={r.actionId}
-                r={r}
-                index={i}
-                selected={selected === r.assetId}
-                onOpen={() => void openAsset(r.assetId)}
-              />
-            ))}
-          </ol>
+            <p className="pt-1 text-caption text-muted-foreground">Ranked by money lost per day, across all crews.</p>
+          </>
         )}
-        {listTab === "orders" && top.length > 0 ? (
-          <p className="pt-1 text-[11px] text-muted-foreground">Ranked by money lost per day, across all crews.</p>
-        ) : null}
       </section>
+
+      <div className="mt-3 border-t border-border">
+        <RowButton onClick={() => openQueue("review")} aside={`${reviewList.length} in review`}>
+          <span className="font-medium">Review, alerts and audit</span>
+        </RowButton>
+        <RowButton onClick={() => setStatusOpen(true)} aside="crews, turbines, homes">
+          <span className="font-medium">Status breakdown</span>
+        </RowButton>
+      </div>
+
+      <DetailsSheet
+        open={statusOpen}
+        onOpenChange={setStatusOpen}
+        title="Status breakdown"
+        description={`As of ${dayLabel(dayOfStep(step))} · ${timeLabel(step)} · work orders by crew, wind turbines and residential sites`}
+      >
+        <StatusBreakdown orders={orderList} turbines={turbines} sites={sites} today={today} />
+      </DetailsSheet>
 
       <DetailsSheet
         open={sheetOpen}
@@ -781,10 +731,10 @@ export function OmPanel() {
                 <TabsTrigger
                   key={t}
                   value={t}
-                  className="h-full flex-none gap-1.5 px-0 text-[13px] text-text-secondary transition-colors duration-150 group-data-horizontal/tabs:after:bottom-[-1px] after:bg-primary hover:text-foreground data-active:text-foreground"
+                  className="h-full flex-none gap-1.5 px-0 text-dense text-text-secondary transition-colors duration-150 group-data-horizontal/tabs:after:bottom-[-1px] after:bg-primary hover:text-foreground data-active:text-foreground"
                 >
                   {TAB_LABELS[t]}
-                  {n != null ? <span className="text-[11px] text-muted-foreground tabular-nums">{n}</span> : null}
+                  {n != null ? <span className="text-caption text-muted-foreground tabular-nums">{n}</span> : null}
                 </TabsTrigger>
               );
             })}

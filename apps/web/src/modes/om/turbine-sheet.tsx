@@ -14,6 +14,7 @@ import { useMemo, useRef } from "react";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { ProvenancePill } from "@/components/provenance-pill";
 import { Fold, Metric, MetricRow } from "@/panels/disclosure";
 import { VerdictCard } from "@/panels/judge/verdict-card";
 import { timeLabel } from "@/demo/replay";
@@ -24,7 +25,7 @@ import { orpc } from "@/utils/orpc";
 import { OmTimeAxis, OmYAxis } from "./chart-axes";
 import { OM_COLORS } from "./colors";
 import { ParkReport } from "./park-report";
-import { Meter, ProvenancePill, SECTION_LABEL } from "./ui";
+import { Meter } from "./ui";
 import { useOmAssets, useReplayTs } from "./use-om-data";
 import { useSelectedTurbine } from "./use-om-state";
 
@@ -291,10 +292,10 @@ function TurbineView({ assetId }: { assetId: string }) {
   return (
     <>
       <SheetHeader className="gap-1 px-5 pt-5 pb-4 shadow-[0_1px_0_var(--border)]">
-        <SheetTitle className="text-base font-semibold text-foreground">
+        <SheetTitle className="pr-8 text-title tracking-tight text-foreground">
           Turbine {assetId}
         </SheetTitle>
-        <SheetDescription className="text-xs text-text-secondary tabular-nums">
+        <SheetDescription className="text-caption text-text-secondary tabular-nums">
           {d
             ? `${d.turbineModel ?? "turbine"} · ${((d.ratedKw ?? 0) / 1000).toFixed(1)} MW · park ${parkId}`
             : "Loading…"}
@@ -308,7 +309,7 @@ function TurbineView({ assetId }: { assetId: string }) {
       </SheetHeader>
 
       <div className="flex flex-col px-5 pt-4 pb-6">
-        <p className="pb-3 text-[14px] leading-snug text-foreground">
+        <p className="pb-4 text-body leading-snug text-foreground">
           {order
             ? `${capital(order.fault?.replaceAll("_", " ") ?? "an anomaly")}: the agent sent ${order.action === "remote_check" ? "a remote check" : order.action === "truck" ? "a truck" : `an ${order.action}`}${order.daysToVisit != null ? ` within ${order.daysToVisit} d` : ""}${order.lostKwhDay ? `, ${(order.lostKwhDay / 1000).toFixed(1)} MWh a day is at stake` : ""}.`
             : asset?.status === "excluded"
@@ -316,11 +317,11 @@ function TurbineView({ assetId }: { assetId: string }) {
               : "Working as expected. No work order for this turbine at this time."}
         </p>
 
-        <MetricRow className="border-y border-border py-2">
+        <MetricRow className="py-1">
           <Metric
             label={`Status at ${timeLabel(step)}`}
             value={
-              <span className={`inline-flex items-center gap-1.5 text-[17px] ${STATUS_TEXT[asset?.status ?? ""] ?? "text-foreground"}`}>
+              <span className={`inline-flex items-center gap-1.5 text-title ${STATUS_TEXT[asset?.status ?? ""] ?? "text-foreground"}`}>
                 {asset ? <StatusMark kind={STATUS_KIND[asset.status] ?? "unknown"} size="md" pulse={asset.status === "excluded"} /> : null}
                 {asset?.status === "excluded" ? "stopped" : (asset?.status.replaceAll("_", " ") ?? "—")}
               </span>
@@ -328,54 +329,25 @@ function TurbineView({ assetId }: { assetId: string }) {
           />
           <Metric
             label="Reason"
-            value={<span className="text-[17px]">{asset?.reason.replaceAll("_", " ") ?? "—"}</span>}
+            value={<span className="text-title">{asset?.reason.replaceAll("_", " ") ?? "—"}</span>}
           />
           {/* M7 (component failure risk, via W2 availability) is optional: without it, show the trend only (R12) */}
           {av?.m7PFail7d != null ? (
             <Metric
               label="Failure risk, 7 d"
-              value={<span className={`font-mono text-[17px] ${av.m7PFail7d >= 0.5 ? "text-status-critical" : "text-foreground"}`}>{Math.round(av.m7PFail7d * 100)}%</span>}
+              value={<span className={`${av.m7PFail7d >= 0.5 ? "text-status-critical" : "text-foreground"}`}>{Math.round(av.m7PFail7d * 100)}%</span>}
               sub="M7"
             />
           ) : (
-            <Metric label="Risk score" value={<span className="text-[17px] text-muted-foreground">n/a</span>} sub="M7 not in this run" />
+            <Metric label="Risk score" value={<span className="text-title text-muted-foreground">n/a</span>} sub="M7 not in this run" />
           )}
         </MetricRow>
 
-        {av || order ? (
-          <dl className="divide-y divide-border border-b border-border text-[13px]">
-            {av ? (
-              <div className="flex items-center justify-between gap-3 py-2">
-                <dt className="text-text-secondary">Available {dayName(av.day)}{av.uncertain ? ", unsure" : ""}</dt>
-                <dd className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{av.rule?.replaceAll("_", " ") ?? av.m6Class ?? ""}</span>
-                  <Meter value={av.availabilityMean} width="w-16" tone={av.availabilityMean < 0.5 ? "critical" : "ok"} label={`${Math.round(av.availabilityMean * 100)}%`} />
-                </dd>
-              </div>
-            ) : null}
-            {order && (order.leiPerDay ?? order.lostLeiDay) != null ? (
-              <div className="flex items-baseline justify-between gap-3 py-2">
-                <dt className="text-text-secondary">Lost while it waits</dt>
-                <dd className="font-mono font-semibold text-foreground">
-                  {Math.round(order.leiPerDay ?? order.lostLeiDay ?? 0).toLocaleString("en-GB")}{" "}
-                  <span className="font-sans text-[11px] font-normal text-muted-foreground">lei/day</span>
-                </dd>
-              </div>
-            ) : null}
-            {order?.bestRepairDay ? (
-              <div className="flex items-baseline justify-between gap-3 py-2">
-                <dt className="text-text-secondary">Cheapest repair day</dt>
-                <dd className="font-mono font-semibold text-status-ok">{dayName(order.bestRepairDay)}</dd>
-              </div>
-            ) : null}
-          </dl>
-        ) : null}
-
-        <section className="space-y-2 pt-4 pb-4">
-          <h3 className={SECTION_LABEL}>
+        <section className="mt-5 space-y-2 pb-2">
+          <h3 className="section-title">
             Power curve: measured vs expected (wind m/s)
           </h3>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-caption text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="inline-block size-2 rounded-full bg-status-actual" />{" "}
               Measured, 15 min
@@ -392,7 +364,7 @@ function TurbineView({ assetId }: { assetId: string }) {
           {points.length ? (
             <PowerCurve points={points} ratedKw={d?.ratedKw ?? 1} />
           ) : (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {drawer.isLoading ? "Loading…" : "No telemetry."}
             </p>
           )}
@@ -400,12 +372,46 @@ function TurbineView({ assetId }: { assetId: string }) {
 
         <VerdictCard assetId={assetId} className="mt-4" />
 
+        {av || order ? (
+          <Fold
+            title="Availability and repair cost"
+            aside={av ? `${Math.round(av.availabilityMean * 100)}% available` : undefined}
+          >
+            <dl className="divide-y divide-border text-dense">
+              {av ? (
+                <div className="flex items-center justify-between gap-3 py-2">
+                  <dt className="text-text-secondary">Available {dayName(av.day)}{av.uncertain ? ", unsure" : ""}</dt>
+                  <dd className="flex items-center gap-2">
+                    <span className="text-caption text-muted-foreground">{av.rule?.replaceAll("_", " ") ?? av.m6Class ?? ""}</span>
+                    <Meter value={av.availabilityMean} width="w-16" tone={av.availabilityMean < 0.5 ? "critical" : "ok"} label={`${Math.round(av.availabilityMean * 100)}%`} />
+                  </dd>
+                </div>
+              ) : null}
+              {order && (order.leiPerDay ?? order.lostLeiDay) != null ? (
+                <div className="flex items-baseline justify-between gap-3 py-2">
+                  <dt className="text-text-secondary">Lost while it waits</dt>
+                  <dd className="font-semibold text-foreground tabular-nums">
+                    {Math.round(order.leiPerDay ?? order.lostLeiDay ?? 0).toLocaleString("en-GB")}{" "}
+                    <span className="text-caption font-normal text-muted-foreground">lei/day</span>
+                  </dd>
+                </div>
+              ) : null}
+              {order?.bestRepairDay ? (
+                <div className="flex items-baseline justify-between gap-3 py-2">
+                  <dt className="text-text-secondary">Cheapest repair day</dt>
+                  <dd className="font-semibold text-status-ok">{dayName(order.bestRepairDay)}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </Fold>
+        ) : null}
+
         {order ? (
           <Fold
             title="Why this decision"
             aside={`${Math.round(order.confidence * 100)}% sure`}
           >
-            <p className="text-[13px] font-medium text-foreground tabular-nums">
+            <p className="text-dense font-medium text-foreground tabular-nums">
               {[
                 order.fault?.replaceAll("_", " ") ?? "anomaly",
                 `${order.action === "remote_check" ? "remote check" : order.action}${order.daysToVisit != null ? ` · ≤ ${order.daysToVisit} d` : ""}`,
@@ -418,12 +424,12 @@ function TurbineView({ assetId }: { assetId: string }) {
                 .filter(Boolean)
                 .join(" · ")}
             </p>
-            <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
+            <div className="flex items-center justify-between gap-3 text-caption text-text-secondary">
               <span>Confidence</span>
               <Meter value={order.confidence} width="w-24" label={`${Math.round(order.confidence * 100)}%`} />
             </div>
             {factors.length ? (
-              <ul className="space-y-1.5 text-xs">
+              <ul className="space-y-1.5 text-caption">
                 {factors.map((f) => (
                   <li key={f.label} className="flex items-center justify-between gap-3 text-text-secondary">
                     <span>{f.label}</span>
@@ -433,19 +439,19 @@ function TurbineView({ assetId }: { assetId: string }) {
               </ul>
             ) : null}
             {typeof evidence?.evidence === "string" ? (
-              <p className="border-l-2 border-border pl-3 text-xs leading-relaxed text-text-secondary">Evidence: {evidence.evidence}</p>
+              <p className="border-l-2 border-border pl-3 text-caption leading-relaxed text-text-secondary">Evidence: {evidence.evidence}</p>
             ) : typeof evidence?.detail === "string" ? (
-              <p className="border-l-2 border-border pl-3 text-xs leading-relaxed text-text-secondary">{evidence.detail}</p>
+              <p className="border-l-2 border-border pl-3 text-caption leading-relaxed text-text-secondary">{evidence.detail}</p>
             ) : null}
             {typeof evidence?.note === "string" ? (
-              <p className="text-xs leading-relaxed text-text-secondary">{evidence.note}</p>
+              <p className="text-caption leading-relaxed text-text-secondary">{evidence.note}</p>
             ) : null}
           </Fold>
         ) : null}
 
         {turbineAlerts.length ? (
           <Fold title="Alerts on this turbine" aside={`${turbineAlerts.length}`}>
-            <ul className="divide-y divide-border text-xs">
+            <ul className="divide-y divide-border text-caption">
               {turbineAlerts.map((a) => (
                 <li key={a.actionId} className="py-2">
                   <span className="font-semibold text-foreground">{a.code.replaceAll("_", " ")}</span>
@@ -461,7 +467,7 @@ function TurbineView({ assetId }: { assetId: string }) {
           title={<>Temperature residual vs ambient (°C), up to {dayName(nowTs)}</>}
           aside={drift != null ? `${drift >= 0 ? "+" : ""}${drift.toFixed(1)} °C drift` : undefined}
         >
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-caption text-muted-foreground">
             {RESIDUALS.map((r) => (
               <span key={r.key} className="flex items-center gap-1.5">
                 <span className={`inline-block w-4 border-t-2 ${r.swatch}`} />
@@ -492,7 +498,7 @@ function TurbineView({ assetId }: { assetId: string }) {
           ) : null}
           {drift != null ? (
             <p
-              className={`text-xs tabular-nums ${drift > 3 ? "font-medium text-status-warn" : "text-muted-foreground"}`}
+              className={`text-caption tabular-nums ${drift > 3 ? "font-medium text-status-warn" : "text-muted-foreground"}`}
             >
               Gearbox vs converter: {drift >= 0 ? "+" : ""}
               {drift.toFixed(1)} °C since the first day

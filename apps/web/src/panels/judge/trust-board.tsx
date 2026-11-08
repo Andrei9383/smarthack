@@ -1,6 +1,7 @@
 "use client";
 
 import { StatusMark } from "@/components/brand/status-mark";
+import { SectionHeader } from "@/panels/disclosure";
 
 import { useTrustBoard, witnessName } from "./use-judge";
 import { TrustBar } from "./verdict-card";
@@ -35,35 +36,31 @@ export function TrustBoard() {
   if (!data?.witnesses.length) return null;
   return (
     <section aria-labelledby="ov-trust">
-      <div className="mb-2 flex min-h-6 items-center justify-between gap-3 px-1">
-        <h2
-          id="ov-trust"
-          className="text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase"
-        >
-          Model trust
-        </h2>
-        <span className="text-[11px] text-muted-foreground">this week · dashed = prior</span>
-      </div>
-      <ul className="flex flex-col divide-y divide-border rounded-xl border border-border bg-card shadow-raised">
+      <SectionHeader
+        className="mb-2 px-1"
+        title={<span id="ov-trust">Model trust</span>}
+        aside={<span className="text-caption text-muted-foreground">this week · dashed = prior</span>}
+      />
+      <ul className="flex flex-col divide-y divide-border rounded-xl bg-card shadow-card">
         {data.witnesses.map((w) => {
           const now = w.series.at(-1);
           return (
-            <li key={w.model} className="px-3 py-2">
+            <li key={w.model} className="px-4 py-2.5">
               <div className="flex items-center gap-3">
                 <StatusMark kind={w.alerts.length ? "warn" : "ok"} size="xs" />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+                <span className="min-w-0 flex-1 truncate text-dense font-medium text-foreground">
                   {witnessName(w.model)}
                 </span>
                 <Spark series={w.series} />
-                <span className="w-10 text-right font-mono text-[12px] font-semibold text-foreground tabular-nums">
+                <span className="w-10 text-right text-dense font-semibold text-foreground tabular-nums">
                   {now?.trust === null || now?.trust === undefined ? "–" : `${Math.round(now.trust * 100)}%`}
                 </span>
               </div>
               <TrustBar trust={now?.trust ?? null} className="mt-1.5" />
               {w.alerts.map((a) => (
-                <p key={a.bucket} className="mt-1.5 text-[12px] text-status-warn">
+                <p key={a.bucket} className="mt-1.5 text-caption text-status-warn">
                   {a.message ?? `${witnessName(w.model)} degraded on ${a.bucket.replaceAll("_", " ")} since ${fmtDay(a.since)}`}
-                  <span className="ml-1 font-mono text-muted-foreground tabular-nums">
+                  <span className="ml-1 text-muted-foreground tabular-nums">
                     {a.trust === null ? "" : `trust ${a.trust.toFixed(2)}`}
                     {a.prior === null ? "" : ` / prior ${a.prior.toFixed(2)}`}
                   </span>

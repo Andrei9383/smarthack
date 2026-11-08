@@ -16,7 +16,8 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { Fold, Metric, MetricRow } from "@/panels/disclosure";
+import { ProvenancePill } from "@/components/provenance-pill";
+import { Fold, Metric, MetricRow, StatusPill } from "@/panels/disclosure";
 import { VerdictCard } from "@/panels/judge/verdict-card";
 import { STEP_MINUTES, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
@@ -26,30 +27,28 @@ import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
 import {
   ACTUAL,
   FORECAST,
-  OK,
   SOC,
   STATUS_COLORS,
   UNKNOWN,
 } from "../colors";
-import { ProvenancePill } from "../provenance-pill";
 import { customerTip } from "./customer-tip";
 import { dayName, dayRange, hhmm, inRange, stepTs, wallClock } from "./time";
 import { useSelectedSite } from "./use-site";
 
 // Re-exported for modes/om, which imports it from here; values live in ../colors.
 export { STATUS_COLORS };
-/** Status = shape-coded mark + word in the status colour (ui-style §7), no pill. */
+/** Status = shape-coded mark + word (ui-style §2); in the header it sits in a tinted StatusPill. */
 const STATUS_KIND: Record<string, StatusKind> = {
   eligible: "ok",
   derated: "warn",
   excluded: "unknown",
   human_review: "review",
 };
-const STATUS_TEXT: Record<string, string> = {
-  eligible: "text-status-ok",
-  derated: "text-status-warn",
-  excluded: "text-text-secondary",
-  human_review: "text-status-review",
+const STATUS_PILL: Record<string, "ok" | "warn" | "unknown" | "review"> = {
+  eligible: "ok",
+  derated: "warn",
+  excluded: "unknown",
+  human_review: "review",
 };
 const STATUS_WORDS: Record<string, string> = {
   eligible: "Eligible",
@@ -60,7 +59,8 @@ const STATUS_WORDS: Record<string, string> = {
 const ACTUAL_COLOR = ACTUAL;
 const FORECAST_COLOR = FORECAST;
 const SOC_COLOR = SOC;
-const BATT_COLOR = OK;
+// The battery schedule is Sentinel's own series (ui-style §6).
+const BATT_COLOR = "var(--sentinel)";
 // Room for the y-axis labels on the left and the 24:00 tick on the right.
 const CHART_MARGIN = { left: 40, right: 18, top: 10, bottom: 26 };
 const BATTERY_MARGIN = { left: 40, right: 40, top: 10, bottom: 26 };
@@ -74,12 +74,12 @@ type LegendItem = {
 
 function Legend({ items }: { items: LegendItem[] }) {
   return (
-    <div className="ml-auto flex flex-wrap justify-end gap-x-3 gap-y-1 text-[11px] text-text-secondary">
+    <div className="ml-auto flex flex-wrap justify-end gap-x-3 gap-y-1 text-caption text-muted-foreground">
       {items.map(({ label, color, dashed, band }) => (
         <span key={label} className="flex items-center gap-1.5 whitespace-nowrap">
           {band ? (
             <span
-              className="inline-block h-2.5 w-4 rounded-[3px] opacity-25"
+              className="inline-block h-2.5 w-4 rounded-sm opacity-25"
               style={{ background: color }}
             />
           ) : (
@@ -98,11 +98,8 @@ function Legend({ items }: { items: LegendItem[] }) {
   );
 }
 
-const SECTION_LABEL =
-  "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
-
 function SectionLabel({ children }: { children: ReactNode }) {
-  return <h3 className={SECTION_LABEL}>{children}</h3>;
+  return <h3 className="section-title">{children}</h3>;
 }
 
 /** Section label on the left, legend top-right. */
@@ -141,7 +138,7 @@ function Fact({
       <dd className={`text-right font-semibold tabular-nums ${tone ?? "text-foreground"}`}>
         {value}
         {unit && value !== "—" ? (
-          <span className={`${unit === "%" ? "ml-0.5" : "ml-1"} text-[11px] font-normal whitespace-nowrap text-muted-foreground`}>
+          <span className={`${unit === "%" ? "ml-0.5" : "ml-1"} text-caption font-normal whitespace-nowrap text-muted-foreground`}>
             {unit}
           </span>
         ) : null}
@@ -173,7 +170,7 @@ export function SiteSheet() {
       <SheetContent
         initialFocus={focusRef}
         side="right"
-        className="w-full gap-0 overflow-y-auto border-0 bg-card text-[13px] text-foreground shadow-overlay data-[side=right]:border-l-0 data-[side=right]:sm:max-w-md"
+        className="w-full gap-0 overflow-y-auto border-0 bg-card text-dense text-foreground shadow-overlay data-[side=right]:border-l-0 data-[side=right]:sm:max-w-md"
       >
         <span ref={focusRef} tabIndex={-1} className="sr-only">Details</span>
         {site ? <SiteView assetId={site} /> : null}
@@ -276,10 +273,10 @@ function SiteView({ assetId }: { assetId: string }) {
   if (detail.isError) {
     return (
       <SheetHeader className="border-b px-5 pt-5 pb-4">
-        <SheetTitle className="pr-8 text-lg leading-7 font-semibold tracking-tight">
+        <SheetTitle className="pr-8 text-title tracking-tight">
           Site {assetId}
         </SheetTitle>
-        <SheetDescription className="text-[13px] text-text-secondary">
+        <SheetDescription className="text-dense text-text-secondary">
           No such site in this run.
         </SheetDescription>
       </SheetHeader>
@@ -292,7 +289,7 @@ function SiteView({ assetId }: { assetId: string }) {
   return (
     <>
       <SheetHeader className="gap-1.5 px-5 pt-5 pb-4 shadow-[0_1px_0_var(--border)]">
-        <SheetTitle className="pr-8 text-lg leading-7 font-semibold tracking-tight">
+        <SheetTitle className="pr-8 text-title tracking-tight">
           Site {assetId}
           {d?.locality ? (
             <span className="font-normal text-muted-foreground">
@@ -300,7 +297,7 @@ function SiteView({ assetId }: { assetId: string }) {
             </span>
           ) : null}
         </SheetTitle>
-        <SheetDescription className="text-[13px] leading-5 text-text-secondary tabular-nums">
+        <SheetDescription className="text-caption text-text-secondary tabular-nums">
           {d
             ? `${d.county} · ${d.ratedKw} kWp${d.hasBattery ? ` · ${d.batteryKwh ?? "?"} kWh battery` : " · no battery"}`
             : "Loading…"}
@@ -310,16 +307,15 @@ function SiteView({ assetId }: { assetId: string }) {
         </SheetDescription>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           {current ? (
-            <span
-              className={`inline-flex items-center gap-1.5 text-xs font-semibold ${STATUS_TEXT[statusKey] ?? "text-text-secondary"}`}
-              title={`Status at ${timeLabel(step)}`}
-            >
-              <StatusMark kind={STATUS_KIND[statusKey] ?? "unknown"} size="sm" />
-              {STATUS_WORDS[statusKey] ?? current.status}
+            <span title={`Status at ${timeLabel(step)}`}>
+              <StatusPill status={STATUS_PILL[statusKey] ?? "unknown"}>
+                <StatusMark kind={STATUS_KIND[statusKey] ?? "unknown"} size="xs" />
+                {STATUS_WORDS[statusKey] ?? current.status}
+              </StatusPill>
             </span>
           ) : null}
           {current ? (
-            <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+            <span className="font-mono text-caption text-muted-foreground tabular-nums">
               at {timeLabel(step)}
             </span>
           ) : null}
@@ -331,14 +327,14 @@ function SiteView({ assetId }: { assetId: string }) {
 
       <div className="flex flex-col px-5 pt-4 pb-6">
         {/* The one sentence: what this home's owner is told right now. */}
-        <section className="border-l-2 border-brand-500 pl-3">
-          <h3 className="section-title text-status-ok">
+        <section className="border-l-2 border-border-strong pl-3">
+          <h3 className="section-label text-muted-foreground">
             What the customer sees
           </h3>
-          <p className="mt-0.5 text-[14px] leading-snug text-foreground">{tip}</p>
+          <p className="mt-0.5 text-body leading-snug text-foreground">{tip}</p>
         </section>
 
-        <MetricRow className="mt-4 border-y border-border py-2">
+        <MetricRow className="mt-4 py-1">
           <Metric
             label="Headroom"
             value={current ? `${Math.round(current.headroomFactor * 100)}` : "—"}
@@ -360,7 +356,7 @@ function SiteView({ assetId }: { assetId: string }) {
           />
         </MetricRow>
 
-        <section className="space-y-2.5 pt-4 pb-4">
+        <section className="mt-5 space-y-2.5 pb-2">
           <ChartHeader
             title={
               <>PV: actual vs forecast, {band[0] ? dayName(range[0]) : ""} (kW)</>
@@ -410,12 +406,12 @@ function SiteView({ assetId }: { assetId: string }) {
               <ChartTooltip />
             </LineChart>
           ) : (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {steps.isLoading ? "Loading…" : "No PV rows for this day."}
             </p>
           )}
           {below ? (
-            <p className="flex items-start gap-2 text-[13px] leading-5 text-foreground tabular-nums">
+            <p className="flex items-start gap-2 text-dense leading-5 text-foreground tabular-nums">
               <StatusMark kind="warn" size="sm" className="mt-1" />
               <span>
                 Actual drops below its own P10 at {hhmm(wallClock(below))} while
@@ -478,19 +474,19 @@ function SiteView({ assetId }: { assetId: string }) {
               <Fact label="Reason" value={current?.reason?.replaceAll("_", " ") ?? "—"} />
             </dl>
           ) : (
-            <p className="text-[13px] leading-5 text-text-secondary">
+            <p className="text-dense leading-5 text-text-secondary">
               {current?.status === "human_review"
                 ? "In human review: no work order until a person decides (we do not send a truck when unsure)."
                 : "No open work order at this time."}
             </p>
           )}
           {typeof evidence?.evidence === "string" ? (
-            <p className="border-l-2 border-border pl-3 text-xs leading-5 text-text-secondary">
+            <p className="border-l-2 border-border pl-3 text-caption leading-5 text-text-secondary">
               Evidence: {evidence.evidence}
             </p>
           ) : null}
           {faultProbs?.length ? (
-            <ul className="space-y-1.5 pt-1 text-xs">
+            <ul className="space-y-1.5 pt-1 text-caption">
               {faultProbs.map(([name, p]) => (
                 <li key={name} className="flex items-center gap-3">
                   <span className="w-28 truncate text-text-secondary">
@@ -509,7 +505,7 @@ function SiteView({ assetId }: { assetId: string }) {
               ))}
             </ul>
           ) : (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               Fault probabilities: not in this run (M4 output missing).
             </p>
           )}
@@ -536,7 +532,7 @@ function SiteView({ assetId }: { assetId: string }) {
               />
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-secondary">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-caption text-muted-foreground">
             {Object.entries(STATUS_WORDS).map(([key, word]) => (
               <span key={key} className="flex items-center gap-1.5">
                 <StatusMark kind={STATUS_KIND[key] ?? "unknown"} size="xs" />
@@ -591,7 +587,7 @@ function SiteView({ assetId }: { assetId: string }) {
                 <ChartTooltip />
               </LineChart>
             ) : null}
-            <p className="text-xs leading-5 text-text-secondary tabular-nums">
+            <p className="text-caption leading-5 text-text-secondary tabular-nums">
               Absorbed {battery.absorbedKwh.toFixed(1)} kWh today
               {battery.reserveKwh != null
                 ? ` · comfort reserve ${battery.reserveKwh.toFixed(1)} kWh`
