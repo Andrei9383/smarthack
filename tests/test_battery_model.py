@@ -143,36 +143,6 @@ def test_simulate_strategies():
     assert soc.shape == (3,)
 
 
-def test_portfolio_behaviour_shape_and_equivalence():
-    w = _world(2)
-    T = 96
-    pv, load = _pv(w, 2)[:, :T], np.full((2, T), 0.5, np.float32)
-    code = np.array([1, 2], np.int8)
-    fn = N.portfolio_behaviour(code, _params(2), w.price[:T], w.rank[:T], w.med[:T], w.cal["day_index"][:T])
-    K = 3
-    out = fn(np.broadcast_to(pv, (K, 2, T)), load, None, None)
-    assert out.shape == (K, 2, T)
-    ref, _ = N.simulate(pv, load, code, _params(2), w.price[:T], w.rank[:T], w.med[:T], w.cal["day_index"][:T])
-    np.testing.assert_allclose(out[1], ref, atol=1e-5)
-
-
-def test_portfolio_behaviour_locates_home_chunks():
-    """I5 calls behaviour per chunk of homes with fleet.battery.take(slice): the chunk is found from the arrays."""
-    w = _world(2)
-    T, n = 96, 6
-    pv, load = _pv(w, n)[:, :T], np.full((n, T), 0.5, np.float32)
-    code = np.array([0, 1, 2, 1, 2, 0], np.int8)
-    prm = {**_params(n), "cap_kwh": np.array([10.0, 6, 8, 12, 14, 9])}
-    args = (w.price[:T], w.rank[:T], w.med[:T], w.cal["day_index"][:T])
-    fn = N.portfolio_behaviour(code, prm, *args)
-    bat = N.guessed_battery_arrays(code, prm)
-    full = fn(pv[None], load, bat, None)[0]
-    for a, b in ((0, 4), (4, 6), (2, 5)):
-        part = fn(pv[None, a:b], load[a:b], tuple(x[a:b] for x in bat), None)[0]
-        np.testing.assert_allclose(part, full[a:b], atol=1e-5)
-    assert bat[0][0] == 0 and bat[0][5] == 0  # no battery guessed -> capacity 0 in I5's Fleet
-
-
 def test_mix_soft_and_hard():
     var = {0: np.zeros((1, 4), np.float32), 1: np.ones((1, 4), np.float32), 2: np.full((1, 4), 3, np.float32)}
     probs = np.array([[[0.1, 0.2, 0.6, 0.1], [0.7, 0.1, 0.1, 0.1]]])  # 2 days, enrolled counts as self
@@ -231,13 +201,7 @@ def test_end_to_end_tiny(tmp_path):
     for k in ("strategy_f1", "net_nmae", "net_nmae_17_21", "fo_net_nmae", "lgbm_net_nmae", "t_total_s"):
         assert np.isfinite(res[k]), k
     bm = BatteryModel.load(tmp_path / "run" / "battery")
-    ids = pd.read_parquet(out / "homes_public.parquet")["home_id"].astype(str).tolist()[:5]
-    fc = bm.forecast(out, ids, years=[2025])
-    assert fc["net_kwh"].shape == (5, len(fc["ts"])) and fc["q_kwh"].shape[-1] == 3
-    assert set(fc["guess"]["strategy"]) <= set(C.STRATEGIES)
-    fn = bm.behaviour_for(fc, "2025-06-02")
-    pv = np.zeros((2, 5, 96))
-    assert fn(pv, np.ones((5, 96)), None, None).shape == (2, 5, 96)
+    assert bm.clf is not None and bm.mode
 
 
 def test_residual_bias_uses_only_past_meter_days():

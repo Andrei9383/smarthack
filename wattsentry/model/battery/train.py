@@ -1,7 +1,7 @@
-"""python train.py --model battery [flags]: train + evaluate the battery behaviour model on data-v2 (card #174).
+"""python train.py --model battery [flags]: train + evaluate the battery behaviour model on data-v2.
 
-Splits (spec I step 5, no leakage): train = local years 2022-2023, validation = 2024, test = 2025; homes with
-``split == unseen`` (30 %, drawn by I2) never appear in training and are the test population.
+Splits (no leakage): train = local years 2022-2023, validation = 2024, test = 2025; homes with
+``split == unseen`` (30 %, drawn by the generator) never appear in training and are the test population.
 
 Pass 1 (per chunk of homes): meter + expected PV / load -> strategy features for every target day -> classifier
 samples (train homes, every --issue-every days of the train years; validation = the same homes in 2024) and sampled
@@ -12,7 +12,7 @@ choose soft vs hard mixing, then the unseen homes in 2025 -> metrics.
 Metrics (LAB_METRIC, label: synthetic RO homes / real RO ERA5 weather and OPCOM PZU / proxy M1-M2 stand-ins):
   strategy_f1 (macro, unseen homes x test days), strategy_f1_home (one guess per home: the most frequent),
   net_nmae / net_nmae_17_21 (the two-stage model, home level: sum|pred - y| / sum|y| over homes x steps),
-  *_portfolio (on the sum over homes), and the same for lgbm (5a P50), fo (forecast_only = load - pv, no battery)
+  *_portfolio (on the sum over homes), and the same for lgbm (quantile P50), fo (forecast_only = load - pv, no battery)
   and persist (same step a week earlier from the meter; forecast_only for profile homes). The two-stage model is
   sim_soft (probability-weighted strategies), sim_hard (most likely strategy) or sim_cal (sim_soft + the home's mean
   residual per clock hour over meter days D-29..D-2), whichever is best on validation (``sim_mode``).
@@ -49,11 +49,12 @@ def metric(name: str, value) -> None:
 
 
 def parse_args(argv=None):
-    ap = argparse.ArgumentParser(prog="battery", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="battery", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", default="battery", help="ignored (train.py dispatch)")
-    ap.add_argument("--data-dir", default=None, help="a generated data-v2 dir (default: I2's cached generate())")
-    ap.add_argument("--quick", action="store_true", help="I2's quick world (smoke only)")
-    ap.add_argument("--n-homes", type=int, default=None, help="data-v2 homes to GENERATE (default I2's 5000)")
+    ap.add_argument("--data-dir", default=None, help="a generated data-v2 dir (default: the cached generate())")
+    ap.add_argument("--quick", action="store_true", help="the generator's quick world (smoke only)")
+    ap.add_argument("--n-homes", type=int, default=None, help="data-v2 homes to GENERATE (default 5000)")
     ap.add_argument("--max-homes", type=int, default=0, help="use at most this many homes (random, seeded); 0 = all")
     ap.add_argument("--train-years", default="2022,2023")
     ap.add_argument("--val-years", default="2024")
@@ -231,8 +232,8 @@ def run(argv=None) -> dict:
     if not (set(tr_y) | set(va_y) | set(te_y)) <= have:
         raise SystemExit(f"battery: data has local years {sorted(have)}, splits need {tr_y}/{va_y}/{te_y}")
     timing["data"] = time.perf_counter() - t
-    print(f"[battery] data-v2 {data_dir}: {len(homes)} homes "
-          f"({(homes.split == 'unseen').sum()} unseen, {(homes.meter == 'smart').sum()} smart), T={world.T}", flush=True)
+    print(f"[battery] data-v2 {data_dir}: {len(homes)} homes ({(homes.split == 'unseen').sum()} unseen, "
+          f"{(homes.meter == 'smart').sum()} smart), T={world.T}", flush=True)
 
     # ---------------------------------------------------------------------------------------------- pass 1
     t = time.perf_counter()
@@ -332,7 +333,7 @@ def run(argv=None) -> dict:
     best = min(("sim_soft", "sim_hard", "sim_cal"), key=lambda m: res[f"val_{m}_net_nmae"])
     res["sim_mode"] = best
     for k in ("net_nmae", "net_nmae_17_21", "portfolio_nmae", "portfolio_nmae_17_21"):
-        res[f"{k}" if k.startswith("net") else f"net_{k}"] = res[f"{best}_{k}"]
+        res[k if k.startswith("net") else f"net_{k}"] = res[f"{best}_{k}"]
     res["importance"] = clf.importance()
     timing["total"] = time.perf_counter() - t_all
     for k, v in timing.items():

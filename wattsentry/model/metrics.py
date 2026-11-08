@@ -1,4 +1,4 @@
-"""Metrics (numpy / sklearn only). Definitions used in every LAB_METRIC and report of #14:
+"""Metrics (numpy / sklearn only). Definitions used in every M1 / M2 / M4 LAB_METRIC and report:
 
 - nMAE = sum|q50 - y| / sum(y) over the evaluated steps (energy-normalised; stricter than per-kWp nMAE).
 - pinball = mean over (q10, q50, q90) and steps of the pinball loss, divided by mean(y) (same scale as nMAE).
@@ -70,21 +70,6 @@ def best_f1_threshold(y_true, score) -> tuple[float, float]:
     f1 = 2 * p * r / np.maximum(p + r, 1e-9)
     i = int(np.nanargmax(f1[:-1])) if len(t) else 0
     return (float(t[i]) if len(t) else 0.5), float(f1[i])
-
-
-def cusum(r: np.ndarray, k: float, valid: np.ndarray | None = None) -> np.ndarray:
-    """One-sided CUSUM S_t = max(0, S_{t-1} + r_t - k) along the last axis (vectorised over the first)."""
-    r = np.asarray(r, np.float32)
-    out = np.empty_like(r)
-    s = np.zeros(r.shape[0], np.float32)
-    for t in range(r.shape[1]):
-        if valid is None:
-            s = np.maximum(0.0, s + r[:, t] - k)
-        else:
-            v = valid[:, t]
-            s = np.where(v, np.maximum(0.0, s + r[:, t] - k), s)
-        out[:, t] = s
-    return out
 
 
 def summarize_detection(hours: list[float], horizon_h: float) -> dict:

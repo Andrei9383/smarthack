@@ -1,4 +1,4 @@
-"""data-v2 access for the battery model (card #174): dense per-chunk arrays from I2's parquet files (#172).
+"""data-v2 access for the battery model: dense per-chunk arrays from the prosumers_v2 parquet files.
 
 Only TRAINING files are read for features (homes_public, meter_observed, meter_monthly, prices, weather,
 standard_profile). The hidden files are read in two places only, both clearly named: ``labels`` (strategy and
@@ -25,8 +25,8 @@ LABEL_COLUMNS = ("strategy", "has_battery", "cap_kwh", "p_kw", "reserve_frac", "
 
 
 def resolve_data(out: str | Path | None = None, quick: bool = False, **cfg) -> Path:
-    """Path of a generated data-v2 directory: ``out`` if given, else I2's cached generate() (regenerates where
-    missing, ~3 min for 5000 homes on the GPU-host worker)."""
+    """Path of a generated data-v2 directory: ``out`` if given, else wattsentry.sim.prosumers_v2's cached
+    generate() (regenerates where missing, ~3 min for 5000 homes)."""
     if out:
         return Path(out)
     from wattsentry.sim.prosumers_v2 import QUICK, ProsumerConfig, generate
@@ -67,12 +67,9 @@ class World:
 
 
 def load_world(out: str | Path) -> World:
+    from wattsentry.kernels.strategies import day_rank_median
     from wattsentry.sim.fleet.ro_calendar import local_features
 
-    try:
-        from wattsentry.kernels.strategies import day_rank_median
-    except ImportError:  # pragma: no cover - I2 not on this branch yet
-        raise
     out = Path(out)
     pr = pd.read_parquet(out / "prices.parquet").sort_values("ts").reset_index(drop=True)
     ts = pd.DatetimeIndex(pr["ts"]).tz_convert("UTC")

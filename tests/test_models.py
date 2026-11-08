@@ -71,8 +71,6 @@ def test_wrong_metadata_fraction():
 
 
 def test_splits_no_leakage():
-    from wattsentry.model.data import Splits  # noqa: F401
-
     class Fake:
         sites = [{"split": "unseen" if i % 10 < 3 else "train"} for i in range(50)]
 
@@ -138,8 +136,6 @@ def test_metrics():
     assert M.nmae(q[..., 1], y) == 0
     assert M.coverage(q, y) == 1.0
     assert M.nmae(y * 0, y) == 1.0
-    r = np.array([[0.0, 1.0, 1.0, 0.0, 2.0]])
-    assert np.allclose(M.cusum(r, 0.5), [[0, 0.5, 1.0, 0.5, 2.0]])
     probs = np.eye(8)[[0, 1, 2, 1]]
     mac, per = M.prauc_macro(probs, np.array([0, 1, 2, 1]))
     assert mac == pytest.approx(1.0)

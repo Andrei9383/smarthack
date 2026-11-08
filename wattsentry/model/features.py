@@ -108,7 +108,8 @@ def pv_inputs(raw: dict) -> dict:
 
 
 def load_arrays(wx, cal, hist_load):
-    """K4 reference (wattsentry.kernels.load_features): float32 seq [B,H,14], hourly ref [B,168], summ [B,14,4], scale."""
+    """K4 reference (wattsentry.kernels.load_features): float32 seq [B,H,14], hourly ref [B,168], summ [B,14,4],
+    scale."""
     hl = hist_load.astype(np.float32)
     scale = hl.mean(1) + 0.05
     s = scale[:, None]
@@ -197,7 +198,7 @@ def site_inputs(raw: dict) -> dict:
     return {"seq": seq, "summ": summ, "stat": stat, "scale": kwp}
 
 
-# --- gathering raw windows from a WindowSource -------------------------------------------------------------
+# --- gathering raw windows from a window source -------------------------------------------------------------
 def _site_static(src, sites):
     meta = {}
     for key in ("kwp_recorded", "tilt_recorded", "azimuth_recorded", "inverter_kw", "lat", "lon",
@@ -212,7 +213,7 @@ def _site_static(src, sites):
 
 
 def house_flags(site_rows, key: str) -> np.ndarray:
-    """Household flags from the sites table (#11); derived from the archetype when the column is absent (synth)."""
+    """Household flags from the sites table; derived from the archetype when the column is absent (synth)."""
     derive = {"has_ac": lambda r: r.get("archetype") == "ac", "has_ev": lambda r: r.get("archetype") == "ev"}
     out = []
     for r in site_rows:
@@ -230,7 +231,7 @@ def gather(src, sites: np.ndarray, starts: np.ndarray, kind: str, mode: str = "n
     loc = src.loc_idx()[sites]
     raw = _site_static(src, sites)
 
-    def g(a, rows=sites, off=0, n=H, dt=np.float32):  # Rust window gather (wattsentry.kernels), numpy fallback
+    def g(a, rows=sites, off=0, n=H, dt=np.float32):  # kernel window gather (Rust, numpy fallback)
         return window_gather(a, rows, starts, off, n, dt)
 
     hist = dict(off=-HIST_DAYS * H, n=HIST_DAYS * H)
@@ -247,7 +248,7 @@ def gather(src, sites: np.ndarray, starts: np.ndarray, kind: str, mode: str = "n
         raw["hist_pv"] = g(src.array("pv_ac"), **hist)
     if kind == "pv":
         raw["y"] = g(src.array("pv_ac"))
-        if "pv_healthy" in src.index["arrays"]:
+        if src.has("pv_healthy"):
             raw["y_healthy"] = g(src.array("pv_healthy"))
     if kind in ("load", "site"):
         raw["hist_load"] = g(src.array("load"), **hist)
