@@ -1,23 +1,18 @@
-"""DSO value in lei + GridTwin (M8) in the loop (card G3 #161, team/features/grid.md steps 3-4).
+"""DSO value in lei + GridTwin (M8) in the loop: GIS recovery, tau effect, a moved home, deferred capex.
 
     python -m wattsentry.eval.dso_value [--world sim|mock] [--days 7] [--out DIR] [--skip-replay]
+        [--build-caches] [--run-g1 | --hosting-capacity FILE]
 
-Lab: `--build-caches` first builds (or reuses) the fleet / windows / grid-twin caches, as `make replay-demo` does:
-    lab submit 161 --run replay --cmd ".venv/bin/python -m wattsentry.eval.dso_value --world sim --build-caches"
-Hosting capacity: `--run-g1` runs G1 #159 in the same run (same run id), `--hosting-capacity FILE` reads its JSON;
-without either (or before G1 merges) the STUB below is used and labelled.
+`--build-caches` first builds (or reuses) the windows / grid-twin caches. `--run-g1` runs the hosting-capacity
+search in the same run, `--hosting-capacity FILE` reads its JSON; without either a labelled STUB is used.
 
-Deferred capex (step 3), per feeder that Sentinel lets take more prosumers:
+Deferred capex, per feeder that Sentinel lets take more prosumers:
     value = cost x (1 - 1 / (1 + r)^years)
     years = ln((N + HC_sentinel) / (N + HC_baseline)) / ln(1 + growth)
-i.e. how many years of prosumer growth (compound, `growth` per year on the N homes the feeder has today) the extra
-hosting capacity absorbs before the feeder needs the same reinforcement. Assumptions, all stated in the output:
-- cost: REINFORCEMENT_COST_LEI, a PLACEHOLDER ([COST POST / CABLU], to be replaced by the GIS mentor's figure);
-- r = 7 %, growth = GROWTH_RATE (assumed);
-- HC_*: G1 #159's hosting capacity (variant with batteries, tolerance 30 min/week), read in `hosting_capacity()`
-  only. Without G1's document that function returns a STUB, and every lei number built on it is labelled so.
-DEO's public estimate (other operator, not PPC / Retele Electrice) gives an order-of-magnitude cross-check per
-prosumer. Every printed number carries a label (synthetic RO / proxy / other-operator) and the run id.
+i.e. the years of compound prosumer growth (on the N homes the feeder has today) the extra hosting capacity
+absorbs before the same reinforcement is needed. cost = REINFORCEMENT_COST_LEI (a PLACEHOLDER), r = 7 %,
+growth = GROWTH_RATE, HC_* = hosting capacity (with batteries, 30 min/week). DEO's public estimate (another
+operator) gives an order-of-magnitude cross-check per prosumer. Every number carries a label and the run id.
 """
 
 from __future__ import annotations
@@ -30,7 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-DISCOUNT_RATE = 0.07  # r, assumption (grid.md step 3)
+DISCOUNT_RATE = 0.07  # r, assumption
 GROWTH_RATE = 0.15  # prosumers per feeder per year, compound; assumption (RO grew far faster in 2023-24, slowing)
 # PLACEHOLDER [COST POST / CABLU]: one LV reinforcement (new 20/0.4 kV substation or parallel LV cable). Not a PPC
 # figure; ask the GIS mentor. Context only: Retele Electrice invested ~1.4 bn lei in 2025 incl. ~1,000 new and 440
@@ -47,8 +42,8 @@ LABEL_SYN = "synthetic RO"
 LABEL_PROXY = "proxy"
 LABEL_DEO = "other-operator (DEO), not PPC"
 
-# STUB until G1 #159 lands: hosting capacity (homes that can be added before minutes over the limit exceed the
-# tolerance) per feeder, baseline rule vs Sentinel. Shaped like G1's planned output; numbers are NOT measured.
+# STUB hosting capacity (homes that can be added before minutes over the limit exceed the tolerance), baseline
+# rule vs Sentinel, used without a hosting_capacity.json. Numbers are NOT measured.
 _HC_STUB = {"baseline": 0, "sentinel": 8}
 
 
@@ -69,9 +64,9 @@ def years_deferred(n_homes: int, hc_baseline: float, hc_sentinel: float, growth:
 
 def hosting_capacity(world=None, doc: Optional[Mapping[str, Any]] = None, variant: str = "batteries",
                      tol: int = 30) -> dict[str, dict[str, Any]]:
-    """THE one read of G1 #159 (hosting capacity per feeder, baseline = self_consumption rule vs Sentinel).
+    """Hosting capacity per feeder (baseline = self_consumption rule vs Sentinel).
 
-    `doc`: G1's `hosting_capacity/v1` document (hosting_capacity.json). Without it, a STUB: congested feeders get
+    `doc`: the `hosting_capacity/v1` document (hosting_capacity.json). Without it, a STUB: congested feeders get
     the constant _HC_STUB, labelled as such."""
     if doc is not None:
         if doc.get("schema") != "hosting_capacity/v1":
@@ -183,10 +178,10 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--out", type=Path, default=Path(os.environ.get("LAB_OUTPUT_DIR", ".")))
     ap.add_argument("--skip-replay", action="store_true", help="only the recovery rate and the lei (no replays)")
-    ap.add_argument("--hosting-capacity", type=Path, help="G1's hosting_capacity.json (hosting_capacity/v1)")
-    ap.add_argument("--run-g1", action="store_true", help="run G1 #159 in-process first and use its output")
+    ap.add_argument("--hosting-capacity", type=Path, help="hosting_capacity.json (hosting_capacity/v1)")
+    ap.add_argument("--run-g1", action="store_true", help="run the hosting-capacity search in-process first and use its output")
     ap.add_argument("--build-caches", action="store_true",
-                    help="build / reuse the #10 windows and the #13 grid-twin cache first (sim world)")
+                    help="build / reuse the windows and the grid-twin cache first (sim world)")
     a = ap.parse_args(argv)
     t0 = time.perf_counter()
     if a.build_caches and a.world == "sim":
@@ -242,7 +237,7 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
         else:
             print(f"# moved home: none ({case.get('note')}; {note})")
 
-    # deferred capex (lei) on G1's hosting capacity (the labelled stub without --run-g1 / --hosting-capacity)
+    # deferred capex (lei) on the hosting capacity (the labelled stub without --run-g1 / --hosting-capacity)
     if a.run_g1:
         from wattsentry.eval.hosting_capacity import main as g1_main
 

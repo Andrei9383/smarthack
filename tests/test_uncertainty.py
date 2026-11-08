@@ -66,7 +66,7 @@ def test_conformal_coverage_per_member():
     assert 0.75 <= rep["a"]["calibrated"]["coverage_10_90"] <= 0.85
 
 
-def test_conformal_json_roundtrip(tmp_path):
+def test_conformal_json_roundtrip_and_prediction(tmp_path):
     rng = np.random.default_rng(2)
     y, trip = _synthetic(200, DAY_STEPS, rng)
     cal = ConformalCalibration.fit(y, trip, model="pvnet", model_version="mock-1")
@@ -75,6 +75,11 @@ def test_conformal_json_roundtrip(tmp_path):
     cal2 = ConformalCalibration.load(path)
     assert json.loads(path.read_text())["members"].keys() == {"0"}
     np.testing.assert_allclose(cal.apply(*[q[0] for q in trip])[2], cal2.apply(*[q[0] for q in trip])[2])
+    # applied to a real envelope: still valid, PV nights stay at zero
+    p = MockPredictor("pv").predict({"site_id": "S1", "kwp_true": 6, "lat": 44.4}, t0=T0)
+    pc = cal2.apply_prediction(p, cap=6.0)
+    assert pc.extra["calibrated"] and pc.q90[0] == 0.0 and pc.q10[0] == 0.0
+    assert max(pc.q90) <= 6.0 + 1e-9
 
 
 # --- thresholds ----------------------------------------------------------------------------------------------

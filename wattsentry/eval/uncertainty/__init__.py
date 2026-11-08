@@ -10,4 +10,7 @@ from .thresholds import (
     validate_thresholds,
 )
 
-__all__ = [n for n in dir() if not n.startswith("_")]
+__all__ = [
+    "ConformalCalibration", "coverage", "interval_report", "mean_pinball", "members_of", "pinball_loss",
+    "DEFAULT_THRESHOLDS", "THRESHOLDS_PATH", "rel_width", "save_thresholds", "tune_thresholds", "validate_thresholds",
+]

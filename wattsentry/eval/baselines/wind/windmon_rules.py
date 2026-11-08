@@ -36,7 +36,7 @@ def _frozen(x: np.ndarray, n: int) -> np.ndarray:
     same = np.zeros_like(x, dtype=bool)
     same[1:] = (x[1:] == x[:-1]) & np.isfinite(x[1:])
     # the run of `same` ending at t is >= n-1 long  <=>  same[t-n+2 .. t] are all True (same[0] is False, so a window
-    # reaching back to step 0 fails); a rolling AND, vectorised over time too (a per-step loop took ~1-2 s)
+    # reaching back to step 0 fails): a rolling AND over time
     if n - 1 <= 0:
         return np.ones(x.shape, dtype=bool)
     out = same.copy()

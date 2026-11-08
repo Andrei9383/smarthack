@@ -1,7 +1,4 @@
-"""Fast tests (< 10 s, no simulator run): CUSUM reference, pvlib model, predictors honour the contract.
-
-    python -m pytest -q wattsentry/eval/baselines/pv/tests
-"""
+"""Fast tests (< 10 s, no simulator run): CUSUM reference, pvlib model, predictors honour the contract."""
 
 from __future__ import annotations
 
@@ -107,7 +104,7 @@ def test_lgbm_predictor_contract_and_roundtrip(kind, tmp_path):
     if kind == "pv":
         g = solar_geometry(pd.date_range(pd.Timestamp(T0), periods=96, freq="15min"), SITE["lat"], SITE["lon"])
         assert all(v == 0 for v, z in zip(pred.q90, g["zenith"]) if z >= 90)
-    loaded = lgbm.LGBMPredictor.load(b.save(tmp_path / "b.json"))
+    loaded = lgbm.LGBMPredictor(lgbm.QuantileBundle.load(b.save(tmp_path / "b.json")))
     assert loaded.predict(SITE, _window()).q50 == pred.q50
 
 

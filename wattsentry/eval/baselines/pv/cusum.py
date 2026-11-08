@@ -8,9 +8,6 @@
 - Statistics saturate at h (kernel ``cap=h``, "decision-interval clamp"): an alarm stays on while the shift lasts
   and clears about h / k steps after it ends, instead of a long tail after a long fault.
 - x is 1-D [T] or 2-D [n_series, T]; time is the last axis. Outputs are new float64 / int8 arrays, same shape.
-
-The sums come from the dispatched kernel (Rust if ``wattsentry._core`` is built, else the Python reference; both are
-bit-identical), so there is one CUSUM implementation in the repo.
 """
 
 from __future__ import annotations

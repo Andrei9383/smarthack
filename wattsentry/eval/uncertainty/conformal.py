@@ -1,4 +1,4 @@
-"""Split-conformal calibration of q10/q50/q90, per ensemble member (plan §3.5 "P10 commitment", R8).
+"""Split-conformal calibration of q10/q50/q90, per ensemble member (feeds the P10 commitment).
 
 Method: normalised one-sided conformal shift per quantile (asymmetric CQR, Romano et al. 2019). For quantile
 tau with forecast q_tau and interval scale w = max(q90 - q10, eps_abs) the score is s = (y - q_tau) / w; the
@@ -6,7 +6,7 @@ calibrated quantile is q_tau + delta_tau * w with delta_tau the finite-sample ta
 calibration slice. Scaling by the interval width keeps night steps (q10 = q90 = 0) at zero and lets the band
 breathe with the forecast. Calibrated 10-90 bands should cover ~80% (target 78-82%).
 
-Offsets can be split by horizon bucket (step index // (H / n_buckets)), as model.md's calibration JSON allows.
+Offsets can be split by horizon bucket (step index // (H / n_buckets)).
 Members: the envelope carries one q10/q50/q90; a model that keeps members puts them in
 `Prediction.extra["members"] = [{"q10": [...], "q50": [...], "q90": [...]}, ...]` (see `members_of`).
 """
@@ -200,6 +200,20 @@ class ConformalCalibration:
     def apply_members(self, members: Sequence[Triple], floor: Optional[float] = 0.0,
                       cap: Optional[ArrayLike] = None) -> list[Triple]:
         return [self.apply(*m, member=i, floor=floor, cap=cap) for i, m in enumerate(members)]
+
+    def apply_prediction(self, pred: Prediction, floor: Optional[float] = 0.0,
+                         cap: Optional[ArrayLike] = None) -> Prediction:
+        """New Prediction with calibrated envelope (member 0's offsets) and calibrated extra["members"]."""
+        q10, q50, q90 = self.apply(pred.q10, pred.q50, pred.q90, member=None, floor=floor, cap=cap)
+        d = pred.to_dict()
+        d.update(q10=q10.tolist(), q50=q50.tolist(), q90=q90.tolist())
+        extra = dict(d.get("extra") or {})
+        if extra.get("members"):
+            cal_m = self.apply_members(members_of(pred), floor=floor, cap=cap)
+            extra["members"] = [{"q10": a.tolist(), "q50": b.tolist(), "q90": c.tolist()} for a, b, c in cal_m]
+        extra["calibrated"] = True
+        d["extra"] = extra
+        return Prediction.from_dict(d)
 
     def report(self, y: ArrayLike, members: Union[Triple, Sequence[Triple], Mapping[str, Triple]],
                mask: Optional[np.ndarray] = None) -> dict[str, Any]:

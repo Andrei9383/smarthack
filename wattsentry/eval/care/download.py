@@ -5,7 +5,7 @@ fetch it whole. A ZIP keeps its directory at the end, so with HTTP range request
 only the members of the requested farm(s). Wind Farm A (EDP, onshore Portugal, the farm with named gearbox /
 generator-bearing / transformer temperatures and failure events) is ~0.16 GB compressed.
 
-Cache: ~/.cache/wattsentry/care/<record>/ (or $WATTSENTRY_CACHE/care). Offline, or when the requested members exceed
+Cache: ~/.cache/sentinel/care/<record>/ (or $WATTSENTRY_CACHE/care). Offline, or when the requested members exceed
 `max_gb`, `fetch()` returns None and prints why: the eval reports `care_status` instead of failing.
 """
 

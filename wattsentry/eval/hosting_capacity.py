@@ -1,34 +1,14 @@
-"""G1 hosting capacity (card #159, spec G step 1): how many more prosumers each feeder takes without a new cable.
+"""Hosting capacity: how many more prosumers each feeder takes without a new cable.
 
     python -m wattsentry.eval.hosting_capacity [--world sim|mock] [--feeders F7,F3] [--workers 20] [--out DIR]
 
-Per feeder, add n synthetic homes and replay the test week; the hosting capacity of a policy is the largest n for
-which the feeder's minutes over its limit stay within a tolerance (0 and 30 min/week). Policies: `self_consumption`
-(the baseline rule), `threshold` (per-home export threshold) and `sentinel` (day-ahead feeder LP + feasibility clip).
-`hosting_capacity_gain` = capacity(sentinel) - capacity(self_consumption), per feeder and in total.
-
-Pipeline:
-1. `extract_feeders(world, comps)`: one `FeederWeek` per feeder with the realised PV / load (physics), the M1 PV and
-   M2 load forecasts, the M4 statuses (qualify at t0: broken homes leave the LP pool and run their own rule) and the
-   limit G = tau*G_max + (1 - tau)*G_cons from M8. Every model read goes through `validated` (the C1 swap point).
-2. `SyntheticPlan`: n_max new homes drawn once per feeder (seeded), homes(n) = the first n, so adding homes never
-   reshuffles earlier ones. Each new home = PV of a healthy donor on the same feeder (same weather) scaled to a kWp
-   drawn from the fleet's kWp distribution, load of another healthy donor, and a battery drawn from the fleet
-   (same share and the same capacity / power / reserve tuples). Variant `no_batteries`: the same homes, no battery.
-   Forecasts of a new home are its donors' M1/M2 forecasts scaled the same way (proxy: no model run on a fake home).
-3. `replay_week(fw, policy)`: the week on the feeder through the battery model, via the K1 `battery_rollout` kernel
-   (Rust when built, numpy reference otherwise). Same physics as `wattsentry.agent.loop.run_policy`: batteries start at
-   e_min on day 0 and carry energy across days; the rules use the realised PV / load; Sentinel plans each day on the
-   forecasts (pool = battery homes in the M4 pool) and executes the schedule with the comfort-reserve floor, non-pool
-   homes run the self-consumption rule. Not modelled here (the full replay has them): intraday re-qualification,
-   hourly re-solve (off in the demo replay too), the P10 commitment (does not change the physics).
-4. `capacity_search(minutes, tols, n_max)`: galloping + bisection on n, cached across tolerances. Assumes minutes(n)
-   is non-decreasing; the evaluated curve is kept and `monotone` says whether it was.
-
-Feeders (and policy x variant pairs) are independent: they run in a process pool (`--workers`, the lab server has 20
-cores). Output: `hosting_capacity.json` (schema `hosting_capacity/v1`, see `assemble`) + `hosting_capacity.csv` in
-$LAB_OUTPUT_DIR (or --out), and LAB_METRIC lines. Label: synthetic RO (simulated fleet, ERA5 weather, real OPCOM
-prices); the new homes' forecasts are a proxy (scaled donor forecasts).
+Per feeder, add n synthetic homes (`SyntheticPlan`: nested in n, PV / load of healthy donors on the same feeder
+scaled to a fleet kWp draw, battery drawn from the fleet) and replay the test week through the K1 battery kernel
+(`replay_week`, same physics as `agent.loop.run_policy`). The capacity of a policy (`self_consumption`, `threshold`,
+`sentinel`) is the largest n whose minutes over the M8 limit G = tau*G_max + (1 - tau)*G_cons stay within a
+tolerance (0 / 30 min/week), found by galloping + bisection (`capacity_search`, assumes minutes(n) non-decreasing).
+`hosting_capacity_gain` = capacity(sentinel) - capacity(self_consumption). Every model read goes through `validated`.
+Output: hosting_capacity.json (`hosting_capacity/v1`, see `assemble`) + .csv in --out, and LAB_METRIC lines.
 """
 
 from __future__ import annotations
@@ -66,7 +46,7 @@ def log(msg: str) -> None:
     print(f"[hosting] {msg}", file=sys.stderr, flush=True)
 
 
-# =============================================================================================== Judge access (C1)
+# =============================================================================================== Judge access
 def judge_mode() -> str:
     from wattsentry.judge import adapter
 
@@ -105,17 +85,13 @@ def validated(asset_id: str, model: str, t0: str, raw: Callable[[], Any]) -> tup
 
 
 # =============================================================================================== data
-def _no_battery_row() -> tuple[float, float, float, float, float, float, float]:
-    return (0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0)
-
-
 def battery_arrays(batteries: Sequence[Optional[BatterySpec]]) -> dict[str, np.ndarray]:
     """(S,) arrays: cap, pmax, eta_c, eta_d, e_rule (soc_min*E: the rule's physical floor), e_plan (e_min: the
     planner's floor incl. the comfort reserve), e_max. No battery -> zeros (cap 0: the kernel applies 0 kW)."""
     rows = []
     for b in batteries:
         if b is None or b.capacity_kwh <= 0 or b.p_max_kw <= 0:
-            rows.append(_no_battery_row())
+            rows.append((0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0))
         else:
             rows.append((b.capacity_kwh, b.p_max_kw, b.eta_charge, b.eta_discharge, b.soc_min * b.capacity_kwh,
                          b.e_min, b.e_max))
@@ -250,7 +226,7 @@ def extract_feeders(world: Any, comps: Any, feeder_ids: Optional[Sequence[str]] 
             ages[s] = world.observed_site_day(s, d).telemetry_age_s[0] / 60.0
         ass = _safe_qualify(comps, [world.sites[s].row for s in sites], hl, ages, None, {})
         st = {x.asset_id: x.status for x in ass}
-        for s in unknown:  # no reliable source (design §11): human review, the site runs its own rule
+        for s in unknown:  # no reliable source: human review, the site runs its own rule
             st[s] = AssetStatus(s, "human_review", 0.0, "judge:no_reliable_source", battery_ok=False)
         statuses.append({s: st.get(s) or _eligible(s) for s in sites})
     out = []
@@ -534,12 +510,11 @@ def run_job(job: Job, planner: Planner = default_planner) -> dict[str, Any]:
             "evals": len(details), "plan_status": status, "seconds": round(time.perf_counter() - t, 2)}
 
 
-def _run_job_worker(job: Job) -> dict[str, Any]:
-    return run_job(job)
-
-
 def _job_cost(job: Job) -> float:  # schedule the expensive ones first (Sentinel LP on big feeders)
     return job.fw.n_sites * (50.0 if job.policy == "sentinel" else 1.0) * (2.0 if job.variant == "batteries" else 1.0)
+
+
+_THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "RAYON_NUM_THREADS")
 
 
 def run_jobs(jobs: Sequence[Job], workers: int = 1) -> list[dict[str, Any]]:
@@ -554,7 +529,7 @@ def run_jobs(jobs: Sequence[Job], workers: int = 1) -> list[dict[str, Any]]:
     try:
         with ProcessPoolExecutor(max_workers=workers, initializer=_worker_init,
                                  mp_context=multiprocessing.get_context("spawn")) as ex:
-            futs = {ex.submit(_run_job_worker, j): j for j in jobs}
+            futs = {ex.submit(run_job, j): j for j in jobs}
             for f in as_completed(futs):
                 r = f.result()
                 log(f"{r['feeder_id']} {r['policy']} {r['variant']}: capacity {r['capacity']} "
@@ -569,9 +544,6 @@ def run_jobs(jobs: Sequence[Job], workers: int = 1) -> list[dict[str, Any]]:
     return out
 
 
-_THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "RAYON_NUM_THREADS")
-
-
 def _worker_init() -> None:
     for k in _THREAD_VARS:
         os.environ[k] = "1"
@@ -582,7 +554,7 @@ def assemble(feeders: Sequence[FeederWeek], results: Sequence[Mapping[str, Any]]
              tols: Sequence[int] = TOLS_MIN, policies: Sequence[str] = POLICIES,
              variants: Sequence[str] = VARIANTS, n_max: int = N_MAX, extra: Optional[Mapping[str, Any]] = None
              ) -> dict[str, Any]:
-    """The `hosting_capacity/v1` document (what G3 #161 reads).
+    """The `hosting_capacity/v1` document (read by `dso_value.hosting_capacity`).
 
     feeders[i]: feeder_id, src_feeder_id, g_kw, g_max_kw, g_conservative_kw, tau, n_homes, n_batteries,
       capacity[variant][tol][policy] = homes that can be added, censored[...] (True = >= n_max, not reached),
@@ -716,15 +688,12 @@ def summary_table(doc: Mapping[str, Any]) -> str:
 
 # =============================================================================================== CLI
 def _world(kind: str, days: int, seed: int) -> Any:
-    from wattsentry.agent.world import MockWorld, SimWorld
+    from wattsentry.agent.world import MockWorld, SimWorld, find_windows
 
     if kind == "mock":
         return MockWorld(days=days, seed=seed, with_wind=False)
-    from wattsentry.agent.world import find_windows
-    import json as _json
-
     win = find_windows()
-    allf = sorted({s["feeder_id"] for s in _json.loads((Path(win) / "sites.json").read_text())}) if win else None
+    allf = sorted({s["feeder_id"] for s in json.loads((Path(win) / "sites.json").read_text())}) if win else None
     w = SimWorld(days=days, seed=seed, feeders=allf, wind=False)
     w.feeder_label_src = {lbl: src for src, lbl in w.feeder_label.items() if lbl in w.feeders}
     return w

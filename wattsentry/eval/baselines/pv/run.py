@@ -1,14 +1,13 @@
-"""PV / load / fault baselines on the synthetic RO fleet: the numbers SentinelNet (M1, M2, M4) has to beat.
+"""PV / load / fault baselines on the synthetic RO fleet: the numbers M1, M2 and M4 have to beat.
 
     python -m wattsentry.eval.baselines.pv.run                 # small fleet: 100 sites, train 2023, val 2024
-    python -m wattsentry.eval.baselines.pv.run --split test    # full fleet years 2022-2025, score on 2025
+    python -m wattsentry.eval.baselines.pv.run --split test    # score on --test-year
 
-Prints LAB_METRIC lines (train.py names: val_nmae / val_pinball for PV, val_prauc / hours_to_detect for faults,
-plus prefixed per-baseline metrics) and writes baselines_pv.json + the LightGBM bundles to --out
-(default $LAB_OUTPUT_DIR, if set). Everything is a day-ahead (96 x 15 min) forecast from UTC midnight, using the
-day's actual weather (nowcast mode, like the O&M reference) and only data before the day for persistence and
-the reference window. Thresholds are tuned on training days; models train on `split == train` sites only.
-Labels: synthetic RO.
+Prints LAB_METRIC lines (val_nmae / val_pinball for PV, val_prauc / hours_to_detect for faults, plus prefixed
+per-baseline metrics) and writes baselines_pv.json + the LightGBM bundles to --out (default $LAB_OUTPUT_DIR).
+Day-ahead (96 x 15 min) forecasts from UTC midnight on the day's actual weather (nowcast mode); persistence and
+the reference window only see data before the day. Thresholds are tuned on training days; models train on
+`split == train` sites only.
 """
 
 from __future__ import annotations
