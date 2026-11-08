@@ -11,10 +11,8 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
-import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 import { stepToTs, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
-import { ProvenancePill } from "@/components/provenance-pill";
 import {
   type Delta,
   DetailsSheet,
@@ -36,7 +34,7 @@ import { GridRow } from "./grid-section";
 import { LiveRow } from "./live-section";
 import { LEVEL, NoticeRow, useNotice } from "./notice-section";
 import { AXIS_MARGIN, ChartAxes, ChartLegend, EmptyNote, yAxisFor } from "./ui";
-import { useDayWindow, useFeederList, useOverLimit, useRunLabel } from "./use-feeder-data";
+import { useDayWindow, useFeederList, useOverLimit } from "./use-feeder-data";
 import { useSelectedFeeder } from "./use-feeder-state";
 
 const BUCHAREST = new Intl.DateTimeFormat("en-GB", {
@@ -133,8 +131,6 @@ export function FeederPanel() {
   const window = useDayWindow();
   const { data: feeders, isLoading } = useFeederList();
   const { data: overLimit } = useOverLimit();
-  const label = useRunLabel();
-  const showPill = useShowOwnPill(label);
   const feeder = feeders?.find((f) => f.id === selected) ?? feeders?.[0];
   const feederId = feeder?.id ?? "";
   const input = { feederId, ...window };
@@ -263,11 +259,6 @@ export function FeederPanel() {
               <span className="sr-only">Congestion level: </span>
               {level.label}
             </StatusPill>
-          ) : null}
-          {showPill ? (
-            <span className="ml-auto">
-              <ProvenancePill label={label ?? "no run"} />
-            </span>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-caption text-text-secondary">

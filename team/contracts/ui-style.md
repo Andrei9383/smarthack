@@ -47,7 +47,7 @@ Rules:
 
 ## 3. Shape, depth, type
 - **Radius** `--radius: 12px`. `rounded-xl` 12 (cards, floating panels), `rounded-lg` 10 / `rounded-md` 8 (controls),
-  `rounded-sm` 6 (tags), `rounded-full` (status pills, provenance pills, dots). The scale is no longer compressed.
+  `rounded-sm` 6 (tags), `rounded-full` (status pills, small chips, dots). The scale is no longer compressed.
 - **Depth**: `shadow-card` hairline + whisper (in-flow cards); `shadow-raised` hairline only (chips, hover rows);
   `shadow-floating` (top bar, inspector, dock, legend, map controls); `shadow-overlay` (popovers, dialogs,
   sheets, toasts). No cards inside cards.
@@ -74,13 +74,13 @@ No uppercase tracked labels; replace `text-[Npx]` with the classes above when yo
 3. The top bar shows no numbers, no data-source pill and no Demo button (#206): title + subtitle, search, theme.
    Keys 1–6 and the command palette still run the demo script.
 4. One primary (ink) action per panel, written as a verb.
-5. Same oRPC calls, URL state, labels; the inspector keeps its provenance pill (synthetic RO / real RO / non-RO).
+5. Same oRPC calls, URL state, labels. No provenance pills (synthetic RO / real RO / non-RO) anywhere (#212).
 
 ## 5. Building blocks (`apps/web/src/panels/disclosure.tsx`)
 `Metric` (label, value, unit, `delta`, `sub`, `size`, `pop`), `MetricRow`, `DeltaChip`, `StatusPill`,
 `SectionHeader` (title, muted `lead`, one `aside`), `Segmented`, `Pop` / `PopList`, `RowButton`, `DetailsLink`,
 `DetailsSheet`, `SheetSection`, `Fold`. Also `components/brand/status-mark.tsx` (shape = meaning, for scannable
-lists), `components/provenance-pill.tsx`, `components/charts/*`.
+lists), `components/charts/*`. `PROVENANCE_PILL_CLASS` (components/provenance-pill.tsx) is only the neutral chip style.
 
 ## 6. Charts
 - Sentinel = `var(--sentinel)`; baseline = `--chart-baseline` (ink 45%, dashed where it helps). Never swap.

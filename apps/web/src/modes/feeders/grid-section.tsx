@@ -8,7 +8,6 @@ import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SheetSection } fro
 import { orpc } from "@/utils/orpc";
 
 import { BASELINE_SERIES, SENTINEL_SERIES } from "./colors";
-import { ProvenancePill } from "@/components/provenance-pill";
 
 import { ChartLegend, EmptyNote } from "./ui";
 
@@ -104,10 +103,7 @@ function GridSheet({
         </SheetSection>
       ) : null}
 
-      <SheetSection
-        title="Hosting capacity, extra homes"
-        aside={hosting ? <ProvenancePill label={`${hosting.label} · ${hosting.runId}`} /> : null}
-      >
+      <SheetSection title="Hosting capacity, extra homes">
         {hosting ? (
           <>
             <p className="text-caption text-text-secondary">
@@ -138,7 +134,7 @@ function GridSheet({
 
       {/* No G2 voltage.json in this build: leave the section out rather than show an empty card. */}
       {voltage ? (
-        <SheetSection title="Voltage above 253 V" aside={<ProvenancePill label="non-RO · IEEE European LV feeder" />}>
+        <SheetSection title="Voltage above 253 V">
             <MetricRow>
               <Metric
                 label="Steps over 253 V"
@@ -210,7 +206,7 @@ function GridSheet({
         ) : null}
       </SheetSection>
 
-      <SheetSection title="Value for the distributor" aside={value ? <ProvenancePill label={value.label} /> : null}>
+      <SheetSection title="Value for the distributor">
         {value ? (
           <>
             <MetricRow>

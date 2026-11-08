@@ -18,7 +18,6 @@ import { orpc } from "@/utils/orpc";
 import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
 import { ACTUAL, ACTUAL_SOFT, BASELINE, FORECAST, OK } from "../colors";
 import { DetailsSheet, Metric, MetricRow, RowButton, SectionHeader, Segmented, SheetSection } from "../disclosure";
-import { ProvenancePill } from "../provenance-pill";
 import { dayRange, inRange, stepTs, wallClock } from "../site/time";
 
 // Ordered from the most the fleet could ever do to what it actually delivered (plan §3.5).
@@ -116,7 +115,6 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
   );
   const scopeFeeder = scope === "feeder" ? feederId : undefined;
 
-  const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const overview = useQuery(orpc.flex.getOverview.queryOptions({ input: {} }));
   const feeders = useQuery(
     orpc.flex.getFeedersFlex.queryOptions({ input: {} }),
@@ -175,7 +173,6 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-2">
               <h2 className="text-title tracking-tight">Flexibility</h2>
-              {run.data ? <ProvenancePill label={run.data.label} /> : null}
             </div>
             <p className="text-caption text-text-secondary italic">
               “We never sell the nominal number.”
