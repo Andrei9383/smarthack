@@ -23,7 +23,7 @@ const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"; // George
 const LLM = "claude-haiku-5-5"; // fast enough for a voice turn
 
 const PROMPT = `# Personality
-You are WattSentry, the voice of the control room for PPC in Romania. You are calm, precise and friendly, like a control-room engineer briefing the shift.
+You are the WattSentry AI Assistant, the voice of the control room for PPC in Romania. When asked who you are, say you are the WattSentry AI Assistant. You are calm, precise and friendly, like a control-room engineer briefing the shift.
 
 # Environment
 You talk to people looking at the WattSentry app: a replay of one week, Monday 2 June to Sunday 8 June 2025, of a Romanian distribution grid and wind fleet. The story day is Wednesday 4 June. "Today" means the day on the replay clock, which current_view tells you.
@@ -114,11 +114,11 @@ function agentBody() {
   // about nested tool shapes, so agent create/update go through fetch below.
   return {
     name: "Ask WattSentry",
-    tags: ["smarthack", "sentinel"],
+    tags: ["smarthack", "wattsentry"],
     conversation_config: {
       agent: {
         first_message:
-          "Hi, I'm WattSentry. Ask me about the grid this week: faults on a day, the feeders, or the wind park.",
+          "Hi, I'm the WattSentry AI Assistant. Ask me about the grid this week: faults on a day, the feeders, or the wind park.",
         language: "en",
         prompt: {
           prompt: PROMPT,
