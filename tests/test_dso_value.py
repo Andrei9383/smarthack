@@ -1,4 +1,4 @@
-"""Card G3 #161: deferred capex in lei + GridTwin (M8) in the loop."""
+"""DSO value: deferred capex in lei + GridTwin (M8) in the loop."""
 
 from __future__ import annotations
 
@@ -107,7 +107,8 @@ def test_validated_reads_pass_through_without_judge():
 
 
 def test_dont_use_verdict_blocks_move_and_zeroes_tau():
-    adapter = pytest.importorskip("wattsentry.judge.adapter")
+    from wattsentry.judge import adapter
+
     j = adapter.MemoryVerdicts({("1", "gridtwin", "2025-06-02"): {"verdict": "dont_use"},
                                 ("F1", "gridtwin", "2025-06-02"): {"verdict": "dont_use"}})
     adapter.set_default_judge(j)

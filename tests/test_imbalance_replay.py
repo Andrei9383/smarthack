@@ -1,4 +1,4 @@
-"""Imbalance replay (card #176): settlement of every policy, 18-21 double cover, day alignment, output tables."""
+"""Imbalance replay: settlement of every policy, 18-21 double cover, day alignment, output tables."""
 
 import sqlite3
 
@@ -143,7 +143,7 @@ def test_replay_mode_dispatch(monkeypatch):
 
 
 def test_v2_profile_position_uses_same_month_last_year():
-    """#184: profile position on data-v2 = month m-12 metered totals spread by the standard profile."""
+    """Profile position on data-v2 = month m-12 metered totals spread by the standard profile."""
     from types import SimpleNamespace
 
     from wattsentry.eval.imbalance_v2 import profile_net_kwh

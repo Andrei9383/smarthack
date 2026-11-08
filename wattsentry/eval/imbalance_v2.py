@@ -1,34 +1,13 @@
-"""Imbalance replay on data-v2: MaxControl sensitivity (card #184, spec I step 8, follow-up of I6 #176).
+"""Imbalance replay on data-v2: sensitivity to the share of MaxControl batteries.
 
     python replay.py --mode imbalance --data v2 --share-maxcontrol 0.25 --out $LAB_OUTPUT_DIR/imbalance_v2_report.json
 
-One run = one data-v2 world (I2 #172) generated with ``share_maxcontrol_of_battery = s`` (the rest of the config is
-I2's default), then:
-
-1. I4 #174 battery model trained and scored on it (``wattsentry.model.battery.train.run``: train homes 2022-23,
-   validation 2024, unseen homes 2025). It emits strategy_f1 (macro, unseen homes x test days) and its nMAE metrics.
-2. The portfolio = the unseen (never trained on) **smart-meter** homes. Money is reported on smart homes only:
-   profile-meter homes are settled on the standard profile, so no policy can change their bill (spec step 3).
-3. Day-ahead position per 15-min step of local 2025, summed over the portfolio (MWh, + = net purchase):
-
-| policy          | position                                                                                    |
-|-----------------|---------------------------------------------------------------------------------------------|
-| `profile`       | each home's same-month-last-year metered import / export spread on the standard profile    |
-|                 | (load shape for import, solar shape for export) = PPC's practice today                      |
-| `persistence`   | the home's meter, same step a week earlier (I4 ``persist``)                                 |
-| `forecast_only` | load - PV expectation, no battery (I4 ``fo``)                                               |
-| `sentinel`      | I4 two-stage P50: guessed strategy + parameters through the K8 kernel (I4's ``sim_mode``)   |
-| `sentinel_lgbm` | I4 LightGBM quantile P50 on net import (I4's fallback model)                                 |
-
-4. actual = the homes' true 15-min import - export (= the smart meter curve PPC is settled on), settled with
-   ``wattsentry.eval.imbalance.cost_steps`` (X1 frozen a, b) at the world's PZU (corrected OPCOM timestamps, #186).
-
-Not the #176 headline set-up: there the fleet has PV/load telemetry, PVNet/LoadNet bands, K scenarios, conformal
-and a q* purchase. data-v2 homes have only meters, so ``sentinel`` here is I4's P50 point forecast (no q*, no
-conformal). M1/M2 on data-v2 = proxy (physics PV on recorded metadata + profile load scaled to last month's import).
-
-Labels: homes, batteries, strategies = synthetic RO (data-v2); ERA5 weather + OPCOM PZU = real RO; a, b = proxy;
-standard profile = proxy (I2 built-in stand-in); share_maxcontrol = synthetic (swept).
+One run generates one data-v2 world with ``share_maxcontrol_of_battery = s``, trains and scores the battery model on
+it (``wattsentry.model.battery.train.run``, which emits strategy_f1), then settles the day-ahead positions of the
+policies below, summed over the unseen smart-meter homes (profile-metered homes are settled on the standard profile,
+so no policy changes their bill), against their true import - export with ``wattsentry.eval.imbalance.cost_steps``.
+data-v2 homes only have meters, so ``sentinel`` here is the battery model's P50 point forecast (no q*, no conformal).
+Positions MWh per 15-min step, + = net purchase.
 """
 
 from __future__ import annotations
@@ -38,14 +17,14 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 
 POLICIES = ("profile", "persistence", "forecast_only", "sentinel", "sentinel_lgbm")
 HEADLINE = "sentinel"
-I4_KEY = {"persistence": "persist", "forecast_only": "fo", "sentinel_lgbm": "lgbm"}  # sentinel -> I4 sim_mode
+FC_KEY = {"persistence": "persist", "forecast_only": "fo", "sentinel_lgbm": "lgbm"}  # sentinel -> sim_mode
 
 
 def solar_coef(world: Any) -> np.ndarray:
@@ -97,7 +76,7 @@ def portfolio_positions(world: Any, homes: pd.DataFrame, years: Sequence[int], c
         exp_t += np.nan_to_num(te[:, steps]).sum(0)
         acc["profile"] += profile_net_kwh(world, ch.imp_m, ch.exp_m, steps, sol).sum(0)
         for pol in POLICIES[1:]:
-            key = sim_mode if pol == "sentinel" else I4_KEY[pol]
+            key = sim_mode if pol == "sentinel" else FC_KEY[pol]
             acc[pol] += np.nan_to_num(np.asarray(fc[key], np.float64)).sum(0)
         log(f"[imbalance-v2] chunk {ci}: {len(hdf)} homes, {time.perf_counter() - t0:.0f}s", flush=True)
         del ch, fc
@@ -139,7 +118,7 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
     manifest = json.loads((data_dir / "manifest.json").read_text()) if (data_dir / "manifest.json").exists() else {}
     log(f"[imbalance-v2] data-v2 {data_dir} (share_maxcontrol_of_battery={args.share_maxcontrol})", flush=True)
 
-    # ---- I4: train + score (emits strategy_f1, net_nmae, ...)
+    # ---- battery model: train + score (emits strategy_f1, net_nmae, ...)
     t = time.perf_counter()
     i4_out = out_dir / "i4"
     bt_argv = ["--data-dir", str(data_dir), "--out", str(i4_out), "--seed", str(args.seed),
@@ -221,16 +200,16 @@ def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="replay.py --mode imbalance --data v2", description=__doc__.split("\n")[0])
     ap.add_argument("--data", default="v2", help="v2 (this mode)")
     ap.add_argument("--share-maxcontrol", type=float, default=0.25,
-                    help="data-v2 share_maxcontrol_of_battery (synthetic; I2 default 0.25)")
-    ap.add_argument("--v2-homes", type=int, default=0, help="homes to generate (0 = I2 default 5000)")
-    ap.add_argument("--max-homes", type=int, default=0, help="I4 uses at most this many homes (0 = all)")
+                    help="data-v2 share_maxcontrol_of_battery (synthetic; generator default 0.25)")
+    ap.add_argument("--v2-homes", type=int, default=0, help="homes to generate (0 = generator default 5000)")
+    ap.add_argument("--max-homes", type=int, default=0, help="the battery model uses at most this many homes (0 = all)")
     ap.add_argument("--data-dir", default=None, help="an already generated data-v2 dir (skips generate)")
     ap.add_argument("--test-years", default="2025")
     ap.add_argument("--chunk", type=int, default=250)
     ap.add_argument("--rounds", type=int, default=400)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=os.path.join(os.environ.get("LAB_OUTPUT_DIR", "."), "imbalance_v2_report.json"),
-                    help="report json; positions parquet and I4 models go next to it")
+                    help="report json; positions parquet and battery models go next to it")
     ap.add_argument("--run-id", default=None)
     return ap
 

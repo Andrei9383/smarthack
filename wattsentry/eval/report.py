@@ -1,6 +1,6 @@
-"""Eval report: every number is a (block, label, model) row, printed as LAB_METRIC and saved as JSON (#16).
+"""Eval report: every number is a (block, label, model) row, printed as LAB_METRIC and saved as JSON.
 
-Labels (plan R13/R14): "synthetic_RO", "real_RO", "non_RO". Metric names on the lab are
+Labels: "synthetic_RO", "real_RO", "non_RO". Metric names on the lab are
 `<block>_<model>_<metric>` (block e.g. syn_unseen, pvdaq, pvdaq_inj, ro_load), so the leaderboard and slides can
 quote them directly; the JSON keeps the label, the model version and the case count next to each number.
 """
@@ -75,7 +75,7 @@ class Report:
         return path
 
     def summary(self) -> str:
-        """Plain-text table grouped by label, for the run log and the card note."""
+        """Plain-text table grouped by label, for the run log."""
         lines = []
         for label in sorted({r["label"] for r in self.rows}):
             lines.append(f"== {label}")

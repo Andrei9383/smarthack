@@ -1,4 +1,4 @@
-"""G1 hosting capacity (card #159): search, synthetic homes, replay physics vs the loop's rules, end to end."""
+"""Hosting capacity: search, synthetic homes, replay physics vs the loop's rules, end to end."""
 
 from __future__ import annotations
 
@@ -196,10 +196,10 @@ def test_end_to_end_on_the_mock_world(tmp_path, monkeypatch):
     assert doc["sentinel_below_baseline"] == 0
 
 
-def test_judge_verdicts_flow_through_the_c1_adapter():
-    adapter = pytest.importorskip("wattsentry.judge.adapter")  # C1 #157; until it merges reads are passthrough
+def test_judge_verdicts_flow_through_the_judge_adapter():
     from wattsentry.agent.loop import default_components
     from wattsentry.agent.world import MockWorld
+    from wattsentry.judge import adapter
 
     w = MockWorld(days=1, scale=0.4, with_wind=False)
     comps = default_components(w)

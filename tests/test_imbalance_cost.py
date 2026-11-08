@@ -1,4 +1,4 @@
-"""Card #158: avoidable_cost (spec I §7, wind sign spec W §4) and the 15-min price table."""
+"""avoidable_cost (consumption and producer sign) and the 15-min price table."""
 
 import json
 from pathlib import Path
@@ -7,8 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from wattsentry.eval.imbalance import (AB_PATH, AFEER_HI, AFEER_LO, avoidable_cost, cost_steps, load_ab, q_star,
-                                     wind_avoidable_cost)
+from wattsentry.eval.imbalance import AB_PATH, AFEER_HI, AFEER_LO, avoidable_cost, cost_steps, load_ab, q_star
 
 PZU = np.array([400.0, 500.0, 600.0, 300.0])
 PI = np.array([450.0, 480.0, 700.0, 300.0])
@@ -66,6 +65,11 @@ def test_negative_price_never_rewards_imbalance():
     assert r["imbalance_lei"] == pytest.approx(0.5 * 100 * 1 + 0.25 * 50 * 1) and r["imbalance_lei"] > 0
 
 
+def wind_avoidable_cost(prod, sold_da, sold_id, pzu, pi, a, b):
+    """Producer side: production enters as negative demand."""
+    return avoidable_cost(-prod, -sold_da, -sold_id, pzu, pi, a, b)
+
+
 def test_wind_sign():
     prod = np.array([10.0, 10.0, 10.0])
     sold_da = np.array([12.0, 8.0, 10.0])   # step 0 sold 2 MWh not produced (short), step 1 2 MWh unsold (long)
@@ -73,9 +77,6 @@ def test_wind_sign():
     r = wind_avoidable_cost(prod, sold_da, sold_id, PZU[:3], PI[:3], A, B)
     assert r["short_mwh"] == pytest.approx(2.0) and r["long_mwh"] == pytest.approx(2.0)
     assert r["imbalance_lei"] == pytest.approx(A * 400 * 2 + B * 500 * 2)
-    # Same as passing everything with a minus sign (spec W §4).
-    r2 = avoidable_cost(-prod, -sold_da, -sold_id, PZU[:3], PI[:3], A, B)
-    assert r2 == r
     # Perfect forecast = 0; buying back the 2 MWh on PI at step 0 removes the short but costs (pi - pzu) on 2 MWh.
     assert wind_avoidable_cost(prod, prod, sold_id, PZU[:3], PI[:3], A, B)["avoidable_lei"] == 0
     r3 = wind_avoidable_cost(prod[:1], sold_da[:1], np.array([-2.0]), PZU[:1], PI[:1], A, B)
@@ -113,7 +114,7 @@ from wattsentry.data.prices import load_prices, prices_at  # noqa: E402
 
 
 def test_prices_15min_and_hourly_repeat():
-    # PZU switched to 15 min on 2025-10-01 00:00 CEST = 2025-09-30 22:00 UTC (#186)
+    # PZU switched to 15 min on 2025-10-01 00:00 CEST = 2025-09-30 22:00 UTC
     df = load_prices("2025-09-30T19:00", "2025-09-30T23:00")
     assert df.height == 16
     assert (df["ts"].diff().drop_nulls().dt.total_minutes() == 15).all()

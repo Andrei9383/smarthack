@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build apps/web/public/geo/ro_counties.geojson from #9's boundaries, small enough to serve.
+"""Build apps/web/public/geo/ro_counties.geojson from data/raw/geo, small enough to serve.
 
 Rounds to ~1 km and drops repeated points, so neighbouring counties keep sharing their borders.
 

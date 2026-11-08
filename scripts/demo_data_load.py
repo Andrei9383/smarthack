@@ -1,6 +1,6 @@
-"""Extract the files printed by scripts/demo_data_dump.py from a saved `lab logs <run>` (card #193).
+"""Extract the files printed by scripts/demo_data_dump.py (or demo_judge.py dump) from a saved `lab logs <run>`.
 
-    lab logs 1100 > /tmp/run.log && python scripts/demo_data_load.py /tmp/run.log --out demo/grid
+    lab logs <run> > /tmp/run.log && python scripts/demo_data_load.py /tmp/run.log --out demo/grid
 
 Checks each file's sha256 and size against the BEGIN marker.
 """
@@ -21,6 +21,7 @@ def extract(log: str) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
     name, chunks = None, []
     for line in log.splitlines():
+        line = line.strip()
         m = BEGIN.match(line)
         if m:
             name, sha, size, chunks = m.group(1), m.group(2), int(m.group(3)), []
@@ -31,7 +32,7 @@ def extract(log: str) -> dict[str, bytes]:
             files[name] = data
             name = None
         elif name:
-            chunks.append(line.strip())
+            chunks.append(line)
     return files
 
 

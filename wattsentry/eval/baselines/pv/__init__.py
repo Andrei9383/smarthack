@@ -1,4 +1,4 @@
-"""PV / load / fault baselines (card #15): pvlib (recorded metadata), persistence, LightGBM quantiles, threshold
+"""PV / load / fault baselines: pvlib (recorded metadata), persistence, LightGBM quantiles, threshold
 rule and CUSUM on the pvlib residual. Entry point: python -m wattsentry.eval.baselines.pv.run
 
     from wattsentry.eval.baselines.pv import predictors

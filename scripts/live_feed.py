@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Live 15-min feed (card #128, EXPERIMENT): simulated readings in, next-15-min forecasts out, compared at the next
-tick. Writes the SQLite file the app's live view reads (team/contracts/live.md). Readings are simulated.
+"""Live 15-min feed: simulated readings in, next-15-min forecasts out, compared at the next tick. Writes the SQLite
+file the app's live view reads.
 
-  # demo: one tick every 10 s on the #506 week, F7 + F10, starting on the hero day morning
+  # demo: one tick every 10 s on the demo week, F7 + F10, starting on the hero day morning
   python scripts/live_feed.py --world sim --feeders F7,F10 --speed 10 --start 2025-06-04T04:00:00Z
-  # real time: wall clock mapped onto the #506 week by whole weeks, one tick per 15 min
+  # real time: wall clock mapped onto the demo week by whole weeks, one tick per 15 min
   python scripts/live_feed.py --world sim --feeders F7,F10
   # no window cache (tests, laptops): the mock world
   python scripts/live_feed.py --world mock --speed 0 --ticks 8 --db /tmp/live.sqlite
@@ -47,12 +47,12 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--scale", type=float, default=0.25, help="mock world size")
     ap.add_argument("--agent", action="store_true",
-                    help="#129 experiment: the replay agent (policy sentinel) also decides each tick -> live_agent_*")
+                    help="experiment: the replay agent (policy sentinel) also decides each tick -> live_agent_*")
     ap.add_argument("--gate", action="store_true",
-                    help="#129 gate: whole week tick by tick vs the batch replay loop, print both KPI sets, exit")
+                    help="gate: whole week tick by tick vs the batch replay loop, print both KPI sets, exit")
     a = ap.parse_args(argv)
 
-    world = make_world(a.world, a.days, a.seed, a.scale, wind=a.gate)  # gate: replay#506's world (wind + judge on)
+    world = make_world(a.world, a.days, a.seed, a.scale, wind=a.gate)  # gate: the demo replay's world (wind + judge on)
     if a.gate:
         from wattsentry.live.agent import gate
 

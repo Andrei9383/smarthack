@@ -1,10 +1,7 @@
-"""Replay a test week through the agent and write every row to SQLite (card #17).
+"""Replay a test week through the agent and write every row to SQLite (implementation: wattsentry/agent/replay.py).
 
 Usage: python replay.py --policy baseline,sentinel --out $LAB_OUTPUT_DIR/wattsentry.sqlite [--world mock|sim]
-       [--days 7] [--seed 0] [--resolve-hourly] [--fallback all|planner,...] [--full] [--no-strict]
-Default: demo-size DB (< 50 MB) and strict schema mode (raises on fields #38 cannot hold, see audit.ALLOWED_DROPS).
-Implementation: wattsentry/agent/replay.py. Prints LAB_METRIC peak_reduction, minutes_over_limit (per policy),
-p10_hit_rate, comfort_breaches, lei_per_home, alerts_per_turbine_day.
+       [--days 7] [--seed 0] [--mode imbalance] ...   (python replay.py --help lists every flag)
 """
 
 from wattsentry.agent.replay import main

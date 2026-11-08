@@ -1,40 +1,15 @@
-"""Avoidable imbalance cost in lei: one number per policy, shared by Imbalance (I6, I8) and Wind (W3, W5) (card #158).
+"""Avoidable imbalance cost in lei, one number per policy (shared by the imbalance and wind features).
 
-Spec I §7 (feature-imbalance-prosumatori.md, "Pasul 7"), sign convention for wind from spec W §4.
-
-All inputs are per 15-min step: quantities in MWh, prices in lei/MWh. Arrays broadcast (e.g. scenarios x steps).
-Sign convention = **consumption** (the supplier buys):
-
-    actual    = what the portfolio really took from the grid (import - export), MWh
-    bought_da = what was bought day-ahead on PZU, MWh
-    traded_id = what was bought (+) or sold (-) on the intraday market (PI), MWh
-    dev       = actual - bought_da - traded_id      > 0: short (bought too little), < 0: long (too much)
-
-What the supplier pays: PZU on ``bought_da``, PI on ``traded_id``; the deficit is bought at the imbalance price
-``pzu + a*|pzu|``, the surplus sold at ``pzu - b*|pzu|``. Minus the perfect-foresight cost (everything bought on PZU,
-``actual * pzu``) this leaves
+Inputs per 15-min step: quantities MWh, prices lei/MWh; arrays broadcast (e.g. scenarios x steps). Consumption sign
+(the supplier buys): dev = actual - bought_da - traded_id, > 0 short, < 0 long. Relative to buying everything on PZU:
 
     intraday  = traded_id * (pi - pzu)
-    imbalance = a*|pzu|*short + b*|pzu|*long
+    imbalance = a*|pzu|*short + b*|pzu|*long      (|pzu|: never earn money from imbalance at negative prices)
     avoidable = intraday + imbalance
 
-Imbalance price = PZU x (1 +- a|b) is a **proxy** (spec I §6), a and b are calibrated once (``calibrate`` below) so
-that the ``profile`` policy costs 200-375 lei per MWh injected by prosumers (AFEER), then frozen in
-``models/imbalance_ab.json``. Stated deviation from the spec: the spec writes ``a*pzu*short + b*pzu*long``; we use
-``|pzu|`` so that being short or long never *earns* money in negative-price quarter-hours (1.4% of 2025, mostly at
-solar noon, exactly when prosumers are long). Identical whenever pzu >= 0.
-
-**Wind / any producer: production enters with a minus sign**, as negative demand (spec W §4):
-
-    avoidable_cost(actual=-prod_mwh, bought_da=-sold_da_mwh, traded_id=-sold_id_mwh, pzu=pzu, pi=pi)
-    # sold_id_mwh: sold more (+) or bought back (-) on PI
-    # dev = sold_da + sold_id - prod  > 0: sold more than produced (short, pays a), < 0: produced more (long, b)
-
-``wind_avoidable_cost`` does that flip for you.
-
-With a = b the cost of every policy scales by the same factor, so a % reduction does not depend on the value; with
-a != b it depends only on a/b. ``q_star(a, b) = a/(a+b)`` is the purchase quantile that minimises the expected
-imbalance term (newsvendor), used by I5 and W3.
+a, b are a proxy calibrated once (``calibrate``) so the ``profile`` policy costs 200-375 lei per MWh injected (AFEER),
+frozen in models/imbalance_ab.json. Producers (wind) pass every quantity with a minus sign:
+``avoidable_cost(-prod, -sold_da, -sold_id, pzu, pi)``. ``q_star = a/(a+b)`` is the newsvendor purchase quantile.
 """
 
 from __future__ import annotations
@@ -47,7 +22,6 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 AB_PATH = ROOT / "models" / "imbalance_ab.json"
-KEYS = ("avoidable_lei", "intraday_lei", "imbalance_lei", "abs_dev_mwh", "short_mwh", "long_mwh")
 
 
 @lru_cache(maxsize=4)
@@ -63,10 +37,8 @@ def load_ab(path: Path | str = AB_PATH) -> tuple[float, float]:
 
 def q_star(a: float | None = None, b: float | None = None) -> float:
     """Day-ahead purchase quantile ``a / (a + b)`` (P50 when a = b). Frozen values when not given."""
-    if a is None or b is None:
-        a0, b0 = load_ab()
-        a, b = (a0 if a is None else a), (b0 if b is None else b)
-    return float(a) / (float(a) + float(b))
+    a, b = _resolve(a, b)
+    return a / (a + b)
 
 
 def _resolve(a, b) -> tuple[float, float]:
@@ -99,11 +71,11 @@ def cost_steps(actual, bought_da, traded_id, pzu, pi, a: float | None = None,
 
 def avoidable_cost(actual, bought_da, traded_id, pzu, pi, a: float | None = None, b: float | None = None,
                    axis: int | tuple[int, ...] | None = None) -> dict:
-    """Spec I §7. Returns ``avoidable_lei, intraday_lei, imbalance_lei, abs_dev_mwh, short_mwh, long_mwh``.
+    """Returns ``avoidable_lei, intraday_lei, imbalance_lei, abs_dev_mwh, short_mwh, long_mwh``.
 
     ``axis=None`` sums everything and returns floats; otherwise sums over ``axis`` and returns arrays (e.g. ``axis=-1``
     on scenarios x steps gives one cost per scenario). ``a, b = None`` -> frozen values from models/imbalance_ab.json.
-    Consumption sign; for producers use ``wind_avoidable_cost`` or pass every quantity with a minus sign.
+    Consumption sign; for producers pass every quantity with a minus sign.
     """
     s = cost_steps(actual, bought_da, traded_id, pzu, pi, a, b)
     terms = {"avoidable_lei": s["avoidable"], "intraday_lei": s["intraday"], "imbalance_lei": s["imbalance"],
@@ -113,25 +85,15 @@ def avoidable_cost(actual, bought_da, traded_id, pzu, pi, a: float | None = None
     return {k: v.sum(axis=axis) for k, v in terms.items()}
 
 
-def wind_avoidable_cost(prod_mwh, sold_da_mwh, sold_id_mwh, pzu, pi, a: float | None = None,
-                        b: float | None = None, axis=None) -> dict:
-    """Producer side (spec W §4): ``prod_mwh`` produced, ``sold_da_mwh`` sold on PZU, ``sold_id_mwh`` sold more (+)
-    or bought back (-) on PI. short_mwh = sold but not produced (pays a), long_mwh = produced but not sold (b)."""
-    neg = lambda x: None if x is None else -np.asarray(x, dtype=np.float64)  # noqa: E731
-    return avoidable_cost(neg(prod_mwh), neg(sold_da_mwh), neg(sold_id_mwh), pzu, pi, a, b, axis=axis)
-
-
 def lei_per_mwh(res: dict, mwh: float) -> float:
     """``avoidable_lei / mwh`` (lei per MWh injected by prosumers, or per MWh produced for wind)."""
     return float(res["avoidable_lei"]) / float(mwh) if mwh else float("nan")
 
 
-# --------------------------------------------------------------------------------------------------------------------
 # Calibration of a, b (run once, result frozen in models/imbalance_ab.json):
 #   python -m wattsentry.eval.imbalance --calibrate [--fleet DIR] [--year 2024] [--write]
-# --------------------------------------------------------------------------------------------------------------------
 AFEER_LO, AFEER_HI = 200.0, 375.0  # lei per MWh injected by prosumers, publicly reported by suppliers (AFEER)
-AB_RATIO = 2.0                     # a = 2 b: a deficit costs twice what a surplus does (spec: choose a >= b)
+AB_RATIO = 2.0                     # a = 2 b: a deficit costs twice what a surplus does
 
 
 def _fleet_dir(fleet: str | None) -> Path:
@@ -166,8 +128,8 @@ def _portfolio(fleet: Path, year: int):
 
 def _local_keys(ts: np.ndarray):
     import pandas as pd
-    loc = pd.DatetimeIndex(ts).tz_localize("UTC").tz_convert("Europe/Bucharest") if pd.DatetimeIndex(ts).tz is None \
-        else pd.DatetimeIndex(ts).tz_convert("Europe/Bucharest")
+    idx = pd.DatetimeIndex(ts)
+    loc = (idx.tz_localize("UTC") if idx.tz is None else idx).tz_convert("Europe/Bucharest")
     qh = (loc.hour * 4 + loc.minute // 15).to_numpy()
     month = loc.month.to_numpy()
     weekend = (loc.day_of_week >= 5).astype(int)
@@ -182,10 +144,10 @@ def _shape(values: np.ndarray, keys: tuple[np.ndarray, ...]) -> dict:
 
 
 def profile_position(prev: dict, cur: dict) -> np.ndarray:
-    """Minimal stand-in for I3's ``profile`` policy (#173, not merged yet): what a supplier buys day-ahead without
-    weather or meter data. Load = class-average load shape (month x weekday/weekend x quarter-hour) from the
-    previous year x homes (the role of the distributors' standard load profile x expected consumption); minus a
-    typical monthly solar curve (previous year's average kW per kWp by month x quarter-hour) x portfolio kWp."""
+    """Minimal stand-in for the ``profile`` policy: what a supplier buys day-ahead without weather or meter data.
+    Load = class-average load shape (month x weekday/weekend x quarter-hour) from the previous year x homes (the role
+    of the distributors' standard load profile x expected consumption); minus a typical monthly solar curve (previous
+    year's average kW per kWp by month x quarter-hour) x portfolio kWp."""
     m0, w0, q0 = _local_keys(prev["ts"])
     load_shape = _shape(prev["load_kw_home"], (m0, w0, q0))
     pv_shape = _shape(prev["pv_kw_per_kwp"], (m0, q0))

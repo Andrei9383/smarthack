@@ -1,40 +1,17 @@
-"""Imbalance replay: the four supplier policies on the same year, same meters, same prices (card #176, spec I step 8).
+"""Imbalance replay: the supplier policies settled on the same year, meters and prices.
 
     python replay.py --mode imbalance --policy profile,persistence,forecast_only,sentinel \
         --out $LAB_OUTPUT_DIR/imbalance.sqlite
 
-What each policy buys day-ahead for every 15-min step of the test year (2025, UTC days of the #10 window cache):
+Baselines (``profile``, ``persistence``, ``forecast_only``) come from ``baselines_portfolio``; ``sentinel`` buys the
+quantile q* of the portfolio forecast (``portfolio``) on PZU only; ``sentinel_id`` adds the 15:00 re-forecast traded on
+PI. Opt-in level-3 policies (``wattsentry.opt.level3.L3_POLICIES``) add enrolled batteries to the 15:00 LP; their
+dispatch changes the metered flow, so ``positions.bought_da`` = purchase - dispatch change.
 
-| policy          | source                                                    | position                                  |
-|-----------------|-----------------------------------------------------------|-------------------------------------------|
-| `profile`       | I3 #173 ``baselines_portfolio`` (DEER PSC, PPC today)      | bought_da, traded_id = 0                  |
-| `persistence`   | I3 #173 (same step a week earlier, D+1 meters)             | bought_da, traded_id = 0                  |
-| `forecast_only` | I3 #173 (M1 + M2 q50 through the Judge adapter, no battery)| bought_da, traded_id = 0                  |
-| `sentinel`      | I5 #175 ``portfolio`` (K scenarios, battery, conformal)    | bought_da = quantile q*, traded_id = 0    |
-| `sentinel_id`   | I5 #175, + the 15:00 re-forecast traded on PI (level 2)    | bought_da as sentinel, traded_id = I5's   |
-
-Level 3 (I8 #178, ``wattsentry.opt.level3``, opt-in: not in the default --policy): ``sentinel_id_lp`` (the 15:00 LP
-without batteries), ``sentinel_l3`` (+ enrolled batteries), ``sentinel_l3_oracle`` (the LP sees realised PI, upper
-bound), ``sentinel_l3_all`` (every battery home enrolled). The dispatch changes the metered flow, so for these
-``positions.bought_da`` = purchase - dispatch change (dev, costs and KPIs exact; ``actual`` stays the common meter).
-
-Level 1 (the pre-freeze target) = PZU only: ``sentinel`` never trades intraday. ``sentinel_id`` is the level-2 extra.
-Every policy is settled on the same metered portfolio flow (I3's ``actual``: the fault-injected telemetry the models
-were trained on, gaps filled from the clean fleet), with ``wattsentry.eval.imbalance.cost_steps`` (X1 #158, frozen
-a, b) at the OPCOM prices of ``wattsentry.data.prices.prices_at``.
-
-Metrics (LAB_METRIC; unsuffixed = ``sentinel``, level 1; ``_<policy>`` for every policy):
-    avoidable_cost_lei, lei_per_mwh_injected, abs_dev_mwh, double_cover_mwh_18_21, position_nmae,
-    portfolio_nmae, portfolio_coverage_p10_p90 (sentinel's calibrated day-ahead band vs the metered actual),
-    avoidable_cost_reduction_vs_profile (share), strategy_f1 only on data-v2 (not emitted on the current fleet).
-
-Outputs ($LAB_OUTPUT_DIR, or next to ``--out``): one SQLite file with the tables below (replaced if present) + the
-same tables as parquet + imbalance_report.json. Column contract for I7 #177 (UI) is in ``TABLES``.
-
-Labels: homes, batteries, meters = synthetic RO (600-home fleet #11 + faults #12, ERA5 weather); PZU = real RO
-(OPCOM; hourly x4 before 2025-10-01, 15-min after); PI = real RO OPCOM when data/raw/prices_pi.parquet exists (I1
-#171), else PI = PZU (intraday term 0: the level-2 number is then optimistic); imbalance penalty a, b = proxy (AFEER
-200-375 lei/MWh injected, X1 #158); standard profile = real RO (DEER PSC, I3 #173).
+Every policy is settled on the same metered portfolio flow with ``wattsentry.eval.imbalance.cost_steps`` (frozen a, b)
+at the prices of ``wattsentry.data.prices.prices_at``. LAB_METRICs unsuffixed = ``sentinel``, ``_<policy>`` for each.
+Outputs: one SQLite file with the ``TABLES`` below (replaced if present), the same tables as parquet next to it, and
+imbalance_report.json.
 """
 
 from __future__ import annotations
@@ -53,15 +30,11 @@ import pandas as pd
 from wattsentry.opt.level3 import L3_POLICIES
 
 TZ = "Europe/Bucharest"
-H = 96
 POLICIES = ("profile", "persistence", "forecast_only", "sentinel")
 EXTRA_POLICIES = ("sentinel_id",)
 BASELINES = ("profile", "persistence", "forecast_only")
 HEADLINE = "sentinel"
 LABEL_QTY = "synthetic RO"
-SUMMARY_KEYS = ("avoidable_cost_lei", "intraday_lei", "imbalance_lei", "abs_dev_mwh", "short_mwh", "long_mwh",
-                "double_cover_mwh_18_21", "abs_dev_mwh_17_21", "lei_per_mwh_injected", "position_nmae",
-                "bias_mwh", "export_mwh", "actual_mwh", "steps")
 UNITS = {"avoidable_cost_lei": "lei", "intraday_lei": "lei", "imbalance_lei": "lei", "abs_dev_mwh": "MWh",
          "short_mwh": "MWh", "long_mwh": "MWh", "double_cover_mwh_18_21": "MWh", "abs_dev_mwh_17_21": "MWh",
          "lei_per_mwh_injected": "lei/MWh", "position_nmae": "ratio", "bias_mwh": "MWh", "export_mwh": "MWh",
@@ -80,7 +53,7 @@ TABLES = {
         "ts": "text", "policy": "text",                        # + sentinel_id (level 2)
         "bought_da": "real", "traded_id": "real", "actual": "real",  # MWh/step
         "dev_mwh": "real",                                      # actual - bought_da - traded_id (> 0 short)
-        "intraday_lei": "real", "imbalance_lei": "real", "avoidable_lei": "real",  # lei per step (X1 cost_steps)
+        "intraday_lei": "real", "imbalance_lei": "real", "avoidable_lei": "real",  # lei per step (cost_steps)
         "pzu_lei_mwh": "real", "pi_lei_mwh": "real",           # prices used
         "import_mwh": "real", "export_mwh": "real",            # metered portfolio gross flows (>= 0)
         "run_id": "text"},
@@ -105,7 +78,7 @@ def evaluate(ts: Any, actual: np.ndarray, export_mwh: np.ndarray,
              ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, np.ndarray]]]:
     """Settle every policy on the same steps. positions: {policy: (bought_da, traded_id or None)} MWh/step.
 
-    Returns (summary {policy: {SUMMARY_KEYS}}, steps {policy: X1 cost_steps arrays}). double_cover_mwh_18_21 =
+    Returns (summary {policy: {name: total}}, steps {policy: cost_steps arrays}). double_cover_mwh_18_21 =
     MWh bought beyond need (bought + traded - actual > 0) between 18:00 and 21:00 local (the 18:00 story);
     lei_per_mwh_injected = avoidable lei / MWh exported by the prosumers (gross, per home) on the same steps."""
     from wattsentry.eval.imbalance import cost_steps
@@ -156,11 +129,11 @@ def align_days(ts_days: np.ndarray, year_ts: pd.DatetimeIndex) -> tuple[np.ndarr
 def sentinel_positions(src: Any, sites: np.ndarray, val_days: np.ndarray, test_days: np.ndarray, *,
                        models: Mapping[str, Sequence[Any]], k: int, seed: int, chunk_days: int,
                        region: str = "county", log=print) -> dict[str, Any]:
-    """I5 #175 end to end on the test days: calibrated day-ahead band + purchase (q*), 15:00 band + PI trade.
+    """The portfolio forecast on the test days: calibrated day-ahead band + purchase (q*), 15:00 band + PI trade.
 
     Same seeds and conformal fit as ``python -m wattsentry.eval.portfolio`` (val = conformal, test seed + 7919), so
     overlapping days match its eval run. Returns ts (D, T) naive UTC, bought, traded, da_cal, id_cal, fo_cal,
-    mask, actual_i5 (I5's own meter truth, for the diagnostic), conformal json, timings."""
+    mask, actual_i5 (the window cache's meter truth, for the diagnostic), conformal json, timings."""
     from wattsentry.eval import portfolio as P
 
     fleet = P.fleet_from_source(src, region)
@@ -180,13 +153,13 @@ def sentinel_positions(src: Any, sites: np.ndarray, val_days: np.ndarray, test_d
             "da_cal": conf_da.apply(test["da_bands"]), "id_cal": conf_id.apply(test["id_bands"]),
             "fo_cal": conf_fo.apply(test["fo_bands"]), "actual_i5": test["actual"],
             "conformal": {"da": conf_da.to_json(), "id": conf_id.to_json(), "forecast_only": conf_fo.to_json()},
-            "q_star": P.purchase_quantile(), "behaviour": P.behaviour_name(), "timings": timings,
+            "q_star": P.purchase_quantile(), "behaviour": P.BEHAVIOUR_NAME, "timings": timings,
             "val_days": val["day"], "adapter_counts": {"val": val["counts"], "test": test["counts"]}}
 
 
 def baseline_positions(site_ids: Sequence[str], year: int, policies: Sequence[str], log=print
                        ) -> tuple[Any, dict[str, np.ndarray]]:
-    """I3 #173 positions on the local test year: (Portfolio, {policy: bought_da (T,) MWh on pf.ts})."""
+    """Baseline positions on the local test year: (Portfolio, {policy: bought_da (T,) MWh on pf.ts})."""
     from wattsentry.eval import baselines_portfolio as B
 
     t0 = time.perf_counter()
@@ -309,7 +282,7 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
     site_ids = [str(src.sites[i]["site_id"]) for i in sites]
     sp = make_splits(src)
     rng = np.random.default_rng(args.seed)
-    lag_ok = lambda d: d[d >= 16]  # noqa: E731  14 history days + 1 day of meter lag (as I5)
+    lag_ok = lambda d: d[d >= 16]  # noqa: E731  14 history days + 1 day of meter lag
     val_days = _sample(lag_ok(np.concatenate([sp.days["val"], sp.days["cal"]])), args.val_days, rng)
     test_days = _sample(lag_ok(sp.days["test"]), args.test_days, rng)
     md = Path(args.models)
@@ -346,17 +319,16 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
         elif pol == "sentinel_id":
             positions[pol] = (pick(sen["bought"]), pick(sen["traded"]))
     pzu, pi = prices_at(ts.tz_convert("UTC").tz_localize(None).to_numpy())
+    n_days = int(keep.sum())
     l3 = None
     l3_pols = [p for p in policies if p in L3_POLICIES]
-    if l3_pols:  # level 3 (I8 #178): enrolled batteries in the 15:00 LP
-        from wattsentry.eval.imbalance import load_ab as _load_ab
+    if l3_pols:  # level 3: enrolled batteries in the 15:00 LP
         from wattsentry.opt.level3 import replay_level3
 
-        a3, b3 = _load_ab()
-        n_d = int(keep.sum())
+        a3, b3 = load_ab()
         l3 = replay_level3(src, sites, np.asarray(test_days)[keep], ts=np.asarray(sen["ts"])[keep],
                            bought=np.asarray(sen["bought"])[keep], id_cal=np.asarray(sen["id_cal"])[keep],
-                           mask=np.asarray(sen["mask"])[keep], pzu=pzu.reshape(n_d, -1), pi=pi.reshape(n_d, -1),
+                           mask=np.asarray(sen["mask"])[keep], pzu=pzu.reshape(n_days, -1), pi=pi.reshape(n_days, -1),
                            policies=l3_pols, a=a3, b=b3, share=args.l3_share, p_noncompliance=args.l3_noncompliance,
                            n_nodes=args.l3_nodes, seed=args.seed, log=log)
         for pol in l3_pols:
@@ -367,12 +339,11 @@ def run(args: argparse.Namespace, log=print) -> dict[str, Any]:
     head: dict[str, float] = {
         "portfolio_nmae": P.nmae(da_cal[:, 1], actual), "portfolio_coverage_p10_p90": P.coverage(da_cal, actual),
         "portfolio_coverage_p10_p90_forecast_only": P.coverage(pick(sen["fo_cal"]), actual)}
-    n_days = int(keep.sum())
     extra = {}
     for pol in summary:
         extra[pol] = {"avoidable_cost_reduction_vs_profile": reduction_vs(summary, pol),
                       "avoidable_cost_lei_per_day": summary[pol]["avoidable_cost_lei"] / n_days}
-    sen_name = HEADLINE if HEADLINE in summary else next((p for p in ("sentinel_id",) if p in summary), None)
+    sen_name = HEADLINE if HEADLINE in summary else ("sentinel_id" if "sentinel_id" in summary else None)
     if sen_name:
         extra[sen_name].update(head)
 
@@ -491,7 +462,7 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-sites", type=int, default=0, help="first N homes (smoke runs)")
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--l3-share", type=float, default=0.10,
-                    help="level 3: share of battery homes enrolled (spec share_enrolled; sentinel_l3*)")
+                    help="level 3: share of battery homes enrolled (sentinel_l3*)")
     ap.add_argument("--l3-noncompliance", type=float, default=0.10, help="level 3: P(a home opts out on a day)")
     ap.add_argument("--l3-nodes", type=int, default=20, help="level 3: quantile nodes of the 15:00 band per step")
     return ap
@@ -499,7 +470,7 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> dict[str, Any]:
     args, _ = parser().parse_known_args(argv)
-    if args.data == "v2":  # data-v2 MaxControl sensitivity (card #184)
+    if args.data == "v2":  # data-v2 MaxControl sensitivity
         from wattsentry.eval.imbalance_v2 import main as v2_main
 
         return v2_main(argv)

@@ -1,9 +1,9 @@
 """LightGBM quantile baselines (P10/P50/P90) for PV and household load, and the M1/M2 fallback predictor.
 
-    from wattsentry.eval.baselines.pv.lgbm import LGBMPredictor
-    pred = LGBMPredictor.load("lgbm_pv.json").predict(site_row, window)     # -> contracts Prediction
+    from wattsentry.eval.baselines.pv.lgbm import LGBMPredictor, QuantileBundle
+    pred = LGBMPredictor(QuantileBundle.load("lgbm_pv.json")).predict(site_row, window)   # -> contracts Prediction
 
-Training works on the wide arrays from data.py; prediction on one contract Window (model.md), with the same
+Training works on the wide arrays from data.py; prediction on one contract Window, with the same
 feature code (features.py). PV targets are kW per recorded kWp, load targets are kW / the household's 7-day mean;
 night PV is 0 by construction. Quantiles are sorted after prediction so q10 <= q50 <= q90 always holds.
 """
@@ -30,7 +30,7 @@ NIGHT_ZENITH = 90.0
 PARAMS = dict(objective="quantile", learning_rate=0.05, num_leaves=63, min_data_in_leaf=200,
               feature_fraction=0.9, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0, verbose=-1)
 WEATHER_COLS = ("ghi", "dni", "dhi", "temp_c", "wind10_ms", "snow_cm")
-# Default channel order of an array window.weather = #14's physics.WEATHER_CHANNELS (window.meta["weather_channels"])
+# Default channel order of an array window.weather = model.physics.WEATHER_CHANNELS (window.meta["weather_channels"])
 ARRAY_CHANNELS = ("ghi", "dni", "dhi", "temp", "cloud", "wind", "snow")
 _ALIASES = {"ghi_wm2": "ghi", "dni_wm2": "dni", "dhi_wm2": "dhi", "temp_air": "temp_c", "wind_speed": "wind10_ms",
             "snow_depth_cm": "snow_cm", "temp": "temp_c", "wind": "wind10_ms", "snow": "snow_cm"}
@@ -215,10 +215,6 @@ class LGBMPredictor:
         self.bundle = bundle
         self.kind = bundle.kind
         self.model_version = bundle.version
-
-    @classmethod
-    def load(cls, path: Path) -> "LGBMPredictor":
-        return cls(QuantileBundle.load(path))
 
     def predict(self, asset: Mapping[str, Any], window: Window) -> Prediction:
         H = int(window.horizon)

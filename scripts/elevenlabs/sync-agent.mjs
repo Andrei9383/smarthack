@@ -1,4 +1,4 @@
-// Creates or updates the "Ask Sentinel" ElevenLabs voice agent (card #207).
+// Creates or updates the "Ask Sentinel" ElevenLabs voice agent.
 //
 //   node --env-file=.env.local scripts/elevenlabs/sync-agent.mjs
 //

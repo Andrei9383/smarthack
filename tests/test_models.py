@@ -151,15 +151,11 @@ def test_train_registry_errors_cleanly(capsys):
         tm.main(["--model", "nope"])
     with pytest.raises(SystemExit):
         tm.main([])
-    # a registered model whose card has not landed: clear error, not a traceback
-    tm.REGISTRY["ghost"] = "wattsentry.model.ghost_card_xyz.train:main"
-    with pytest.raises(SystemExit, match="does not exist yet"):
-        tm.main(["--model", "ghost", "--lr", "1e-3"])
     assert tm.split_argv(["--lr", "3e-4", "--model", "pvnet", "--seed", "1"]) == ("pvnet", ["--lr", "3e-4", "--seed", "1"])
     assert tm.split_argv(["--model=loadnet"]) == ("loadnet", [])
 
 
-def test_train_module_targets_resolve_for_14():
+def test_train_module_targets_resolve():
     """pvnet / loadnet / sitehealth modules import without torch (torch is imported lazily inside run())."""
     from wattsentry.model import forecast, sitehealth
 

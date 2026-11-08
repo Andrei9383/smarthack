@@ -1,6 +1,6 @@
 """'Not sure' thresholds for human review, tuned on validation and frozen in models/thresholds.json.
 
-Schema (shared with #26 qualify, which reads it — do not change without `lab announce`):
+Schema (read by wattsentry.agent.qualify; a shared contract):
 
     {"version": 1, "source_run": str,
      "site":    {"stale_minutes": 60, "pfault_confident": 0.6, "soiling_confident": 0.7, "pfault_std_max": 0.15,
@@ -8,9 +8,8 @@ Schema (shared with #26 qualify, which reads it — do not change without `lab a
      "turbine": {"stale_minutes": 60, "anomaly_conf_min": 0.6, "ood_max": 3.0}}
 
 Signals: `pfault_std` = ensemble std of P_fault (M4 members), `rel_width` = (q90 − q10)/max(q50, eps) averaged over
-daylight steps (`rel_width`), `ood` = Mahalanobis score (`ood.MahalanobisOOD`, same scale as
-`Prediction.ood_score`). A signal above its *_max → human review; P_fault ≥ pfault_confident → confident fault;
-a soiling call also needs P(soiling) ≥ soiling_confident (#214).
+daylight steps (`rel_width`), `ood` = `Prediction.ood_score`. A signal above its *_max → human review; P_fault ≥ pfault_confident → confident fault;
+a soiling call also needs P(soiling) ≥ soiling_confident.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Any, Mapping, Optional, Union
 
 import numpy as np
 
@@ -63,14 +62,6 @@ def validate_thresholds(d: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-def load_thresholds(path: Union[str, Path, None] = None) -> dict[str, Any]:
-    """Read models/thresholds.json (or `path`); defaults if the file does not exist."""
-    p = Path(path) if path is not None else THRESHOLDS_PATH
-    if not p.exists():
-        return copy.deepcopy(DEFAULT_THRESHOLDS)
-    return validate_thresholds(json.loads(p.read_text()))
-
-
 def save_thresholds(d: Mapping[str, Any], path: Union[str, Path, None] = None) -> Path:
     p = Path(path) if path is not None else THRESHOLDS_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -99,12 +90,6 @@ def rel_width(q10: Any, q50: Any = None, q90: Any = None, mask: Optional[np.ndar
     den = m.sum(axis=-1)
     out = np.where(den > 0, num / np.maximum(den, 1), 0.0)
     return float(out) if out.ndim == 0 else out
-
-
-def pfault_std(member_fault_probs: Sequence[Mapping[str, float]]) -> float:
-    """Ensemble std of P_fault = 1 − P(healthy) across M4 members (population std, 0 for one member)."""
-    p = [1.0 - float(m.get("healthy", 0.0)) for m in member_fault_probs]
-    return float(np.std(p)) if p else 0.0
 
 
 # --- tuning --------------------------------------------------------------------------------------------------
