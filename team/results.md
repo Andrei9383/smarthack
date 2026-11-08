@@ -39,6 +39,21 @@ intraday term is 0 and sentinel_id is optimistic. Run: `imbalance#1071` (main 10
 
 The price fix moved the totals by less than 1 %, so the headline stays at about −80 %. Quantities are unchanged (the same 388 MWh absolute deviation).
 
+**MaxControl sensitivity on data-v2 (#184).** `replay.py --mode imbalance --data v2 --share-maxcontrol s`: data-v2 (I2 #172, 2000 homes)
+generated with share_maxcontrol_of_battery = s, the I4 #174 battery model trained inside the run, money counted on the unseen smart-meter
+homes in 2025 (profile-meter homes settle on the standard profile, so no policy changes their bill). Here `sentinel` is I4's two-stage P50
+point forecast: no K scenarios, q* or conformal (data-v2 homes have meters only). So it is a weaker set-up than the fleet headline above
+and the two are not comparable. Labels: homes and strategies syn RO; PZU real RO; a, b proxy; standard profile proxy (I2 built-in);
+M1/M2 proxy (I4 physics PV + profile load).
+
+| s (MaxControl share of battery homes) | price-driven homes in portfolio | strategy_f1 (unseen) | profile lei | persistence | forecast_only | **sentinel** (I4 two-stage) | sentinel_lgbm | run |
+|---|---|---|---|---|---|---|---|---|
+| 0.10 | 12 / 379 (3.2 %) | 0.971 | 653,083 (387.8 lei/MWh inj.) | 485,664 (−25.6 %) | 530,486 (−18.8 %) | **310,262 (−52.5 %)** | 304,636 (−53.4 %) | `imbalance#1146` |
+| 0.50 | — | — | — | — | — | — | — | `imbalance#1147` did not finish in the time box |
+
+Not measured: s = 0, 0.25 and 1.0. imbalance#1109/1110 were lost in a lab outage, and #1111–1113 were cancelled to free GPUs for #202.
+At s = 0.10, sentinel's 18–21 double cover is 30.8 MWh against 24.9 for profile and 86.0 for forecast_only.
+
 ## Caveats and misses
 
 - **#1 is not zero.** 1905 minutes over the limit remain. Hero feeder F7 on Wed 4 Jun goes 90.3 kW / 270 min → 61.7 kW / 0 min (F10 the same day 270 → 0), but F7 is still over on Mon/Tue/Thu/Fri (150–375 min, 2.8–27.3 kWh). Minutes can rise while the overload falls (F7 Mon 285 → 375 min but 79.1 → 27.3 kWh): the LP penalises energy above the limit, so quote kWh over the limit next to minutes.
