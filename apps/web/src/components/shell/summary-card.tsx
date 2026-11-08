@@ -15,7 +15,7 @@ import { canonicalName, formatKpiParts, type Kpi } from "@/lib/kpi-format";
 const METRICS = [
   { name: "peak_reduction", label: "Peak reduction" },
   { name: "minutes_over_limit", label: "Minutes over limit" },
-  // kWh and kW over the limit, next to minutes (team/insights.md, replay#506): minutes can rise while the overload falls.
+  // kWh and kW over the limit, next to minutes: minutes can rise while the overload falls.
   { name: "energy_over_limit", label: "Energy over limit" },
   { name: "peak_overshoot", label: "Peak over limit" },
   { name: "p10_hit_rate", label: "P10 hit rate" },
