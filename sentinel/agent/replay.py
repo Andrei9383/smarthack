@@ -249,7 +249,8 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
            schema_dir: Optional[Path] = None, resolve_hourly: bool = False,
            force_fallback: bool | Sequence[str] = False, run_id: Optional[str] = None,
            comps: Optional[Components] = None, print_metrics: bool = True, full: bool = False,
-           strict: bool = True, judge: bool = True, judge_check: bool = False) -> ReplayReport:
+           strict: bool = True, judge: bool = True, judge_check: bool = False,
+           detail_sites: Optional[frozenset[str]] = None) -> ReplayReport:
     """Default output is the demo DB (R18 < 50 MB): no per-step pv/load prediction rows (asset_steps keeps the PV
     quantiles) and schedules only for Sentinel (baseline battery rows are not shown by the UI). `full=True`
     stores both. `strict=True` raises `audit.SchemaMismatch` on any field the schema cannot hold that is not in
@@ -278,7 +279,7 @@ def replay(policies: Sequence[str] = ("baseline", "sentinel"), out: str | os.Pat
         t0 = time.perf_counter()
         cfg = LoopConfig(policy=pol, run_id=rid, resolve_hourly=resolve_hourly, seed=seed,
                          write_inputs=(pol == first_inputs), step_predictions=full,
-                         write_schedules=full or pol == "sentinel", judge=judge)
+                         write_schedules=full or pol == "sentinel", judge=judge, detail_sites=detail_sites)
         res = run_policy(w, comps, cfg, sink=db)
         results[pol] = res
         t_pol = time.perf_counter() - t0
