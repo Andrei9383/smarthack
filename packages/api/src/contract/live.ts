@@ -3,24 +3,23 @@ import { z } from "zod";
 
 import type { CongestionLevelValue } from "./notify";
 
-// Live view (card #130): actual feeder export up to "now", the next-15-min forecast ahead of it,
+// Live view: actual feeder export up to "now", the next-15-min forecast ahead of it,
 // the error of the last prediction, and a warning when the forecast crosses the feeder limit.
 //
 // Two sources, one shape:
-// - "live": the #128 15-min loop's own SQLite file (env LIVE_DB, read-only). Provisional table,
-//   to align with team/contracts/live.md when #128 publishes it:
+// - "live": the 15-min live loop's own SQLite file (env LIVE_DB, read-only):
 //     live_feeder_steps(feeder_id TEXT, ts TEXT 'YYYY-MM-DDTHH:MM:SSZ', actual_kw REAL NULL,
 //       q10_kw REAL, q50_kw REAL, q90_kw REAL, persistence_kw REAL NULL, limit_kw REAL,
 //       tick_at TEXT -- wall-clock ISO time the row was written --, speed REAL NULL)
 //   A tick writes the prediction for ts = now + 15 min (actual NULL) and fills actual_kw for ts = now.
 // - "replay": no live feed (or a stale one). The replay day stands in: the actual is the baseline
-//   export, the forecast is #120's day-ahead P10/P50/P90 feeder export. The client masks actuals
+//   export, the forecast is the congestion notice's day-ahead P10/P50/P90 feeder export. The client masks actuals
 //   after its replay clock, so nothing after "now" is shown as measured.
 // Readings are simulated in both cases and the UI says so.
 
 export const LIVE_TICK_SECONDS = 900;
 
-export const livePointSchema = z.object({
+const livePointSchema = z.object({
   ts: z.string(),
   actualKw: z.number().nullable(),
   q10Kw: z.number().nullable(),
@@ -30,9 +29,9 @@ export const livePointSchema = z.object({
 });
 export type LivePoint = z.infer<typeof livePointSchema>;
 
-export const liveSourceSchema = z.enum(["live", "replay"]);
+const liveSourceSchema = z.enum(["live", "replay"]);
 
-export const liveFeederSchema = z.object({
+const liveFeederSchema = z.object({
   feederId: z.string(),
   limitKw: z.number(),
   source: liveSourceSchema,
@@ -66,11 +65,11 @@ export const liveContract = {
     .output(liveFeederSchema.nullable()),
 };
 
-// ---- Pure view logic, shared by the panel and any test: slice at "now", score, warn. ----
+// ---- Pure view logic for the panel: slice at "now", score, warn. ----
 
 /** A miss is flagged when it is off by more than 25% of the prediction and 5% of the limit. */
-export const MISS_REL = 0.25;
-export const MISS_OF_LIMIT = 0.05;
+const MISS_REL = 0.25;
+const MISS_OF_LIMIT = 0.05;
 
 export type LiveTick = {
   ts: string;
@@ -80,7 +79,7 @@ export type LiveTick = {
   flagged: boolean;
 };
 
-export type LiveWarning = {
+type LiveWarning = {
   level: CongestionLevelValue;
   /** First forecast step over the limit at the warning's quantile, if any. */
   firstOverTs: string | null;
@@ -99,7 +98,7 @@ export type LiveView = {
   warning: LiveWarning;
 };
 
-export function scoreTick(p: LivePoint, limitKw: number): LiveTick | null {
+function scoreTick(p: LivePoint, limitKw: number): LiveTick | null {
   if (p.actualKw == null || p.q50Kw == null) return null;
   const errorKw = p.actualKw - p.q50Kw;
   const flagged =
@@ -108,8 +107,8 @@ export function scoreTick(p: LivePoint, limitKw: number): LiveTick | null {
   return { ts: p.ts, predictedKw: p.q50Kw, actualKw: p.actualKw, errorKw, flagged };
 }
 
-/** #120's grades on the forecast ahead: severe = P10 over, congested = P50 over, watch = P90 over. */
-export function warnFor(ahead: LivePoint[], limitKw: number): LiveWarning {
+/** The congestion notice's grades on the forecast ahead: severe = P10 over, congested = P50 over, watch = P90 over. */
+function warnFor(ahead: LivePoint[], limitKw: number): LiveWarning {
   const over = (key: "q10Kw" | "q50Kw" | "q90Kw") => ahead.find((p) => (p[key] ?? -Infinity) > limitKw);
   const severe = over("q10Kw");
   const congested = over("q50Kw");

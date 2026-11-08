@@ -1,7 +1,7 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-export const runItemSchema = z.object({
+const runItemSchema = z.object({
   id: z.string(),
   kind: z.string(),
   policy: z.string().nullable().optional(),
@@ -13,9 +13,8 @@ export const runItemSchema = z.object({
   finishedAt: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
-export type RunItem = z.infer<typeof runItemSchema>;
 
-export const kpiItemSchema = z.object({
+const kpiItemSchema = z.object({
   runId: z.string(),
   policy: z.string(),
   name: z.string(),
@@ -23,9 +22,8 @@ export const kpiItemSchema = z.object({
   unit: z.string().nullable().optional(),
   label: z.string(),
 });
-export type KpiItem = z.infer<typeof kpiItemSchema>;
 
-export const overviewSchema = z.object({
+const overviewSchema = z.object({
   homes: z.number(),
   feeders: z.number(),
   turbines: z.number(),
@@ -35,7 +33,6 @@ export const overviewSchema = z.object({
   availabilityPct: z.number().nullable(),
   activeIssues: z.number().nullable(),
 });
-export type Overview = z.infer<typeof overviewSchema>;
 
 export const manifestContract = {
   // KPI strip for one replay window; from/to are ISO-8601 UTC, `now` is the replay time.

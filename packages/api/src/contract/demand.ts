@@ -1,7 +1,7 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-export const zoneDemandItemSchema = z.object({
+const zoneDemandItemSchema = z.object({
   zoneId: z.string(),
   level: z.string(),
   zoneName: z.string(),
