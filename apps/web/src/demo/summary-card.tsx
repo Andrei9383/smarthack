@@ -193,11 +193,6 @@ export function SummaryCard() {
                 })}
               </tbody>
             </table>
-            {runIds.length > 0 ? (
-              <p className="mt-3 text-caption text-muted-foreground">
-                Run ID <span className="font-mono text-text-secondary">{runIds.join(" · ")}</span>
-              </p>
-            ) : null}
           </Fold>
         </div>
         {anyKpi ? null : <p className="mt-3 text-xs text-muted-foreground">No logged run yet.</p>}

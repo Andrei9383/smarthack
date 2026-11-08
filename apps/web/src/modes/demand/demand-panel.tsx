@@ -179,9 +179,7 @@ export function DemandPanel() {
         </nav>
         <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <h2 className="text-title leading-tight tracking-tight">{shown ? shown.name : "Demand"}</h2>
-          {shown && (
-            <StatusPill status={selected ? "unknown" : "warn"}>{selected ? shown.level : "Most stressed county"}</StatusPill>
-          )}
+          {shown && !selected ? <StatusPill status="warn">Most stressed county</StatusPill> : null}
         </div>
       </header>
 
