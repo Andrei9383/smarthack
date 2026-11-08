@@ -24,7 +24,12 @@ import {
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { useAgentActions } from "@/components/shell/agent-actions";
+import {
+  ACTION_LABEL,
+  useAgentActions,
+  useExplainAction,
+} from "@/components/shell/agent-actions";
+import { KIND_STYLE } from "@/components/shell/agent-toast";
 import { useStoryNarration } from "@/components/voice/story-narration";
 import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
 import {
@@ -33,6 +38,7 @@ import {
   dayWindow,
   HERO_DAY,
   STEPS_PER_DAY,
+  timeLabel,
 } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
@@ -488,6 +494,83 @@ function Decisions() {
   );
 }
 
+/* ---------- 4. Activity log: what the agent did today ---------- */
+
+const LOG_FIRST = 6;
+
+function ActivityLog() {
+  const [rawStep] = useReplayStep();
+  const step = clampStep(rawStep);
+  const { actions } = useAgentActions();
+  const explain = useExplainAction();
+  const [all, setAll] = useState(false);
+  const today = actions
+    .filter((a) => dayOfStep(a.step) === dayOfStep(step) && a.step <= step)
+    .sort((a, b) => b.step - a.step);
+  const shown = all ? today : today.slice(0, LOG_FIRST);
+
+  return (
+    <section aria-labelledby="ov-log" className={cn(CARD, "p-5")}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="ov-log" className="section-title">
+          Activity log
+        </h2>
+        <span className="text-caption text-muted-foreground tabular-nums">
+          {plural(today.length, "action")} today
+        </span>
+      </div>
+      {shown.length ? (
+        <ul className="mt-2 divide-y divide-border">
+          {shown.map((a) => {
+            const { icon: Icon, tile } = KIND_STYLE[a.kind];
+            return (
+              <li key={a.id} className="flex items-center gap-3 py-2">
+                <span className="w-11 shrink-0 font-mono text-caption text-muted-foreground tabular-nums">
+                  {timeLabel(a.step)}
+                </span>
+                <span
+                  className={cn(
+                    "grid size-6 shrink-0 place-items-center rounded-md text-primary-foreground",
+                    tile,
+                  )}
+                >
+                  <Icon aria-hidden className="size-3.5" />
+                </span>
+                <span className="w-24 shrink-0 text-caption font-medium text-text-secondary">
+                  {ACTION_LABEL[a.kind]}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-dense text-foreground">
+                  {a.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => explain(a)}
+                  className={cn(LINK, "text-caption")}
+                >
+                  Why?
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="mt-2 py-4 text-dense text-muted-foreground">
+          No agent actions yet today.
+        </p>
+      )}
+      {today.length > LOG_FIRST ? (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          className={cn(LINK, "mt-1 -ml-1.5")}
+        >
+          {all ? "Show less" : `Show all ${today.length}`}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 /** Small demo control: starts the story day for presentations, out of the way for daily use. */
 function DemoButton() {
   const demo = usePlayDemo();
@@ -761,6 +844,7 @@ export function OverviewPage(_props: ModePageProps) {
         <GapChart />
         <Steps />
       </div>
+      <ActivityLog />
     </div>
   );
 }

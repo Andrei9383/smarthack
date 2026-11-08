@@ -45,13 +45,11 @@ function PairBars({ without, withS, max, unit }: { without: number; withS: numbe
 
 /** Inspector row that opens the grid sheet. The selected feeder's "+N prosumers" lives in the sheet. */
 export function GridRow({ feederId, feederName }: { feederId: string; feederName: string }) {
-  const { data } = useGrid();
   const [open, setOpen] = useState(false);
   return (
     <>
       <RowButton onClick={() => setOpen(true)} className="border-t border-border">
         <span className="font-medium">Grid capacity</span>
-        <span className="text-text-secondary">{data?.voltage ? " · voltage, map, value" : " · map, value"}</span>
       </RowButton>
       <GridSheet open={open} onOpenChange={setOpen} feederId={feederId} feederName={feederName} />
     </>

@@ -202,17 +202,11 @@ function FeedersLegend({ charging, policy }: { charging: boolean; policy: Policy
         <LegendRow label="Near limit">
           <Swatch color={FEEDER_WARN} kind="warn" />
         </LegendRow>
-        <LegendRow label="Over limit now (pulses)">
+        <LegendRow label="Over limit">
           <Swatch color={FEEDER_OVER} kind="critical" />
         </LegendRow>
         <LegendRow label="No data">
           <Swatch color={FEEDER_UNKNOWN} kind="unknown" />
-        </LegendRow>
-        <LegendRow label="Low GIS trust">
-          <span className="block w-5 border-t-[3px] border-dashed border-text-secondary" />
-        </LegendRow>
-        <LegendRow label="Low map confidence (τ)">
-          <span className="block h-2.5 w-5 bg-[repeating-linear-gradient(135deg,var(--status-warn)_0_2px,transparent_2px_5px)] opacity-60" />
         </LegendRow>
         {charging && (
           <LegendRow label="Batteries charging">

@@ -40,7 +40,6 @@ import {
   useAgentActions,
 } from "./agent-actions";
 import { showAgentToast } from "./agent-toast";
-import { Term } from "@/components/help";
 
 // The story's "now": the hero day at noon, where the demo starts and "Back to now" returns.
 const NOW_STEP = DEFAULT_STEP;
@@ -279,6 +278,9 @@ function ActionLane({
  * The bottom dock: play, SCADA clock, the week scrubber with the agent-actions lane, policy.
  * `compact` (Overview page) keeps play, clock, scrubber and policy and drops the lane and footnote.
  */
+/** The coloured agent-action bubbles above the scrubber; the Overview's activity log replaces them. */
+const SHOW_ACTION_LANE = false;
+
 export function TimelineDock({ className, compact = false }: { className?: string; compact?: boolean }) {
   useReplayTicker();
   const [rawStep, setStep] = useReplayStep();
@@ -394,8 +396,8 @@ export function TimelineDock({ className, compact = false }: { className?: strin
       </div>
 
       <div className="@container relative min-w-0 flex-1 select-none">
-        {/* Agent actions lane. The key drops to normal case, then hides, so it never clips. */}
-        {compact ? null : (
+        {/* Agent actions lane: off (the day's actions are listed on the Overview instead). */}
+        {compact || !SHOW_ACTION_LANE ? null : (
         <>
         <div className="mb-0.5 flex h-3 items-center justify-between gap-2 text-[10px] leading-none">
           <span className="font-medium whitespace-nowrap text-muted-foreground">
@@ -522,11 +524,6 @@ export function TimelineDock({ className, compact = false }: { className?: strin
 
       <div className="flex shrink-0 flex-col items-end gap-1">
         <PolicySwitch policy={policy} onChange={setPolicy} />
-        {compact ? null : (
-          <span className="text-[11px] whitespace-nowrap text-muted-foreground">
-            <Term id="baseline">Baseline</Term> = without Sentinel<span className="hidden min-[1440px]:inline"> · space plays</span>
-          </span>
-        )}
       </div>
     </div>
   );

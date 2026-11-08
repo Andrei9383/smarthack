@@ -9,7 +9,6 @@ import { Band } from "@/components/charts/band";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { StatusMark } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
 import { stepToTs, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
@@ -265,15 +264,6 @@ export function FeederPanel() {
           <span>{feeder.county}</span>
           <span aria-hidden>·</span>
           <span className="tabular-nums">{limitKw} kW limit</span>
-          <span aria-hidden>·</span>
-          {feeder.gisTrust === "low" ? (
-            <span className="inline-flex items-center gap-1 text-status-warn">
-              <StatusMark kind="warn" size="xs" />
-              <Term id="gis-trust">GIS trust low</Term>
-            </span>
-          ) : (
-            <span>GIS trust {feeder.gisTrust ?? "unknown"}</span>
-          )}
         </div>
       </header>
 
@@ -371,7 +361,6 @@ export function FeederPanel() {
             className="border-t border-border"
           >
             <span className="font-medium">Details</span>
-            <span className="text-text-secondary"> · import, batteries, homes</span>
           </RowButton>
         </div>
       </div>
