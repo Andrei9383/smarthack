@@ -140,3 +140,24 @@ def test_replay_mode_dispatch(monkeypatch):
     assert seen["argv"] == ["--k", "5", "--policy", "profile,sentinel"]
     with pytest.raises(SystemExit):
         replay.main(["--mode", "nope"])
+
+
+def test_v2_profile_position_uses_same_month_last_year():
+    """#184: profile position on data-v2 = month m-12 metered totals spread by the standard profile."""
+    from types import SimpleNamespace
+
+    from sentinel.eval.imbalance_v2 import profile_net_kwh
+
+    n_m, per = 24, 4  # 24 months x 4 steps each
+    midx = np.repeat(np.arange(n_m), per)
+    world = SimpleNamespace(day_month=midx, cal={"day_index": np.arange(n_m * per)},
+                            load_coef=np.tile([1.0, 1.0, 2.0, 4.0], n_m))
+    sol = np.tile([0.0, 1.0, 1.0, 0.0], n_m)
+    imp_m = np.arange(n_m, dtype=float)[None, :] * 8.0
+    exp_m = np.full((1, n_m), 2.0)
+    steps = np.flatnonzero(midx >= 12)
+    out = profile_net_kwh(world, imp_m, exp_m, steps, sol)
+    tot = np.bincount(midx[steps] - 12, weights=out[0], minlength=12)
+    np.testing.assert_allclose(tot, imp_m[0, :12] - 2.0)  # each month sums to last year's import - export
+    np.testing.assert_allclose(out[0, :4], [0.0, -1.0, -1.0, 0.0])  # month 12 <- month 0 (import 0, export 2)
+    assert out[0, 7] == pytest.approx(4.0)  # month 13 <- import 8 spread by load_coef 4/8
