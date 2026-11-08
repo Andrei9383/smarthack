@@ -58,7 +58,7 @@ define skip
 @mkdir -p $(LOGS); printf '\n==> %s\n' "$(1)"; echo "skipped: $(2)" | tee $(LOGS)/$(1).log; echo "-" > $(LOGS)/$(1).time
 endef
 
-.PHONY: help reproduce setup test sim baselines eval demand uncertainty replay replay-demo train app fixtures summary clean clean-venv
+.PHONY: help reproduce setup test sim baselines eval demand uncertainty replay replay-demo train app app-600 fixtures summary clean clean-venv
 
 help:
 	@echo "Prosumer Sentinel"
@@ -204,6 +204,13 @@ app:
 	npm run build
 	@echo "serving on http://localhost:$${PORT:-3000}  (DB: $(if $(APP_DB),$(abspath $(APP_DB)),demo/sentinel.sqlite else demo/fixtures.sqlite))"
 	$(if $(APP_DB),DATABASE_URL=file:$(abspath $(APP_DB)),) npm start
+
+# The 600-home fleet (#118, replay #568; card #211): unpack the committed .gz, then serve it.
+demo/sentinel-homes600.sqlite: demo/sentinel-homes600.sqlite.gz
+	python3 -c 'import gzip,shutil; shutil.copyfileobj(gzip.open("$<"), open("$@","wb"))'
+
+app-600: demo/sentinel-homes600.sqlite
+	$(MAKE) app APP_DB=demo/sentinel-homes600.sqlite
 
 fixtures:
 	python3 demo/fixtures/make_fixtures.py
