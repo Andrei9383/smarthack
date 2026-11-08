@@ -17,7 +17,7 @@ import { orpc } from "@/utils/orpc";
 
 import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
 import { ACTUAL, ACTUAL_SOFT, BASELINE, FORECAST, OK } from "../colors";
-import { DetailsSheet, Metric, MetricRow, RowButton, SheetSection } from "../disclosure";
+import { DetailsSheet, Metric, MetricRow, RowButton, SectionHeader, Segmented, SheetSection } from "../disclosure";
 import { ProvenancePill } from "../provenance-pill";
 import { dayRange, inRange, stepTs, wallClock } from "../site/time";
 
@@ -54,8 +54,6 @@ const SERIES = [
     hint: "measured afterwards",
   },
 ] as const;
-const SECTION_LABEL =
-  "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
 // Room for the y-axis labels on the left and the 24:00 tick on the right.
 const CHART_MARGIN = { left: 40, right: 18, top: 10, bottom: 26 };
 /** KPI 3 in team/plan.md: realised ≥ committed (P10) on ≥ 90% of feeder-steps. */
@@ -97,7 +95,7 @@ export function FlexDock() {
       <Button
         size="sm"
         variant="default"
-        className="absolute top-3 left-3 z-10 h-8 rounded-lg px-3 text-[13px] shadow-card"
+        className="absolute top-3 left-3 z-10 h-8 rounded-lg px-3 text-dense shadow-card"
         onClick={() => setOpen(true)}
       >
         <BatteryCharging className="size-4" />
@@ -165,19 +163,21 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
   const ofNominal =
     committed != null && values.nominal ? committed / values.nominal : null;
   const day = chart[0]?.date;
+  const sentence =
+    committed == null
+      ? `No commitment for the hour starting ${timeLabel(step - (step % 4))}.`
+      : `For the hour starting ${timeLabel(step - (step % 4))} Sentinel sells ${committed.toFixed(1)} kW of battery flexibility${ofNominal != null ? `, ${Math.round(ofNominal * 100)}% of the nominal ${fmtKw(values.nominal)}` : ""}.`;
 
   return (
-    <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl bg-card text-[13px] text-foreground shadow-floating">
+    <aside className="absolute top-3 bottom-24 left-3 z-10 flex w-[380px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl bg-card text-dense text-foreground shadow-floating">
       <header className="space-y-3 px-5 pt-4 pb-4 shadow-[0_1px_0_var(--border)]">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 space-y-0.5">
             <div className="flex items-center gap-2">
-              <h2 className="text-base leading-6 font-semibold tracking-tight">
-                Flexibility
-              </h2>
+              <h2 className="text-title tracking-tight">Flexibility</h2>
               {run.data ? <ProvenancePill label={run.data.label} /> : null}
             </div>
-            <p className="text-xs leading-5 text-text-secondary italic">
+            <p className="text-caption text-text-secondary italic">
               “We never sell the nominal number.”
             </p>
           </div>
@@ -193,34 +193,17 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             </Button>
           ) : null}
         </div>
-        <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-muted p-0.5" role="group" aria-label="Scope">
-          {SCOPES.map((s) => (
-            <Button
-              key={s}
-              size="sm"
-              variant="ghost"
-              aria-pressed={scope === s}
-              className={`w-full rounded-md text-xs transition-colors duration-150 ${
-                scope === s
-                  ? "bg-card font-semibold text-foreground shadow-raised hover:bg-card"
-                  : "text-text-secondary hover:bg-transparent hover:text-foreground"
-              }`}
-              onClick={() => setScope(s)}
-            >
-              {s === "feeder" ? `Feeder ${feederId}` : "Fleet total"}
-            </Button>
-          ))}
-        </div>
+        <Segmented
+          label="Scope"
+          value={scope}
+          onChange={(s) => void setScope(s)}
+          options={SCOPES.map((s) => ({ value: s, label: s === "feeder" ? `Feeder ${feederId}` : "Fleet total" }))}
+          className="grid w-full grid-cols-2 [&>button]:w-full"
+        />
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-3.5 pb-4">
-        <p className="pb-3 text-[14px] leading-snug text-foreground">
-          {committed == null
-            ? `No commitment for the hour starting ${timeLabel(step - (step % 4))}.`
-            : `For the hour starting ${timeLabel(step - (step % 4))} Sentinel sells ${committed.toFixed(1)} kW of battery flexibility${ofNominal != null ? `, ${Math.round(ofNominal * 100)}% of the nominal ${fmtKw(values.nominal)}` : ""}.`}
-        </p>
-
-        <MetricRow className="border-y border-border py-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-4 pb-4">
+        <MetricRow className="border-b border-border pb-3">
           <Metric
             label="Committed"
             value={committed == null ? "—" : committed.toFixed(1)}
@@ -229,6 +212,8 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             sub="(1−h)·P10"
             popTitle="From nominal to what we sell"
             pop={
+              <>
+              <p className="mb-2.5 text-foreground">{sentence}</p>
               <ul className="space-y-2.5">
                 {SERIES.map(({ key, label, color, dashed, hint }) => {
                   const v = values[key];
@@ -246,7 +231,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
                         </span>
                         <span className="ml-auto shrink-0 font-semibold text-foreground tabular-nums">{fmtKw(v)}</span>
                       </div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>
+                      <div className="mt-0.5 text-caption text-muted-foreground">{hint}</div>
                       <div className="mt-1 h-1.5 rounded-full bg-muted">
                         <div
                           className="h-full rounded-full transition-[width] duration-150"
@@ -257,6 +242,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
                   );
                 })}
               </ul>
+              </>
             }
           />
           <Metric
@@ -269,14 +255,14 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               <div className="space-y-2.5">
                 <p>Share of hours where the realised flexibility reached the committed P10. Target ≥ {HIT_TARGET * 100}%.</p>
                 <div>
-                  <div className="flex justify-between text-[11px]">
+                  <div className="flex justify-between text-caption">
                     <span>Today</span>
                     <span className="font-semibold text-foreground tabular-nums">{pct(dayHit)}</span>
                   </div>
                   <HitMeter value={dayHit} />
                 </div>
                 <div>
-                  <div className="flex justify-between text-[11px]">
+                  <div className="flex justify-between text-caption">
                     <span>Week</span>
                     <span className="font-semibold text-foreground tabular-nums">{pct(weekHit)}</span>
                   </div>
@@ -294,25 +280,17 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
         </MetricRow>
 
         <section className="space-y-2.5 pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
-            <h3 className={SECTION_LABEL}>Per hour today (kW)</h3>
-            <div className="ml-auto flex flex-wrap justify-end gap-x-2.5 gap-y-1 text-[11px] text-text-secondary">
-              {SERIES.map(({ label, color, dashed }) => (
+          <SectionHeader as="h3" title="Per hour today (kW)" />
+          <div className="flex flex-wrap gap-x-2.5 gap-y-1 text-caption text-text-secondary">
+            {SERIES.map(({ label, color, dashed }) => (
+              <span key={label} className="flex items-center gap-1 whitespace-nowrap">
                 <span
-                  key={label}
-                  className="flex items-center gap-1 whitespace-nowrap"
-                >
-                  <span
-                    className="inline-block w-3 border-t-2"
-                    style={{
-                      borderColor: color,
-                      borderStyle: dashed ? "dashed" : "solid",
-                    }}
-                  />
-                  {label}
-                </span>
-              ))}
-            </div>
+                  className="inline-block w-3 border-t-2"
+                  style={{ borderColor: color, borderStyle: dashed ? "dashed" : "solid" }}
+                />
+                {label}
+              </span>
+            ))}
           </div>
           {chart.length && day ? (
             <LineChart
@@ -367,7 +345,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
         >
           <SheetSection title="By feeder">
           <table className="w-full text-xs tabular-nums">
-            <thead className="text-[11px] text-text-secondary">
+            <thead className="text-caption text-text-secondary">
               <tr className="border-b text-left">
                 <th className="py-1.5 pl-2 font-medium">Feeder</th>
                 <th className="py-1.5 text-right font-medium">Eligible</th>
@@ -380,7 +358,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
               {(feeders.data ?? []).map((f) => (
                 <tr
                   key={f.feederId}
-                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-surface-raised font-medium text-foreground shadow-[inset_2px_0_0_var(--primary)]" : "hover:bg-surface-raised"}`}
+                  className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 ${f.feederId === feederId ? "bg-surface-raised font-medium text-foreground shadow-[inset_2px_0_0_var(--foreground)]" : "hover:bg-surface-raised"}`}
                   onClick={() => {
                     void setFeeder(f.feederId);
                     setPoolOpen(false);
@@ -415,7 +393,7 @@ export function FlexPanel({ onClose }: { onClose?: () => void }) {
             </tbody>
           </table>
           {overview.data ? (
-            <p className="text-[11px] leading-4 text-muted-foreground tabular-nums">
+            <p className="text-caption text-muted-foreground tabular-nums">
               Fleet: {overview.data.totalBatteries} batteries ·{" "}
               {overview.data.totalKwh.toFixed(0)} kWh ·{" "}
               {overview.data.totalKw.toFixed(0)} kW. Peak hour committed{" "}

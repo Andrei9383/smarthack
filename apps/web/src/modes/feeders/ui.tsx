@@ -4,10 +4,16 @@ import { scaleLinear } from "d3-scale";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-// Small presentational pieces shared by the Feeders and Demand panels (team/contracts/ui-style.md).
+import { ProvenancePill } from "@/components/provenance-pill";
+import { LABEL, SectionHeader as CalmSectionHeader } from "@/panels/disclosure";
 
-export const SECTION_LABEL =
-  "text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-text-secondary uppercase";
+// Small presentational pieces shared by the Feeders and Demand panels (team/contracts/ui-style.md, Calm).
+
+/** @deprecated Use `LABEL` from panels/disclosure. Kept for demand-panel until #200 lands. */
+export const SECTION_LABEL = LABEL;
+
+/** The shared provenance pill (components/provenance-pill.tsx); re-exported for demand-panel. */
+export { ProvenancePill };
 
 /** Plot margins: room on the left for y labels, below for time ticks. */
 export const AXIS_MARGIN = { left: 36, right: 10, top: 22, bottom: 24 };
@@ -82,13 +88,13 @@ export function ChartAxes({
         right: AXIS_MARGIN.right,
       }}
     >
-      <span className="absolute right-full bottom-full mb-2.5 pr-2 text-[10px] leading-none font-medium text-muted-foreground">
+      <span className="absolute right-full bottom-full mb-2.5 pr-2 text-caption leading-none font-medium text-muted-foreground">
         {unit}
       </span>
       {ticks.map((value) => (
         <span
           key={value}
-          className="absolute right-full -translate-y-1/2 pr-2 text-[11px] leading-none text-muted-foreground tabular-nums"
+          className="absolute right-full -translate-y-1/2 pr-2 text-caption leading-none text-muted-foreground tabular-nums"
           style={{ top: yOf(value) }}
         >
           {formatTick(value)}
@@ -97,7 +103,7 @@ export function ChartAxes({
       {timeTicks.map(({ hour, fraction }, index) => (
         <span
           key={hour}
-          className={`absolute top-full mt-2 text-[11px] leading-none text-muted-foreground tabular-nums ${
+          className={`absolute top-full mt-2 text-caption leading-none text-muted-foreground tabular-nums ${
             index === 0 ? "" : index === timeTicks.length - 1 ? "-translate-x-full" : "-translate-x-1/2"
           }`}
           style={{ left: `${fraction * 100}%` }}
@@ -107,7 +113,7 @@ export function ChartAxes({
       ))}
       {showNow ? (
         <span className="absolute inset-y-0 border-l border-dashed border-foreground/35" style={{ left: `${(nowFraction ?? 0) * 100}%` }}>
-          <span className="absolute bottom-full left-0 mb-1 -translate-x-1/2 rounded-sm bg-foreground px-1 py-px font-mono text-[9px] leading-none font-medium text-background">
+          <span className="absolute bottom-full left-0 mb-1 -translate-x-1/2 rounded-sm bg-foreground px-1 py-px font-mono text-caption leading-none font-medium text-background">
             now
           </span>
         </span>
@@ -115,7 +121,7 @@ export function ChartAxes({
       {marks.map(({ value, label, className }) => (
         <span
           key={label}
-          className={`absolute right-0 -translate-y-full rounded-sm bg-card/90 px-1 pb-0.5 text-[11px] leading-none font-semibold whitespace-nowrap tabular-nums ${className ?? ""}`}
+          className={`absolute right-0 -translate-y-full rounded-sm bg-card/90 px-1 pb-0.5 text-caption leading-none font-semibold whitespace-nowrap tabular-nums ${className ?? ""}`}
           style={{ top: yOf(value) }}
         >
           {label}
@@ -127,7 +133,7 @@ export function ChartAxes({
 
 export function ChartLegend({ items }: { items: { label: string; color: string; dashed?: boolean }[] }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-text-secondary">
+    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-caption text-text-secondary">
       {items.map(({ label, color, dashed }) => (
         <span key={label} className="flex items-center gap-1.5 whitespace-nowrap">
           <span
@@ -141,35 +147,17 @@ export function ChartLegend({ items }: { items: { label: string; color: string; 
   );
 }
 
-/** Section title on the left, optional legend on the right, one line. */
+/**
+ * @deprecated Use `SectionHeader` from panels/disclosure (`aside` instead of children). This wrapper
+ * keeps demand-panel's call sites working until #200 lands.
+ */
 export function SectionHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <h3 className={SECTION_LABEL}>{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-function provenanceDot(label: string) {
-  if (/non-ro/i.test(label)) return "bg-status-forecast";
-  if (/real/i.test(label)) return "bg-status-ok";
-  return "bg-status-unknown";
-}
-
-/** The neutral provenance pill shared by every mode (synthetic RO / real RO / non-RO). */
-export function ProvenancePill({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-text-secondary">
-      <span className={`size-1.5 rounded-full ${provenanceDot(label)}`} />
-      {label}
-    </span>
-  );
+  return <CalmSectionHeader as="h3" title={title} aside={children} />;
 }
 
 export function EmptyNote({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong bg-background px-4 py-6 text-center text-xs text-text-secondary">
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-strong bg-background px-4 py-6 text-center text-caption text-text-secondary">
       <Icon className="size-4" aria-hidden />
       <p>{children}</p>
     </div>
