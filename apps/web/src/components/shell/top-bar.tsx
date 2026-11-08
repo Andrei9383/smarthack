@@ -3,22 +3,19 @@
 import { cn } from "@sentinel-app/ui/lib/utils";
 import { Search } from "lucide-react";
 
-import { DemoPopover } from "@/demo/demo-jumps";
+import { DemoKeys } from "@/demo/demo-jumps";
 import { MODES, type ModeId } from "@/modes/registry";
 
 import { useShortcutLabel } from "./command-palette";
 import { MODE_COPY } from "./mode-copy";
-import { ProvenanceBadge } from "./provenance-badge";
 import { ThemeToggle } from "./theme-toggle";
 
 const FLOAT = "rounded-xl bg-card shadow-floating";
-// The Demo button lives in demo/; lift it onto the same elevation as the rest of the bar.
-const DEMO_ELEVATION =
-  "[&>[data-tour=demo]>button]:border-transparent [&>[data-tour=demo]>button]:shadow-floating [&>[data-tour=demo]>[role=dialog]]:border-0 [&>[data-tour=demo]>[role=dialog]]:shadow-overlay";
 
 /**
- * Floating top bar (Calm): the page title and one plain line under it, then search (⌘K), provenance,
- * the theme switch and the demo script. No numbers here: each view shows its own few KPIs.
+ * Floating top bar (Calm): the page title and one plain line under it, then search (⌘K) and the theme
+ * switch. No numbers, no demo button, no data-source pill (#206): each view shows its own few KPIs and
+ * the inspector keeps its provenance pill. Keys 1–6 still run the demo script.
  */
 export function TopBar({ mode, onSearch, className }: { mode: ModeId; onSearch: () => void; className?: string }) {
   const copy = MODE_COPY[mode];
@@ -29,7 +26,7 @@ export function TopBar({ mode, onSearch, className }: { mode: ModeId; onSearch: 
         <h1 className="text-title leading-tight tracking-tight whitespace-nowrap text-foreground">{MODES[mode].label}</h1>
         <p className="truncate text-caption text-muted-foreground">{copy.descriptor}</p>
       </div>
-      <div className={cn("ml-auto flex shrink-0 items-stretch gap-2.5", DEMO_ELEVATION)}>
+      <div className="ml-auto flex shrink-0 items-stretch gap-2.5">
         <button
           type="button"
           onClick={onSearch}
@@ -46,9 +43,8 @@ export function TopBar({ mode, onSearch, className }: { mode: ModeId; onSearch: 
             {shortcut}
           </kbd>
         </button>
-        <ProvenanceBadge sources={copy.sources} />
         <ThemeToggle className={FLOAT} />
-        <DemoPopover />
+        <DemoKeys />
       </div>
     </header>
   );

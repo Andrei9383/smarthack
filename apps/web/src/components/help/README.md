@@ -60,7 +60,6 @@ const tour = useTour();              // auto-opens ~0.8 s after the first visit
 | `inspector` | right-hand details panel | 4 · Details and the "why" |
 | `timeline` | bottom dock (play button, clock, scrubber, actions lane) | 5 · Play the week |
 | `policy` | Baseline / Sentinel toggle | 6 · Baseline vs Sentinel |
-| `demo` | Demo menu button in the top bar | 7 · Use the Demo menu |
 
 Step 1 (Welcome) has no target.
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
-import { ChevronRight, CircleHelp, Info, Pause, Play } from "lucide-react";
+import { ChevronRight, CircleHelp, Pause, Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -30,7 +30,6 @@ import {
   DetailsLink,
   DetailsSheet,
   Metric,
-  MetricRow,
   Num,
   PopList,
   SectionHeader,
@@ -44,11 +43,11 @@ import { orpc } from "@/utils/orpc";
 import { MiniMap } from "./mini-map";
 import { type FeederState, useOverviewData } from "./use-overview-data";
 
-// Overview, Calm (#197, after #124): a briefing card (one sentence, one primary action), a map card,
-// a row of four KPI tiles, then "Needs attention" (top 5), "Today vs. without Sentinel" (3 rows),
-// the last 5 agent actions and the imbalance glance (#192). Everything else (the full attention
-// list, the per-feeder table, all agent activity, the top-bar day numbers and model trust) sits in
-// one Details sheet. Same queries and data as before; nothing was removed, only moved.
+// Overview, Calm (#197, #206): a briefing card (one sentence, one primary action) and a map card, a row
+// of four KPI tiles, then "Needs attention" (top 5) beside the last 5 agent actions, and one line for
+// imbalance cost. Everything else (the full attention list, the per-feeder table with baseline vs
+// Sentinel, all agent activity and model trust) sits in one Details sheet; the week's Sentinel vs
+// baseline totals are in Summary.
 
 const NAV_PARSERS = {
   mode: parseAsString,
@@ -170,7 +169,7 @@ function Briefing({ onTour }: { onTour: () => void }) {
           <CircleHelp aria-hidden className="size-4 text-muted-foreground" />
           How it works
         </button>
-        <span className="ml-1 hidden text-caption text-muted-foreground min-[1440px]:inline">
+        <span className="ml-1 hidden text-caption text-muted-foreground @min-[1300px]:inline">
           from {clockLabel(MORNING_STEP)}, with Sentinel
         </span>
       </div>
@@ -179,6 +178,26 @@ function Briefing({ onTour }: { onTour: () => void }) {
 }
 
 /* ---------- 2. KPI row: four tiles ---------- */
+
+// Two by two on a narrow page, one row of four from 880px. Each tile sits in its own cell, and the
+// hairline divider belongs to the cell, so it follows the layout (#206).
+const KPI_CELLS = [
+  "",
+  "border-l border-border pl-4",
+  "@min-[880px]:border-l @min-[880px]:border-border @min-[880px]:pl-4",
+  "border-l border-border pl-4",
+];
+function KpiGrid({ children }: { children: ReactNode[] }) {
+  return (
+    <div className="mt-2 grid grid-cols-2 gap-y-4 @min-[880px]:grid-cols-4 [&_span]:whitespace-normal">
+      {children.map((child, index) => (
+        <div key={index} className={cn("min-w-0", KPI_CELLS[index])}>
+          {child}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function KpiRow({ onDetails }: { onDetails: OpenDetails }) {
   const data = useOverviewData();
@@ -201,7 +220,7 @@ function KpiRow({ onDetails }: { onDetails: OpenDetails }) {
         title={<span id="ov-kpis">Today</span>}
         aside={<DetailsLink onClick={() => onDetails("numbers")} />}
       />
-      <MetricRow className="mt-2">
+      <KpiGrid>
         <Metric
           size="lg"
           label={
@@ -212,7 +231,7 @@ function KpiRow({ onDetails }: { onDetails: OpenDetails }) {
           value={<CountUp value={data.ready ? within : 0} />}
           unit={`/ ${data.feeders.length || "–"}`}
         />
-        <Metric size="lg" label="Home batteries in today's plan" value={<CountUp value={homes} />} />
+        <Metric size="lg" label="Batteries in today's plan" value={<CountUp value={homes} />} />
         <Metric
           size="lg"
           label="Wind expected, next 24 h"
@@ -227,7 +246,7 @@ function KpiRow({ onDetails }: { onDetails: OpenDetails }) {
           unit={known(day?.availabilityPct) ? "%" : undefined}
           sub={known(day?.activeIssues) ? plural(day.activeIssues, "open work order") : undefined}
         />
-      </MetricRow>
+      </KpiGrid>
     </section>
   );
 }
@@ -441,98 +460,6 @@ function NeedsAttention({ onDetails }: { onDetails: OpenDetails }) {
   );
 }
 
-/* ---------- 4. Today vs. without Sentinel: three rows ---------- */
-
-type Comparison = { label: ReactNode; unit: string; sentinel?: number; baseline?: number; note: string; up?: boolean };
-
-function ComparisonRow({ row, ready }: { row: Comparison; ready: boolean }) {
-  const delta = deltaOf(row.baseline, row.sentinel, row.up);
-  return (
-    <li className="flex items-center gap-4 py-3.5">
-      <div className="min-w-0 flex-1">
-        <p className="text-dense text-text-secondary">
-          {row.label} <span className="text-muted-foreground">· {row.note}</span>
-        </p>
-        <p className="mt-1 text-caption text-muted-foreground">
-          without Sentinel{" "}
-          <span className="font-medium text-text-secondary">
-            {row.baseline === undefined ? "—" : Math.round(row.baseline)}
-            {row.unit ? ` ${row.unit}` : ""}
-          </span>
-        </p>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        {row.sentinel === undefined ? (
-          <span className="text-2xl leading-none font-semibold text-muted-foreground">—</span>
-        ) : (
-          <Num
-            value={<CountUp value={ready ? row.sentinel : 0} />}
-            unit={row.unit || undefined}
-            className="text-2xl leading-none font-semibold tracking-tight text-foreground"
-          />
-        )}
-        {delta ? <DeltaChip delta={delta} /> : null}
-      </div>
-    </li>
-  );
-}
-
-function TodayVsWithout({ onDetails }: { onDetails: OpenDetails }) {
-  const data = useOverviewData();
-  const sum = (pick: (f: FeederState) => number | undefined) =>
-    data.feeders.every((f) => pick(f) === undefined) ? undefined : data.feeders.reduce((s, f) => s + (pick(f) ?? 0), 0);
-  const max = (pick: (f: FeederState) => number | undefined) =>
-    data.feeders.every((f) => pick(f) === undefined) ? undefined : Math.max(...data.feeders.map((f) => pick(f) ?? 0));
-
-  const rows: Comparison[] = [
-    {
-      label: (
-        <>
-          Minutes over the <Term id="feeder-limit">limit</Term>
-        </>
-      ),
-      unit: "min",
-      sentinel: sum((f) => f.sentinelMinutes),
-      baseline: sum((f) => f.baselineMinutes),
-      note: "all feeders, today",
-    },
-    {
-      label: "Highest feeder peak",
-      unit: "kW",
-      sentinel: max((f) => f.sentinelPeakKw),
-      baseline: max((f) => f.baselinePeakKw),
-      note: "today",
-    },
-    {
-      label: <Term id="comfort-reserve">Comfort breaches</Term>,
-      unit: "",
-      sentinel: data.comfort.sentinel,
-      baseline: data.comfort.baseline,
-      note: "this week",
-    },
-  ];
-
-  return (
-    <section aria-labelledby="ov-today" className={cn(CARD, "h-full px-5 pt-3 pb-2")}>
-      <SectionHeader
-        lead="Today vs."
-        title={<span id="ov-today">without Sentinel</span>}
-        aside={
-          <button type="button" onClick={() => onDetails("feeders")} className={QUIET_LINK}>
-            <Info aria-hidden className="size-3.5" />
-            Breakdown
-          </button>
-        }
-      />
-      <ul className="flex flex-col divide-y divide-border">
-        {rows.map((row, index) => (
-          <ComparisonRow key={index} row={row} ready={data.ready} />
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 /* ---------- Imbalance glance (#177, #192) ---------- */
 
 function ImbalanceGlance() {
@@ -543,46 +470,44 @@ function ImbalanceGlance() {
   const profile = of("profile");
   const lei = (v?: number) => (v === undefined ? "—" : Math.round(v).toLocaleString("en-US"));
   const delta = deltaOf(profile?.avoidableLei, sentinel?.avoidableLei);
+  // One full-width line: title and context left, the number and its change right (#206).
   return (
-    <section aria-labelledby="ov-imbalance" className={cn(CARD, "h-full px-5 pt-3 pb-2")}>
-      <SectionHeader
-        title={<span id="ov-imbalance">Imbalance cost</span>}
-        aside={
-          <button
-            type="button"
-            onClick={() => go({ mode: "imbalance", feeder: null, park: null, turbine: null, site: null })}
-            className={QUIET_LINK}
-          >
-            Open imbalance
-            <ChevronRight aria-hidden className="size-3.5" />
-          </button>
-        }
-      />
-      <div className="flex items-center gap-4 py-3.5">
-        <div className="min-w-0 flex-1">
-          <p className="text-dense text-text-secondary">
-            Avoidable imbalance cost{" "}
-            <span className="text-muted-foreground">
-              · {sentinel ? `${Math.round(sentinel.days)} days, portfolio` : "no imbalance replay yet"}
-            </span>
-          </p>
-          <p className="mt-1 text-caption text-muted-foreground">
-            fixed profile <span className="font-medium text-text-secondary">{lei(profile?.avoidableLei)} lei</span>
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
+    <section aria-labelledby="ov-imbalance" className={cn(CARD, "flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4")}>
+      <div className="min-w-[240px] flex-1">
+        <h2 id="ov-imbalance" className="section-title">
+          Imbalance cost
+        </h2>
+        <p className="mt-0.5 text-caption text-muted-foreground">
           {sentinel ? (
-            <Num
-              value={lei(sentinel.avoidableLei)}
-              unit="lei"
-              className="text-2xl leading-none font-semibold tracking-tight text-foreground"
-            />
+            <>
+              Avoidable, {Math.round(sentinel.days)} days across the portfolio · a fixed profile costs{" "}
+              <span className="font-medium text-text-secondary">{lei(profile?.avoidableLei)} lei</span>
+            </>
           ) : (
-            <span className="text-2xl leading-none font-semibold text-muted-foreground">—</span>
+            "No imbalance replay yet."
           )}
-          {delta ? <DeltaChip delta={delta} /> : null}
-        </div>
+        </p>
       </div>
+      <div className="flex items-center gap-2.5">
+        {sentinel ? (
+          <Num
+            value={lei(sentinel.avoidableLei)}
+            unit="lei"
+            className="text-[24px] leading-none font-semibold tracking-[-0.02em] text-foreground"
+          />
+        ) : (
+          <span className="text-[24px] leading-none font-semibold text-muted-foreground">—</span>
+        )}
+        {delta ? <DeltaChip delta={delta} /> : null}
+      </div>
+      <button
+        type="button"
+        onClick={() => go({ mode: "imbalance", feeder: null, park: null, turbine: null, site: null })}
+        className={QUIET_LINK}
+      >
+        Open imbalance
+        <ChevronRight aria-hidden className="size-3.5" />
+      </button>
     </section>
   );
 }
@@ -859,37 +784,25 @@ export function OverviewPage({ onTour }: ModePageProps) {
   const go = useGo();
   const [details, setDetails] = useState<DetailsTarget | null>(null);
   return (
-    <div className="@container w-full max-w-[1200px]">
-      <div
-        className={cn(
-          "grid grid-cols-1 gap-5",
-          "@min-[880px]:grid-cols-[minmax(0,1fr)_400px] @min-[1100px]:grid-cols-[minmax(0,1fr)_420px]",
-        )}
-      >
-        <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-1">
+    <>
+      {/* Two even columns from 880px (one below). Each row is its own grid, so cards in a row share a
+          height and nothing leaves a gap. Centred with a 1600px cap; the dock uses the same cap (#206). */}
+      <div className="@container mx-auto flex w-full max-w-[1600px] flex-col gap-5">
+        <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-2">
           <Briefing onTour={onTour} />
+          <MiniMap
+            onOpen={() => go({ mode: "feeders", site: null, turbine: null })}
+            className="h-[280px] @min-[880px]:h-auto @min-[880px]:min-h-[260px]"
+          />
         </div>
-        <MiniMap
-          onOpen={() => go({ mode: "feeders", site: null, turbine: null })}
-          className="h-[280px] @min-[880px]:col-start-2 @min-[880px]:row-start-1 @min-[880px]:h-auto @min-[880px]:min-h-[240px]"
-        />
-        <div className="@min-[880px]:col-span-2 @min-[880px]:row-start-2">
-          <KpiRow onDetails={setDetails} />
-        </div>
-        <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-3">
+        <KpiRow onDetails={setDetails} />
+        <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-2">
           <NeedsAttention onDetails={setDetails} />
-        </div>
-        <div className="@min-[880px]:col-start-2 @min-[880px]:row-start-3">
-          <TodayVsWithout onDetails={setDetails} />
-        </div>
-        <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-4">
           <AgentActivity onDetails={setDetails} />
         </div>
-        <div className="@min-[880px]:col-start-2 @min-[880px]:row-start-4">
-          <ImbalanceGlance />
-        </div>
+        <ImbalanceGlance />
       </div>
       <OverviewDetails target={details} onClose={() => setDetails(null)} />
-    </div>
+    </>
   );
 }

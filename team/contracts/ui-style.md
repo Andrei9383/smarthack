@@ -71,9 +71,10 @@ No uppercase tracked labels; replace `text-[Npx]` with the classes above when yo
 ## 4. Content diet (every screen)
 1. Glance: title + one status pill, **≤ 3 KPIs** (Overview ≤ 4), **one chart**, **one top-5 list** with "See all".
 2. Everything else goes into `DetailsSheet`, `Fold` or a `Pop` popover. Nothing is removed from the app.
-3. The top bar shows no numbers.
+3. The top bar shows no numbers, no data-source pill and no Demo button (#206): title + subtitle, search, theme.
+   Keys 1–6 and the command palette still run the demo script.
 4. One primary (ink) action per panel, written as a verb.
-5. Same oRPC calls, URL state, labels; provenance pills (synthetic RO / real RO / non-RO) stay visible.
+5. Same oRPC calls, URL state, labels; the inspector keeps its provenance pill (synthetic RO / real RO / non-RO).
 
 ## 5. Building blocks (`apps/web/src/panels/disclosure.tsx`)
 `Metric` (label, value, unit, `delta`, `sub`, `size`, `pop`), `MetricRow`, `DeltaChip`, `StatusPill`,
