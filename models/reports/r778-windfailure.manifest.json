@@ -1,0 +1,68 @@
+{
+ "model": "windfailure",
+ "model_version": "windfailure-r778",
+ "card": 43,
+ "created_utc": "2026-11-07T21:17:35.683646+00:00",
+ "git_sha": "3b624f5f3e021375acb17990a9a36bcc42c9504d",
+ "argv": [
+  "train.py",
+  "--model",
+  "windfailure",
+  "--residuals",
+  "nbm"
+ ],
+ "args": {
+  "residuals": "nbm",
+  "data": "auto",
+  "synth_days": 731,
+  "synth_scale": 1.0,
+  "holdout_park": null,
+  "folds": 4,
+  "embargo_days": 14,
+  "embargo_after": 7,
+  "fa_budget": 0.5,
+  "rounds": 800,
+  "lr": 0.03,
+  "leaves": 15,
+  "min_leaf": 40,
+  "seed": 0,
+  "nbm_epochs": 20,
+  "nbm_steps": 300,
+  "nbm_hidden": 96,
+  "nbm_lr": 0.002,
+  "nbm_max_minutes": 15.0,
+  "care": false,
+  "care_max_gb": 2.0,
+  "device": null,
+  "out": null,
+  "model": "windfailure"
+ },
+ "label": "synthetic RO, ERA5-driven",
+ "data_source": "external:/var/lib/lab-gpu/.cache/sentinel/data-v4/wind",
+ "python": "3.12.15",
+ "lightgbm": "4.7.0",
+ "shipped": true,
+ "files": {
+  "windfailure_7d.txt": {
+   "sha256": "f40a8b146e6bd413abadf05080679fdf94316a5016fcbd0449d8545dfbd2a59a",
+   "bytes": 185940
+  },
+  "windfailure_14d.txt": {
+   "sha256": "72f25a9343e513d9df4449a2570bca87f4a57674bae66803b588374e5724a9fb",
+   "bytes": 188049
+  },
+  "windfailure_nbm.onnx": {
+   "sha256": "f650a73ac5f642bd4ef7d7e8f482a66ce88d408ff9bc47698b2087fef13ab00d",
+   "bytes": 525934
+  },
+  "windfailure_thresholds.json": {
+   "sha256": "b0083ae4bbe555f64aa3da2be37877d9adea6481a1c328c6ce7cef4d2259160d",
+   "bytes": 2831
+  },
+  "windfailure_report.json": {
+   "sha256": "da1b3b337a8749a03d6f29db806ab06efdaa4a3920c706b701c17af13c76f85a",
+   "bytes": 76105
+  }
+ },
+ "t_total_s": 147.46
+}
