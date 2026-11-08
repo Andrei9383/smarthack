@@ -3,7 +3,8 @@ import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import agent from "./agent.json";
 
 // Server-only helpers for the voice routes (card #207). The key lives in ELEVENLABS_API_KEY
-// (.env.local at the repo root, loaded by next.config.ts) and never reaches the browser.
+// (.env.local at the repo root, loaded via "varlock.loadPath" in apps/web/package.json) and never
+// reaches the browser.
 
 /** The "Ask Sentinel" agent made by scripts/elevenlabs/sync-agent.mjs; the env var overrides it. */
 export const AGENT_ID = process.env.ELEVENLABS_AGENT_ID ?? agent.agentId;
