@@ -212,7 +212,7 @@ def _amp(amp):
 
 def fit_ood(emb: np.ndarray) -> dict:
     """Mahalanobis on embeddings (Ledoit-Wolf shrinkage), standardised as a robust z-score of the train
-    distances: score = max(0, (D - median_train) / (1.4826 MAD_train)). Same dict layout as MahalanobisOOD."""
+    distances: score = max(0, (D - median_train) / (1.4826 MAD_train))."""
     x = emb.astype(np.float64)
     mu = x.mean(0)
     xc = x - mu
