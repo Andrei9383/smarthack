@@ -18,7 +18,7 @@ import { Fold, Metric, MetricRow } from "@/components/panels/disclosure";
 import { VerdictCard } from "@/components/panels/judge/verdict-card";
 import { timeLabel } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
-import { dayName, wallClock } from "@/components/panels/site/time";
+import { dayName, wallClock } from "@/lib/time";
 import { orpc } from "@/lib/orpc";
 
 import { parseJson } from "@/lib/utils";
@@ -462,7 +462,7 @@ function TurbineView({ assetId }: { assetId: string }) {
               data={residuals}
               aspectRatio="5 / 2"
               margin={CHART_MARGIN}
-              animationDuration={0}
+             
             >
               <OmYAxis unit="°C" />
               <OmTimeAxis />
@@ -472,7 +472,7 @@ function TurbineView({ assetId }: { assetId: string }) {
                   dataKey={r.key}
                   stroke={r.color}
                   curve={curveMonotoneX}
-                  fadeEdges={false}
+                 
                 />
               ))}
               <ChartTooltip />

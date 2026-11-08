@@ -327,13 +327,13 @@ export function FeederPanel() {
               data={exportData}
               aspectRatio="3 / 1"
               margin={AXIS_MARGIN}
-              animationDuration={0}
+             
               yScaleDomainMax={exportAxis.domainMax}
             >
-              <Grid rowTickValues={exportAxis.ticks} fadeHorizontal={false} />
-              <Line dataKey="baseline_export" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="sentinel_export" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="limit" stroke={LIMIT_SERIES} strokeWidth={2} fadeEdges={false} dashFromIndex={0} />
+              <Grid rowTickValues={exportAxis.ticks} />
+              <Line dataKey="baseline_export" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} />
+              <Line dataKey="sentinel_export" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} />
+              <Line dataKey="limit" stroke={LIMIT_SERIES} strokeWidth={2} dashFromIndex={0} />
               <ChartTooltip />
             </LineChart>
             <ChartAxes
@@ -387,12 +387,12 @@ export function FeederPanel() {
               data={exportData}
               aspectRatio="2 / 1"
               margin={AXIS_MARGIN}
-              animationDuration={0}
+             
               yScaleDomainMax={importAxis.domainMax}
             >
-              <Grid rowTickValues={importAxis.ticks} fadeHorizontal={false} />
-              <Line dataKey="baseline_import" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="sentinel_import" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+              <Grid rowTickValues={importAxis.ticks} />
+              <Line dataKey="baseline_import" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} />
+              <Line dataKey="sentinel_import" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} />
               <ChartTooltip />
             </LineChart>
             <ChartAxes dates={dates} top={importAxis.top} ticks={importAxis.ticks} unit="kW" now={nowDate} />
@@ -422,12 +422,12 @@ export function FeederPanel() {
                 data={socData}
                 aspectRatio="2 / 1"
                 margin={AXIS_MARGIN}
-                animationDuration={0}
+               
                 yScaleDomainMax={socAxis.domainMax}
               >
-                <Grid rowTickValues={socAxis.ticks} fadeHorizontal={false} />
+                <Grid rowTickValues={socAxis.ticks} />
                 <Band upperKey="soc_q90" lowerKey="soc_q10" label="P10–P90" fill={SOC_SERIES} fillOpacity={0.14} strokeOpacity={0.35} curve={curveMonotoneX} />
-                <Line dataKey="soc_q50" stroke={SOC_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+                <Line dataKey="soc_q50" stroke={SOC_SERIES} curve={curveMonotoneX} />
                 <ChartTooltip />
               </LineChart>
               <ChartAxes dates={socDates} top={socAxis.top} ticks={socAxis.ticks} unit="%" now={nowDate} />

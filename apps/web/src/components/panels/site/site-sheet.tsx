@@ -18,7 +18,7 @@ import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { Fold, Metric, MetricRow, StatusPill } from "@/components/panels/disclosure";
 import { VerdictCard } from "@/components/panels/judge/verdict-card";
-import { STEP_MINUTES, timeLabel } from "@/lib/replay";
+import { STEP_MINUTES, stepToTs, timeLabel } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import { orpc } from "@/lib/orpc";
 
@@ -33,7 +33,7 @@ import {
 import { parseJson } from "@/lib/utils";
 
 import { customerTip } from "./customer-tip";
-import { dayName, dayRange, hhmm, inRange, stepTs, wallClock } from "./time";
+import { dayName, dayRange, hm, inRange, wallClock } from "@/lib/time";
 import { useSelectedSite } from "./use-site";
 
 /** Status = shape-coded mark + word; in the header it sits in a tinted StatusPill. */
@@ -182,7 +182,7 @@ function SiteView({ assetId }: { assetId: string }) {
   );
 
   const range = dayRange(step);
-  const nowTs = stepTs(step);
+  const nowTs = stepToTs(step);
 
   const band = useMemo(() => {
     const rows = (steps.data ?? []).filter((r) => inRange(r.ts, range));
@@ -356,12 +356,12 @@ function SiteView({ assetId }: { assetId: string }) {
               data={band}
               aspectRatio="2 / 1"
               margin={CHART_MARGIN}
-              animationDuration={0}
+             
             >
               <Grid
                 numTicksRows={Y_TICKS}
                 strokeDasharray="0"
-                fadeHorizontal={false}
+               
               />
               <Band
                 upperKey="p90"
@@ -375,7 +375,7 @@ function SiteView({ assetId }: { assetId: string }) {
                 stroke={FORECAST_COLOR}
                 strokeWidth={1.75}
                 curve={curveMonotoneX}
-                fadeEdges={false}
+               
                 dashFromIndex={0}
               />
               <Line
@@ -383,7 +383,7 @@ function SiteView({ assetId }: { assetId: string }) {
                 stroke={ACTUAL_COLOR}
                 strokeWidth={2}
                 curve={curveMonotoneX}
-                fadeEdges={false}
+               
               />
               <YTicks unit="kW" />
               <HourTicks day={day} />
@@ -398,7 +398,7 @@ function SiteView({ assetId }: { assetId: string }) {
             <p className="flex items-start gap-2 text-dense leading-5 text-foreground tabular-nums">
               <StatusMark kind="warn" size="sm" className="mt-1" />
               <span>
-                Actual drops below its own P10 at {hhmm(wallClock(below))} while
+                Actual drops below its own P10 at {hm(below)} while
                 the forecast band holds.
               </span>
             </p>
@@ -500,7 +500,7 @@ function SiteView({ assetId }: { assetId: string }) {
             {segments.map((s) => (
               <div
                 key={s.from}
-                title={`${STATUS_WORDS[s.status] ?? s.status} (${s.reason.replaceAll("_", " ")}) from ${dayName(s.from)} ${hhmm(wallClock(s.from))}`}
+                title={`${STATUS_WORDS[s.status] ?? s.status} (${s.reason.replaceAll("_", " ")}) from ${dayName(s.from)} ${hm(s.from)}`}
                 className="absolute inset-y-0"
                 style={{
                   left: `${pos(s.from)}%`,
@@ -543,19 +543,19 @@ function SiteView({ assetId }: { assetId: string }) {
                 data={battery.chart}
                 aspectRatio="2 / 1"
                 margin={BATTERY_MARGIN}
-                animationDuration={0}
+               
               >
                 <Grid
                   numTicksRows={Y_TICKS}
                   strokeDasharray="0"
-                  fadeHorizontal={false}
+                 
                 />
                 <Line
                   dataKey="soc"
                   stroke={SOC_COLOR}
                   strokeWidth={2}
                   curve={curveMonotoneX}
-                  fadeEdges={false}
+                 
                 />
                 <Line
                   dataKey="batt"
@@ -563,7 +563,7 @@ function SiteView({ assetId }: { assetId: string }) {
                   stroke={BATT_COLOR}
                   strokeWidth={2}
                   curve={curveMonotoneX}
-                  fadeEdges={false}
+                 
                 />
                 <YTicks unit="%" />
                 <YTicks unit="kW" side="right" yAxisId="kw" />

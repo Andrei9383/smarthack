@@ -10,7 +10,7 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { DetailsSheet, LABEL, Metric, MetricRow, SectionHeader, SheetSection, StatusPill } from "@/components/panels/disclosure";
 
-import { hhmm, wallClock } from "@/components/panels/site/time";
+import { hhmm, wallClock } from "@/lib/time";
 
 import { AXIS_MARGIN, ChartAxes, ChartLegend, EmptyNote, yAxisFor } from "../feeders/ui";
 import { DEMAND_SERIES, rampColor } from "./colors";
@@ -242,12 +242,12 @@ export function DemandPanel() {
                 data={fan}
                 aspectRatio="5 / 2"
                 margin={AXIS_MARGIN}
-                animationDuration={0}
+               
                 yScaleDomainMax={axis.domainMax}
               >
-                <Grid rowTickValues={axis.ticks} fadeHorizontal={false} />
+                <Grid rowTickValues={axis.ticks} />
                 <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill={DEMAND_SERIES} fillOpacity={0.14} strokeOpacity={0.35} curve={curveMonotoneX} />
-                <Line dataKey="p50" stroke={DEMAND_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+                <Line dataKey="p50" stroke={DEMAND_SERIES} curve={curveMonotoneX} />
                 <ChartTooltip />
               </LineChart>
               <ChartAxes dates={dates} top={axis.top} ticks={axis.ticks} unit={unit} now={wallClock(ts)} />

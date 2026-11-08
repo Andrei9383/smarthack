@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { StatusMark } from "@/components/status-mark";
-import { dayName } from "@/components/panels/site/time";
+import { dayName } from "@/lib/time";
 import { orpc } from "@/lib/orpc";
 
 import { useReplayTs } from "./use-om-data";

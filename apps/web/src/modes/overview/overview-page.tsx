@@ -44,7 +44,7 @@ import {
 import { usePolicy, useReplayStep } from "@/lib/use-replay";
 import type { ModePageProps } from "@/modes/registry";
 import type { Delta } from "@/components/panels/disclosure";
-import { wallClock } from "@/components/panels/site/time";
+import { wallClock } from "@/lib/time";
 import { orpc } from "@/lib/orpc";
 
 import { useOmAssets } from "@/modes/om/use-om-data";
@@ -692,31 +692,31 @@ function GapChart() {
             data={rows}
             aspectRatio="5 / 1.6"
             margin={{ left: 40, right: 8, top: 22, bottom: 24 }}
-            animationDuration={0}
+           
           >
             <Grid
               numTicksRows={4}
-              fadeHorizontal={false}
+             
               strokeDasharray="none"
             />
             <Line
               dataKey={BOUGHT_PROFILE}
               stroke="var(--chart-baseline)"
               curve={curveStepAfter}
-              fadeEdges={false}
+             
             />
             <Line
               dataKey={BOUGHT_SENTINEL}
               stroke="var(--sentinel)"
               curve={curveStepAfter}
-              fadeEdges={false}
+             
             />
             <Line
               dataKey={ACTUAL}
               stroke="var(--status-actual)"
               strokeWidth={1.75}
               curve={curveMonotoneX}
-              fadeEdges={false}
+             
             />
             <EveningWindow />
             <Axes />
@@ -827,11 +827,11 @@ function MonthSoFar() {
             data={m.rows}
             aspectRatio="5 / 2"
             margin={{ left: 4, right: 4, top: 8, bottom: 4 }}
-            animationDuration={0}
+           
           >
-            <Grid numTicksRows={3} fadeHorizontal={false} strokeDasharray="none" />
-            <Line dataKey={WITHOUT} stroke="var(--chart-baseline)" fadeEdges={false} />
-            <Line dataKey={WITH} stroke="var(--sentinel)" strokeWidth={1.75} fadeEdges={false} />
+            <Grid numTicksRows={3} strokeDasharray="none" />
+            <Line dataKey={WITHOUT} stroke="var(--chart-baseline)" />
+            <Line dataKey={WITH} stroke="var(--sentinel)" strokeWidth={1.75} />
             <ChartTooltip />
           </LineChart>
         ) : (

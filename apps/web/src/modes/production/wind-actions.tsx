@@ -119,11 +119,11 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
               </li>
             </ul>
           </div>
-          <LineChart data={hours} aspectRatio="5 / 2" margin={MARGIN} animationDuration={0}>
-            <Grid numTicksRows={4} fadeHorizontal={false} strokeDasharray="none" />
+          <LineChart data={hours} aspectRatio="5 / 2" margin={MARGIN}>
+            <Grid numTicksRows={4} strokeDasharray="none" />
             <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill="var(--brand-500)" fillOpacity={0.12} strokeOpacity={0.4} curve={curveMonotoneX} />
-            <Line dataKey="sold" stroke="var(--sentinel)" curve={curveStepAfter} fadeEdges={false} />
-            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} fadeEdges={false} />
+            <Line dataKey="sold" stroke="var(--sentinel)" curve={curveStepAfter} />
+            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} />
             <FanYAxis numTicks={4} unit="MWh" />
             <FanHourTicks everyHours={6} />
             <RemovedMarks hours={hours} />
@@ -145,9 +145,9 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
             <Metric label="Covered" value={Math.round(bat.coveredMwh)} unit="MWh" sub="forecast error" />
             <Metric label="Discharged" value={Math.round(bat.cycledMwh)} unit="MWh" />
           </MetricRow>
-          <LineChart data={bat.soc} aspectRatio="5 / 1.6" margin={MARGIN} animationDuration={0}>
-            <Grid numTicksRows={3} fadeHorizontal={false} strokeDasharray="none" />
-            <Line dataKey="soc" stroke="var(--status-soc)" curve={curveMonotoneX} fadeEdges={false} />
+          <LineChart data={bat.soc} aspectRatio="5 / 1.6" margin={MARGIN}>
+            <Grid numTicksRows={3} strokeDasharray="none" />
+            <Line dataKey="soc" stroke="var(--status-soc)" curve={curveMonotoneX} />
             <FanYAxis numTicks={3} unit="SoC MWh" />
             <FanHourTicks everyHours={6} />
             <ChartTooltip />

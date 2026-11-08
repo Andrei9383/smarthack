@@ -11,7 +11,8 @@ import { MapSpark } from "@/components/map-spark";
 
 import { useCameraFocus, useFocusIntent } from "../feeders/map-motion";
 import { useMapRightPadding, useZoomAtLeast } from "../map-hooks";
-import { hm, PANEL_PADDING_PX } from "@/lib/utils";
+import { PANEL_PADDING_PX } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import { PARTICLE_COLOR_RAMP, RASTER_OPACITY } from "./colors";
 import { expectedMwh } from "./data";
 import { type MarkerCircle, type MarkerOffset, resolveCollisions } from "./marker-layout";

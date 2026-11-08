@@ -3,7 +3,7 @@ import { useMemo } from "react";
 
 import { dayWindow } from "@/lib/replay";
 import { usePolicy, useReplayStep } from "@/lib/use-replay";
-import { wallClock } from "@/components/panels/site/time";
+import { wallClock } from "@/lib/time";
 import { orpc } from "@/lib/orpc";
 import { FOREVER } from "@/lib/utils";
 

@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { timeLabel } from "@/lib/replay";
+import { stepToTs, timeLabel } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import { useSelectedFeeder } from "@/modes/feeders/use-feeder-state";
 import { orpc } from "@/lib/orpc";
@@ -18,7 +18,7 @@ import { orpc } from "@/lib/orpc";
 import { HourTicks, Y_TICKS, YTicks } from "../chart-axes";
 import { ACTUAL, ACTUAL_SOFT, BASELINE, FORECAST, OK } from "../colors";
 import { DetailsSheet, Metric, MetricRow, RowButton, SectionHeader, Segmented, SheetSection } from "../disclosure";
-import { dayRange, inRange, stepTs, wallClock } from "../site/time";
+import { dayRange, inRange, wallClock } from "@/lib/time";
 
 // Ordered from the most the fleet could ever do to what it actually delivered.
 // Colours: nominal is the naive baseline (grey), available is a forecast
@@ -124,7 +124,7 @@ function FlexPanel({ onClose }: { onClose: () => void }) {
   );
 
   const range = dayRange(step);
-  const nowHour = `${stepTs(step).slice(0, 13)}:00:00Z`;
+  const nowHour = `${stepToTs(step).slice(0, 13)}:00:00Z`;
 
   const { chart, now, weekHit, dayHit } = useMemo(() => {
     const rows = hourly.data ?? [];
@@ -292,12 +292,12 @@ function FlexPanel({ onClose }: { onClose: () => void }) {
               data={chart}
               aspectRatio="2 / 1"
               margin={CHART_MARGIN}
-              animationDuration={0}
+             
             >
               <Grid
                 numTicksRows={Y_TICKS}
                 strokeDasharray="0"
-                fadeHorizontal={false}
+               
               />
               {SERIES.map(({ key, color, dashed }) => (
                 <Line
@@ -306,7 +306,7 @@ function FlexPanel({ onClose }: { onClose: () => void }) {
                   stroke={key === "realised" ? ACTUAL : color}
                   strokeWidth={key === "committed" ? 2.5 : 1.75}
                   curve={curveStepAfter}
-                  fadeEdges={false}
+                 
                   dashFromIndex={dashed ? 0 : undefined}
                 />
               ))}

@@ -25,7 +25,7 @@ import {
   StatusPill,
 } from "@/components/panels/disclosure";
 import { useSelectedSite } from "@/components/panels/site/use-site";
-import { dayName, hhmm, wallClock } from "@/components/panels/site/time";
+import { dayName, hm } from "@/lib/time";
 
 import { lei, parseJson } from "@/lib/utils";
 import { ParkReport } from "./park-report";
@@ -86,7 +86,7 @@ const ROW_IDLE = "hover:bg-surface-raised";
 const words = (s: string | null | undefined) => (s ? s.replaceAll("_", " ") : "—");
 // MW at risk can be tiny for a home: two significant digits read cleanly
 const mw = (v: number) => v.toLocaleString("en-GB", { maximumSignificantDigits: 2 });
-const when = (ts: string) => `${dayName(ts)} ${hhmm(wallClock(ts))}`;
+const when = (ts: string) => `${dayName(ts)} ${hm(ts)}`;
 const bucharestDay = (ts: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest" }).format(new Date(ts));
 const plural = (n: number, noun: string, many = `${noun}s`) => `${n} ${n === 1 ? noun : many}`;
 const lostLabel = (o: { assetKind: string; lostKwhDay?: number | null }) =>

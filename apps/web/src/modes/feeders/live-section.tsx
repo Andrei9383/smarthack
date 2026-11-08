@@ -17,7 +17,7 @@ import { useReplayStep } from "@/lib/use-replay";
 import { DetailsSheet, RowButton, SheetSection } from "@/components/panels/disclosure";
 import { orpc } from "@/lib/orpc";
 
-import { hm } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import { ACTUAL_SERIES, FORECAST_SERIES, LIMIT_SERIES } from "./colors";
 import { LiveChart } from "./live-chart";
 import { ChartLegend, EmptyNote } from "./ui";

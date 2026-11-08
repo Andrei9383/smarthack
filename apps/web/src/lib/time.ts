@@ -1,7 +1,6 @@
 import { STEPS_PER_DAY, stepToTs } from "@/lib/replay";
 
-// Shared by the site and flexibility panels. Storage is UTC ISO with 'Z'; the replay clock and
-// every label are Europe/Bucharest.
+// Storage is UTC ISO with 'Z'; the replay clock and every label are Europe/Bucharest.
 
 const BUCHAREST = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Bucharest",
@@ -30,16 +29,22 @@ export function wallClock(ts: string): Date {
   );
 }
 
+const BUCHAREST_HM = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Bucharest",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+/** "13:45", Bucharest wall-clock time, for an ISO timestamp, epoch ms or Date. */
+export const hm = (t: string | number | Date) => BUCHAREST_HM.format(new Date(t));
+
 export const hhmm = (date: Date) =>
   `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-
-/** The stored `ts` string for a replay step. */
-export const stepTs = stepToTs;
 
 /** [from, to) of the replay day that contains `step`, as stored `ts` strings. */
 export function dayRange(step: number): [string, string] {
   const day = Math.floor(step / STEPS_PER_DAY);
-  return [stepTs(day * STEPS_PER_DAY), stepTs((day + 1) * STEPS_PER_DAY)];
+  return [stepToTs(day * STEPS_PER_DAY), stepToTs((day + 1) * STEPS_PER_DAY)];
 }
 
 export const inRange = (ts: string, [from, to]: [string, string]) =>

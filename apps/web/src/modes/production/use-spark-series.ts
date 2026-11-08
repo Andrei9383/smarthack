@@ -7,7 +7,8 @@ import { stepToDate } from "@/lib/replay";
 import { useReplayStep } from "@/lib/use-replay";
 import { orpc } from "@/lib/orpc";
 
-import { FOREVER, hm } from "@/lib/utils";
+import { FOREVER } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import { hourly } from "./data";
 
 const HOUR_MS = 3_600_000;

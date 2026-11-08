@@ -13,7 +13,7 @@ import { useReplayStep } from "@/lib/use-replay";
 import { Term } from "@/components/help";
 import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SectionHeader, SheetSection } from "@/components/panels/disclosure";
 
-import { hm } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import { expectedMwh, hourly } from "./data";
 import { FanHourTicks, FanNowMarker, FanYAxis } from "./fan-chart-overlays";
 import { useProductionData } from "./use-production-data";
@@ -245,8 +245,8 @@ export function ProductionPanel() {
               </ul>
               }
             />
-            <LineChart data={fan} aspectRatio="5 / 2" margin={CHART_MARGIN} animationDuration={0}>
-              <Grid numTicksRows={Y_TICKS} fadeHorizontal={false} strokeDasharray="none" />
+            <LineChart data={fan} aspectRatio="5 / 2" margin={CHART_MARGIN}>
+              <Grid numTicksRows={Y_TICKS} strokeDasharray="none" />
               <Band
                 upperKey="p90"
                 lowerKey="p10"
@@ -256,7 +256,7 @@ export function ProductionPanel() {
                 strokeOpacity={0.5}
                 curve={curveMonotoneX}
               />
-              <Line dataKey="p50" stroke={FAN_LINE} curve={curveMonotoneX} fadeEdges={false} />
+              <Line dataKey="p50" stroke={FAN_LINE} curve={curveMonotoneX} />
               <FanYAxis numTicks={Y_TICKS} unit="MW" />
               <FanHourTicks everyHours={TICK_HOURS} />
               <FanNowMarker date={nowDate} label="now" />

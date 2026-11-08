@@ -6,15 +6,6 @@ export const PANEL_PADDING_PX = 452;
 /** staleTime for replay queries: the replay database never changes while the app runs. */
 export const FOREVER = Number.POSITIVE_INFINITY;
 
-const BUCHAREST_HM = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-/** "13:45", Bucharest wall-clock time, for an ISO timestamp, epoch ms or Date. */
-export const hm = (t: string | number | Date) => BUCHAREST_HM.format(new Date(t));
-
 export const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
 
 /** Coordinates of a stored GeoJSON LineString, or [] when missing or malformed. */

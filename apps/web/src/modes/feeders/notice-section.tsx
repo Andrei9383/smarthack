@@ -20,7 +20,7 @@ import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { DetailsSheet, RowButton, SheetSection } from "@/components/panels/disclosure";
 import { orpc } from "@/lib/orpc";
 
-import { hm } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import { EmptyNote } from "./ui";
 
 const DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD, as the server logs it

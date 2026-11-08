@@ -22,7 +22,8 @@ import {
   useMarkerOffsets,
 } from "../production/production-layers";
 import { useMapRightPadding, useZoomAtLeast } from "../map-hooks";
-import { hm, lineOf, PANEL_PADDING_PX } from "@/lib/utils";
+import { lineOf, PANEL_PADDING_PX } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import {
   FEEDER_CASING,
   FEEDER_OK,

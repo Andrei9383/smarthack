@@ -158,11 +158,11 @@ export function ImbalancePage() {
           />
         </div>
         {steps.length ? (
-          <LineChart data={steps} aspectRatio="5 / 1.7" margin={MARGIN} animationDuration={0}>
-            <Grid numTicksRows={4} fadeHorizontal={false} strokeDasharray="none" />
+          <LineChart data={steps} aspectRatio="5 / 1.7" margin={MARGIN}>
+            <Grid numTicksRows={4} strokeDasharray="none" />
             {band ? <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill="var(--chart-band)" fillOpacity={1} strokeOpacity={0} curve={curveMonotoneX} /> : null}
-            <Line dataKey="bought" stroke={sentinel ? "var(--sentinel)" : "var(--chart-baseline)"} curve={curveStepAfter} fadeEdges={false} />
-            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} fadeEdges={false} />
+            <Line dataKey="bought" stroke={sentinel ? "var(--sentinel)" : "var(--chart-baseline)"} curve={curveStepAfter} />
+            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} />
             <EveningWindow steps={steps} />
             <FanYAxis numTicks={4} unit="MWh" />
             <FanHourTicks everyHours={3} />

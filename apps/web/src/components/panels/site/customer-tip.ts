@@ -1,7 +1,7 @@
 // The one sentence the homeowner sees. Plain words, no model names, and only
 // facts that are in the run: if a number is missing, the sentence does without it.
 
-export type TipInput = {
+type TipInput = {
   status: string | undefined;
   reason: string | undefined;
   hasBattery: boolean;

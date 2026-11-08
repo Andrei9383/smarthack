@@ -8,7 +8,7 @@ import { scaleLinear, scaleTime } from "d3-scale";
 import { area, line } from "d3-shape";
 import { useMemo } from "react";
 
-import { hm } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import { ACTUAL_SERIES as ACTUAL, FORECAST_SERIES as FORECAST, LIMIT_SERIES } from "./colors";
 
 const W = 400;
