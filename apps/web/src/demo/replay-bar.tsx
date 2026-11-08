@@ -27,6 +27,13 @@ export function useReplayPlaying() {
   return useSyncExternalStore(subscribe, () => playingNow, () => false);
 }
 
+// The story narrator (#207) holds the clock while it speaks, so the voice and the screen stay on
+// the same moment. Playing stays true: the button still reads "Pause the story".
+let heldNow = false;
+export function setReplayHeld(held: boolean) {
+  heldNow = held;
+}
+
 /** Advances the replay clock one 15-minute step per tick while playing. Mount once (the dock). */
 export function useReplayTicker() {
   const [, setStep] = useReplayStep();
@@ -34,6 +41,7 @@ export function useReplayTicker() {
   useEffect(() => {
     if (!playing) return;
     const timer = setInterval(() => {
+      if (heldNow) return;
       setStep((value) => {
         const next = clampStep(value) + 1;
         if (next >= STEPS_IN_WEEK) {
