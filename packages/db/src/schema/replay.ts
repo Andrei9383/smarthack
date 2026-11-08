@@ -409,7 +409,7 @@ export const parkForecasts = sqliteTable(
 
 // ---------------------------------------------------------------- wind actions
 
-// One row per policy x park x 15-min step (wattsentry/eval/wind_portfolio.py).
+// One row per policy x park x 15-min step.
 export const windPositions = sqliteTable(
   "wind_positions",
   {
@@ -466,7 +466,7 @@ export const turbineAvailability = sqliteTable(
   ],
 );
 
-// Park battery per variant x park x step (wattsentry/opt/park_battery.py).
+// Park battery per variant x park x step.
 export const parkBattery = sqliteTable(
   "park_battery",
   {
