@@ -1,4 +1,12 @@
-import { Activity, Factory, LayoutDashboard, Network, Scale, Wrench, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  Factory,
+  LayoutDashboard,
+  Network,
+  Scale,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import type { ComponentType } from "react";
 
 import { DemandLayers } from "./demand/demand-layers";
@@ -14,7 +22,14 @@ import { ProductionPanel } from "./production/production-panel";
 
 // Overview comes first and is the default when `?mode` is missing (#113). Since #124 it is a page
 // (briefing, mini map, glance sections), not a full-screen map.
-export const MODE_IDS = ["overview", "feeders", "om", "production", "demand", "imbalance"] as const;
+export const MODE_IDS = [
+  "overview",
+  "feeders",
+  "om",
+  "production",
+  "demand",
+  "imbalance",
+] as const;
 export type ModeId = (typeof MODE_IDS)[number];
 
 // Align with ModeConfig in ./types.ts when #38 merges. Layers render inside <Map>, so switching
@@ -43,7 +58,8 @@ export const MODES: Record<ModeId, ModeEntry> = {
   overview: {
     label: "Overview",
     icon: LayoutDashboard,
-    blurb: "The shift briefing: what needs attention, today against no Sentinel, what the agent did.",
+    blurb:
+      "What prosumers cost PPC in imbalance today, and how Sentinel cuts it.",
     card: "#124",
     Page: OverviewPage,
   },
@@ -82,7 +98,8 @@ export const MODES: Record<ModeId, ModeEntry> = {
   imbalance: {
     label: "Imbalance",
     icon: Scale,
-    blurb: "What PPC buys for its prosumers vs what they take: band, 18–21 window, avoidable lei.",
+    blurb:
+      "What PPC buys for its prosumers vs what they take: band, 18–21 window, avoidable lei.",
     card: "#177",
     Page: ImbalancePage,
   },

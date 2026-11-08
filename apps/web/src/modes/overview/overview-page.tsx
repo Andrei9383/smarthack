@@ -1,808 +1,591 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
-import { ChevronRight, CircleHelp, Pause, Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { curveMonotoneX, curveStepAfter } from "d3-shape";
+import { ChevronRight } from "lucide-react";
 import { parseAsString, useQueryStates } from "nuqs";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
+import { createPortal } from "react-dom";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { Term } from "@/components/help";
 import {
-  ACTION_LABEL,
-  ACTION_MARK,
-  type ActionMarker,
-  groupMarkers,
-  useAgentActions,
-  useExplainAction,
-} from "@/components/shell/agent-actions";
-import { CountUp } from "@/components/shell/count-up";
-import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shell/popover";
-import { useOverview } from "@/demo/kpi-strip";
-import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
-import { clampStep, clockLabel, dayLabel, dayOfStep, HERO_DAY, STEPS_PER_DAY, timeLabel } from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
+  useChartPortalContainer,
+  useChartStable,
+} from "@/components/charts/chart-context";
+import { Grid } from "@/components/charts/grid";
+import { Line, LineChart } from "@/components/charts/line-chart";
+import { ChartTooltip } from "@/components/charts/tooltip";
+import { dayWindow } from "@/demo/replay";
+import { useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
-import { useGrid } from "@/modes/feeders/grid-section";
-import {
-  type Delta,
-  DeltaChip,
-  DetailsLink,
-  DetailsSheet,
-  Metric,
-  Num,
-  PopList,
-  SectionHeader,
-  SheetSection,
-  StatusPill,
-} from "@/panels/disclosure";
-import { TrustBoard } from "@/panels/judge/trust-board";
-import { useTrustBoard } from "@/panels/judge/use-judge";
+import { type Delta, DeltaChip, StatusPill } from "@/panels/disclosure";
+import { wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
-import { MiniMap } from "./mini-map";
-import { type FeederState, useOverviewData } from "./use-overview-data";
+import { useOverviewData } from "./use-overview-data";
 
-// Overview, Calm (#197, #206): a briefing card (one sentence, one primary action) and a map card, a row
-// of four KPI tiles, then "Needs attention" (top 5) beside the last 5 agent actions, and one line for
-// imbalance cost. Everything else (the full attention list, the per-feeder table with baseline vs
-// Sentinel, all agent activity and model trust) sits in one Details sheet; the week's Sentinel vs
-// baseline totals are in Summary.
+// Overview for a supplier opening the app for the first time. It tells the pitch's story in order:
+// 1. the problem and what it costs (avoidable imbalance today, standard profile vs Sentinel),
+// 2. one chart that shows the gap (what PPC bought vs what its prosumers really used),
+// 3. how Sentinel closes it (what each step saves over the full replay year),
+// 4. the same engine on two more problems (grid cables, wind farms), one line each with a link.
+// Detail lives in each mode; nothing here needs the replay controls to make sense.
 
-const NAV_PARSERS = {
+const CARD = "rounded-xl bg-card shadow-card";
+const FOREVER = Number.POSITIVE_INFINITY;
+const LINK =
+  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-dense font-medium whitespace-nowrap text-foreground underline-offset-2 transition-colors duration-150 hover:bg-surface-raised hover:underline focus-visible:outline-2 focus-visible:outline-ring";
+
+const lei = (v: number | undefined) =>
+  v === undefined ? "—" : Math.round(v).toLocaleString("en-GB");
+const pctChange = (from?: number, to?: number) =>
+  from === undefined || to === undefined || from === 0
+    ? null
+    : Math.round(((to - from) / Math.abs(from)) * 100);
+const chip = (p: number | null): Delta | null =>
+  p === null
+    ? null
+    : {
+        text: `${p < 0 ? "−" : "+"}${Math.abs(p)}%`,
+        good: p < 0 ? true : null,
+      };
+const DAY = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Bucharest",
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+});
+
+const NAV = {
   mode: parseAsString,
   feeder: parseAsString,
   park: parseAsString,
   turbine: parseAsString,
   site: parseAsString,
-  zone: parseAsString,
-  omTab: parseAsString,
 };
-
 function useGo() {
-  const [, set] = useQueryStates(NAV_PARSERS);
-  return (state: Partial<Record<keyof typeof NAV_PARSERS, string | null>>) => set(state);
+  const [, set] = useQueryStates(NAV);
+  return (mode: string) =>
+    set({ mode, feeder: null, park: null, turbine: null, site: null });
 }
 
-const plural = (n: number, noun: string, many = `${noun}s`) => `${n} ${n === 1 ? noun : many}`;
-const turbineName = (id: string) => id.split(".")[1]?.replace("TID", "T") ?? id;
-const listOf = (parts: string[]) => parts.join(", ").replace(/, ([^,]*)$/, " and $1");
-const MORNING_STEP = HERO_DAY * STEPS_PER_DAY + 24; // 06:00 on the story day
-/** Rows on the glance; the rest sit in the Details sheet. */
-const TOP_ATTENTION = 5;
-const TOP_ACTIVITY = 5;
+const BOUGHT_PROFILE = "Bought, standard profile";
+const BOUGHT_SENTINEL = "Bought, Sentinel";
+const ACTUAL = "Actually used";
 
-/** Calm card: white on the pale page, 12px radius, hairline + whisper shadow (ui-style §3). */
-const CARD = "rounded-xl bg-card shadow-card";
-/** A quiet ink text control: "See all", "Breakdown", "Open imbalance". */
-const QUIET_LINK =
-  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-caption font-medium whitespace-nowrap text-foreground underline-offset-2 transition-colors duration-150 hover:bg-surface-raised hover:underline focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-surface-raised";
+/** Today's imbalance for the day on the replay clock, plus the full-year totals per policy. */
+function useImbalance() {
+  const [step] = useReplayStep();
+  const window = dayWindow(step);
+  const day = useQuery({
+    ...orpc.imbalance.getImbalanceDay.queryOptions({ input: window }),
+    staleTime: FOREVER,
+  });
+  const year = useQuery({
+    ...orpc.imbalance.getPolicyComparison.queryOptions({ input: {} }),
+    staleTime: FOREVER,
+  });
 
-/** Sentinel against a reference as a percentage chip; green when Sentinel is better, neutral otherwise. */
-function deltaOf(from?: number, to?: number, up?: boolean): Delta | null {
-  if (from === undefined || to === undefined || from === 0) return null;
-  const pct = Math.round(((to - from) / Math.abs(from)) * 100);
-  if (pct === 0) return null;
-  const better = up ? pct > 0 : pct < 0;
-  return { text: `${pct < 0 ? "−" : "+"}${Math.abs(pct)}%`, good: better ? true : null };
-}
-
-function GoButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="mt-3 inline-flex h-8 w-full cursor-pointer items-center justify-center gap-1 rounded-lg bg-primary px-3 text-dense font-semibold text-primary-foreground transition-[background-color,transform] duration-150 outline-none hover:bg-primary/85 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
-    >
-      {children}
-      <ChevronRight aria-hidden className="size-3.5" />
-    </button>
-  );
-}
-
-type DetailsTarget = "numbers" | "attention" | "feeders" | "activity" | "trust";
-type OpenDetails = (target: DetailsTarget) => void;
-const detailsId = (target: DetailsTarget) => `ov-details-${target}`;
-
-/* ---------- 1. The shift briefing: one sentence, one primary action ---------- */
-
-function Briefing({ onTour }: { onTour: () => void }) {
-  const data = useOverviewData();
-  const [rawStep, setStep] = useReplayStep();
-  const [, setPolicy] = usePolicy();
-  const playing = useReplayPlaying();
-  const step = clampStep(rawStep);
-
-  const over = data.feeders.filter((f) => f.status === "over");
-  const near = data.feeders.filter((f) => f.status === "near");
-  const extras = [
-    near.length > 0 ? `${plural(near.length, "feeder")} near ${near.length === 1 ? "its" : "their"} limit` : null,
-    data.stopped.length > 0 ? `${plural(data.stopped.length, "turbine")} stopped` : null,
-    data.waiting.length > 0 ? `${plural(data.waiting.length, "case")} waiting for a person` : null,
-  ].filter((part): part is string => Boolean(part));
-  const lead = over.length === 0 ? "Grid is calm." : `${plural(over.length, "feeder")} went over the limit today.`;
-  const sentence = data.ready ? `${lead} ${extras.length ? `${listOf(extras)}.` : "Nothing is waiting."}` : "Reading the grid…";
-
-  // First press starts the story day at 06:00 with Sentinel on; after a pause it resumes, unless the
-  // clock has left the story day's daylight hours.
-  const started = useRef(false);
-  const playStory = () => {
-    if (playing) {
-      setPlaying(false);
-      return;
+  const rows = useMemo(() => {
+    const byTs = new Map<string, Record<string, number | Date>>();
+    for (const s of day.data?.steps ?? []) {
+      if (s.policy !== "profile" && s.policy !== "sentinel") continue;
+      const row = byTs.get(s.ts) ?? { date: wallClock(s.ts) };
+      row[s.policy === "profile" ? BOUGHT_PROFILE : BOUGHT_SENTINEL] =
+        s.bought ?? 0;
+      row[ACTUAL] = s.actual ?? 0;
+      byTs.set(s.ts, row);
     }
-    const inStory = step >= MORNING_STEP && step < HERO_DAY * STEPS_PER_DAY + 80;
-    setPolicy("sentinel");
-    if (!started.current || !inStory) setStep(MORNING_STEP);
-    started.current = true;
-    setPlaying(true);
+    return [...byTs.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, r]) => r);
+  }, [day.data]);
+
+  const today = (policy: string) =>
+    day.data?.totals.find((t) => t.policy === policy);
+  const ofYear = (policy: string) =>
+    year.data?.find((r) => r.policy === policy);
+  return {
+    dayName: DAY.format(new Date(Date.parse(window.from) + 3_600_000)),
+    rows,
+    profile: today("profile"),
+    sentinel: today("sentinel"),
+    year: {
+      profile: ofYear("profile"),
+      forecast: ofYear("forecast_only"),
+      sentinel: ofYear("sentinel"),
+      corrected: ofYear("sentinel_id"),
+    },
+    loading: day.isPending,
   };
+}
+
+/* ---------- 1. The problem and what it costs today ---------- */
+
+function Problem() {
+  const go = useGo();
+  const { dayName, profile, sentinel, year } = useImbalance();
+  const today = pctChange(profile?.avoidableLei, sentinel?.avoidableLei);
+  const yearly = pctChange(
+    year.profile?.avoidableLei,
+    year.sentinel?.avoidableLei,
+  );
 
   return (
-    <section aria-labelledby="ov-briefing" className={cn(CARD, "flex h-full min-h-[240px] flex-col p-6")}>
-      <div className="flex items-center gap-2.5">
-        <span className="font-mono text-dense font-semibold tracking-tight text-foreground">{clockLabel(step)}</span>
-        <StatusPill status={playing ? "forecast" : "ok"}>
-          <StatusMark kind={playing ? "live" : "ok"} size="xs" pulse={playing} />
-          {playing ? "Replaying the story" : "Shift briefing"}
-        </StatusPill>
+    <section aria-labelledby="ov-problem" className={cn(CARD, "p-6")}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-caption font-medium tracking-wide text-muted-foreground uppercase">
+          Prosumer imbalance · {dayName}
+        </p>
+        <button type="button" onClick={() => go("imbalance")} className={LINK}>
+          Open imbalance
+          <ChevronRight aria-hidden className="size-3.5" />
+        </button>
       </div>
 
-      <p id="ov-briefing" aria-live="polite" className="mt-4 max-w-[36ch] text-page text-balance text-foreground">
-        {sentence}
+      <h1
+        id="ov-problem"
+        className="mt-3 max-w-[30ch] text-page text-balance text-foreground"
+      >
+        {profile && sentinel ? (
+          <>
+            Today PPC’s prosumers cost{" "}
+            <span className="whitespace-nowrap">
+              {lei(profile.avoidableLei)} lei
+            </span>{" "}
+            in avoidable imbalance. Sentinel cuts that to{" "}
+            <span className="whitespace-nowrap text-status-ok">
+              {lei(sentinel.avoidableLei)} lei
+            </span>
+            .
+          </>
+        ) : (
+          "Reading today’s imbalance…"
+        )}
+      </h1>
+
+      <p className="mt-3 max-w-[78ch] text-body text-text-secondary">
+        PPC buys tomorrow’s energy using a standard “typical home” profile. That
+        profile can’t see rooftop solar or home batteries, so in the evening PPC
+        ends up buying too much or too little, and the difference is settled at
+        a worse price. Sentinel forecasts every home, battery included, and buys
+        that instead.
       </p>
 
-      <div className="mt-auto flex flex-wrap items-center gap-2 pt-6">
-        <button
-          type="button"
-          onClick={playStory}
-          className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-primary pr-4 pl-3.5 text-body font-semibold text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-primary/85 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          {playing ? <Pause aria-hidden className="size-4 fill-current" /> : <Play aria-hidden className="size-4 fill-current" />}
-          {playing ? "Pause the story" : "Play today's story"}
-        </button>
-        <button
-          type="button"
-          onClick={onTour}
-          className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-3.5 text-body font-medium text-foreground shadow-raised transition-[background-color,box-shadow] duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          <CircleHelp aria-hidden className="size-4 text-muted-foreground" />
-          How it works
-        </button>
-        <span className="ml-1 hidden text-caption text-muted-foreground @min-[1300px]:inline">
-          from {clockLabel(MORNING_STEP)}, with Sentinel
-        </span>
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Stat
+          label="Standard profile, today"
+          value={lei(profile?.avoidableLei)}
+          unit="lei"
+        />
+        <Stat
+          label="With Sentinel, today"
+          value={lei(sentinel?.avoidableLei)}
+          unit="lei"
+          tone="text-status-ok"
+          delta={chip(today)}
+        />
+        <Stat
+          label="Over a full year (2025 replay)"
+          value={lei(year.sentinel?.avoidableLei)}
+          unit="lei"
+          tone="text-status-ok"
+          delta={chip(yearly)}
+          sub={`instead of ${lei(year.profile?.avoidableLei)} lei with the standard profile`}
+        />
       </div>
     </section>
   );
 }
 
-/* ---------- 2. KPI row: four tiles ---------- */
-
-// Two by two on a narrow page, one row of four from 880px. Each tile sits in its own cell, and the
-// hairline divider belongs to the cell, so it follows the layout (#206).
-const KPI_CELLS = [
-  "",
-  "border-l border-border pl-4",
-  "@min-[880px]:border-l @min-[880px]:border-border @min-[880px]:pl-4",
-  "border-l border-border pl-4",
-];
-function KpiGrid({ children }: { children: ReactNode[] }) {
+function Stat({
+  label,
+  value,
+  unit,
+  tone,
+  delta,
+  sub,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  tone?: string;
+  delta?: Delta | null;
+  sub?: string;
+}) {
   return (
-    <div className="mt-2 grid grid-cols-2 gap-y-4 @min-[880px]:grid-cols-4 [&_span]:whitespace-normal">
-      {children.map((child, index) => (
-        <div key={index} className={cn("min-w-0", KPI_CELLS[index])}>
-          {child}
-        </div>
-      ))}
+    <div className="rounded-lg bg-surface-raised px-4 py-3">
+      <p className="text-caption font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+        <span
+          className={cn(
+            "text-[28px] leading-none font-semibold tracking-[-0.02em] tabular-nums",
+            tone ?? "text-foreground",
+          )}
+        >
+          {value}
+        </span>
+        <span className="text-dense text-muted-foreground">{unit}</span>
+        {delta ? <DeltaChip delta={delta} /> : null}
+      </p>
+      {sub ? (
+        <p className="mt-1.5 text-caption text-muted-foreground">{sub}</p>
+      ) : null}
     </div>
   );
 }
 
-function KpiRow({ onDetails }: { onDetails: OpenDetails }) {
-  const data = useOverviewData();
-  const [rawStep] = useReplayStep();
-  const { actions } = useAgentActions();
-  const { data: day } = useOverview();
-  const step = clampStep(rawStep);
+/* ---------- 2. The gap, in one chart ---------- */
 
-  const within = data.feeders.filter((f) => f.status === "ok" || f.status === "near").length;
-  const today = dayOfStep(step);
-  const homes = actions
-    .filter((a) => a.kind === "dispatch" && dayOfStep(a.step) === today && a.step <= step)
-    .reduce((sum, a) => sum + (a.homes ?? 0), 0);
-  const wind = data.parks.reduce((sum, park) => sum + park.mwh, 0);
-  const known = (v: number | null | undefined): v is number => v !== null && v !== undefined;
-
-  return (
-    <section aria-labelledby="ov-kpis" className={cn(CARD, "px-5 pt-3 pb-4")}>
-      <SectionHeader
-        title={<span id="ov-kpis">Today</span>}
-        aside={<DetailsLink onClick={() => onDetails("numbers")} />}
-      />
-      <KpiGrid>
-        <Metric
-          size="lg"
-          label={
-            <>
-              <Term id="feeder">Feeders</Term> within their limit
-            </>
-          }
-          value={<CountUp value={data.ready ? within : 0} />}
-          unit={`/ ${data.feeders.length || "–"}`}
-        />
-        <Metric size="lg" label="Batteries in today's plan" value={<CountUp value={homes} />} />
-        <Metric
-          size="lg"
-          label="Wind expected, next 24 h"
-          value={<CountUp value={wind} />}
-          unit="MWh"
-          sub={known(day?.productionMwh) ? `${day.productionMwh.toFixed(0)} MWh produced today` : undefined}
-        />
-        <Metric
-          size="lg"
-          label="Park availability"
-          value={known(day?.availabilityPct) ? <CountUp value={day.availabilityPct} digits={1} /> : "—"}
-          unit={known(day?.availabilityPct) ? "%" : undefined}
-          sub={known(day?.activeIssues) ? plural(day.activeIssues, "open work order") : undefined}
-        />
-      </KpiGrid>
-    </section>
-  );
-}
-
-/* ---------- 3. Needs attention ---------- */
-
-type Attention = {
-  key: string;
-  severity: number;
-  mark: StatusKind;
-  pulse?: boolean;
-  text: ReactNode;
-  title: string;
-  facts: [string, ReactNode][];
-  goLabel: string;
-  go: () => void;
-};
-
-function kw(value: number | undefined) {
-  return value === undefined ? "—" : `${Math.round(value)} kW`;
-}
-
-function useAttention(): Attention[] {
-  const data = useOverviewData();
-  const go = useGo();
-  return useMemo(() => {
-    const rows: Attention[] = [];
-    const over = data.feeders.filter((f) => f.status === "over");
-    const near = data.feeders.filter((f) => f.status === "near");
-    const openFeeder = (f: FeederState) => () => go({ mode: "feeders", feeder: f.id, site: null, turbine: null });
-
-    for (const f of [...over].sort((a, b) => (b.minutesOver ?? 0) - (a.minutesOver ?? 0))) {
-      rows.push({
-        key: `f-${f.id}`,
-        severity: 3,
-        mark: "critical",
-        pulse: true,
-        text: (
-          <>
-            <b>{f.name}</b> was over its {Math.round(f.limitKw)} kW limit for {f.minutesOver} min today
-          </>
-        ),
-        title: `${f.name}, ${f.county}`,
-        facts: [
-          ["Limit", kw(f.limitKw)],
-          ["Highest export today", kw(f.peakKw)],
-          ["Minutes over the limit", `${f.minutesOver ?? "—"} min`],
-        ],
-        goLabel: `Open ${f.id} in Feeders`,
-        go: openFeeder(f),
-      });
-    }
-    if (data.stopped.length > 0) {
-      const first = data.stopped[0];
-      const one = data.stopped.length === 1 && first;
-      rows.push({
-        key: "stopped",
-        severity: 2.5,
-        mark: "critical",
-        text: one ? (
-          <>
-            <b>Turbine {turbineName(first.id)}</b> at {first.parkId} is stopped
-          </>
-        ) : (
-          <>
-            <b>{plural(data.stopped.length, "turbine")}</b> stopped at {first?.parkId ?? "WP01"}
-          </>
-        ),
-        title: one ? `Turbine ${turbineName(first.id)} · ${first.parkId}` : `${first?.parkId ?? "WP01"} wind park`,
-        facts: [
-          ["Stopped", plural(data.stopped.length, "turbine")],
-          ["First", first ? `${turbineName(first.id)} · ${first.reason.replaceAll("_", " ") || "no reason given"}` : "—"],
-          ["Park", first?.parkId ?? "WP01"],
-        ],
-        goLabel: one ? `Open ${turbineName(first.id)} in O&M` : "Open the park in O&M",
-        go: () =>
-          go({ mode: "om", park: first?.parkId ?? "WP01", turbine: one ? first.id : null, site: null }),
-      });
-    }
-    if (data.waiting.length > 0) {
-      const oldest = [...data.waiting].sort((a, b) => a.ts.localeCompare(b.ts))[0];
-      rows.push({
-        key: "review",
-        severity: 2,
-        mark: "review",
-        text: (
-          <>
-            <b>{plural(data.waiting.length, "case")}</b> waiting for a person to check
-          </>
-        ),
-        title: "Human review queue",
-        facts: [
-          ["Waiting", plural(data.waiting.length, "case")],
-          ["Oldest", oldest ? `${oldest.assetId.includes(".") ? turbineName(oldest.assetId) : `Home ${oldest.assetId}`}` : "—"],
-          ["Why a person", "Agent not sure enough"],
-        ],
-        goLabel: "Open the review queue",
-        go: () => go({ mode: "om", omTab: "review", site: null, turbine: null }),
-      });
-    }
-    for (const f of near) {
-      rows.push({
-        key: `f-${f.id}`,
-        severity: 1.5,
-        mark: "warn",
-        text: (
-          <>
-            <b>{f.name}</b> peaks at {Math.round(f.peakKw ?? 0)} kW, close to its {Math.round(f.limitKw)} kW limit
-          </>
-        ),
-        title: `${f.name}, ${f.county}`,
-        facts: [
-          ["Limit", kw(f.limitKw)],
-          ["Highest export today", kw(f.peakKw)],
-          ["Room left", kw(f.limitKw - (f.peakKw ?? 0))],
-        ],
-        goLabel: `Open ${f.id} in Feeders`,
-        go: openFeeder(f),
-      });
-    }
-    if (data.topOrder) {
-      const o = data.topOrder;
-      const turbine = o.assetKind === "turbine";
-      const who = turbine ? `Turbine ${turbineName(o.assetId)}` : `Home ${o.assetId}`;
-      rows.push({
-        key: "order",
-        severity: 1,
-        mark: "warn",
-        text: (
-          <>
-            <b>{who}</b> tops the repair list: {(o.fault ?? "fault").replaceAll("_", " ")}
-            {o.lostLeiDay ? `, ${Math.round(o.lostLeiDay)} lei a day` : ""}
-          </>
-        ),
-        title: `${who} · first on the repair list`,
-        facts: [
-          ["Fault", (o.fault ?? "fault").replaceAll("_", " ")],
-          ["Lost a day", o.lostLeiDay ? `${Math.round(o.lostLeiDay)} lei` : "—"],
-          ["Crew", o.crewType.replaceAll("_", " ")],
-        ],
-        goLabel: `Open ${who} in O&M`,
-        go: () =>
-          turbine
-            ? go({ mode: "om", park: "WP01", turbine: o.assetId, site: null })
-            : go({ mode: "om", site: o.assetId, turbine: null }),
-      });
-    }
-    return rows.sort((a, b) => b.severity - a.severity);
-  }, [data.feeders, data.stopped, data.waiting, data.topOrder, go]);
-}
-
-const factRows = (facts: [string, ReactNode][]) => facts.map(([label, value]) => ({ key: label, label, value }));
-
-function NeedsAttention({ onDetails }: { onDetails: OpenDetails }) {
-  const all = useAttention();
-  const data = useOverviewData();
-  const rows = all.slice(0, TOP_ATTENTION);
-  const hidden = all.length - rows.length;
-  return (
-    <section aria-labelledby="ov-attention" className={cn(CARD, "h-full px-5 pt-3 pb-4")}>
-      <SectionHeader
-        title={<span id="ov-attention">Needs attention</span>}
-        aside={
-          hidden > 0 ? (
-            <button type="button" onClick={() => onDetails("attention")} className={QUIET_LINK}>
-              See all {all.length}
-              <ChevronRight aria-hidden className="size-3.5" />
-            </button>
-          ) : all.length > 0 ? (
-            <span className="text-caption text-muted-foreground">{plural(all.length, "item")}</span>
-          ) : null
-        }
-      />
-      {!data.ready ? (
-        <p className="mt-2 text-dense text-text-secondary">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="mt-2 flex items-center gap-2 py-2 text-body text-text-secondary">
-          <StatusMark kind="ok" /> Nothing needs a person right now.
-        </p>
-      ) : (
-        <ul className="-mx-2 mt-1 flex flex-col">
-          {rows.map((row) => (
-            <li key={row.key}>
-              <Popover>
-                <PopoverTrigger className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-surface-raised">
-                  <StatusMark kind={row.mark} size="md" pulse={row.pulse} />
-                  <span className="min-w-0 flex-1 text-body leading-snug text-text-secondary [&_b]:font-semibold [&_b]:text-foreground">
-                    {row.text}
-                  </span>
-                  <ChevronRight
-                    aria-hidden
-                    className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-foreground"
-                  />
-                </PopoverTrigger>
-                <PopoverContent side="right" align="center" sideOffset={10}>
-                  <div className="mb-2.5 flex items-center gap-2">
-                    <StatusMark kind={row.mark} size="sm" />
-                    <PopoverTitle className="section-title">{row.title}</PopoverTitle>
-                  </div>
-                  <div className="text-caption">
-                    <PopList rows={factRows(row.facts)} />
-                  </div>
-                  <GoButton onClick={row.go}>{row.goLabel}</GoButton>
-                </PopoverContent>
-              </Popover>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-/* ---------- Imbalance glance (#177, #192) ---------- */
-
-function ImbalanceGlance() {
-  const go = useGo();
-  const { data } = useQuery({ ...orpc.imbalance.getPolicyComparison.queryOptions({ input: {} }), staleTime: Number.POSITIVE_INFINITY });
-  const of = (policy: string) => data?.find((r) => r.policy === policy);
-  const sentinel = of("sentinel");
-  const profile = of("profile");
-  const lei = (v?: number) => (v === undefined ? "—" : Math.round(v).toLocaleString("en-US"));
-  const delta = deltaOf(profile?.avoidableLei, sentinel?.avoidableLei);
-  // One full-width line: title and context left, the number and its change right (#206).
-  return (
-    <section aria-labelledby="ov-imbalance" className={cn(CARD, "flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4")}>
-      <div className="min-w-[240px] flex-1">
-        <h2 id="ov-imbalance" className="section-title">
-          Imbalance cost
-        </h2>
-        <p className="mt-0.5 text-caption text-muted-foreground">
-          {sentinel ? (
-            <>
-              Avoidable, {Math.round(sentinel.days)} days across the portfolio · a fixed profile costs{" "}
-              <span className="font-medium text-text-secondary">{lei(profile?.avoidableLei)} lei</span>
-            </>
-          ) : (
-            "No imbalance replay yet."
-          )}
-        </p>
-      </div>
-      <div className="flex items-center gap-2.5">
-        {sentinel ? (
-          <Num
-            value={lei(sentinel.avoidableLei)}
-            unit="lei"
-            className="text-[24px] leading-none font-semibold tracking-[-0.02em] text-foreground"
-          />
-        ) : (
-          <span className="text-[24px] leading-none font-semibold text-muted-foreground">—</span>
-        )}
-        {delta ? <DeltaChip delta={delta} /> : null}
-      </div>
-      <button
-        type="button"
-        onClick={() => go({ mode: "imbalance", feeder: null, park: null, turbine: null, site: null })}
-        className={QUIET_LINK}
-      >
-        Open imbalance
-        <ChevronRight aria-hidden className="size-3.5" />
-      </button>
-    </section>
-  );
-}
-
-/* ---------- 5. Agent activity: the last five ---------- */
-
-function when(markerStep: number, now: number) {
-  return dayOfStep(markerStep) === dayOfStep(now)
-    ? timeLabel(markerStep)
-    : `${dayLabel(dayOfStep(markerStep)).split(" ")[0]} ${timeLabel(markerStep)}`;
-}
-
-function ActivityRow({ group, now, wide = false }: { group: ActionMarker; now: number; wide?: boolean }) {
-  const explain = useExplainAction();
-  const lead = group.items[0];
-  if (!lead) return null;
-  const more = group.items.length - 1;
-  return (
-    <li
-      className={cn(
-        "grid items-start gap-x-3 rounded-lg px-2 py-2 text-dense leading-snug transition-colors duration-150 hover:bg-surface-raised",
-        wide ? "grid-cols-[44px_12px_1fr]" : "grid-cols-[64px_12px_1fr]",
-      )}
-    >
-      <span className="pt-px font-mono text-caption whitespace-nowrap text-muted-foreground">
-        {wide ? timeLabel(group.step) : when(group.step, now)}
-      </span>
-      <StatusMark kind={ACTION_MARK[group.kind]} size="sm" className="mt-[3px]" label={ACTION_LABEL[group.kind]} />
-      <span className="min-w-0 text-text-secondary">
-        <span className="text-foreground">{lead.title}</span>
-        {more > 0 ? <span className="text-muted-foreground"> (+{more} more)</span> : null}{" "}
-        <button
-          type="button"
-          onClick={() => explain(lead)}
-          aria-label={`Why: ${lead.title}`}
-          className="cursor-pointer font-medium whitespace-nowrap text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-foreground focus-visible:decoration-foreground focus-visible:outline-none"
-        >
-          why?
-        </button>
-      </span>
-    </li>
-  );
-}
-
-function useActivity() {
-  const [rawStep] = useReplayStep();
-  const step = clampStep(rawStep);
-  const { actions, isLoading } = useAgentActions();
-  const past = useMemo(() => groupMarkers(actions.filter((a) => a.step <= step)), [actions, step]);
-  const byDay = useMemo(() => {
-    const days = new Map<number, ActionMarker[]>();
-    for (const group of [...past].reverse()) {
-      const day = dayOfStep(group.step);
-      days.set(day, [...(days.get(day) ?? []), group]);
-    }
-    return [...days.entries()];
-  }, [past]);
-  const later = groupMarkers(actions).length - past.length;
-  return { step, past, byDay, later, isLoading };
-}
-
-function AgentActivity({ onDetails }: { onDetails: OpenDetails }) {
-  const [policy] = usePolicy();
-  const { step, past, isLoading } = useActivity();
-  const latest = past.slice(-TOP_ACTIVITY).reverse();
-
-  return (
-    <section aria-labelledby="ov-activity" className={cn(CARD, "h-full px-5 pt-3 pb-3")}>
-      <SectionHeader
-        title={<span id="ov-activity">Agent activity</span>}
-        aside={
-          past.length > 0 ? (
-            <button type="button" onClick={() => onDetails("activity")} className={QUIET_LINK}>
-              See all {past.length}
-              <ChevronRight aria-hidden className="size-3.5" />
-            </button>
-          ) : null
-        }
-      />
-      {policy === "baseline" ? (
-        <p className="pb-1 text-caption text-muted-foreground">Showing what Sentinel did; Baseline has no agent.</p>
-      ) : null}
-      {isLoading ? (
-        <p className="mt-1 text-dense text-text-secondary">Loading…</p>
-      ) : latest.length === 0 ? (
-        <p className="mt-1 text-dense text-text-secondary">No actions yet at this point in the week.</p>
-      ) : (
-        <ul className="-mx-2 flex flex-col">
-          {latest.map((group) => (
-            <ActivityRow key={`${group.kind}-${group.step}`} group={group} now={step} />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-/* ---------- Details: everything that is not on the glance ---------- */
-
-function OverviewDetails({ target, onClose }: { target: DetailsTarget | null; onClose: () => void }) {
-  // Hooks run while the sheet is closed too, so the page fetches exactly what it did before (#124).
-  const data = useOverviewData();
-  const attention = useAttention();
-  const { step, byDay, later } = useActivity();
-  const { data: day } = useOverview();
-  const grid = useGrid().data?.hosting;
-  const { data: trust } = useTrustBoard();
-
-  // Scroll the requested section into view once the sheet has opened.
-  useEffect(() => {
-    if (!target) return;
-    const timer = window.setTimeout(
-      () => document.getElementById(detailsId(target))?.scrollIntoView({ block: "start" }),
-      60,
-    );
-    return () => window.clearTimeout(timer);
-  }, [target]);
-
-  const fixed = (v: number | null | undefined, digits: number, unit = "") =>
-    v === null || v === undefined ? "—" : `${v.toFixed(digits)}${unit}`;
-  const prosumers = grid ? deltaOf(grid.totalWithout, grid.totalWith, true) : null;
-
-  return (
-    <DetailsSheet
-      open={target !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose();
+/** Shades 18:00-21:00, when home batteries discharge and the standard profile is most wrong. */
+function EveningWindow() {
+  const { containerRef, xScale, margin, innerHeight, data } = useChartStable();
+  const container = useChartPortalContainer(containerRef);
+  const dates = (data as { date: Date }[]).map((d) => d.date);
+  const start = dates.find((d) => d.getHours() === 18);
+  const end = dates.find((d) => d.getHours() === 21) ?? dates.at(-1);
+  if (!container || !start || !end) return null;
+  const left = margin.left + xScale(start);
+  return createPortal(
+    <div
+      className="pointer-events-none absolute border-x border-status-warn/40 bg-status-warn/10"
+      style={{
+        left,
+        width: margin.left + xScale(end) - left,
+        top: margin.top,
+        height: innerHeight,
       }}
-      title="Overview details"
-      description={
-        <>
-          Everything behind the glance, up to <span className="font-mono">{clockLabel(step)}</span>.
-        </>
-      }
-      wide
     >
-      <SheetSection title={<span id={detailsId("numbers")} className="scroll-mt-4">Today&apos;s numbers</span>}>
-        <div className="text-dense">
-          <PopList
-            rows={[
-              { key: "mwh", label: "Production today", value: fixed(day?.productionMwh, 0, " MWh") },
-              { key: "wind", label: "Avg wind today", value: fixed(day?.avgWindKmh, 1, " km/h") },
-              { key: "avail", label: "Park availability", value: fixed(day?.availabilityPct, 1, "%") },
-              { key: "orders", label: "Open work orders", value: fixed(day?.activeIssues, 0) },
-            ]}
+      <span className="absolute -top-4 left-1 text-caption leading-none font-medium text-status-warn">
+        evening peak
+      </span>
+    </div>,
+    container,
+  );
+}
+
+const AXIS =
+  "pointer-events-none absolute text-[11px] leading-none text-muted-foreground tabular-nums";
+
+/** One label per 3 hours (on the hour only) and MWh on the left with one decimal: values stay under 1 MWh. */
+function Axes() {
+  const { containerRef, xScale, yScale, margin, innerHeight, data } =
+    useChartStable();
+  const container = useChartPortalContainer(containerRef);
+  if (!container) return null;
+  const hours = (data as { date: Date }[])
+    .map((d) => d.date)
+    .filter((d) => d.getMinutes() === 0 && d.getHours() % 3 === 0);
+  return createPortal(
+    <div className="pointer-events-none absolute inset-0">
+      <span className={AXIS} style={{ left: 0, top: 2 }}>
+        MWh
+      </span>
+      {yScale.ticks(4).map((tick) => (
+        <span
+          key={tick}
+          className={`${AXIS} -translate-y-1/2 text-right`}
+          style={{
+            left: 0,
+            width: margin.left - 8,
+            top: margin.top + yScale(tick),
+          }}
+        >
+          {tick.toFixed(1)}
+        </span>
+      ))}
+      {hours.map((d) => (
+        <span
+          key={d.getTime()}
+          className={`${AXIS} -translate-x-1/2`}
+          style={{
+            left: margin.left + xScale(d),
+            top: margin.top + innerHeight + 8,
+          }}
+        >
+          {`${String(d.getHours()).padStart(2, "0")}:00`}
+        </span>
+      ))}
+    </div>,
+    container,
+  );
+}
+
+function GapChart() {
+  const { dayName, rows, loading } = useImbalance();
+  const legend: [string, string][] = [
+    [BOUGHT_PROFILE, "var(--chart-baseline)"],
+    [BOUGHT_SENTINEL, "var(--sentinel)"],
+    [ACTUAL, "var(--status-actual)"],
+  ];
+  return (
+    <section aria-labelledby="ov-gap" className={cn(CARD, "p-6")}>
+      <h2 id="ov-gap" className="section-title">
+        What PPC bought vs what its prosumers actually used
+      </h2>
+      <p className="mt-1 text-dense text-text-secondary">
+        {dayName}, every 15 minutes. The further a “bought” line is from the
+        dark line, the more PPC pays to settle the difference.
+      </p>
+      <ul className="mt-3 flex flex-wrap items-center gap-4 text-caption text-text-secondary">
+        {legend.map(([label, color]) => (
+          <li key={label} className="flex items-center gap-1.5">
+            <span
+              className="h-0.5 w-4 rounded-full"
+              style={{ background: color }}
+              aria-hidden
+            />
+            {label}
+          </li>
+        ))}
+        <li className="flex items-center gap-1.5">
+          <span className="h-3 w-4 rounded-sm bg-status-warn/15" aria-hidden />
+          18:00–21:00
+        </li>
+      </ul>
+      <div className="mt-3">
+        {rows.length ? (
+          <LineChart
+            data={rows}
+            aspectRatio="5 / 1.6"
+            margin={{ left: 40, right: 8, top: 22, bottom: 24 }}
+            animationDuration={0}
+          >
+            <Grid
+              numTicksRows={4}
+              fadeHorizontal={false}
+              strokeDasharray="none"
+            />
+            <Line
+              dataKey={BOUGHT_PROFILE}
+              stroke="var(--chart-baseline)"
+              curve={curveStepAfter}
+              fadeEdges={false}
+            />
+            <Line
+              dataKey={BOUGHT_SENTINEL}
+              stroke="var(--sentinel)"
+              curve={curveStepAfter}
+              fadeEdges={false}
+            />
+            <Line
+              dataKey={ACTUAL}
+              stroke="var(--status-actual)"
+              strokeWidth={1.75}
+              curve={curveMonotoneX}
+              fadeEdges={false}
+            />
+            <EveningWindow />
+            <Axes />
+            <ChartTooltip />
+          </LineChart>
+        ) : (
+          <div
+            className={cn(
+              "h-[260px] rounded-lg bg-surface-raised",
+              loading && "animate-pulse",
+            )}
           />
-        </div>
-      </SheetSection>
-
-      <SheetSection
-        title={<span id={detailsId("attention")} className="scroll-mt-4">Needs attention</span>}
-        aside={<span className="text-caption text-muted-foreground">{plural(attention.length, "item")}</span>}
-      >
-        {attention.length === 0 ? (
-          <p className="text-text-secondary">Nothing needs a person right now.</p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {attention.map((row) => (
-              <li key={row.key} className="py-3 first:pt-0">
-                <div className="flex items-start gap-2.5">
-                  <StatusMark kind={row.mark} size="sm" className="mt-1" />
-                  <p className="min-w-0 flex-1 leading-snug text-text-secondary [&_b]:font-semibold [&_b]:text-foreground">
-                    {row.text}
-                  </p>
-                </div>
-                <div className="mt-2 pl-5 text-caption">
-                  <PopList rows={factRows(row.facts)} />
-                </div>
-                <button type="button" onClick={row.go} className={cn(QUIET_LINK, "mt-1.5 ml-3.5")}>
-                  {row.goLabel}
-                  <ChevronRight aria-hidden className="size-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
         )}
-      </SheetSection>
+      </div>
+      <p className="mt-2 text-caption text-muted-foreground">
+        Above zero: customers take energy from the grid. Below zero: their solar
+        panels push energy into it.
+      </p>
+    </section>
+  );
+}
 
-      <SheetSection
-        title={
-          <span id={detailsId("feeders")} className="scroll-mt-4">
-            Minutes over the limit, per feeder
-          </span>
-        }
-        aside={<span className="text-caption text-muted-foreground">{dayLabel(dayOfStep(step))}</span>}
-      >
-        <table className="w-full text-dense">
-          <thead>
-            <tr className="text-caption text-muted-foreground">
-              <th className="pb-1.5 text-left font-medium">Feeder</th>
-              <th className="pb-1.5 text-right font-medium">Limit kW</th>
-              <th className="pb-1.5 text-right font-medium">Baseline</th>
-              <th className="pb-1.5 text-right font-medium text-foreground">Sentinel</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border border-t border-border">
-            {data.feeders.map((f) => (
-              <tr key={f.id}>
-                <td className="py-1.5 pr-2 font-medium whitespace-nowrap text-foreground">{f.name}</td>
-                <td className="py-1.5 text-right text-text-secondary">{Math.round(f.limitKw)}</td>
-                <td className="py-1.5 text-right text-text-secondary">{f.baselineMinutes ?? "—"}</td>
-                <td className="py-1.5 text-right font-semibold text-foreground">{f.sentinelMinutes ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {grid ? (
-          <div className="flex items-center gap-3 rounded-lg bg-surface-raised px-3 py-2.5">
-            <div className="min-w-0 flex-1">
-              <p className="text-text-secondary">
-                Prosumers the cables can still take{" "}
-                <span className="text-muted-foreground">· all feeders, {grid.label}</span>
-              </p>
-              <p className="mt-0.5 text-caption text-muted-foreground">
-                without Sentinel{" "}
-                <span className="font-medium text-text-secondary">{Math.round(grid.totalWithout)} homes</span>
-              </p>
-            </div>
-            <Num value={Math.round(grid.totalWith)} unit="homes" className="text-title text-foreground" />
-            {prosumers ? <DeltaChip delta={prosumers} /> : null}
-          </div>
+/* ---------- 3. How Sentinel closes the gap ---------- */
+
+function Steps() {
+  const { year } = useImbalance();
+  const steps = [
+    { label: "PPC today: standard profile", v: year.profile?.avoidableLei },
+    {
+      label: "1 · Predict each home’s solar and consumption",
+      v: year.forecast?.avoidableLei,
+    },
+    {
+      label: "2 · Predict what home batteries will do",
+      v: year.sentinel?.avoidableLei,
+    },
+    {
+      label: "3 · Correct at 15:00 on the intraday market",
+      v: year.corrected?.avoidableLei,
+    },
+  ].filter((s): s is { label: string; v: number } => s.v !== undefined);
+  const max = Math.max(1, ...steps.map((s) => s.v));
+
+  return (
+    <section
+      aria-labelledby="ov-steps"
+      className={cn(CARD, "flex h-full flex-col p-6")}
+    >
+      <h2 id="ov-steps" className="section-title">
+        How Sentinel closes the gap
+      </h2>
+      <p className="mt-1 text-dense text-text-secondary">
+        Avoidable imbalance cost over a full year, after each step.
+      </p>
+      <ol className="mt-4 space-y-3.5">
+        {steps.map((s, i) => {
+          const prev = i ? steps[i - 1]!.v : s.v;
+          const change = i ? pctChange(prev, s.v) : null;
+          return (
+            <li key={s.label}>
+              <div className="mb-1 flex items-baseline justify-between gap-3 text-dense">
+                <span className={i ? "text-foreground" : "text-text-secondary"}>
+                  {s.label}
+                </span>
+                <span className="font-medium whitespace-nowrap text-foreground tabular-nums">
+                  {lei(s.v)} lei
+                  {change !== null ? (
+                    <span className="ml-2 font-normal text-status-ok">
+                      {chip(change)?.text}
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+              <div className="h-2.5 rounded-sm bg-surface-raised">
+                <span
+                  className="block h-full rounded-sm"
+                  style={{
+                    width: `${(s.v / max) * 100}%`,
+                    background: i ? "var(--sentinel)" : "var(--chart-baseline)",
+                  }}
+                />
+              </div>
+            </li>
+          );
+        })}
+        {!steps.length ? (
+          <li className="text-dense text-text-secondary">
+            No imbalance replay in this database yet.
+          </li>
         ) : null}
-        <dl className="space-y-1.5 text-caption leading-snug text-text-secondary">
-          <div>
-            <dt className="inline font-semibold text-foreground">Baseline</dt>{" "}
-            <dd className="inline">is the same week without Sentinel: batteries only store their own solar.</dd>
-          </div>
-          <div>
-            <dt className="inline font-semibold text-foreground">Minutes over</dt>{" "}
-            <dd className="inline">count 15-minute steps where export crossed the feeder's limit.</dd>
-          </div>
-          <div>
-            <dt className="inline font-semibold text-foreground">A comfort breach</dt>{" "}
-            <dd className="inline">is a home battery dropping below the reserve its owner keeps.</dd>
-          </div>
-        </dl>
-      </SheetSection>
+      </ol>
+      <p className="mt-auto pt-4 text-caption text-muted-foreground">
+        Synthetic Romanian homes, real OPCOM day-ahead prices. Step 2 needs
+        nothing from customers: it reads their meters.
+      </p>
+    </section>
+  );
+}
 
-      <SheetSection title={<span id={detailsId("activity")} className="scroll-mt-4">Agent activity</span>}>
-        <p className="text-caption text-text-secondary">
-          Everything Sentinel did up to <span className="font-mono">{clockLabel(step)}</span>, newest first.{" "}
-          {later > 0 ? `${later} more later in the week: play the replay to see them.` : ""}
-        </p>
-        {byDay.length === 0 ? (
-          <p className="text-text-secondary">No actions yet at this point in the week.</p>
-        ) : (
-          byDay.map(([d, groups]) => (
-            <div key={d} className="pt-2">
-              <h4 className="sticky top-0 z-[1] bg-card/95 py-1 section-label backdrop-blur-sm">
-                {dayLabel(d)} · {plural(groups.length, "action")}
-              </h4>
-              <ul className="-mx-2 flex flex-col">
-                {groups.map((group) => (
-                  <ActivityRow key={`${group.kind}-${group.step}`} group={group} now={step} wide />
-                ))}
-              </ul>
-            </div>
-          ))
-        )}
-      </SheetSection>
+/* ---------- 4. Same engine, two more problems ---------- */
 
-      {trust?.witnesses.length ? (
-        <section id={detailsId("trust")} className="scroll-mt-4 border-t border-border py-5">
-          <TrustBoard />
-        </section>
-      ) : null}
-    </DetailsSheet>
+function MoreProblems() {
+  const go = useGo();
+  const data = useOverviewData();
+  const over = data.feeders.filter((f) => f.status === "over");
+  const near = data.feeders.filter((f) => f.status === "near");
+  const worst = [...over].sort(
+    (a, b) => (b.minutesOver ?? 0) - (a.minutesOver ?? 0),
+  )[0];
+  const turbineOrders = data.openOrders.filter(
+    (o) => o.assetKind === "turbine",
+  ).length;
+  const total = data.feeders.length;
+
+  const grid = !data.ready
+    ? "Reading the grid…"
+    : worst
+      ? `${over.length} of ${total} neighbourhood cables went over their limit today (${worst.name}, ${worst.minutesOver} min). Home batteries soak up the midday solar peak to prevent it.`
+      : `All ${total} neighbourhood cables stayed within their limit today${near.length ? `, ${near.length} came close` : ""}.`;
+  const wind = `${data.stopped.length ? `${data.stopped.length} turbine${data.stopped.length === 1 ? "" : "s"} stopped, ` : ""}${turbineOrders} repair job${turbineOrders === 1 ? "" : "s"} open. Sentinel tells a real fault from a planned stop, ice or a broken sensor, so crews go out only when needed.`;
+
+  return (
+    <section aria-labelledby="ov-more" className="space-y-3">
+      <h2 id="ov-more" className="section-title px-1">
+        Same engine, two more problems
+      </h2>
+      <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-2">
+        <MoreCard
+          title="Grid cables"
+          who="Rețele Electrice"
+          status={over.length ? "critical" : near.length ? "warn" : "ok"}
+          statusText={
+            over.length
+              ? "over limit"
+              : near.length
+                ? "close to limit"
+                : "within limit"
+          }
+          text={grid}
+          action="Open Feeders"
+          onClick={() => go("feeders")}
+        />
+        <MoreCard
+          title="Wind farms"
+          who="PPC Renewables"
+          status={
+            data.stopped.length ? "critical" : turbineOrders ? "warn" : "ok"
+          }
+          statusText={
+            data.stopped.length
+              ? "turbines stopped"
+              : turbineOrders
+                ? "repairs open"
+                : "running"
+          }
+          text={wind}
+          action="Open O&M"
+          onClick={() => go("om")}
+        />
+      </div>
+    </section>
+  );
+}
+
+function MoreCard({
+  title,
+  who,
+  status,
+  statusText,
+  text,
+  action,
+  onClick,
+}: {
+  title: string;
+  who: string;
+  status: "ok" | "warn" | "critical";
+  statusText: string;
+  text: string;
+  action: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className={cn(CARD, "flex flex-col p-5")}>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-body font-semibold text-foreground">{title}</h3>
+        <span className="text-caption text-muted-foreground">{who}</span>
+        <StatusPill status={status} className="ml-auto">
+          {statusText}
+        </StatusPill>
+      </div>
+      <p className="mt-2 text-dense text-text-secondary">{text}</p>
+      <div className="mt-auto pt-3">
+        <button type="button" onClick={onClick} className={cn(LINK, "-ml-1.5")}>
+          {action}
+          <ChevronRight aria-hidden className="size-3.5" />
+        </button>
+      </div>
+    </div>
   );
 }
 
 /* ---------- The page ---------- */
 
-export function OverviewPage({ onTour }: ModePageProps) {
-  const go = useGo();
-  const [details, setDetails] = useState<DetailsTarget | null>(null);
+export function OverviewPage(_props: ModePageProps) {
   return (
-    <>
-      {/* Two even columns from 880px (one below). Each row is its own grid, so cards in a row share a
-          height and nothing leaves a gap. Centred with a 1600px cap; the dock uses the same cap (#206). */}
-      <div className="@container mx-auto flex w-full max-w-[1600px] flex-col gap-5">
-        <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-2">
-          <Briefing onTour={onTour} />
-          <MiniMap
-            onOpen={() => go({ mode: "feeders", site: null, turbine: null })}
-            className="h-[280px] @min-[880px]:h-auto @min-[880px]:min-h-[260px]"
-          />
-        </div>
-        <KpiRow onDetails={setDetails} />
-        <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-2">
-          <NeedsAttention onDetails={setDetails} />
-          <AgentActivity onDetails={setDetails} />
-        </div>
-        <ImbalanceGlance />
+    <div className="@container mx-auto flex w-full max-w-[1400px] flex-col gap-5">
+      <Problem />
+      <div className="grid grid-cols-1 gap-5 @min-[1100px]:grid-cols-[1.6fr_1fr]">
+        <GapChart />
+        <Steps />
       </div>
-      <OverviewDetails target={details} onClose={() => setDetails(null)} />
-    </>
+      <MoreProblems />
+    </div>
   );
 }
