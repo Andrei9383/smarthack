@@ -78,7 +78,6 @@ export function MiniMap({ onOpen, className }: { onOpen: () => void; className?:
           <StatusMark kind="critical" size="xs" />
           over
         </span>
-        <span className="text-muted-foreground">{offline ? "Offline basemap · " : ""}tint = evening demand</span>
       </footer>
     </section>
   );
