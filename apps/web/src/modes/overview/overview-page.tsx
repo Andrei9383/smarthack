@@ -3,9 +3,10 @@
 import { cn } from "@sentinel-app/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX, curveStepAfter } from "d3-shape";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Pause, Play, UtilityPole, Wind } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { parseAsString, useQueryStates } from "nuqs";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -15,13 +16,15 @@ import {
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { dayWindow } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
+import { clampStep, dayWindow, HERO_DAY, STEPS_PER_DAY } from "@/demo/replay";
+import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
 import { type Delta, DeltaChip, StatusPill } from "@/panels/disclosure";
 import { wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
+import { MiniMap } from "./mini-map";
 import { useOverviewData } from "./use-overview-data";
 
 // Overview for a supplier opening the app for the first time. It tells the pitch's story in order:
@@ -120,10 +123,35 @@ function useImbalance() {
   };
 }
 
-/* ---------- 1. The problem and what it costs today ---------- */
+/* ---------- 1. The problem, what it costs today, and the demo ---------- */
+
+const MORNING_STEP = HERO_DAY * STEPS_PER_DAY + 24; // 06:00 on the story day
+
+/** Starts the story day at 06:00 with Sentinel on; pressing again pauses, then resumes. */
+function usePlayDemo() {
+  const [rawStep, setStep] = useReplayStep();
+  const [, setPolicy] = usePolicy();
+  const playing = useReplayPlaying();
+  const started = useRef(false);
+  const step = clampStep(rawStep);
+  const toggle = () => {
+    if (playing) {
+      setPlaying(false);
+      return;
+    }
+    const inStory =
+      step >= MORNING_STEP && step < HERO_DAY * STEPS_PER_DAY + 80;
+    setPolicy("sentinel");
+    if (!started.current || !inStory) setStep(MORNING_STEP);
+    started.current = true;
+    setPlaying(true);
+  };
+  return { playing, toggle };
+}
 
 function Problem() {
   const go = useGo();
+  const demo = usePlayDemo();
   const { dayName, profile, sentinel, year } = useImbalance();
   const today = pctChange(profile?.avoidableLei, sentinel?.avoidableLei);
   const yearly = pctChange(
@@ -132,7 +160,10 @@ function Problem() {
   );
 
   return (
-    <section aria-labelledby="ov-problem" className={cn(CARD, "p-6")}>
+    <section
+      aria-labelledby="ov-problem"
+      className={cn(CARD, "flex h-full flex-col p-6")}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-caption font-medium tracking-wide text-muted-foreground uppercase">
           Prosumer imbalance · {dayName}
@@ -145,54 +176,56 @@ function Problem() {
 
       <h1
         id="ov-problem"
-        className="mt-3 max-w-[30ch] text-page text-balance text-foreground"
+        className="mt-3 text-page text-balance text-foreground"
       >
-        {profile && sentinel ? (
+        {profile ? (
           <>
-            Today PPC’s prosumers cost{" "}
+            Prosumers cost PPC{" "}
             <span className="whitespace-nowrap">
               {lei(profile.avoidableLei)} lei
             </span>{" "}
-            in avoidable imbalance. Sentinel cuts that to{" "}
-            <span className="whitespace-nowrap text-status-ok">
-              {lei(sentinel.avoidableLei)} lei
-            </span>
-            .
+            in imbalance today.
           </>
         ) : (
           "Reading today’s imbalance…"
         )}
       </h1>
 
-      <p className="mt-3 max-w-[78ch] text-body text-text-secondary">
-        PPC buys tomorrow’s energy using a standard “typical home” profile. That
-        profile can’t see rooftop solar or home batteries, so in the evening PPC
-        ends up buying too much or too little, and the difference is settled at
-        a worse price. Sentinel forecasts every home, battery included, and buys
-        that instead.
-      </p>
-
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mt-5 grid grid-cols-1 gap-3 @min-[520px]/problem:grid-cols-3">
         <Stat
-          label="Standard profile, today"
+          label="Standard profile"
           value={lei(profile?.avoidableLei)}
           unit="lei"
         />
         <Stat
-          label="With Sentinel, today"
+          label="With Sentinel"
           value={lei(sentinel?.avoidableLei)}
           unit="lei"
           tone="text-status-ok"
           delta={chip(today)}
         />
         <Stat
-          label="Over a full year (2025 replay)"
+          label="Full year, 2025"
           value={lei(year.sentinel?.avoidableLei)}
           unit="lei"
           tone="text-status-ok"
           delta={chip(yearly)}
-          sub={`instead of ${lei(year.profile?.avoidableLei)} lei with the standard profile`}
         />
+      </div>
+
+      <div className="mt-auto pt-6">
+        <button
+          type="button"
+          onClick={demo.toggle}
+          className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-primary pr-4 pl-3.5 text-body font-semibold text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-primary/85 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          {demo.playing ? (
+            <Pause aria-hidden className="size-4 fill-current" />
+          ) : (
+            <Play aria-hidden className="size-4 fill-current" />
+          )}
+          {demo.playing ? "Pause the demo" : "Play the demo"}
+        </button>
       </div>
     </section>
   );
@@ -219,7 +252,7 @@ function Stat({
       <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
         <span
           className={cn(
-            "text-[28px] leading-none font-semibold tracking-[-0.02em] tabular-nums",
+            "text-[24px] leading-none font-semibold tracking-[-0.02em] tabular-nums",
             tone ?? "text-foreground",
           )}
         >
@@ -324,8 +357,7 @@ function GapChart() {
         What PPC bought vs what its prosumers actually used
       </h2>
       <p className="mt-1 text-dense text-text-secondary">
-        {dayName}, every 15 minutes. The further a “bought” line is from the
-        dark line, the more PPC pays to settle the difference.
+        {dayName}. The closer to the dark line, the lower the cost.
       </p>
       <ul className="mt-3 flex flex-wrap items-center gap-4 text-caption text-text-secondary">
         {legend.map(([label, color]) => (
@@ -388,10 +420,6 @@ function GapChart() {
           />
         )}
       </div>
-      <p className="mt-2 text-caption text-muted-foreground">
-        Above zero: customers take energy from the grid. Below zero: their solar
-        panels push energy into it.
-      </p>
     </section>
   );
 }
@@ -465,10 +493,6 @@ function Steps() {
           </li>
         ) : null}
       </ol>
-      <p className="mt-auto pt-4 text-caption text-muted-foreground">
-        Synthetic Romanian homes, real OPCOM day-ahead prices. Step 2 needs
-        nothing from customers: it reads their meters.
-      </p>
     </section>
   );
 }
@@ -480,9 +504,6 @@ function MoreProblems() {
   const data = useOverviewData();
   const over = data.feeders.filter((f) => f.status === "over");
   const near = data.feeders.filter((f) => f.status === "near");
-  const worst = [...over].sort(
-    (a, b) => (b.minutesOver ?? 0) - (a.minutesOver ?? 0),
-  )[0];
   const turbineOrders = data.openOrders.filter(
     (o) => o.assetKind === "turbine",
   ).length;
@@ -490,10 +511,11 @@ function MoreProblems() {
 
   const grid = !data.ready
     ? "Reading the grid…"
-    : worst
-      ? `${over.length} of ${total} neighbourhood cables went over their limit today (${worst.name}, ${worst.minutesOver} min). Home batteries soak up the midday solar peak to prevent it.`
-      : `All ${total} neighbourhood cables stayed within their limit today${near.length ? `, ${near.length} came close` : ""}.`;
-  const wind = `${data.stopped.length ? `${data.stopped.length} turbine${data.stopped.length === 1 ? "" : "s"} stopped, ` : ""}${turbineOrders} repair job${turbineOrders === 1 ? "" : "s"} open. Sentinel tells a real fault from a planned stop, ice or a broken sensor, so crews go out only when needed.`;
+    : over.length
+      ? `${over.length} of ${total} cables over the limit today`
+      : `All ${total} cables within the limit today`;
+  const stopped = data.stopped.length;
+  const wind = `${stopped ? `${stopped} turbine${stopped === 1 ? "" : "s"} stopped · ` : ""}${turbineOrders} repair${turbineOrders === 1 ? "" : "s"} open`;
 
   return (
     <section aria-labelledby="ov-more" className="space-y-3">
@@ -502,6 +524,7 @@ function MoreProblems() {
       </h2>
       <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-2">
         <MoreCard
+          icon={UtilityPole}
           title="Grid cables"
           who="Rețele Electrice"
           status={over.length ? "critical" : near.length ? "warn" : "ok"}
@@ -517,6 +540,7 @@ function MoreProblems() {
           onClick={() => go("feeders")}
         />
         <MoreCard
+          icon={Wind}
           title="Wind farms"
           who="PPC Renewables"
           status={
@@ -539,6 +563,7 @@ function MoreProblems() {
 }
 
 function MoreCard({
+  icon: Icon,
   title,
   who,
   status,
@@ -547,6 +572,7 @@ function MoreCard({
   action,
   onClick,
 }: {
+  icon: LucideIcon;
   title: string;
   who: string;
   status: "ok" | "warn" | "critical";
@@ -556,31 +582,53 @@ function MoreCard({
   onClick: () => void;
 }) {
   return (
-    <div className={cn(CARD, "flex flex-col p-5")}>
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-body font-semibold text-foreground">{title}</h3>
-        <span className="text-caption text-muted-foreground">{who}</span>
-        <StatusPill status={status} className="ml-auto">
-          {statusText}
-        </StatusPill>
-      </div>
-      <p className="mt-2 text-dense text-text-secondary">{text}</p>
-      <div className="mt-auto pt-3">
-        <button type="button" onClick={onClick} className={cn(LINK, "-ml-1.5")}>
-          {action}
-          <ChevronRight aria-hidden className="size-3.5" />
-        </button>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`${action}: ${text}`}
+      className={cn(
+        CARD,
+        "group flex cursor-pointer items-center gap-4 p-5 text-left transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring",
+      )}
+    >
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <Icon aria-hidden className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-body font-semibold text-foreground">
+            {title}
+          </span>
+          <span className="text-caption text-muted-foreground">{who}</span>
+        </span>
+        <span className="mt-0.5 block text-dense text-text-secondary">
+          {text}
+        </span>
+      </span>
+      <StatusPill status={status}>{statusText}</StatusPill>
+      <ChevronRight
+        aria-hidden
+        className="size-4 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5"
+      />
+    </button>
   );
 }
 
 /* ---------- The page ---------- */
 
 export function OverviewPage(_props: ModePageProps) {
+  const go = useGo();
   return (
     <div className="@container mx-auto flex w-full max-w-[1400px] flex-col gap-5">
-      <Problem />
+      <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-2">
+        <div className="@container/problem">
+          <Problem />
+        </div>
+        <MiniMap
+          onOpen={() => go("feeders")}
+          className="h-[300px] @min-[880px]:h-auto @min-[880px]:min-h-[300px]"
+        />
+      </div>
       <div className="grid grid-cols-1 gap-5 @min-[1100px]:grid-cols-[1.6fr_1fr]">
         <GapChart />
         <Steps />
