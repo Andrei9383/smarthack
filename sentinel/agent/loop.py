@@ -632,6 +632,7 @@ class LoopConfig:
     resolve_hourly: bool = False
     write_inputs: bool = True  # predictions, measurements, zone demand, gis flags: once per DB (shared inputs)
     step_predictions: bool = True  # per-step pv/load rows in predictions (False = lite DB; asset_steps keeps PV q's)
+    detail_sites: Optional[frozenset[str]] = None  # large worlds: per-site rows only for these; None = every site
     write_schedules: bool = True  # per-step schedules rows (replay default: sentinel only; the UI shows policy 'sentinel')
     beta: float = 0.5  # export remuneration ratio (same default as #18)
     c_deg_lei_kwh: float = 0.12  # ~EUR 0.025/kWh per direction (plan §3.5), both policies
@@ -850,6 +851,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                                  "ood_score": p.ood_score, "member_std": p.member_std,
                                                  "t0": created, "horizon_idx": k,
                                                  "is_fallback": _is_fallback(p, comps)})
+                if cfg.detail_sites is not None and s not in cfg.detail_sites:
+                    continue
                 sink.add("predictions", _health_row(run_id, s, hl_p[s], created, 0, comps))
             rows, acts = _safe_zone_demand(comps, world, d, ld_p, run_id, policy)
             sink.add_many("zone_demand", rows)
@@ -1024,7 +1027,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     energy[s] = e2
                     executed[s][k] = p
                     grid = pv - ld - p
-                    if cfg.write_schedules:
+                    if cfg.write_schedules and (cfg.detail_sites is None or s in cfg.detail_sites):
                         sink.add("schedules", {"run_id": run_id, "asset_id": s, "policy": policy, "ts": tsx,
                                                "batt_kw": round(p, 4), "soc": round(e2 / b.capacity_kwh, 4),
                                                "comfort_reserve_kwh": round(b.comfort_reserve_kwh, 4),
@@ -1034,7 +1037,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     + cfg.c_deg_lei_kwh * abs(executed[s][k] if b else 0.0) * DT
                 od = oday[s]
                 stale = od.telemetry_age_s[k] > 0
-                if write_inputs:  # telemetry once per DB (per-policy battery rows are in schedules)
+                detail = cfg.detail_sites is None or s in cfg.detail_sites
+                if write_inputs and detail:  # telemetry once per DB (per-policy battery rows are in schedules)
                     sink.add("measurements", {"run_id": run_id, "asset_id": s, "ts": tsx,
                                               "pv_ac_kw": None if stale else od.pv_kw[k],
                                               "load_kw": None if stale else od.load_kw[k],
@@ -1042,7 +1046,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                               "soc": None if (stale or b is None) else round(energy[s] / b.capacity_kwh, 4),
                                               "inv_voltage_v": None if stale else od.inv_voltage_v[k],
                                               "inv_status": str(od.inv_status[k]), "data_quality": "gap" if stale else "ok"})
-                if asset_steps and write_inputs and (cfg.step_predictions or not _night_interior(sd.pv_kw, pv_p[s], k)):
+                if asset_steps and write_inputs and detail and (cfg.step_predictions or not _night_interior(sd.pv_kw, pv_p[s], k)):
                     sink.add("asset_steps", {"run_id": run_id, "asset_id": s, "ts": tsx, "actual_kw": pv,
                                              "q10_kw": pv_p[s].q10[k], "q50_kw": pv_p[s].q50[k],
                                              "q90_kw": pv_p[s].q90[k]})
