@@ -1,5 +1,4 @@
-"""WindMon's four anomaly rules on the PPC schema (numpy), the M6 baseline (plan §10, card #24; moved here from
-wattsentry/model/wind/windmon_rules.py, which re-exports this module for #41).
+"""WindMon's four anomaly rules on the PPC schema (numpy), the M6 baseline.
 
 Rules, applied per turbine per 15-min step:
 - HIGH_WIND_ZERO_POWER: nacelle wind > 15 km/h and act_pwt < 10 kW (WindMon's exact rule);
@@ -37,7 +36,7 @@ def _frozen(x: np.ndarray, n: int) -> np.ndarray:
     same = np.zeros_like(x, dtype=bool)
     same[1:] = (x[1:] == x[:-1]) & np.isfinite(x[1:])
     # the run of `same` ending at t is >= n-1 long  <=>  same[t-n+2 .. t] are all True (same[0] is False, so a window
-    # reaching back to step 0 fails); a rolling AND, vectorised over time too (#136: the per-step loop took ~1-2 s)
+    # reaching back to step 0 fails); a rolling AND, vectorised over time too (a per-step loop took ~1-2 s)
     if n - 1 <= 0:
         return np.ones(x.shape, dtype=bool)
     out = same.copy()

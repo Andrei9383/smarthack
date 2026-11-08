@@ -36,7 +36,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import os
 import sys
 import time
@@ -69,10 +68,8 @@ def log(msg: str) -> None:
 
 # =============================================================================================== Judge access (C1)
 def judge_mode() -> str:
-    try:
-        from wattsentry.judge import adapter
-    except ImportError:
-        return "passthrough (wattsentry.judge.adapter not merged): raw prediction, verdict 'use'"
+    from wattsentry.judge import adapter
+
     return f"C1 adapter, verdict source {type(adapter.default_judge()).__name__}"
 
 
@@ -87,14 +84,11 @@ def validated(asset_id: str, model: str, t0: str, raw: Callable[[], Any]) -> tup
     gridtwin feeder limit (a FeederSpec). Returns (value, verdict); value None = unknown (Judge said dont_use and
     there is no substitute).
 
-    Reads go through C1's `wattsentry.judge.adapter.validated` (band scale applied, substitute swapped in) when it is
-    importable; until #157 merges this is the adapter's own no-Judge mode: the raw value with verdict 'use'. M8 has
+    Reads go through `wattsentry.judge.adapter.validated` (band scale applied, substitute swapped in). M8 has
     no quantiles: a dont_use verdict on the twin means the conservative limit (tau = 0)."""
+    from wattsentry.judge.adapter import validated as judge_validated
+
     value = raw()
-    try:
-        from wattsentry.judge.adapter import validated as judge_validated
-    except ImportError:
-        return value, "use"
     day = _local_day(t0)
     if isinstance(value, FeederSpec):
         v = judge_validated(asset_id, model, day, raw=None)

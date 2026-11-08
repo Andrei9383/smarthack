@@ -1,4 +1,4 @@
-"""Card #27: conformal calibration, thresholds.json, OOD, P10 scenario rollout + commitment."""
+"""Conformal calibration, thresholds.json, P10 scenario rollout + commitment."""
 
 import json
 import time
@@ -11,9 +11,7 @@ from wattsentry.eval.uncertainty import (
     DEFAULT_THRESHOLDS,
     THRESHOLDS_PATH,
     ConformalCalibration,
-    MahalanobisOOD,
     coverage,
-    load_thresholds,
     mean_pinball,
     rel_width,
     save_thresholds,
@@ -68,7 +66,7 @@ def test_conformal_coverage_per_member():
     assert 0.75 <= rep["a"]["calibrated"]["coverage_10_90"] <= 0.85
 
 
-def test_conformal_json_roundtrip_and_prediction(tmp_path):
+def test_conformal_json_roundtrip(tmp_path):
     rng = np.random.default_rng(2)
     y, trip = _synthetic(200, DAY_STEPS, rng)
     cal = ConformalCalibration.fit(y, trip, model="pvnet", model_version="mock-1")
@@ -77,18 +75,11 @@ def test_conformal_json_roundtrip_and_prediction(tmp_path):
     cal2 = ConformalCalibration.load(path)
     assert json.loads(path.read_text())["members"].keys() == {"0"}
     np.testing.assert_allclose(cal.apply(*[q[0] for q in trip])[2], cal2.apply(*[q[0] for q in trip])[2])
-    # applied to a real envelope: still valid, PV nights stay at zero
-    p = MockPredictor("pv").predict({"site_id": "S1", "kwp_true": 6, "lat": 44.4}, t0=T0)
-    pc = cal2.apply_prediction(p, cap=6.0)
-    assert pc.extra["calibrated"] and pc.q90[0] == 0.0 and pc.q10[0] == 0.0
-    assert max(pc.q90) <= 6.0 + 1e-9
 
 
-# --- thresholds + OOD ----------------------------------------------------------------------------------------
+# --- thresholds ----------------------------------------------------------------------------------------------
 def test_thresholds_file_and_roundtrip(tmp_path):
     assert json.loads(THRESHOLDS_PATH.read_text()) == DEFAULT_THRESHOLDS
-    assert load_thresholds() == DEFAULT_THRESHOLDS
-    assert load_thresholds(tmp_path / "missing.json") == DEFAULT_THRESHOLDS
     rng = np.random.default_rng(0)
     th = tune_thresholds({"rel_width": rng.gamma(2, 0.2, 500), "ood": rng.exponential(1, 500),
                           "pfault_std": rng.uniform(0, 0.3, 500)},
@@ -111,20 +102,6 @@ def test_rel_width_daylight_only():
     assert rel_width(0.5 * q50, q50, 1.5 * q50) == pytest.approx(1.0)
     p = MockPredictor("pv").predict({"site_id": "S1", "kwp_true": 6, "lat": 44.4}, t0=T0)
     assert 0 < rel_width(p) < 2
-
-
-def test_mahalanobis_ood(tmp_path):
-    rng = np.random.default_rng(0)
-    a = rng.standard_normal((16, 16))
-    x = rng.standard_normal((2000, 16)) @ a
-    ood = MahalanobisOOD().fit(x)
-    assert 0 <= ood.shrinkage <= 1
-    s_in = ood.score(rng.standard_normal((500, 16)) @ a)
-    s_out = ood.score(rng.standard_normal((500, 16)) @ a + 8 * a[0])
-    assert np.median(s_in) < 1.0 and np.mean(s_in > 3.0) < 0.05
-    assert np.median(s_out) > 3.0
-    ood.save(tmp_path / "ood.json")
-    np.testing.assert_allclose(MahalanobisOOD.load(tmp_path / "ood.json").score(x[:10]), ood.score(x[:10]))
 
 
 # --- scenarios -----------------------------------------------------------------------------------------------

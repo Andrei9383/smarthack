@@ -25,7 +25,7 @@ API (I6 #176 and the replay build on these; arrays are numpy, kW per home, MWh p
     validated_bands(model, site_ids, days, q_raw, *, substitutes=None, fallback=None, judge=None)
         -> (q (N, T, 3), known (N,), counts)   the ONE place per-home bands are read (C1 adapter, validated_many)
     draw_levels(n_scen, region, n_regions, seed=0) -> (u_pv (K, R), u_load (K, N))
-    behaviour(pv, load, battery, soc0=None) -> net import kW, pv's shape (..., N, T)   (set_behaviour(fn) swaps it)
+    behaviour(pv, load, battery, soc0=None) -> net import kW, pv's shape (..., N, T)
     warm_soc0(pv50, load50, battery) -> soc0 (N,) fraction   (midnight SoC the supplier cannot see; steady state)
     portfolio_scenarios(pv_q, load_q, fleet, *, n_scen=200, seed=0, soc0=None, battery=True, chunk=256)
         -> total (K, T) MWh/step
@@ -89,8 +89,6 @@ COVER_TARGET = 0.80
 BUCKETS = ((0, 24), (24, 48), (48, 72), (72, 96))  # 6-h horizon buckets of the conformal scale
 LEVEL_CLIP = 1e-3
 ROOT = Path(__file__).resolve().parents[2]
-AB_PATH = ROOT / "models" / "imbalance_ab.json"
-AB_STUB = (1.4407, 0.7204)  # #158's frozen a, b (a = 2b), used only if neither the module nor the JSON is present
 LABEL = "synthetic RO"
 
 
@@ -141,12 +139,6 @@ class Fleet:
 
 
 # ================================================================================================ 1. per-home bands
-def _passthrough(model: str, site_ids: Sequence[Any], days: Any, q: np.ndarray):
-    n = len(site_ids)
-    return q, np.ones(n, bool), {"use": n, "widen": 0, "dont_use": 0, "unknown": 0, "substituted": 0,
-                                 "adapter": "stub (#157 not on main): passthrough, verdict use"}
-
-
 def validated_bands(model: str, site_ids: Sequence[Any], days: Any, q_raw: np.ndarray, *,
                     substitutes: Optional[Mapping[str, np.ndarray]] = None, fallback: Optional[np.ndarray] = None,
                     judge: Any = None) -> tuple[np.ndarray, np.ndarray, dict]:
@@ -159,19 +151,16 @@ def validated_bands(model: str, site_ids: Sequence[Any], days: Any, q_raw: np.nd
     This is the only function that touches the adapter; swapping in the Judge = pass judge=SqliteVerdicts(db, run)
     or set_default_judge(...) in the adapter.
     """
+    from wattsentry.judge.adapter import RawBatch, validated_many
+
     q_raw = np.asarray(q_raw, dtype=np.float64)
-    try:
-        from wattsentry.judge.adapter import RawBatch, validated_many
-    except ImportError:
-        q, known, counts = _passthrough(model, site_ids, days, q_raw)
-    else:
-        t = q_raw.shape[1]
-        if t != H:
-            raise ValueError(f"adapter works on {H}-step days, got {t}")
-        subs = {k: RawBatch(q=np.asarray(v, dtype=np.float64)) for k, v in (substitutes or {}).items()}
-        b = validated_many(model, list(site_ids), days, raw=RawBatch(q=q_raw), substitutes=subs, judge=judge)
-        q, known, counts = b.q, np.asarray(b.known, bool), dict(b.counts())
-        counts["adapter"] = "wattsentry.judge.adapter.validated_many"
+    t = q_raw.shape[1]
+    if t != H:
+        raise ValueError(f"adapter works on {H}-step days, got {t}")
+    subs = {k: RawBatch(q=np.asarray(v, dtype=np.float64)) for k, v in (substitutes or {}).items()}
+    b = validated_many(model, list(site_ids), days, raw=RawBatch(q=q_raw), substitutes=subs, judge=judge)
+    q, known, counts = b.q, np.asarray(b.known, bool), dict(b.counts())
+    counts["adapter"] = "wattsentry.judge.adapter.validated_many"
     q = np.array(q, dtype=np.float64)
     if fallback is not None and (~known).any():
         q[~known] = np.asarray(fallback, dtype=np.float64)[~known]
@@ -238,24 +227,13 @@ def no_battery_behaviour(pv: np.ndarray, load: np.ndarray, battery: BatteryArray
     return np.asarray(load, dtype=np.float64) - np.asarray(pv, dtype=np.float64)
 
 
-Behaviour = Callable[[np.ndarray, np.ndarray, BatteryArrays, Optional[np.ndarray]], np.ndarray]
-_BEHAVIOUR: dict[str, Any] = {"fn": self_consumption_behaviour, "name": "self_consumption (K1 kernel)"}
-
-
-def set_behaviour(fn: Optional[Behaviour], name: str = "") -> None:
-    """Swap the battery model for every caller (I4 #174 on data-v2). None restores the self-consumption kernel."""
-    _BEHAVIOUR.update(fn=fn or self_consumption_behaviour,
-                      name=name or ("self_consumption (K1 kernel)" if fn is None else getattr(fn, "__name__", "?")))
+BEHAVIOUR_NAME = "self_consumption (K1 kernel)"
 
 
 def behaviour(pv: np.ndarray, load: np.ndarray, battery: BatteryArrays,
               soc0: Optional[np.ndarray] = None) -> np.ndarray:
     """THE battery model of the portfolio: per-home import - export kW for scenarios pv/load (..., N, T)."""
-    return _BEHAVIOUR["fn"](pv, load, battery, soc0)
-
-
-def behaviour_name() -> str:
-    return str(_BEHAVIOUR["name"])
+    return self_consumption_behaviour(pv, load, battery, soc0)
 
 
 def warm_soc0(pv50: np.ndarray, load50: np.ndarray, battery: BatteryArrays) -> np.ndarray:
@@ -392,23 +370,12 @@ def nmae(pred: np.ndarray, actual: np.ndarray, mask: Optional[np.ndarray] = None
 
 # ================================================================================================ 6. purchase
 def purchase_quantile(a: Optional[float] = None, b: Optional[float] = None) -> float:
-    """q* = a / (a + b): the newsvendor quantile of the imbalance penalties (a = short, b = long).
-
-    Frozen a, b from X1 (#158): ``wattsentry.eval.imbalance.q_star`` when on main, else models/imbalance_ab.json,
-    else #158's frozen values (stub, a = 2b -> q* = 2/3)."""
+    """q* = a / (a + b): the newsvendor quantile of the imbalance penalties (a = short, b = long); frozen a, b from
+    models/imbalance_ab.json for the ones not given."""
     if a is not None and b is not None:
         return float(a) / (float(a) + float(b))
-    try:
-        from wattsentry.eval.imbalance import q_star
-        return float(q_star(a, b))
-    except ImportError:
-        pass
-    a0, b0 = AB_STUB
-    if AB_PATH.exists():
-        d = json.loads(AB_PATH.read_text())
-        a0, b0 = float(d["a"]), float(d["b"])
-    a, b = (a0 if a is None else a), (b0 if b is None else b)
-    return float(a) / (float(a) + float(b))
+    from wattsentry.eval.imbalance import q_star
+    return float(q_star(a, b))
 
 
 def _quantile_cal(total: np.ndarray, q: float, conformal: Optional[TotalConformal]) -> np.ndarray:
@@ -679,7 +646,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               "load": find_models("loadnet", md)}
     print(f"[portfolio] {len(sites)} homes, {len(fleet.regions)} regions ({args.region}), K={args.k}, "
           f"val {len(val_days)} days, test {len(test_days)} days, kernels={kernels.backend()}, "
-          f"behaviour={behaviour_name()}, q*={purchase_quantile():.4f}", flush=True)
+          f"behaviour={BEHAVIOUR_NAME}, q*={purchase_quantile():.4f}", flush=True)
     print(f"[portfolio] models: pv_da={[p.name for p in models['pv_da']]} pv_id={[p.name for p in models['pv_id']]} "
           f"load={[p.name for p in models['load']]}", flush=True)
     timings: dict[str, float] = {}
@@ -744,7 +711,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               "homes": int(len(sites)), "regions": fleet.regions, "region_key": args.region,
               "val_days": val["day"], "test_days": test["day"], "adapter_counts": {"val": val["counts"],
                                                                                    "test": test["counts"]},
-              "behaviour": behaviour_name(), "kernels": kernels.backend(), "timings": timings,
+              "behaviour": BEHAVIOUR_NAME, "kernels": kernels.backend(), "timings": timings,
               "models": {k: [str(p) for p in v] for k, v in models.items()},
               "labels": {"portfolio": LABEL, "imbalance_ab": "proxy (#158, AFEER public range)",
                          "intraday_weather": "proxy: ERA5 analysis as the 15:00 weather update"}}

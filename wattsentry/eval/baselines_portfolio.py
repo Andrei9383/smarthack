@@ -358,12 +358,9 @@ def persistence_site_kw(pf: Portfolio, fallback: Optional[np.ndarray] = None) ->
 
 # --- forecast_only: M1 + M2 through the Judge adapter ---------------------------------------------------------
 def validated_q50(model: str, site_ids: Sequence[str], days: Sequence[str], q: np.ndarray) -> np.ndarray:
-    """THE single seam to the Judge (C1 #157): raw (N, 96, 3) kW -> validated q50 (N, 96), NaN = not known.
-    No-Judge mode (default until J4 lands) passes q50 through with verdict 'use'."""
-    try:
-        from wattsentry.judge.adapter import RawBatch, validated_many
-    except ImportError:
-        return np.asarray(q, np.float64)[..., 1]
+    """THE single seam to the Judge: raw (N, 96, 3) kW -> validated q50 (N, 96), NaN = not known."""
+    from wattsentry.judge.adapter import RawBatch, validated_many
+
     vb = validated_many(model, list(site_ids), list(days), raw=RawBatch(q=np.asarray(q, np.float64)))
     return np.asarray(vb.q50, np.float64)
 

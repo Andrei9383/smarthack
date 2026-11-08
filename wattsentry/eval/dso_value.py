@@ -242,15 +242,12 @@ def main(argv: Optional[list[str]] = None) -> dict[str, Any]:
         else:
             print(f"# moved home: none ({case.get('note')}; {note})")
 
-    # deferred capex (lei), on G1's hosting capacity (STUB until #159 merges)
+    # deferred capex (lei) on G1's hosting capacity (the labelled stub without --run-g1 / --hosting-capacity)
     if a.run_g1:
-        try:
-            from wattsentry.eval.hosting_capacity import main as g1_main
-        except ImportError:
-            print("# --run-g1: G1 #159 not on this branch yet; hosting capacity stays the STUB")
-        else:
-            g1_main(["--world", a.world, "--out", str(a.out / "g1")])
-            a.hosting_capacity = a.out / "g1" / "hosting_capacity.json"
+        from wattsentry.eval.hosting_capacity import main as g1_main
+
+        g1_main(["--world", a.world, "--out", str(a.out / "g1")])
+        a.hosting_capacity = a.out / "g1" / "hosting_capacity.json"
     doc = json.loads(Path(a.hosting_capacity).read_text()) if a.hosting_capacity else None
     hc = hosting_capacity(world, doc)
     cap = deferred_capex(hc)

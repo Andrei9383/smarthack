@@ -1,20 +1,20 @@
-"""Test-set evaluation: one script for every model number on the slides, grouped by label (#16).
+"""Test-set evaluation: every model number, grouped by data label.
 
     python eval.py --predictor mock                    # end-to-end smoke test on CPU
-    python eval.py --predictor onnx --models models/   # #14's ONNX models (M1 PVNet, M2 LoadNet, M4 SiteHealth)
-    python eval.py --baselines                         # #15's baselines (pvlib, persistence, LightGBM, CUSUM)
-    python eval.py --predictor onnx,baselines --drills # side by side, plus #28's robustness drills
+    python eval.py --predictor onnx --models models/   # the ONNX models (M1 PVNet, M2 LoadNet, M4 SiteHealth)
+    python eval.py --baselines                         # baselines (pvlib, persistence, LightGBM, CUSUM)
+    python eval.py --predictor onnx,baselines --drills # side by side, plus the robustness drills
 
-Blocks and labels (plan §4, R13, R14):
-  syn_seen / syn_unseen  synthetic_RO  fleet simulator (#11) test year 2025; PV + load forecasts on clean
-                                       telemetry, site health on #12's injected faults; seen vs never-seen sites
+Blocks and labels:
+  syn_seen / syn_unseen  synthetic_RO  fleet simulator test year 2025; PV + load forecasts on clean telemetry,
+                                       site health on injected faults; seen vs never-seen sites
   syn_detect             synthetic_RO  hours from fault onset to the first alarm, kWh and lei recoverable
-  pvdaq / pvdaq_inj      non_RO        real NREL PVDAQ systems (#9): PV forecast, then #12's injector on top
+  pvdaq / pvdaq_inj      non_RO        real NREL PVDAQ systems: PV forecast, then the fault injector on top
   ro_load / ro_solar ... real_RO       real Romanian national series (Energy-Charts): persistence references
-Weather in the windows is ERA5 (nowcast setting); forecast-noise drills come from #28.
+Weather in the windows is ERA5 (nowcast setting).
 
 Every number is printed as `LAB_METRIC <block>_<model>_<metric>=v` and written to $LAB_OUTPUT_DIR/eval_report.json
-together with the run id, git sha, data manifest hash and arguments, so it can be reproduced from a run id.
+with the run id, git sha, data manifest hash and arguments.
 """
 
 from __future__ import annotations
@@ -60,11 +60,7 @@ def load_predictors(names: list[str], models_dir: Path, fleet_dir: Path | None) 
                 except (FileNotFoundError, ValueError) as e:
                     print(f"skip {model}: {e}")
         elif name == "baselines":
-            try:
-                from wattsentry.eval.baselines.pv import predictors
-            except ImportError as e:
-                print(f"skip baselines: #15 not on this branch ({e})")
-                continue
+            from wattsentry.eval.baselines.pv import predictors
             out.update(predictors(fleet_dir))
         else:
             raise SystemExit(f"unknown predictor {name!r} (mock | onnx | baselines)")
@@ -95,7 +91,7 @@ WX_COLS = {"ghi": "ghi_wm2", "dni": "dni_wm2", "dhi": "dhi_wm2", "temp": "temp_c
 
 
 # Other fleets the models can be scored on (all unseen by training, which used the default fleet).
-# homes600 = #118's scripts/build_dataset.py fleet_config(600): the fleet of replay#568, served by preview #211.
+# homes600 = scripts/build_dataset.py fleet_config(600): the 600-home demo fleet.
 FLEETS = {
     "homes600": dict(n_sites=600, n_feeders=24, n_congested=6, start_year=TEST_YEAR, end_year=TEST_YEAR,
                      battery_share=0.20, county_weights={
@@ -135,7 +131,7 @@ def load_weather(clean: Path, localities: set[str]) -> dict[str, pd.DataFrame]:
     w["point_id"] = w.point_id.astype(str)
     w = w[w.point_id.isin(localities)]
     cloud = None
-    if (RAW / "weather.parquet").exists():  # the fleet file has no cloud cover; take it from #9's ERA5 table
+    if (RAW / "weather.parquet").exists():  # the fleet file has no cloud cover; take it from the ERA5 table
         c = pd.read_parquet(RAW / "weather.parquet", columns=["ts", "point_id", "cloud_pct"])
         c = c[c.point_id.isin({f"loc:{x}" for x in localities})]
         c["point_id"] = c.point_id.str.removeprefix("loc:")
@@ -191,7 +187,7 @@ def soiling_min() -> float:
 
 
 def is_alarm(p: Prediction, thr: float) -> bool:
-    """P(fault) over the threshold; a soiling call also needs P(soiling) >= soiling_confident (#214, as qualify)."""
+    """P(fault) over the threshold; a soiling call also needs P(soiling) >= soiling_confident (as qualify)."""
     if p.p_fault < thr:
         return False
     return p.top_fault != "soiling" or float((p.fault_probs or {}).get("soiling", 0.0)) >= soiling_min()
@@ -307,7 +303,7 @@ def detection(rep, preds, labels, chosen, clean, faulty, wx, n_days, args) -> No
 
 def block_pvdaq(rep: Report, preds: dict, args) -> None:
     if not (RAW / "validation" / "pvdaq_power.parquet").exists():
-        print("skip pvdaq: data/raw/validation missing (#9)")
+        print("skip pvdaq: data/raw/validation missing")
         return
     systems = pd.read_parquet(RAW / "validation" / "pvdaq_systems.parquet")
     power = pd.read_parquet(RAW / "validation" / "pvdaq_power.parquet")
@@ -339,7 +335,7 @@ def block_pvdaq(rep: Report, preds: dict, args) -> None:
     out = {n: [run(p, a, site_window(*tels[a["site_id"]], d, False)) for a, d in cases] for n, p in models.items()}
     score_forecasts(rep, "pvdaq", "non_RO", out, truth, "pv")
 
-    # Same systems with #12's injector on top (PV-side faults only: no battery, voltage or load here).
+    # Same systems with the fault injector on top (PV-side faults only: no battery, voltage or load here).
     from wattsentry.sim.faults.inject import inject
     long = pd.concat([pd.DataFrame({"ts": t["ts"], "site_id": sid, "pv_ac_w": np.nan_to_num(t["pv_ac_w"])})
                       for sid, (t, _) in tels.items()])
@@ -365,7 +361,7 @@ def block_real_ro(rep: Report, args) -> None:
     """Persistence references on the real national series (the bar M3 / national checks must beat)."""
     path = RAW / "entsoe_ro.parquet"
     if not path.exists():
-        print("skip real RO: data/raw/entsoe_ro.parquet missing (#9)")
+        print("skip real RO: data/raw/entsoe_ro.parquet missing")
         return
     e = pd.read_parquet(path)
     for series, block in (("load_actual", "ro_load"), ("gen_solar", "ro_solar"), ("gen_wind", "ro_wind")):
@@ -378,15 +374,11 @@ def block_real_ro(rep: Report, args) -> None:
             rep.add(block, "real_RO", name, {"nmae": M.nmae(prev, y)}, n=int(np.isfinite(y).sum()))
 
 
-# ---------------------------------------------------------------- drills (#28)
+# ---------------------------------------------------------------- drills
 
 def block_drills(rep: Report, preds: dict, args) -> None:
-    try:
-        from wattsentry.data import drills
-    except ImportError:
-        print("drills: wattsentry.data.drills (#28) not on this branch; skipped")
-        emit("drills_available", 0)
-        return
+    from wattsentry.data import drills
+
     emit("drills_available", 1)
     clean_dir, _ = fleet(args.quick)
     sites = pd.read_parquet(clean_dir / "sites.parquet").astype({"site_id": str})
@@ -418,7 +410,7 @@ def main() -> None:
     ap.add_argument("--baselines", action="store_true", help="same as --predictor baselines (lab run 'baseline')")
     ap.add_argument("--models", type=Path, default=Path("models"), help="ONNX dir for --predictor onnx")
     ap.add_argument("--blocks", default="synthetic,pvdaq,real_ro", help="comma list of synthetic | pvdaq | real_ro")
-    ap.add_argument("--drills", action="store_true", help="also run #28's robustness drills")
+    ap.add_argument("--drills", action="store_true", help="also run the robustness drills")
     ap.add_argument("--quick", action="store_true", help="small fleet (150 sites, 2024-25) for smoke tests")
     ap.add_argument("--sites", type=int, default=60, help="test sites (half seen, half never seen)")
     ap.add_argument("--days", type=int, default=6, help="test days per site")
@@ -427,7 +419,7 @@ def main() -> None:
     ap.add_argument("--pvdaq-days", type=int, default=40, help="days per PVDAQ system")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--fleet", default="default", choices=["default", *FLEETS],
-                    help="fleet for the synthetic blocks (homes600 = #118/#568, the #211 preview's fleet)")
+                    help="fleet for the synthetic blocks (homes600 = the 600-home demo fleet)")
     args = ap.parse_args()
     global FLEET
     FLEET = args.fleet

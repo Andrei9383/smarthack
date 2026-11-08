@@ -180,7 +180,7 @@ def sentinel_positions(src: Any, sites: np.ndarray, val_days: np.ndarray, test_d
             "da_cal": conf_da.apply(test["da_bands"]), "id_cal": conf_id.apply(test["id_bands"]),
             "fo_cal": conf_fo.apply(test["fo_bands"]), "actual_i5": test["actual"],
             "conformal": {"da": conf_da.to_json(), "id": conf_id.to_json(), "forecast_only": conf_fo.to_json()},
-            "q_star": P.purchase_quantile(), "behaviour": P.behaviour_name(), "timings": timings,
+            "q_star": P.purchase_quantile(), "behaviour": P.BEHAVIOUR_NAME, "timings": timings,
             "val_days": val["day"], "adapter_counts": {"val": val["counts"], "test": test["counts"]}}
 
 

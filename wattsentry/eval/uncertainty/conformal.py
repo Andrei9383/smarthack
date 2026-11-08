@@ -201,20 +201,6 @@ class ConformalCalibration:
                       cap: Optional[ArrayLike] = None) -> list[Triple]:
         return [self.apply(*m, member=i, floor=floor, cap=cap) for i, m in enumerate(members)]
 
-    def apply_prediction(self, pred: Prediction, floor: Optional[float] = 0.0,
-                         cap: Optional[ArrayLike] = None) -> Prediction:
-        """New Prediction with calibrated envelope (member 0's offsets) and calibrated extra["members"]."""
-        q10, q50, q90 = self.apply(pred.q10, pred.q50, pred.q90, member=None, floor=floor, cap=cap)
-        d = pred.to_dict()
-        d.update(q10=q10.tolist(), q50=q50.tolist(), q90=q90.tolist())
-        extra = dict(d.get("extra") or {})
-        if extra.get("members"):
-            cal_m = self.apply_members(members_of(pred), floor=floor, cap=cap)
-            extra["members"] = [{"q10": a.tolist(), "q50": b.tolist(), "q90": c.tolist()} for a, b, c in cal_m]
-        extra["calibrated"] = True
-        d["extra"] = extra
-        return Prediction.from_dict(d)
-
     def report(self, y: ArrayLike, members: Union[Triple, Sequence[Triple], Mapping[str, Triple]],
                mask: Optional[np.ndarray] = None) -> dict[str, Any]:
         """Raw vs calibrated coverage and pinball per member on a (test) slice."""

@@ -30,8 +30,6 @@ solar noon, exactly when prosumers are long). Identical whenever pzu >= 0.
     # sold_id_mwh: sold more (+) or bought back (-) on PI
     # dev = sold_da + sold_id - prod  > 0: sold more than produced (short, pays a), < 0: produced more (long, b)
 
-``wind_avoidable_cost`` does that flip for you.
-
 With a = b the cost of every policy scales by the same factor, so a % reduction does not depend on the value; with
 a != b it depends only on a/b. ``q_star(a, b) = a/(a+b)`` is the purchase quantile that minimises the expected
 imbalance term (newsvendor), used by I5 and W3.
@@ -103,7 +101,7 @@ def avoidable_cost(actual, bought_da, traded_id, pzu, pi, a: float | None = None
 
     ``axis=None`` sums everything and returns floats; otherwise sums over ``axis`` and returns arrays (e.g. ``axis=-1``
     on scenarios x steps gives one cost per scenario). ``a, b = None`` -> frozen values from models/imbalance_ab.json.
-    Consumption sign; for producers use ``wind_avoidable_cost`` or pass every quantity with a minus sign.
+    Consumption sign; for producers pass every quantity with a minus sign.
     """
     s = cost_steps(actual, bought_da, traded_id, pzu, pi, a, b)
     terms = {"avoidable_lei": s["avoidable"], "intraday_lei": s["intraday"], "imbalance_lei": s["imbalance"],
@@ -111,14 +109,6 @@ def avoidable_cost(actual, bought_da, traded_id, pzu, pi, a: float | None = None
     if axis is None:
         return {k: float(v.sum()) for k, v in terms.items()}
     return {k: v.sum(axis=axis) for k, v in terms.items()}
-
-
-def wind_avoidable_cost(prod_mwh, sold_da_mwh, sold_id_mwh, pzu, pi, a: float | None = None,
-                        b: float | None = None, axis=None) -> dict:
-    """Producer side (spec W §4): ``prod_mwh`` produced, ``sold_da_mwh`` sold on PZU, ``sold_id_mwh`` sold more (+)
-    or bought back (-) on PI. short_mwh = sold but not produced (pays a), long_mwh = produced but not sold (b)."""
-    neg = lambda x: None if x is None else -np.asarray(x, dtype=np.float64)  # noqa: E731
-    return avoidable_cost(neg(prod_mwh), neg(sold_da_mwh), neg(sold_id_mwh), pzu, pi, a, b, axis=axis)
 
 
 def lei_per_mwh(res: dict, mwh: float) -> float:

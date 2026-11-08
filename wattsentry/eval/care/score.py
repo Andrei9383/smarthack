@@ -1,7 +1,6 @@
-"""CARE-to-Compare scorer for M7 and the fixed-threshold baseline (non-RO validation, plan §4 / R13).
+"""CARE-to-Compare scorer for M7 and the fixed-threshold baseline (non-RO validation).
 
-    python -m wattsentry.eval.care --model-dir $LAB_OUTPUT_DIR [--max-gb 2]
-    (or `python -m wattsentry.model.windfailure.train --care`, which scores the artifacts it just wrote)
+Run by `python train.py --model windfailure --care`, which scores the artifacts it just wrote.
 
 Scope: Wind Farm A only (EDP open data, 5 onshore turbines in Portugal, 22 datasets). It is the only farm whose
 feature descriptions name the sensors M7 uses; farms B / C (offshore, anonymised, 257 / 957 features) would need a
@@ -27,11 +26,8 @@ points of normal datasets), CARE = (coverage + earliness + reliability + 2·accu
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
 import re
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -274,15 +270,3 @@ def run(model_dir: Path, max_gb: float = 2.0, emit=None, log=print, out_dir: Pat
         Path(out_dir, "care_report.json").write_text(json.dumps(res, indent=1, default=float))
     return res
 
-
-def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(prog="python -m wattsentry.eval.care", description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model-dir", default=os.environ.get("LAB_OUTPUT_DIR", ".lab-out"))
-    ap.add_argument("--max-gb", type=float, default=2.0)
-    a = ap.parse_args(sys.argv[1:] if argv is None else argv)
-    run(Path(a.model_dir), a.max_gb, out_dir=Path(a.model_dir))
-
-
-if __name__ == "__main__":
-    main()

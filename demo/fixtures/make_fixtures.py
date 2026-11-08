@@ -1,27 +1,10 @@
 #!/usr/bin/env python3
-"""Seed demo/fixtures.sqlite — a mock replay week for the UI (card #30).
+"""Seed demo/fixtures.sqlite: a mock replay week for the UI when no replay DB is present.
 
-Why this exists: #31, #32, #39 and #40 have to be built before #14/#17/#18/#44 produce real
-rows, so this writes a believable week in the real schema. Every row is labelled
-'synthetic RO' in `runs`, and no panel may present these numbers as results.
+Applies the drizzle migrations in packages/db/drizzle/ and inserts hand-written rows (stdlib only, fixed seed, ~5 s).
+Every run is labelled 'synthetic RO'; no panel may present these numbers as results. Not committed (~100 MB).
 
-Schema: Python never creates or alters tables (plan §3.4). It applies the SQL that
-`drizzle-kit generate` committed under packages/db/drizzle/ (#38) and only inserts rows. Until
-#38 merges, it falls back to the vendored byte copy in demo/fixtures/_schema_snapshot_38.sql.
-
-Stdlib only (sqlite3, math, random) — the lab's `check` run installs no Python deps for this.
-
-Determinism: one fixed seed, so the same fixtures come out on every machine and the UI's
-golden-path screenshots stay stable.
-
-    python3 demo/fixtures/make_fixtures.py            # -> demo/fixtures.sqlite
-    python3 demo/fixtures/make_fixtures.py --schema path/to/migration.sql --out /tmp/f.sqlite
-
-Columns follow team/contracts/app.md section 2 (#38 @ d362a39): every `ts` is TEXT ISO-8601 UTC
-('2025-06-01T21:00:00Z'), `day`/`date` are 'YYYY-MM-DD', and there is no `step` column.
-
-The database is NOT committed: at full fidelity it is ~100+ MB (over GitHub's 100 MB limit and
-R18's 50 MB). Whatever needs it (the preview, a UI dev) runs this script; it takes ~5 s.
+    python3 demo/fixtures/make_fixtures.py [--out PATH] [--no-verify]
 """
 
 from __future__ import annotations
@@ -34,14 +17,13 @@ import math
 import os
 import random
 import sqlite3
-import sys
 import time
 from datetime import datetime, timedelta, timezone
 
 # ----------------------------------------------------------------- shape of the week
 
 # 00:00 Europe/Bucharest on Mon 2 June 2025 (EEST, UTC+3), the same instant the UI's replay clock
-# starts at (apps/web/src/demo/replay.ts, WEEK_START_UTC). Far from both DST switches (R19), so local time is a
+# starts at (apps/web/src/demo/replay.ts, WEEK_START_UTC). Far from both DST switches, so local time is a
 # fixed +3 h all week and every "hour of day" below is Bucharest wall-clock time.
 WEEK_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
 LOCAL_OFFSET = timedelta(hours=3)
@@ -54,8 +36,7 @@ TOTAL_STEPS = DAYS * STEPS_PER_DAY
 N_HOMES = 300
 SEED = 20261107
 
-# The demo story (#30, plan §7). These ids are referenced by #31's and #32's acceptance, so
-# they are pinned here rather than drawn at random.
+# The demo story. The UI relies on these ids, so they are pinned here rather than drawn at random.
 HERO_FEEDER = "F7"                      # over its limit under baseline, under it with Sentinel
 HERO_SITE = "1042"                      # string failure on day 4
 OOD_SITE = "1177"                       # goes to human review, no work order
@@ -84,7 +65,7 @@ FEEDERS = [
 
 COUNTY_NAMES = {"CT": "Constanța", "VS": "Vaslui", "PH": "Prahova", "DJ": "Dolj", "CJ": "Cluj"}
 
-# 2 parks in Constanța, 1 in Vaslui (#30). Turbine counts are ours, not PPC's real fleet.
+# 2 parks in Constanța, 1 in Vaslui. Turbine counts are ours, not PPC's real fleet.
 PARKS = [
     # id      name                county locality      lat     lon    n   rated_mw  year
     ("WP01", "Fântânele Vest",    "CT", "Fântânele",  44.550, 28.520, 15, 37.5, 2011),
@@ -92,7 +73,7 @@ PARKS = [
     ("WP03", "Deleni Sud",        "VS", "Deleni",     46.690, 27.720, 10, 25.0, 2021),
 ]
 
-# Feeder centres at their localities (#76); coastal towns sit a few km inland so the
+# Feeder centres at their localities; coastal towns sit a few km inland so the
 # home scatter and the feeder line stay on land.
 LOCALITY_CENTRES = {
     "Constanța": (44.205, 28.540), "Medgidia": (44.250, 28.270), "Mangalia": (43.835, 28.520),
@@ -101,39 +82,24 @@ LOCALITY_CENTRES = {
     "Turda": (46.570, 23.780),
 }
 
-# Red evening zones in 2-3 counties (#30): these get the high peak-stress scores.
+# Red evening zones in 2-3 counties: these get the high peak-stress scores.
 STRESSED_COUNTIES = ("CT", "PH", "CJ")
 
-PRICE_LEI_PER_KWH = 0.95                # assumed, not a result (plan §8 "to verify")
+PRICE_LEI_PER_KWH = 0.95                # assumed, not a result
 V_FLEX_LEI_PER_MWH = 180.0              # value of a committed MWh of flexibility, assumed
 
 
 # ----------------------------------------------------------------- time representation
 
 
-class Clock:
-    """The one place that knows how a timestamp is stored.
+def iso(dt: datetime) -> str:
+    """Every `ts` is TEXT ISO-8601 UTC, e.g. '2025-06-01T21:00:00Z'."""
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    #38 pinned TEXT ISO-8601 UTC (note [74]). `s`/`ms` stay only for experiments against
-    older schemas; the default and the contract are `iso`.
-    """
 
-    def __init__(self, unit: str) -> None:
-        if unit not in ("s", "ms", "iso"):
-            raise ValueError(f"--ts-unit must be s, ms or iso (got {unit!r})")
-        self.unit = unit
-
-    def __call__(self, dt: datetime):
-        if self.unit == "s":
-            return int(dt.timestamp())
-        if self.unit == "ms":
-            return int(dt.timestamp() * 1000)
-        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    @staticmethod
-    def day_key(day_idx: int) -> str:
-        """`work_orders.day` / `reports.date`: 'YYYY-MM-DD', the Bucharest day (app.md 2.5)."""
-        return (WEEK_START + LOCAL_OFFSET + timedelta(days=day_idx)).strftime("%Y-%m-%d")
+def day_key(day_idx: int) -> str:
+    """`work_orders.day` / `reports.date`: 'YYYY-MM-DD', the Bucharest day."""
+    return (WEEK_START + LOCAL_OFFSET + timedelta(days=day_idx)).strftime("%Y-%m-%d")
 
 
 def step_times():
@@ -206,7 +172,7 @@ def build_fleet(rng: random.Random):
             fid = feeder_ids[i % len(feeder_ids)]
         feeder = next(f for f in FEEDERS if f[0] == fid)
         lat0, lon0 = LOCALITY_CENTRES[feeder[4]]
-        kwp = round(rng.uniform(3.0, 10.0), 1)            # R7: residential 3-10 kWp
+        kwp = round(rng.uniform(3.0, 10.0), 1)            # residential 3-10 kWp
         has_batt = rng.random() < 0.70
         homes.append({
             "id": sid,
@@ -274,7 +240,7 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
         load.append(round(shape[sod] * load_scale, 4))
 
     # The string failure: from day 4 midday, site 1042 loses ~40% of its array. The *actual*
-    # drops while the forecast band does not, which is exactly what #31 has to show.
+    # drops while the forecast band does not, which is exactly what the site view has to show.
     fault_from = None
     if home["id"] == HERO_SITE:
         fault_from = FAULT_DAY * STEPS_PER_DAY + 48      # 12:00 on day 4
@@ -284,7 +250,7 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
     # Sentinel's absorption window, per day. A 10 kWh / 5 kW pack can only soak up ~2 h, so
     # charging has to land ON the export peak, not simply "at midday": spend the usable energy
     # in the steps centred on each day's peak surplus. This is the per-feeder LP's outcome
-    # (§3.5) reproduced by hand -- the fixtures must not claim to run the real optimiser.
+    # reproduced by hand -- the fixtures must not claim to run the real optimiser.
     usable = max(0.0, cap - reserve)
     span = max(1, round((usable / pmax) / DT_H)) if pmax > 0 else 0
     charge_window: set[int] = set()
@@ -309,14 +275,14 @@ def site_series(home: dict, curves: dict, rng: random.Random) -> dict:
                 else:
                     # Sentinel keeps the pack empty until the surplus is near its own daily
                     # peak, so the whole capacity lands on the hours that breach the feeder
-                    # limit. This is the per-feeder LP's behaviour (§3.5), hand-rolled.
+                    # limit. This is the per-feeder LP's behaviour, hand-rolled.
                     if g in charge_window and surplus > 0:
                         p = min(pmax, surplus)             # absorb the peak
                     elif 17.5 <= hour < 23.0:
                         # carry the evening peak and finish the day at the comfort reserve,
                         # so tomorrow's window starts with the full pack available
                         p = -min(pmax, max(load[g], 0.35 * pmax))
-                # clip to the energy the pack can actually take or give (R4 feasibility clip)
+                # clip to the energy the pack can actually take or give (feasibility clip)
                 wanted = p
                 if p > 0:
                     p = min(p, max(0.0, (cap - soc_kwh)) / DT_H)
@@ -356,7 +322,7 @@ def fault_window(curves: dict) -> tuple[int, int, int]:
     """(fault step, curtailment start, curtailment end) for the demo day.
 
     The fault is placed on the windiest daylight step of FAULT_DAY: a turbine at zero power
-    only reads as a fault if its neighbours are visibly producing at that moment (§3.5).
+    only reads as a fault if its neighbours are visibly producing at that moment.
     """
     lo = FAULT_DAY * STEPS_PER_DAY
     fault_g = max(range(lo + 24, lo + 84), key=lambda g: curves["wind"][g])
@@ -391,7 +357,7 @@ def turbine_series(turb: dict, curves: dict, rng: random.Random,
             q, code = "suspect", 312
 
         power.append(round(p, 2))
-        meteo.append(round(v * 3.6, 2))                       # wd_spd / meteo are km/h (§3.4)
+        meteo.append(round(v * 3.6, 2))                       # wd_spd / meteo are km/h
         # the anemometer fault on WP02.T07: nacelle reads low from day 3, power tracks meteo
         nacelle = v * 0.55 if (turb["id"] == "WP02.T07" and g >= 2 * STEPS_PER_DAY) else v
         spd.append(round(nacelle * 3.6, 2))
@@ -416,20 +382,12 @@ def turbine_series(turb: dict, curves: dict, rng: random.Random,
 # ----------------------------------------------------------------- schema handling
 
 
-def find_schema(repo_root: str, override: str | None) -> tuple[str, list[str]]:
-    """Prefer #38's generated SQL; fall back to the vendored snapshot while #38 is in review."""
-    if override:
-        if not os.path.isfile(override):
-            sys.exit(f"--schema {override} does not exist")
-        return "override", [override]
-    generated = sorted(glob.glob(os.path.join(repo_root, "packages", "db", "drizzle", "**", "*.sql"),
-                                 recursive=True))
-    if generated:
-        return "generated", generated
-    snapshot = os.path.join(repo_root, "demo", "fixtures", "_schema_snapshot_38.sql")
-    if os.path.isfile(snapshot):
-        return "snapshot", [snapshot]
-    sys.exit("no schema found: expected packages/db/drizzle/**/*.sql (#38) or the vendored snapshot")
+def schema_files(repo_root: str) -> list[str]:
+    """The SQL drizzle-kit generated under packages/db/drizzle/, in migration order."""
+    files = sorted(glob.glob(os.path.join(repo_root, "packages", "db", "drizzle", "**", "*.sql"), recursive=True))
+    if not files:
+        raise SystemExit("no schema found: expected packages/db/drizzle/**/*.sql")
+    return files
 
 
 def apply_schema(con: sqlite3.Connection, files: list[str]) -> None:
@@ -441,7 +399,7 @@ def apply_schema(con: sqlite3.Connection, files: list[str]) -> None:
 # ----------------------------------------------------------------- seeding
 
 
-def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
+def seed(con: sqlite3.Connection, rng: random.Random) -> dict:
     cur = con.cursor()
     counts: dict[str, int] = {}
 
@@ -458,9 +416,9 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     # ---- runs ------------------------------------------------------------------
     put("runs", "id,kind,policy,label,week_start,git_sha,model_versions_json,created_at,"
         "finished_at,notes",
-        [(RUN_ID, "fixtures", None, LABEL, clock.day_key(0), "fixtures-no-commit",
+        [(RUN_ID, "fixtures", None, LABEL, day_key(0), "fixtures-no-commit",
           json.dumps({"note": "no models; hand-written fixtures"}),
-          clock(WEEK_START), clock(week_end),
+          iso(WEEK_START), iso(week_end),
           "Mock replay week for UI development (card #30). Not a result.")])
 
     # ---- topology --------------------------------------------------------------
@@ -473,7 +431,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     fault_g, curt_lo, curt_hi = fault_window(curves)
     tseries = {t["id"]: turbine_series(t, curves, rng, fault_g, curt_lo, curt_hi)
                for t in turbines}
-    ts_of = [clock(dt) for _g, _d, _s, dt in step_times()]     # one string per step, reused
+    ts_of = [iso(dt) for _g, _d, _s, dt in step_times()]     # one string per step, reused
 
     # ---- feeder aggregation ----------------------------------------------------
     # export is positive when the feeder pushes power up into the grid
@@ -488,7 +446,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                 pv, load = s["pv"], s["load"]
                 for g in range(TOTAL_STEPS):
                     acc[g] += pv[g] - load[g] - batt[g]
-    # non-eligible sites keep running their own rule and still push onto the feeder (R3)
+    # non-eligible sites keep running their own rule and still push onto the feeder 
     rest = {fid: [0.22 * v for v in feeder_curve[fid]["baseline"]] for fid in by_feeder}
 
     HAIRCUT = 0.15
@@ -521,7 +479,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                 slack = round(limit - exp_kw, 3)
                 curve_rows.append((RUN_ID, fid, pol, ts, exp_kw, imp_kw, limit, slack,
                                    1 if slack < 0 else 0))
-            # commitments: the four numbers, never conflated (§3.5).
+            # commitments: the four numbers, never conflated.
             # nominal   = every battery on the feeder at full power, no doubts
             # available = after excluding / derating sites (status x headroom factor)
             # committed = (1 - h) x P10 of available, only in the hours the DSO buys
@@ -551,7 +509,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
     # ---- assets ----------------------------------------------------------------
     # recorded_* is what the registry says, true_* is what is on the roof. For low-trust sites
     # the registry is wrong (kWp off by a quarter, a flat default tilt, due south), which is
-    # what the grid-twin and #31's site view have to surface.
+    # what the grid-twin and the site view have to surface.
     asset_rows = []
     for h in homes:
         wrong = h["gis_trust"] == "low"
@@ -722,49 +680,49 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
 
     # 1042: the string failure. Residential crew, a truck.
     wo.append(("wo-1042-string", RUN_ID, HERO_SITE, "prosumer", "residential", "truck",
-               clock(fault_dt), clock.day_key(FAULT_DAY), "string_failure", 0.91, 14.6, 0.34,
+               iso(fault_dt), day_key(FAULT_DAY), "string_failure", 0.91, 14.6, 0.34,
                round(14.6 * PRICE_LEI_PER_KWH + 0.34 * V_FLEX_LEI_PER_MWH, 2), 0.34, 2, 0.88, 1,
                "open", json.dumps({"evidence": "actual below P10 for 9 consecutive steps",
-                                   "diverged_at": clock(fault_dt)})))
+                                   "diverged_at": iso(fault_dt)})))
     # the faulted turbine: wind crew, a truck
     tfault_dt = WEEK_START + timedelta(minutes=STEP_MINUTES * fault_g)
     wo.append(("wo-wp01t04-stop", RUN_ID, FAULT_TURBINE, "turbine", "wind", "truck",
-               clock(tfault_dt), clock.day_key(FAULT_DAY), "fault_stop", 0.95, 18400.0, None,
+               iso(tfault_dt), day_key(FAULT_DAY), "fault_stop", 0.95, 18400.0, None,
                round(18400.0 * PRICE_LEI_PER_KWH, 2), 2.5, 1, 0.96, 1, "open",
                json.dumps({"evidence": "zero power above cut-in while 14 neighbours produce"})))
-    # the drifting gearbox: inspection, not a truck, and no score (M7 did not ship — R12)
+    # the drifting gearbox: inspection, not a truck, and no score (M7 did not ship)
     drift_dt = WEEK_START + timedelta(days=5)
     wo.append(("wo-wp03t02-gearbox", RUN_ID, DRIFT_TURBINE, "turbine", "wind", "inspection",
-               clock(drift_dt), clock.day_key(5), "overheating", 0.64, 3100.0, None,
+               iso(drift_dt), day_key(5), "overheating", 0.64, 3100.0, None,
                round(3100.0 * PRICE_LEI_PER_KWH, 2), 0.0, 7, 0.41, 2, "open",
                json.dumps({"evidence": "gearbox residual +9 C vs own baseline over 7 days",
                            "risk_score": None, "note": "M7 not shipped; trend only (R12)"})))
-    # a sensor fault: remote check, never a truck (§3.5)
+    # a sensor fault: remote check, never a truck
     wo.append(("wo-wp02t07-anem", RUN_ID, "WP02.T07", "turbine", "wind", "remote_check",
-               clock(WEEK_START + timedelta(days=2)), clock.day_key(2), "anemometer_fault",
+               iso(WEEK_START + timedelta(days=2)), day_key(2), "anemometer_fault",
                0.72, 0.0, None, 0.0, 0.0, 14, 0.18, 3, "open",
                json.dumps({"evidence": "nacelle wind disagrees with meteo while power matches meteo"})))
     put("work_orders", WO_COLS, wo)
 
-    # the park-wide curtailment: logged, and explicitly NOT a work order (§3.5, R12)
+    # the park-wide curtailment: logged, and explicitly NOT a work order
     curt_dt = WEEK_START + timedelta(minutes=STEP_MINUTES * curt_lo)
-    alerts.append(("al-wp01-curtail", RUN_ID, None, CURTAILED_PARK, None, clock(curt_dt),
+    alerts.append(("al-wp01-curtail", RUN_ID, None, CURTAILED_PARK, None, iso(curt_dt),
                    "curtailment", "info", 0, 13.1,
                    "WP01 capped at 35% of rated for 3 h — all 15 turbines at one level, "
                    "no work order", json.dumps({"turbines": 15, "level_pct": 35})))
     alerts.append(("al-wp01t04-stop", RUN_ID, FAULT_TURBINE, CURTAILED_PARK, None,
-                   clock(tfault_dt), "fault_stop", "critical", 1, None,
+                   iso(tfault_dt), "fault_stop", "critical", 1, None,
                    "WP01.T04 zero power above cut-in while neighbours produce",
                    json.dumps({"neighbours_producing": 14})))
-    alerts.append(("al-f2-gap", RUN_ID, None, None, "F2", clock(WEEK_START + timedelta(days=1)),
+    alerts.append(("al-f2-gap", RUN_ID, None, None, "F2", iso(WEEK_START + timedelta(days=1)),
                    "data_gap", "warn", 0, None, "F2: 3 sites offline for 2 h, telemetry gap",
                    json.dumps({"sites": 3})))
     put("alerts", "action_id,run_id,asset_id,park_id,feeder_id,ts,code,severity,"
         "creates_work_order,curtailed_mwh,message,evidence_json", alerts)
 
-    review.append(("rv-1177-ood", RUN_ID, OOD_SITE, clock(WEEK_START + timedelta(days=2)),
+    review.append(("rv-1177-ood", RUN_ID, OOD_SITE, iso(WEEK_START + timedelta(days=2)),
                    "ood", 0.93, 1.8, 0.41, 0))
-    review.append(("rv-1203-wide", RUN_ID, "1203", clock(WEEK_START + timedelta(days=3)),
+    review.append(("rv-1203-wide", RUN_ID, "1203", iso(WEEK_START + timedelta(days=3)),
                    "wide_interval", 0.22, 4.6, 0.95, 0))
     put("review_queue", "action_id,run_id,asset_id,ts,reason,ood_score,interval_width,"
         "member_std,resolved", review)
@@ -797,7 +755,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
             up = sum(1 for tid in tids for g in range(lo, hi)
                      if not (tseries[tid]["fault_from"] is not None and g >= tseries[tid]["fault_from"]))
             rng.uniform(94.0, 100.0)    # keep the draw so later random values do not move
-            reports.append((f"rep-{pid}-d{d}", RUN_ID, pid, clock.day_key(d),
+            reports.append((f"rep-{pid}-d{d}", RUN_ID, pid, day_key(d),
                             round(mwh * DT_H / 1000.0, 3), round(exp * DT_H / 1000.0, 3),
                             round(100.0 * up / (len(tids) * (hi - lo)), 2),
                             13.1 if (pid == CURTAILED_PARK and d == FAULT_DAY) else 0.0,
@@ -826,7 +784,7 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
                       row[2], None, None, "M1", "pvnet@fixtures", h(row[0]),
                       json.dumps({"reason": row[4]}), 0.50, "pending", None, None, None,
                       "out of the pool until a human decides"))
-    # one commitment audit row per feeder per hour, so #32's audit panel has volume to page
+    # one commitment audit row per feeder per hour, so the audit panel has volume to page
     commit_at = {(r[1], r[2]): r for r in commit_rows}
     for fid, _n, _s, _c, _l in FEEDERS:
         for d in range(DAYS):
@@ -875,13 +833,13 @@ def seed(con: sqlite3.Connection, clock: Clock, rng: random.Random) -> dict:
 
 
 # ----------------------------------------------------------------- verification
-# The demo story is the acceptance criterion for #30, #31 and #32, and it is easy to break
+# The demo story is easy to break
 # silently: an earlier version of this script produced a Sentinel curve identical to the
 # baseline (the battery filled up two hours before the export peak) and every county saturated
 # at peak_stress 1.0. Both looked fine in the row counts. So the beats are asserted here.
 
 
-def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
+def verify(con: sqlite3.Connection) -> list[str]:
     q = lambda sql, *a: con.execute(sql, a).fetchall()
     out, fail = [], []
 
@@ -890,7 +848,7 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
         if not ok:
             fail.append(name)
 
-    at = lambda **kw: clock(WEEK_START + timedelta(**kw))
+    at = lambda **kw: iso(WEEK_START + timedelta(**kw))
 
     # 1. the hero feeder: baseline crosses its limit, Sentinel never does
     v = dict((p, (n, mx)) for p, n, mx in
@@ -953,7 +911,7 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
     check("...while neighbours produce", nb[0] >= 10,
           f"{nb[0]} neighbours at {nb[1]:.0f} kW")
 
-    # 6. the park-wide curtailment is logged and must NOT be a work order (§3.5, R12)
+    # 6. the park-wide curtailment is logged and must NOT be a work order
     cu = q("select creates_work_order from alerts where code='curtailment'")
     check("curtailment is logged", bool(cu), f"{len(cu)} alert(s)")
     check("curtailment creates no work order", all(r[0] == 0 for r in cu),
@@ -962,7 +920,7 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
           q("select action from work_orders where fault='anemometer_fault'")
           == [("remote_check",)], "remote check")
 
-    # 7. the gearbox residual drifts, and ships without a risk score (R12: M7 did not land)
+    # 7. the gearbox residual drifts, and ships without a risk score (M7 did not ship)
     res = q("""select (select gearbox_temp_c-ambient_temp_c from measurements
                         where asset_id=? and ts=?),
                       (select gearbox_temp_c-ambient_temp_c from measurements
@@ -988,11 +946,10 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
     check("WP02.T07 nacelle wind reads low vs meteo", an is not None and an < 0.7,
           f"ratio {an:.2f}" if an is not None else "no rows")
 
-    # 10. timestamps are what the contract pins (app.md: ISO-8601 UTC, 'Z')
-    if clock.unit == "iso":
-        bad = q("select count(*) from feeder_curves where ts not glob "
-                "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'")
-        check("ts is ISO-8601 UTC", bad[0][0] == 0, f"{bad[0][0]} malformed")
+    # 10. timestamps are what the contract pins (ISO-8601 UTC, 'Z')
+    bad = q("select count(*) from feeder_curves where ts not glob "
+            "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z'")
+    check("ts is ISO-8601 UTC", bad[0][0] == 0, f"{bad[0][0]} malformed")
     check("work_orders.day is a date",
           all(len(d) == 10 for (d,) in q("select day from work_orders")), "YYYY-MM-DD")
 
@@ -1003,7 +960,7 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
                   "asset_steps"):
         n = q(f"select count(*) from {table}")[0][0]
         check(f"{table} has rows", n > 0, f"{n:,}")
-    # 12. CT is coastal: no home or feeder vertex east of the shoreline (#76)
+    # 12. CT is coastal: no home or feeder vertex east of the shoreline
     homes_east = q("select max(lon) from assets where asset_kind='prosumer' and county='CT'")[0][0]
     feeder_east = max(pt[0] for (g,) in q("select geometry_json from feeders where county='CT'")
                       for pt in json.loads(g)["coordinates"])
@@ -1023,21 +980,12 @@ def verify(con: sqlite3.Connection, clock: Clock) -> list[str]:
 def main() -> int:
     here = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(os.path.dirname(here))
-    ap = argparse.ArgumentParser(description="Seed demo/fixtures.sqlite (card #30)")
+    ap = argparse.ArgumentParser(description="Seed demo/fixtures.sqlite (mock replay week)")
     ap.add_argument("--out", default=os.path.join(repo_root, "demo", "fixtures.sqlite"))
-    ap.add_argument("--schema", default=None,
-                    help="SQL file to apply instead of autodiscovering packages/db/drizzle")
-    ap.add_argument("--ts-unit", default="iso", choices=["iso", "s", "ms"],
-                    help="how ts is stored (default iso: the contract, app.md section 2)")
-    ap.add_argument("--no-verify", action="store_true",
-                    help="skip the demo-story assertions (they are the acceptance for #30)")
+    ap.add_argument("--no-verify", action="store_true", help="skip the demo-story assertions")
     args = ap.parse_args()
 
-    source, files = find_schema(repo_root, args.schema)
-    if source == "snapshot":
-        print("note: #38 has not merged, using the vendored snapshot "
-              "demo/fixtures/_schema_snapshot_38.sql", file=sys.stderr)
-
+    files = schema_files(repo_root)
     if os.path.exists(args.out):
         os.remove(args.out)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -1050,10 +998,9 @@ def main() -> int:
     con.execute("PRAGMA cache_size=-64000")
     try:
         apply_schema(con, files)
-        clock = Clock(args.ts_unit)
-        counts = seed(con, clock, random.Random(SEED))
+        counts = seed(con, random.Random(SEED))
         con.execute("PRAGMA optimize")
-        report = [] if args.no_verify else verify(con, clock)
+        report = [] if args.no_verify else verify(con)
     finally:
         con.close()
 
@@ -1063,10 +1010,9 @@ def main() -> int:
     for table in sorted(counts):
         print(f"  {table:<{width}}  {counts[table]:>7,}")
     size_mb = os.path.getsize(args.out) / 1e6
-    print(f"\n{total:,} rows in {len(counts)} tables -> {args.out} "
-          f"({size_mb:.1f} MB, {elapsed:.1f}s, ts={args.ts_unit}, schema={source})")
+    print(f"\n{total:,} rows in {len(counts)} tables -> {args.out} ({size_mb:.1f} MB, {elapsed:.1f}s)")
     if report:
-        print("\ndemo story (plan §7):")
+        print("\ndemo story:")
         print("\n".join(report))
         if any(line.lstrip().startswith("FAIL") for line in report):
             return 1
