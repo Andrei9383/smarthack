@@ -23,6 +23,22 @@ regenerate with `make replay-demo`). Model rows #4–#6 use eval#521 (#110: `eva
 | 12 | Early failure warning: lead time; CARE | lead time 120 h, recall 0.98, 0.42 false alarms/turbine-year; held-out park 165 h. CARE score 0.40, event recall 0 | fixed residual threshold: 46 h, recall 0.87, 0.39 FA/turbine-year; CARE 0.39–0.41 | real lead time on held-out events | **partial**: met on syn RO; **missed** on CARE (non-RO) | syn RO; non-RO (CARE Farm A) | `train#379` (physics residuals: `train#378`) |
 | 13 | UI mode switch < 1 s on demo laptop | not measured | n/a | < 1 s | **not measured** | n/a | manual |
 
+## Supplier imbalance (spec I step 8: #176, re-run in #184)
+
+Avoidable imbalance cost over 2025 (364 days, 600-home fleet, every policy settled on the same metered flow).
+Labels: quantities syn RO; PZU real RO (OPCOM, timestamps corrected in #186); imbalance a, b proxy (X1); PI = PZU, so the
+intraday term is 0 and sentinel_id is optimistic. Run: `imbalance#1071` (main 101f250, Rust kernels). Before #186: `imbalance#918`.
+
+| policy | avoidable lei | lei/MWh injected | abs dev MWh | vs profile | before #186 (#918) |
+|---|---|---|---|---|---|
+| profile (PPC today) | 873,110 | 354.2 | 1607 | 0 % | 865,600 |
+| persistence | 708,778 | 287.5 | 1499 | −18.8 % | 722,938 |
+| forecast_only | 564,822 | 229.1 | 1011 | −35.3 % | 528,052 |
+| **sentinel** (L1, PZU only) | **177,397** | **72.0** | 388 | **−79.7 %** | 177,327 (−79.5 %) |
+| sentinel_id (L2, +15:00 corr.) | 165,885 | 67.3 | 355 | −81.0 % | 161,946 |
+
+The price fix moved the totals by less than 1 %, so the headline stays at about −80 %. Quantities are unchanged (the same 388 MWh absolute deviation).
+
 ## Caveats and misses
 
 - **#1 is not zero.** 1905 minutes over the limit remain. Hero feeder F7 on Wed 4 Jun goes 90.3 kW / 270 min → 61.7 kW / 0 min (F10 the same day 270 → 0), but F7 is still over on Mon/Tue/Thu/Fri (150–375 min, 2.8–27.3 kWh). Minutes can rise while the overload falls (F7 Mon 285 → 375 min but 79.1 → 27.3 kWh): the LP penalises energy above the limit, so quote kWh over the limit next to minutes.
