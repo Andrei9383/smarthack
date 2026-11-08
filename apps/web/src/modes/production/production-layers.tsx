@@ -72,6 +72,21 @@ function useWindRaster(meta: WindMeta | undefined, hour: number) {
   }, [map, isLoaded, coordinates, hour]);
 }
 
+// The wind field only covers meta.bounds. While Production is open the camera can't pan or zoom out
+// past that box, so the wind never ends in a visible edge (#208). MapLibre leaves the map padding
+// (the inspector on the right) out of this, so all of Romania stays reachable left of the panel.
+function useWindBounds(meta: WindMeta | undefined) {
+  const { map, isLoaded } = useMap();
+  useEffect(() => {
+    if (!map || !isLoaded || !meta) return;
+    const previous = map.getMaxBounds();
+    map.setMaxBounds(meta.bounds);
+    return () => {
+      map.setMaxBounds(previous ?? null);
+    };
+  }, [map, isLoaded, meta]);
+}
+
 type Overlay = {
   setProps: (props: { layers: unknown[] }) => void;
   finalize: () => void;
@@ -476,6 +491,7 @@ export function ProductionLayers() {
     queryFn: fetchWindMeta,
     staleTime: Number.POSITIVE_INFINITY,
   });
+  useWindBounds(meta);
   useWindRaster(meta, hour);
   useWindParticles(meta, hour);
   const { parks, rows, counties } = useProductionData();
