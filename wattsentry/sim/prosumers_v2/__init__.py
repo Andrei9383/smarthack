@@ -1,10 +1,16 @@
-"""data-v2: PPC prosumers with contracts, meters and hidden battery strategies (card #172, spec I steps 2-3).
+"""data-v2: PPC prosumers with contracts, meters and hidden battery strategies, next to the (unchanged) fleet.
 
-A NEW dataset next to the fleet (wattsentry.sim.fleet, data-v4), which stays byte-identical. Layout: SCHEMA.md.
-
-    from wattsentry.sim.prosumers_v2 import ProsumerConfig, generate, load_training
+    from wattsentry.sim.prosumers_v2 import ProsumerConfig, generate, load_training, load_truth
     out = generate(ProsumerConfig())        # cached at $WATTSENTRY_CACHE/prosumers-v2/v1-<digest>
     tr = load_training(out, years=[2024])   # only what PPC sees: public home attributes + meter data
+    gt = load_truth(out, years=[2024])      # labels / evaluation only
+
+Deterministic, and byte-identical with the Rust or Python battery kernel and any number of workers. Energies are kWh
+per 15-min interval, powers kW. Training files never contain manifest.forbidden_training_columns: homes_public,
+meter_observed/year=Y/part-C (smart homes, available local D+1), meter_monthly, settlement/year=Y (county curves,
+profile homes spread on the standard profile), prices, weather, standard_profile. Hidden: homes (strategy, battery
+parameters, fleet truths), truth/home_15min, truth/portfolio. Draw shares live in config.py, strategy rules in
+wattsentry.kernels.strategies.
 """
 
 from __future__ import annotations

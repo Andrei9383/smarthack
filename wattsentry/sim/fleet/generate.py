@@ -1,4 +1,4 @@
-"""Orchestrates the fleet simulation and writes the dataset (see SCHEMA.md)."""
+"""Orchestrates the fleet simulation and writes the dataset."""
 
 from __future__ import annotations
 

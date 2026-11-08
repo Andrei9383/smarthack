@@ -1,4 +1,4 @@
-"""Generate data-v2 (see SCHEMA.md): homes with contracts, meters and battery strategies, their 15-min truth, and the
+"""Generate data-v2: homes with contracts, meters and battery strategies, their 15-min truth, and the
 meter layer PPC sees. PV and household load come from the fleet simulator's physics (unchanged, called on new
 homes); batteries run the K8 strategies kernel (wattsentry.kernels.battery_strategies)."""
 

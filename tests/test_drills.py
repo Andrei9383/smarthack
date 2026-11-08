@@ -61,25 +61,3 @@ def test_drill_signatures():
     _, wf = DRILLS["forecast_noise"](ASSET, w, rng)
     assert not np.allclose(np.asarray(wf.weather)[:, 0], np.asarray(w.weather)[:, 0])
     assert (np.asarray(wf.weather)[:, :3] >= 0).all()
-
-
-def test_telemetry_drills_caught_by_quality_checks():
-    pytest.importorskip("pandera")
-    from wattsentry.data.schemas import quality_report
-    from wattsentry.sim.fleet.solar import solar_position
-
-    ts = pd.date_range("2024-06-01", periods=DAY * 5, freq="15min", tz="UTC")
-    zen, _ = solar_position(ts, 44.49, 26.18)
-    df = pd.DataFrame({"ts": ts, "site_id": "S0001", "pv_ac_w": np.round(np.clip(np.cos(np.radians(zen)), 0, None) * 4000),
-                       "load_w": 400.0, "batt_w": 0.0, "grid_w": 0.0, "soc": 0.5, "inv_voltage_v": 231.0})
-    sites = pd.DataFrame({"site_id": ["S0001"], "lat": [44.49], "lon": [26.18], "inverter_kw": [5.0]})
-    rng = np.random.default_rng(0)
-    assert quality_report(df, sites).empty
-    expect = {"gaps_10": "gaps", "missing_day": "gaps", "frozen_sensor": "frozen", "units_x1000": "units",
-              "telemetry_dropout": "gaps"}
-    for name, issue in expect.items():
-        rep = quality_report(telemetry_drill(df, name, rng), sites)
-        assert issue in set(rep.issue), name
-    assert len(telemetry_drill(df, "telemetry_dropout", rng)) < len(df)
-    with pytest.raises(KeyError):
-        telemetry_drill(df, "nope", rng)

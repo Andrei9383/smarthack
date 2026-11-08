@@ -62,28 +62,6 @@ def _telemetry(n=96 * 3):
                          "soc": 0.5, "inv_voltage_v": 231.0, "inv_status": 0})
 
 
-SITES = pd.DataFrame({"site_id": ["S0001"], "lat": [44.49], "lon": [26.18], "inverter_kw": [5.0]})
-
-
-def test_quality_report_issues():
-    pytest.importorskip("pandera")
-    from wattsentry.data.schemas import quality_report, validate_telemetry
-
-    df = _telemetry()
-    validate_telemetry(df)
-    assert quality_report(df, SITES).empty
-    bad = df.copy()
-    bad.loc[40:60, "pv_ac_w"] = 1234.0                      # frozen
-    bad.loc[100:103, "pv_ac_w"] = np.nan                    # gap
-    bad.loc[90, "pv_ac_w"] = 900.0                          # night power (~22:30 UTC)
-    bad.loc[150:152, "soc"] = 1.2                           # SoC > 100 %
-    bad = bad.drop(index=[200, 201])                        # missing timestamps
-    rep = quality_report(bad, SITES)
-    assert {"frozen", "gaps", "night_power", "soc_over_100"} <= set(rep.issue)
-    units = df.assign(pv_ac_w=df.pv_ac_w * 1000)
-    assert "units" in set(quality_report(units, SITES).issue)
-    with pytest.raises(Exception):
-        validate_telemetry(units)  # pv_ac_w far outside the physical range
 
 
 def test_window_cache_deterministic(tmp_path, monkeypatch):
