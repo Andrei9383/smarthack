@@ -18,7 +18,7 @@ import { orpc } from "@/utils/orpc";
 
 import { FanHourTicks, FanYAxis } from "./fan-chart-overlays";
 
-const SECTION_LABEL = "text-[11px] font-medium tracking-[0.04em] text-text-secondary uppercase";
+const SECTION_LABEL = "section-title";
 const MARGIN = { left: 32, right: 8, top: 26, bottom: 24 };
 const HOUR_MS = 3_600_000;
 const BATTERY_VARIANTS = ["lp", "rule"];
@@ -101,7 +101,7 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
   return (
     <>
       {hours.length ? (
-        <section className="space-y-1.5 border-t border-border pt-3.5">
+        <section className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between gap-3">
             <h3 className={SECTION_LABEL}>Last 24 h: sold vs made (MWh/h)</h3>
             <ul className="flex items-center gap-3 text-[11px] text-text-secondary">
@@ -138,7 +138,7 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
       ) : null}
 
       {bat.soc.length ? (
-        <section className="mt-3 space-y-1.5 border-t border-border pt-3.5">
+        <section className="mt-5 space-y-1.5 border-t border-border pt-5">
           <h3 className={SECTION_LABEL}>Park battery, {bat.variant === "lp" ? "hourly plan" : "rule"} (45.7 MW / 91.4 MWh)</h3>
           <MetricRow className="py-1">
             <Metric label="Saved" value={lei(bat.savedLei)} unit="lei" sub="vs no battery" />
