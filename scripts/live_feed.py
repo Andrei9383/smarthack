@@ -47,12 +47,12 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--scale", type=float, default=0.25, help="mock world size")
     ap.add_argument("--agent", action="store_true",
-                    help="#129 experiment: the replay agent (policy sentinel) also decides each tick -> live_agent_*")
+                    help="experiment: the replay agent (policy sentinel) also decides each tick -> live_agent_*")
     ap.add_argument("--gate", action="store_true",
-                    help="#129 gate: whole week tick by tick vs the batch replay loop, print both KPI sets, exit")
+                    help="gate: whole week tick by tick vs the batch replay loop, print both KPI sets, exit")
     a = ap.parse_args(argv)
 
-    world = make_world(a.world, a.days, a.seed, a.scale, wind=a.gate)  # gate: replay#506's world (wind + judge on)
+    world = make_world(a.world, a.days, a.seed, a.scale, wind=a.gate)  # gate: the demo replay's world (wind + judge on)
     if a.gate:
         from wattsentry.live.agent import gate
 
