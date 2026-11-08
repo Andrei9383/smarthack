@@ -7,16 +7,16 @@ Registry (lazy imports, so a card's module is only imported when its model is as
 `main(argv: list[str] | None = None) -> None`; everything after --model NAME is passed through unchanged
 (lab substitutes grid placeholders like `--lr {lr}` before this process starts).
 
-  pvnet       M1  sentinel.model.forecast:main_pvnet      (#14)
-  loadnet     M2  sentinel.model.forecast:main_loadnet    (#14)
-  sitehealth  M4  sentinel.model.sitehealth:main          (#14)
-  windnbm     M6  sentinel.model.wind.train:main          (#41)
-  demandnet   M3  sentinel.demand.train:main              (#44)
-  windpower   M5  sentinel.model.windpower.train:main     (#42)
-  windfailure M7  sentinel.model.windfailure.train:main   (#43)
-  gridtwin    M8  sentinel.gridtwin.run:main              (#13)
-  battery     I4  sentinel.model.battery.train:main       (#174, data-v2 battery behaviour)
-  judge       J3  sentinel.judge.train:main               (#148, Judge validity models; team/judge-design.md §7)
+  pvnet       M1  wattsentry.model.forecast:main_pvnet      (#14)
+  loadnet     M2  wattsentry.model.forecast:main_loadnet    (#14)
+  sitehealth  M4  wattsentry.model.sitehealth:main          (#14)
+  windnbm     M6  wattsentry.model.wind.train:main          (#41)
+  demandnet   M3  wattsentry.demand.train:main              (#44)
+  windpower   M5  wattsentry.model.windpower.train:main     (#42)
+  windfailure M7  wattsentry.model.windfailure.train:main   (#43)
+  gridtwin    M8  wattsentry.gridtwin.run:main              (#13)
+  battery     I4  wattsentry.model.battery.train:main       (#174, data-v2 battery behaviour)
+  judge       J3  wattsentry.judge.train:main               (#148, Judge validity models; team/judge-design.md §7)
 """
 
 from __future__ import annotations
@@ -25,16 +25,16 @@ import importlib
 import sys
 
 REGISTRY: dict[str, str] = {
-    "pvnet": "sentinel.model.forecast:main_pvnet",
-    "loadnet": "sentinel.model.forecast:main_loadnet",
-    "sitehealth": "sentinel.model.sitehealth:main",
-    "windnbm": "sentinel.model.wind.train:main",
-    "demandnet": "sentinel.demand.train:main",
-    "windpower": "sentinel.model.windpower.train:main",
-    "windfailure": "sentinel.model.windfailure.train:main",
-    "gridtwin": "sentinel.gridtwin.run:main",
-    "battery": "sentinel.model.battery.train:main",
-    "judge": "sentinel.judge.train:main",
+    "pvnet": "wattsentry.model.forecast:main_pvnet",
+    "loadnet": "wattsentry.model.forecast:main_loadnet",
+    "sitehealth": "wattsentry.model.sitehealth:main",
+    "windnbm": "wattsentry.model.wind.train:main",
+    "demandnet": "wattsentry.demand.train:main",
+    "windpower": "wattsentry.model.windpower.train:main",
+    "windfailure": "wattsentry.model.windfailure.train:main",
+    "gridtwin": "wattsentry.gridtwin.run:main",
+    "battery": "wattsentry.model.battery.train:main",
+    "judge": "wattsentry.judge.train:main",
 }
 
 

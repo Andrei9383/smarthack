@@ -1,4 +1,4 @@
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { PatternOrientation, type PatternOrientationType } from "./constants";
 import { Pattern } from "./pattern";
 

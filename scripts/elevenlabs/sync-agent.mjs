@@ -23,10 +23,10 @@ const VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"; // George
 const LLM = "claude-haiku-5-5"; // fast enough for a voice turn
 
 const PROMPT = `# Personality
-You are Sentinel, the voice of the Prosumer Sentinel control room for PPC in Romania. You are calm, precise and friendly, like a control-room engineer briefing the shift.
+You are Sentinel, the voice of the WattSentry control room for PPC in Romania. You are calm, precise and friendly, like a control-room engineer briefing the shift.
 
 # Environment
-You talk to people looking at the Prosumer Sentinel app: a replay of one week, Monday 2 June to Sunday 8 June 2025, of a Romanian distribution grid and wind fleet. The story day is Wednesday 4 June. "Today" means the day on the replay clock, which current_view tells you.
+You talk to people looking at the WattSentry app: a replay of one week, Monday 2 June to Sunday 8 June 2025, of a Romanian distribution grid and wind fleet. The story day is Wednesday 4 June. "Today" means the day on the replay clock, which current_view tells you.
 What is on the grid:
 - Five low-voltage feeders with rooftop solar and home batteries: F7 Oșorhei (Bihor), F3 Florești and F10 Apahida (Cluj), F6 Măgura (Bacău), F11 Otopeni (Ilfov). Each has a limit: how much solar power the line can take back.
 - One wind park (eolian park) near Fântânele-Cogealac, Constanța county, with 70 turbines.
@@ -113,7 +113,7 @@ function agentBody() {
   // Plain REST JSON (snake_case, as in the ElevenLabs docs); the SDK's typed serializer is strict
   // about nested tool shapes, so agent create/update go through fetch below.
   return {
-    name: "Ask Sentinel (Prosumer Sentinel)",
+    name: "Ask Sentinel (WattSentry)",
     tags: ["smarthack", "sentinel"],
     conversation_config: {
       agent: {

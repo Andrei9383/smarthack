@@ -8,12 +8,12 @@ import time
 import numpy as np
 import pytest
 
-from sentinel.agent.world import ACTION_VISIT_WEIGHT, DEFAULT_START, CrewReport, MockWorld
-from sentinel.contracts import Prediction, PvFault
-from sentinel.judge import OUTCOME_COLUMNS, ReplayObs, bucket_days, grade, obs_from_world
-from sentinel.judge import gate as G
-from sentinel.judge import grader as GR
-from sentinel.judge import scores as S
+from wattsentry.agent.world import ACTION_VISIT_WEIGHT, DEFAULT_START, CrewReport, MockWorld
+from wattsentry.contracts import Prediction, PvFault
+from wattsentry.judge import OUTCOME_COLUMNS, ReplayObs, bucket_days, grade, obs_from_world
+from wattsentry.judge import gate as G
+from wattsentry.judge import grader as GR
+from wattsentry.judge import scores as S
 
 DAY0 = int(DEFAULT_START.timestamp())
 DAY = 86400

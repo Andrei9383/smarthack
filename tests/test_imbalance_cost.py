@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from sentinel.eval.imbalance import (AB_PATH, AFEER_HI, AFEER_LO, avoidable_cost, cost_steps, load_ab, q_star,
+from wattsentry.eval.imbalance import (AB_PATH, AFEER_HI, AFEER_LO, avoidable_cost, cost_steps, load_ab, q_star,
                                      wind_avoidable_cost)
 
 PZU = np.array([400.0, 500.0, 600.0, 300.0])
@@ -109,7 +109,7 @@ def test_frozen_ab():
 
 
 # ---- prices -------------------------------------------------------------------------------------------------------
-from sentinel.data.prices import load_prices, prices_at  # noqa: E402
+from wattsentry.data.prices import load_prices, prices_at  # noqa: E402
 
 
 def test_prices_15min_and_hourly_repeat():

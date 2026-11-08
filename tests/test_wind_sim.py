@@ -10,16 +10,16 @@ import numpy as np
 import polars as pl
 import pytest
 
-from sentinel.contracts import is_error_code, parse_tag
-from sentinel.contracts.schemas import check_columns
-from sentinel.contracts.wind import METEO_COLUMNS, SENSORS, TELEMETRY_LONG_COLUMNS, TURBINE_META_COLUMNS
-from sentinel.model.wind.data import make_splits, read_wind_dir
-from sentinel.model.wind.physics import R_D, RHO_REF
-from sentinel.sim.wind.build import build, simulate
-from sentinel.sim.wind.config import RAW, WindSimConfig
-from sentinel.sim.wind.generate import generate_clean, national_wind_cf
-from sentinel.sim.wind.parks import PARKS, build_layouts
-from sentinel.sim.wind_faults import FaultConfig
+from wattsentry.contracts import is_error_code, parse_tag
+from wattsentry.contracts.schemas import check_columns
+from wattsentry.contracts.wind import METEO_COLUMNS, SENSORS, TELEMETRY_LONG_COLUMNS, TURBINE_META_COLUMNS
+from wattsentry.model.wind.data import make_splits, read_wind_dir
+from wattsentry.model.wind.physics import R_D, RHO_REF
+from wattsentry.sim.wind.build import build, simulate
+from wattsentry.sim.wind.config import RAW, WindSimConfig
+from wattsentry.sim.wind.generate import generate_clean, national_wind_cf
+from wattsentry.sim.wind.parks import PARKS, build_layouts
+from wattsentry.sim.wind_faults import FaultConfig
 
 SMALL = WindSimConfig(start="2024-01-01", end="2024-01-22", max_turbines_per_park=5)
 
@@ -96,11 +96,11 @@ def test_contract_tables(built):
 
 
 def test_m6_loader_reads_cache(built, sim, monkeypatch):
-    """sentinel.model.wind.data picks the cache up in exactly the contract format (M6 unchanged)."""
-    from sentinel.model.wind.data import external_wind_dir, load_wind
+    """wattsentry.model.wind.data picks the cache up in exactly the contract format (M6 unchanged)."""
+    from wattsentry.model.wind.data import external_wind_dir, load_wind
 
     _, _, data = sim
-    monkeypatch.setenv("SENTINEL_WIND_DIR", str(built))
+    monkeypatch.setenv("WATTSENTRY_WIND_DIR", str(built))
     assert external_wind_dir() == built
     back = load_wind(log=lambda *a: None)
     assert back.turbine_ids == data.turbine_ids and len(back.ts) == len(data.ts)

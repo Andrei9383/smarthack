@@ -8,10 +8,10 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from sentinel.agent import qualify as Q
-from sentinel.agent import triage as TR
-from sentinel.agent.qualify import DEFAULT_THRESHOLDS, assess, load_thresholds, qualify, qualify_many, rel_width
-from sentinel.agent.triage import (
+from wattsentry.agent import qualify as Q
+from wattsentry.agent import triage as TR
+from wattsentry.agent.qualify import DEFAULT_THRESHOLDS, assess, load_thresholds, qualify, qualify_many, rel_width
+from wattsentry.agent.triage import (
     TriageConfig,
     WindInputs,
     lei_per_day,
@@ -21,7 +21,7 @@ from sentinel.agent.triage import (
     triage_score,
     wind_triage_score,
 )
-from sentinel.contracts import (
+from wattsentry.contracts import (
     PAYLOAD_KEYS,
     Action,
     AssetStatus,
@@ -559,7 +559,7 @@ def test_wind_judge_unknown_is_remote_check_after_scored_orders(monkeypatch):
 
 
 def test_wind_reads_p_fault_through_the_c1_adapter():
-    adapter = pytest.importorskip("sentinel.judge.adapter")  # card #157
+    adapter = pytest.importorskip("wattsentry.judge.adapter")  # card #157
     items, tick, _, _ = _wind_fleet()
     day = TR.local_day(tick)
     rules = dataclasses.replace(items[0].prediction, model="windmon_rules", anomaly_score=0.6)

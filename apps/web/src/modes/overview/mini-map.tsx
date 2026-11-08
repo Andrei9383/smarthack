@@ -1,7 +1,7 @@
 "use client";
 
-import { Map } from "@sentinel-app/ui/components/map";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { Map } from "@wattsentry/ui/components/map";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { ChevronRight } from "lucide-react";
 
 import { StatusMark } from "@/components/brand/status-mark";

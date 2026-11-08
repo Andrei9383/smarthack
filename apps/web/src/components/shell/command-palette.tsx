@@ -1,7 +1,7 @@
 "use client";
 
 import { Dialog } from "@base-ui/react/dialog";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, CircleHelp, CornerDownLeft, MapPin, Play, Search, Wind } from "lucide-react";
 import { parseAsBoolean, parseAsString, useQueryStates } from "nuqs";

@@ -1,4 +1,4 @@
-"""Card #22: WindMon's six quality rules and OK / DEGRADED / SUSPECT flags (sentinel/data/wind/quality.py)."""
+"""Card #22: WindMon's six quality rules and OK / DEGRADED / SUSPECT flags (wattsentry/data/wind/quality.py)."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -6,8 +6,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from sentinel.contracts.wind import SENSORS, make_tag
-from sentinel.data.wind.quality import (
+from wattsentry.contracts.wind import SENSORS, make_tag
+from wattsentry.data.wind.quality import (
     FROZEN_STEPS,
     RULES,
     apply_rules,
@@ -117,7 +117,7 @@ def test_suspect_beats_degraded_and_counts():
 
 def test_long_and_array_paths_agree():
     """Contract long table and the simulator's arrays give the same flags."""
-    from sentinel.model.wind.data import WindData, to_long, turbines_table
+    from wattsentry.model.wind.data import WindData, to_long, turbines_table
 
     rng = np.random.default_rng(1)
     n, N = 40, 2
@@ -148,10 +148,10 @@ def test_long_and_array_paths_agree():
 
 def test_flags_on_simulated_faults():
     """On the simulator + injector, comm gaps and stuck anemometers come out SUSPECT; clean data is ~all OK."""
-    from sentinel.model.wind.data import turbines_table
-    from sentinel.sim.wind.build import simulate
-    from sentinel.sim.wind.config import WindSimConfig
-    from sentinel.sim.wind_faults import FaultConfig
+    from wattsentry.model.wind.data import turbines_table
+    from wattsentry.sim.wind.build import simulate
+    from wattsentry.sim.wind.config import WindSimConfig
+    from wattsentry.sim.wind_faults import FaultConfig
 
     cfg = WindSimConfig(start="2024-01-01", end="2024-01-15", max_turbines_per_park=3)
     clean, _, d0 = simulate(cfg, faults=False, log=lambda *a: None)

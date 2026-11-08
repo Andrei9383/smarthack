@@ -7,10 +7,10 @@ import time
 import numpy as np
 import pytest
 
-from sentinel.contracts import AssetStatus, BatterySpec, FeederPlan, FeederSpec, MockPredictor, self_consumption_step
-from sentinel.opt.aggregate import plan_feeder_aggregate
-from sentinel.opt.lp import LPParams, peak_mask_for, plan_feeder
-from sentinel.opt.policies import (
+from wattsentry.contracts import AssetStatus, BatterySpec, FeederPlan, FeederSpec, MockPredictor, self_consumption_step
+from wattsentry.opt.aggregate import plan_feeder_aggregate
+from wattsentry.opt.lp import LPParams, peak_mask_for, plan_feeder
+from wattsentry.opt.policies import (
     RestOfFeeder,
     Site,
     ValidationDay,
@@ -292,7 +292,7 @@ def negative_day(day):
 
 
 def lp_arrays(rows, fc, G, prices, t0):
-    from sentinel.opt.policies import site_quantiles
+    from wattsentry.opt.policies import site_quantiles
 
     sites = [site_from_row(r) for r in rows]
     q = {s.site_id: site_quantiles(fc, s.site_id) for s in sites}
@@ -326,7 +326,7 @@ def test_negative_price_day_lp_optimal(day):
 def test_negative_price_lp_flows_are_physical():
     """One net flow per site: no simultaneous import + export, and the LP objective is the real cost of the plan
     (nothing earned from phantom import/export pairs)."""
-    from sentinel.opt.lp import solve_lp
+    from wattsentry.opt.lp import solve_lp
 
     rows, fc, prices, t0 = negative_day(OPCOM_0608)
     G = 0.7 * float(worst_no_battery(fc).max())
@@ -350,7 +350,7 @@ def test_negative_price_lp_flows_are_physical():
 
 def test_negative_prices_same_as_before_when_prices_nonnegative(sunny):
     """π >= 0: the net-flow LP is the merged m/x LP after a change of variables (same optimum)."""
-    from sentinel.opt.lp import solve_lp
+    from wattsentry.opt.lp import solve_lp
 
     rows, fc, peak = sunny
     prices = np.r_[np.full(40, 0.3), np.zeros(30), np.full(26, 1.2)]
@@ -398,7 +398,7 @@ def rule_import_kw(rows, fc) -> np.ndarray:
 def test_supplier_off_is_the_default_lp(sunny):
     """No supplier term -> the #18 LP exactly (replay#506 KPIs unchanged): same plan as an explicit supplier=None,
     no supplier diagnostics, and the recorded #18 optimum."""
-    from sentinel.opt.lp import solve_lp
+    from wattsentry.opt.lp import solve_lp
 
     rows, fc, peak = sunny
     a = plan_feeder("F", rows, None, fc, G=0.7 * peak, prices=0.6)
@@ -413,7 +413,7 @@ def test_supplier_off_is_the_default_lp(sunny):
 
 @pytest.mark.parametrize("frac", [0.7, 0.4], ids=["headroom", "congested"])
 def test_supplier_term_keeps_limit_and_reserve_hard(sunny, frac):
-    from sentinel.opt.lp import SupplierObjective
+    from wattsentry.opt.lp import SupplierObjective
 
     rows, fc, peak = sunny
     G = frac * peak
@@ -428,7 +428,7 @@ def test_supplier_term_keeps_limit_and_reserve_hard(sunny, frac):
         assert dso.max_slack_kw > 0  # the limit really binds here
     assert_reserve_and_replay(plan, rows)
     # the supplier pays less for the plan it is scored on
-    from sentinel.opt.lp import _supplier_extra
+    from wattsentry.opt.lp import _supplier_extra
 
     w = sup.arrays(96, np.full(96, 0.6))
     assert plan.extra["supplier_planned_lei"] < _supplier_extra(dso, w, None)["supplier_planned_lei"] - 1.0
@@ -437,7 +437,7 @@ def test_supplier_term_keeps_limit_and_reserve_hard(sunny, frac):
 
 def test_supplier_only_tracks_a_feasible_position(sunny):
     """bill off, position = the import curve of a feasible plan: the LP can match it, supplier cost ~ 0."""
-    from sentinel.opt.lp import SupplierObjective
+    from wattsentry.opt.lp import SupplierObjective
 
     rows, fc, peak = sunny
     G = 0.7 * peak
@@ -457,7 +457,7 @@ def test_supplier_only_tracks_a_feasible_position(sunny):
 
 
 def test_supplier_single_solve_and_validation(sunny):
-    from sentinel.opt.lp import SupplierObjective, supplier_cost_lei
+    from wattsentry.opt.lp import SupplierObjective, supplier_cost_lei
 
     rows, fc, peak = sunny
     pos = rule_import_kw(rows, fc)
@@ -486,7 +486,7 @@ def test_supplier_single_solve_and_validation(sunny):
 
 def test_supplier_replay_mock_one_day():
     """The 'replay with both objectives' runner on a 1-day mock world: minutes over limit do not increase."""
-    from sentinel.opt.supplier_replay import run
+    from wattsentry.opt.supplier_replay import run
 
     res = run("mock", days=1, seed=0, variants=("dso", "sup"))
     v = res["variants"]
@@ -499,7 +499,7 @@ def test_supplier_replay_mock_one_day():
 def test_supplier_guard_keeps_charge_at_near_limit_steps(sunny):
     """Stage 2 charges the feeder's batteries at least as much as the DSO-only LP wherever the no-battery worst
     export is within supplier_guard_margin of G, so realised export there cannot rise (replay#882 lesson)."""
-    from sentinel.opt.lp import SupplierObjective
+    from wattsentry.opt.lp import SupplierObjective
 
     rows, fc, peak = sunny
     G = 0.4 * peak
@@ -541,7 +541,7 @@ def test_supplier_guard_survives_a_site_leaving_the_pool(sunny, bill_weight):
     stage 1, also at the end of the day) realised export at near-limit steps can never exceed the DSO plan's,
     whichever single site drops out, also with the bill term off. (Old guard here: 39-40 of 40 dropout cases worse,
     up to +7.5 kW, and the day ended 85 vs 62 kWh in the batteries.)"""
-    from sentinel.opt.lp import SupplierObjective
+    from wattsentry.opt.lp import SupplierObjective
 
     rows, fc, peak = sunny
     G = 0.4 * peak
@@ -561,7 +561,7 @@ def test_supplier_guard_survives_a_site_leaving_the_pool(sunny, bill_weight):
             x_dso = _realised_export(dso, rows, fc, r["site_id"], k0)
             x_sup = _realised_export(plan, rows, fc, r["site_id"], k0)
             assert (x_sup[risk] <= x_dso[risk] + 1e-3).all(), (r["site_id"], k0)
-    from sentinel.opt.lp import _supplier_extra  # the supplier still pays less than for the DSO plan
+    from wattsentry.opt.lp import _supplier_extra  # the supplier still pays less than for the DSO plan
 
     w = SupplierObjective(rule_import_kw(rows, fc), a=1.44, b=0.72).arrays(96, np.full(96, 0.6))
     assert plan.extra["supplier_planned_lei"] < _supplier_extra(dso, w, None)["supplier_planned_lei"]

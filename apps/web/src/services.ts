@@ -1,5 +1,5 @@
-import { createAuth } from "@sentinel-app/auth";
-import { createDb } from "@sentinel-app/db";
+import { createAuth } from "@wattsentry/auth";
+import { createDb } from "@wattsentry/db";
 
 import { ENV } from "./env.server";
 

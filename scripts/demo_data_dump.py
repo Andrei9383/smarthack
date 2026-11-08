@@ -47,8 +47,8 @@ def run(cmd: list[str]) -> int:
 def grid() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     py = sys.executable
-    rc = run([py, "-m", "sentinel.eval.dso_value", "--world", "sim", "--build-caches", "--run-g1", "--out", str(OUT)])
-    rc_v = run([py, "-m", "sentinel.gridtwin.voltage", "--world", "sim", "--out", str(OUT / "voltage")])
+    rc = run([py, "-m", "wattsentry.eval.dso_value", "--world", "sim", "--build-caches", "--run-g1", "--out", str(OUT)])
+    rc_v = run([py, "-m", "wattsentry.gridtwin.voltage", "--world", "sim", "--out", str(OUT / "voltage")])
     for name, path in [("hosting_capacity.json", OUT / "g1" / "hosting_capacity.json"),
                        ("dso_value.json", OUT / "dso_value.json"), ("voltage.json", OUT / "voltage" / "voltage.json")]:
         if path.exists():

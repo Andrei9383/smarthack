@@ -11,8 +11,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from sentinel.judge.buckets import ancestors, bucket_key
-from sentinel.judge.ledger import (ALERT_DAYS, HALF_LIFE, MIN_EVIDENCE, N0, Ledger, Priors, TRUST_COLUMNS,
+from wattsentry.judge.buckets import ancestors, bucket_key
+from wattsentry.judge.ledger import (ALERT_DAYS, HALF_LIFE, MIN_EVIDENCE, N0, Ledger, Priors, TRUST_COLUMNS,
                                    _alert_state, beta_interval)
 
 D0 = dt.date(2025, 5, 1)
@@ -306,7 +306,7 @@ def test_brier_detail_rows_are_not_trust_series():
 
 
 def test_interpolated_beta_interval_matches_exact():
-    from sentinel.judge.ledger import _beta_exact
+    from wattsentry.judge.ledger import _beta_exact
     rng = np.random.default_rng(3)
     t, n = rng.uniform(0.01, 0.99, 20_000), rng.uniform(0, 20.7, 20_000)
     lo, hi = beta_interval(t, n)

@@ -10,11 +10,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.contracts import schemas
-from sentinel.contracts.envelope import PvFault
-from sentinel.sim.faults import INV_OVERVOLTAGE, FaultConfig, inject_batch, inject_dataset
-from sentinel.sim.faults.inject import TELEMETRY_COLS
-from sentinel.sim.fleet import FleetConfig, generate
+from wattsentry.contracts import schemas
+from wattsentry.contracts.envelope import PvFault
+from wattsentry.sim.faults import INV_OVERVOLTAGE, FaultConfig, inject_batch, inject_dataset
+from wattsentry.sim.faults.inject import TELEMETRY_COLS
+from wattsentry.sim.fleet import FleetConfig, generate
 
 FLEET = FleetConfig(n_sites=30, n_feeders=2, n_congested=1, start_year=2024, end_year=2024, battery_share=0.7)
 KINDS = [k.value for k in PvFault if k is not PvFault.HEALTHY]
@@ -163,7 +163,7 @@ def test_labels_contract_and_determinism(fleet, tmp_path):
 
 def test_pv_only_series():
     """PVDAQ-like input: only ts, site_id, pv_ac_w; battery/voltage classes are skipped automatically."""
-    from sentinel.sim.faults import inject
+    from wattsentry.sim.faults import inject
 
     ts = pd.date_range("2024-01-01", "2024-12-31", freq="15min", tz="UTC")
     h = ts.hour.to_numpy() + ts.minute.to_numpy() / 60

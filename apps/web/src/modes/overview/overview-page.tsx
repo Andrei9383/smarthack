@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX, curveStepAfter } from "d3-shape";
 import {

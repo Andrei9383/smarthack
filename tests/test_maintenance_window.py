@@ -1,6 +1,6 @@
 import numpy as np
 
-from sentinel.agent.maintenance_window import QH, best_repair_day, price_profile
+from wattsentry.agent.maintenance_window import QH, best_repair_day, price_profile
 
 D = 10
 

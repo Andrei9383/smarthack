@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { clampStep, STEPS_IN_WEEK } from "./replay";

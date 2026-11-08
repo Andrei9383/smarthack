@@ -14,12 +14,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sentinel.contracts import Prediction, PvFault, Window  # noqa: E402
-from sentinel.model import features as F  # noqa: E402
-from sentinel.model import metrics as M  # noqa: E402
-from sentinel.model import physics as ph  # noqa: E402
-from sentinel.model.data import ArraySource, H, make_splits, window_labels  # noqa: E402
-from sentinel.model.synth import FAULTS, SynthConfig, generate  # noqa: E402
+from wattsentry.contracts import Prediction, PvFault, Window  # noqa: E402
+from wattsentry.model import features as F  # noqa: E402
+from wattsentry.model import metrics as M  # noqa: E402
+from wattsentry.model import physics as ph  # noqa: E402
+from wattsentry.model.data import ArraySource, H, make_splits, window_labels  # noqa: E402
+from wattsentry.model.synth import FAULTS, SynthConfig, generate  # noqa: E402
 
 SMALL = SynthConfig(n_sites=12, days=90, seed=3)
 
@@ -62,7 +62,7 @@ def test_fault_onsets_exact(small_src):
 
 
 def test_wrong_metadata_fraction():
-    src_sites = __import__("sentinel.model.synth", fromlist=["_sites"])._sites(SynthConfig(n_sites=400),
+    src_sites = __import__("wattsentry.model.synth", fromlist=["_sites"])._sites(SynthConfig(n_sites=400),
                                                                                 np.random.default_rng(0))
     frac = np.mean([s["meta_wrong"] for s in src_sites])
     assert 0.15 < frac < 0.25
@@ -71,7 +71,7 @@ def test_wrong_metadata_fraction():
 
 
 def test_splits_no_leakage():
-    from sentinel.model.data import Splits  # noqa: F401
+    from wattsentry.model.data import Splits  # noqa: F401
 
     class Fake:
         sites = [{"split": "unseen" if i % 10 < 3 else "train"} for i in range(50)]
@@ -156,7 +156,7 @@ def test_train_registry_errors_cleanly(capsys):
     with pytest.raises(SystemExit):
         tm.main([])
     # a registered model whose card has not landed: clear error, not a traceback
-    tm.REGISTRY["ghost"] = "sentinel.model.ghost_card_xyz.train:main"
+    tm.REGISTRY["ghost"] = "wattsentry.model.ghost_card_xyz.train:main"
     with pytest.raises(SystemExit, match="does not exist yet"):
         tm.main(["--model", "ghost", "--lr", "1e-3"])
     assert tm.split_argv(["--lr", "3e-4", "--model", "pvnet", "--seed", "1"]) == ("pvnet", ["--lr", "3e-4", "--seed", "1"])
@@ -165,7 +165,7 @@ def test_train_registry_errors_cleanly(capsys):
 
 def test_train_module_targets_resolve_for_14():
     """pvnet / loadnet / sitehealth modules import without torch (torch is imported lazily inside run())."""
-    from sentinel.model import forecast, sitehealth
+    from wattsentry.model import forecast, sitehealth
 
     assert callable(forecast.main_pvnet) and callable(forecast.main_loadnet) and callable(sitehealth.main)
 
@@ -191,11 +191,11 @@ def _tiny_window(src, site, start, kind="pv"):
 def test_predictor_envelope_with_tiny_onnx(small_src, tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("onnx")
-    from sentinel.model.forecast import Wrapped, fit_ood
-    from sentinel.model.harness import export_onnx
-    from sentinel.model.nets import QuantileEncoder, SiteHealthNet
-    from sentinel.model.predictor import load_predictor
-    from sentinel.model.sitehealth import _wrap
+    from wattsentry.model.forecast import Wrapped, fit_ood
+    from wattsentry.model.harness import export_onnx
+    from wattsentry.model.nets import QuantileEncoder, SiteHealthNet
+    from wattsentry.model.predictor import load_predictor
+    from wattsentry.model.sitehealth import _wrap
 
     torch.manual_seed(0)
     sites, starts = np.array([0, 1, 2, 3]), np.array([20, 25, 30, 35]) * H
@@ -264,7 +264,7 @@ def test_predictor_envelope_with_tiny_onnx(small_src, tmp_path):
 
 def test_quantile_encoder_monotone_and_params():
     torch = pytest.importorskip("torch")
-    from sentinel.model.nets import QuantileEncoder, SiteHealthNet, n_params, pinball
+    from wattsentry.model.nets import QuantileEncoder, SiteHealthNet, n_params, pinball
 
     net = QuantileEncoder(len(F.PV_SEQ), 168, len(F.PV_SUM), len(F.PV_STATIC), d=96, layers=3, heads=4, ff=192)
     assert 0.2e6 < n_params(net) < 0.4e6
@@ -291,7 +291,7 @@ def test_train_presets_expand():
 
 def test_predictor_status_mapping_matches_windows():
     pytest.importorskip("onnxruntime")
-    from sentinel.model.predictor import _status
+    from wattsentry.model.predictor import _status
 
     pv = np.array([0.0, 0.002, 1.0, 4.99, 0.0])
     raw = np.array([0, 0, 0, 0, 37])  # sim codes: 0 ok, 37 overvoltage

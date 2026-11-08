@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build sentinel._core into ./.venv (team/infra.md §4), and probe the worker's Rust toolchain.
+# Build wattsentry._core into ./.venv (team/infra.md §4), and probe the worker's Rust toolchain.
 #
 #   sh rust/build.sh build            # setup step: never exits non-zero; writes rust/.build_status
 #   sh rust/build.sh status           # cmd step: prints the probe/build result as LAB_METRIC lines
@@ -51,16 +51,16 @@ build() {
   echo "== $(cargo --version 2>&1)"
   echo "== $(rustc --version 2>&1)"
 
-  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/sentinel-core-target}"; export CARGO_TARGET_DIR
+  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/wattsentry-core-target}"; export CARGO_TARGET_DIR
   VIRTUAL_ENV="$ROOT/.venv"; export VIRTUAL_ENV
   echo "== maturin develop --release (target dir $CARGO_TARGET_DIR)"
   t0=$(now)
   LOG=/tmp/maturin.$$.log
-  "$ROOT/.venv/bin/maturin" develop --release --uv -m "$ROOT/rust/sentinel_core/Cargo.toml" >"$LOG" 2>&1
+  "$ROOT/.venv/bin/maturin" develop --release --uv -m "$ROOT/rust/wattsentry_core/Cargo.toml" >"$LOG" 2>&1
   rc=$?
   grep -v '^ *Compiling ' "$LOG" | tail -40
   rm -f "$LOG"
-  if [ "$rc" -eq 0 ] && "$PY" -c "import sentinel._core as c; print('== sentinel._core', c.__version__, 'threads', c.num_threads())"; then
+  if [ "$rc" -eq 0 ] && "$PY" -c "import wattsentry._core as c; print('== wattsentry._core', c.__version__, 'threads', c.num_threads())"; then
     t1=$(now)
     echo "== build OK in $(elapsed "$t0" "$t1") s"
     rec "LAB_METRIC rust_build_s=$(elapsed "$t0" "$t1")"
@@ -84,8 +84,8 @@ status() {
     grep -v '^LAB_METRIC' "$STATUS" | sed 's/^/== rust build: /'
   fi
   if [ "$1" = "--require" ]; then
-    if ! "$PY" -c "import sentinel._core" 2>/dev/null; then
-      echo "!! RUST BUILD FAILED: sentinel._core does not import; see the setup log above" >&2
+    if ! "$PY" -c "import wattsentry._core" 2>/dev/null; then
+      echo "!! RUST BUILD FAILED: wattsentry._core does not import; see the setup log above" >&2
       exit 1
     fi
   fi

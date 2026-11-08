@@ -2,7 +2,7 @@
 
     python scripts/demo_data_load.py run.log --out /tmp/imb && python scripts/demo_imbalance_db.py /tmp/imb
 
-Tables and index names mirror sentinel/eval/imbalance_replay.py TABLES (= packages/db/src/schema/imbalance.ts).
+Tables and index names mirror wattsentry/eval/imbalance_replay.py TABLES (= packages/db/src/schema/imbalance.ts).
 imbalance_kpis: the whole replay (the API's whole-replay totals). positions + portfolio_forecast (day-ahead): the ts
 window the dump printed (default the demo week +- 3 days; the UI shows one day of the demo week at a time).
 Prices (pzu_lei_mwh / pi_lei_mwh) are left NULL: OPCOM data, internal use only, and the UI does not read them.

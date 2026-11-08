@@ -3,15 +3,15 @@
 import numpy as np
 import pytest
 
-from sentinel.contracts import Predictor
-from sentinel.eval.baselines.wind import windmon_rules
-from sentinel.eval.baselines.wind.curve import BinnedCurve, data_inputs, fit_curves
-from sentinel.eval.baselines.wind.detector import detect_all
-from sentinel.eval.baselines.wind.predictor import BinnedCurvePredictor, WindMonRulesPredictor
-from sentinel.model.wind.data import CLASS_INDEX, POWER, make_splits
-from sentinel.model.wind.metrics import event_metrics
-from sentinel.model.wind.predictor import window_from_data
-from sentinel.model.wind.synth import SynthConfig, generate
+from wattsentry.contracts import Predictor
+from wattsentry.eval.baselines.wind import windmon_rules
+from wattsentry.eval.baselines.wind.curve import BinnedCurve, data_inputs, fit_curves
+from wattsentry.eval.baselines.wind.detector import detect_all
+from wattsentry.eval.baselines.wind.predictor import BinnedCurvePredictor, WindMonRulesPredictor
+from wattsentry.model.wind.data import CLASS_INDEX, POWER, make_splits
+from wattsentry.model.wind.metrics import event_metrics
+from wattsentry.model.wind.predictor import window_from_data
+from wattsentry.model.wind.synth import SynthConfig, generate
 
 
 @pytest.fixture(scope="module")
@@ -22,7 +22,7 @@ def setup():
 
 
 def test_shim_reexports_rules():
-    from sentinel.model.wind import windmon_rules as shim
+    from wattsentry.model.wind import windmon_rules as shim
 
     assert shim.windmon_flags is windmon_rules.windmon_flags and shim.RULES == windmon_rules.RULES
 

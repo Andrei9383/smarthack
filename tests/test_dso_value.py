@@ -8,10 +8,10 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from sentinel.agent.world import SiteDay
-from sentinel.contracts.opt import BatterySpec, FeederSpec
-from sentinel.eval import dso_value as dv
-from sentinel.gridtwin import inloop as L
+from wattsentry.agent.world import SiteDay
+from wattsentry.contracts.opt import BatterySpec, FeederSpec
+from wattsentry.eval import dso_value as dv
+from wattsentry.gridtwin import inloop as L
 
 
 # ------------------------------------------------------------------------------------------- deferred capex
@@ -76,7 +76,7 @@ def test_recovery_pools_feeder_and_phase_errors():
 
 
 def test_recovery_matches_gridtwin_score_on_its_parts():
-    from sentinel.gridtwin.run import score
+    from wattsentry.gridtwin.run import score
 
     res, truth = _twin_frames()
     res = res.assign(tau=1.0)
@@ -107,7 +107,7 @@ def test_validated_reads_pass_through_without_judge():
 
 
 def test_dont_use_verdict_blocks_move_and_zeroes_tau():
-    adapter = pytest.importorskip("sentinel.judge.adapter")
+    adapter = pytest.importorskip("wattsentry.judge.adapter")
     j = adapter.MemoryVerdicts({("1", "gridtwin", "2025-06-02"): {"verdict": "dont_use"},
                                 ("F1", "gridtwin", "2025-06-02"): {"verdict": "dont_use"}})
     adapter.set_default_judge(j)
@@ -154,8 +154,8 @@ def test_play_feeder_schedule_vs_rule():
 
 
 def test_moved_home_case_on_mock_world():
-    from sentinel.agent.loop import default_components
-    from sentinel.agent.world import MockWorld
+    from wattsentry.agent.loop import default_components
+    from wattsentry.agent.world import MockWorld
 
     w = MockWorld(days=1, scale=0.4, with_wind=False)
     hero, other = "F7", next(f for f in w.feeders if f != "F7")

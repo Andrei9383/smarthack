@@ -28,10 +28,10 @@
     "@orpc/server": "^1.15.6",
     "@orpc/tanstack-query": "^1.15.6",
     "@orpc/zod": "^1.15.6",
-    "@sentinel-app/api": "*",
-    "@sentinel-app/auth": "*",
-    "@sentinel-app/db": "*",
-    "@sentinel-app/ui": "*",
+    "@wattsentry/api": "*",
+    "@wattsentry/auth": "*",
+    "@wattsentry/db": "*",
+    "@wattsentry/ui": "*",
     "@swc/helpers": "^0.5.23",
     "@tanstack/react-form": "^1.33.5",
     "@tanstack/react-query": "^5.104.2",
@@ -57,7 +57,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@sentinel-app/config": "*",
+    "@wattsentry/config": "*",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/d3-array": "^3.2.2",
     "@types/d3-scale": "^4.0.9",

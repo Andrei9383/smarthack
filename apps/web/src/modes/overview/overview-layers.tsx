@@ -1,7 +1,7 @@
 "use client";
 
-import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@sentinel-app/ui/components/map";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { MapGeoJSON, MapMarker, MarkerContent, useMap } from "@wattsentry/ui/components/map";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useEffect, useMemo } from "react";

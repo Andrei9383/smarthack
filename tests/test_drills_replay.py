@@ -1,5 +1,5 @@
 """#78: replay drills corrupt only what the agent observes (never the physics), never crash the agent, are
-deterministic, and report KPI deltas vs the clean run (sentinel.agent.drills)."""
+deterministic, and report KPI deltas vs the clean run (wattsentry.agent.drills)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import json
 
 import pytest
 
-from sentinel.agent import drills as D
-from sentinel.agent.loop import LoopConfig, default_components, run_policy
-from sentinel.agent.world import MockWorld
+from wattsentry.agent import drills as D
+from wattsentry.agent.loop import LoopConfig, default_components, run_policy
+from wattsentry.agent.world import MockWorld
 
 DAYS, SCALE = 2, 0.5
 ARGS = ["--world", "mock", "--days", str(DAYS), "--scale", str(SCALE), "--fallback", "all", "--seed", "0"]
@@ -24,7 +24,7 @@ def world():
 
 @pytest.fixture(scope="module")
 def cli(tmp_path_factory):
-    """`python -m sentinel.agent.drills --drill all` on a small mock world, built-in components (deterministic)."""
+    """`python -m wattsentry.agent.drills --drill all` on a small mock world, built-in components (deterministic)."""
     d = tmp_path_factory.mktemp("drills")
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):

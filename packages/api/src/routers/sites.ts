@@ -11,8 +11,8 @@ import {
   schedules,
   statuses,
   workOrders,
-} from "@sentinel-app/db/schema/index";
-import type { Database } from "@sentinel-app/db";
+} from "@wattsentry/db/schema/index";
+import type { Database } from "@wattsentry/db";
 import { ORPCError } from "@orpc/server";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";

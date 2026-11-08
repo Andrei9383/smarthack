@@ -5,7 +5,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from sentinel.eval import baselines_portfolio as bp
+from wattsentry.eval import baselines_portfolio as bp
 
 
 def _portfolio(n=3, year=2025, gaps=None):

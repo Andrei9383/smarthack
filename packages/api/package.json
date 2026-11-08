@@ -1,5 +1,5 @@
 {
-  "name": "@sentinel-app/api",
+  "name": "@wattsentry/api",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -15,13 +15,13 @@
     "@orpc/openapi": "^1.15.6",
     "@orpc/server": "^1.15.6",
     "@orpc/zod": "^1.15.6",
-    "@sentinel-app/auth": "*",
-    "@sentinel-app/db": "*",
+    "@wattsentry/auth": "*",
+    "@wattsentry/db": "*",
     "drizzle-orm": "1.0.0-rc.5",
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@sentinel-app/config": "*",
+    "@wattsentry/config": "*",
     "typescript": "^6.0.3"
   }
 }

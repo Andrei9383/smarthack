@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels import binned_median_mad_py, rolling_median_py
+from wattsentry import kernels
+from wattsentry.kernels import binned_median_mad_py, rolling_median_py
 
-needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 def _data(shape, seed=0, nan=0.15, decimals=1):
@@ -117,7 +117,7 @@ def test_binned_parity_rust_vs_python(shape, n_bins, min_n):
 
 
 def test_frozen_matches_per_step_loop():
-    from sentinel.eval.baselines.wind.windmon_rules import _frozen
+    from wattsentry.eval.baselines.wind.windmon_rules import _frozen
 
     def loop(x, n):
         same = np.zeros_like(x, dtype=bool)
@@ -137,9 +137,9 @@ def test_frozen_matches_per_step_loop():
 
 def test_select_normal_same_mask_both_backends(monkeypatch):
     """The vectorised select_normal gives the same masks with the Python reference and (if built) Rust."""
-    from sentinel.model.wind.features import density_inputs
-    from sentinel.model.wind.normal_select import select_normal
-    from sentinel.model.wind.synth import SynthConfig, generate
+    from wattsentry.model.wind.features import density_inputs
+    from wattsentry.model.wind.normal_select import select_normal
+    from wattsentry.model.wind.synth import SynthConfig, generate
 
     d = generate(SynthConfig(days=60, scale=0.08))
     vn, vm, _ = density_inputs(d.sensors, d.meteo, d.weather["pressure_hpa"][:, d.park_of])
@@ -147,7 +147,7 @@ def test_select_normal_same_mask_both_backends(monkeypatch):
     fit[: int(0.7 * d.n_steps)] = True
     out = {}
     for be in ("python", "rust") if kernels.rust_available() else ("python",):
-        monkeypatch.setenv("SENTINEL_KERNELS", be)
+        monkeypatch.setenv("WATTSENTRY_KERNELS", be)
         pw, tp = select_normal(d.sensors, d.err, d.rated_kw, vn, vm, fit, d.meteo["wdir_deg"])
         out[be] = hashlib.sha256(np.packbits(pw).tobytes() + np.packbits(tp).tobytes()).hexdigest()
     assert len(set(out.values())) == 1, out

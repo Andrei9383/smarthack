@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pytest
 
-from sentinel.eval.wind_portfolio import (H, conformal_level, persistence_index, portfolio_metrics, positions_frame,
+from wattsentry.eval.wind_portfolio import (H, conformal_level, persistence_index, portfolio_metrics, positions_frame,
                                           promised_not_delivered, residual_offsets, sell_level, stopped_share,
                                           wind_cost_steps)
 
@@ -69,7 +69,7 @@ def test_sell_level_is_the_production_newsvendor():
 
 
 def test_frozen_ab_level():
-    from sentinel.eval.imbalance import load_ab, q_star
+    from wattsentry.eval.imbalance import load_ab, q_star
 
     a, b = load_ab()
     assert sell_level() == pytest.approx(b / (a + b)) == pytest.approx(1 - q_star())
@@ -89,7 +89,7 @@ def test_promised_but_not_delivered():
 
 
 def test_conformal_level_matches_calibrated_scenarios():
-    from sentinel.model.windpower.scenarios import ParkConformal, scen_quantiles
+    from wattsentry.model.windpower.scenarios import ParkConformal, scen_quantiles
 
     rng = np.random.default_rng(1)
     scen = np.clip(rng.normal(0.4, 0.1, (400, 96)), 0, 1)

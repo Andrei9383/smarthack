@@ -5,8 +5,8 @@ import sqlite3
 import numpy as np
 import pytest
 
-from sentinel.contracts import Prediction
-from sentinel.judge.adapter import (H, MemoryVerdicts, NoJudge, RawBatch, SqliteVerdicts, Verdict, as_verdict,
+from wattsentry.contracts import Prediction
+from wattsentry.judge.adapter import (H, MemoryVerdicts, NoJudge, RawBatch, SqliteVerdicts, Verdict, as_verdict,
                                     local_midnight_utc, predictions_from_db, scale_band, set_default_judge,
                                     validated, validated_many)
 

@@ -1,7 +1,7 @@
 // Flexibility panel (#31): what the fleet can offer the DSO, and what it actually promised.
 // The four numbers are kept apart on purpose (plan §3.5): nominal >= available >= committed,
 // and realised is measured afterwards. "We never sell the nominal number."
-import { assets, commitments, statuses } from "@sentinel-app/db/schema/index";
+import { assets, commitments, statuses } from "@wattsentry/db/schema/index";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 

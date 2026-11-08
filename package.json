@@ -1,5 +1,5 @@
 {
-  "name": "sentinel-app",
+  "name": "wattsentry",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -11,10 +11,10 @@
     "build": "turbo run build",
     "check-types": "turbo run check-types",
     "dev:web": "turbo run dev -F web --",
-    "db:push": "turbo run db:push -F @sentinel-app/db --",
-    "db:studio": "turbo run db:studio -F @sentinel-app/db --",
-    "db:generate": "turbo run db:generate -F @sentinel-app/db --",
-    "db:migrate": "turbo run db:migrate -F @sentinel-app/db --",
+    "db:push": "turbo run db:push -F @wattsentry/db --",
+    "db:studio": "turbo run db:studio -F @wattsentry/db --",
+    "db:generate": "turbo run db:generate -F @wattsentry/db --",
+    "db:migrate": "turbo run db:migrate -F @wattsentry/db --",
     "auth:generate": "cd apps/web && npm run auth:generate",
     "test": "turbo run check-types",
     "start": "npm run start --workspace web"
@@ -23,7 +23,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@sentinel-app/config": "*",
+    "@wattsentry/config": "*",
     "@types/node": "^26.4.1",
     "turbo": "^2.11.7",
     "typescript": "^6.0.3"

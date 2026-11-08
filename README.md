@@ -1,4 +1,4 @@
-# Prosumer Sentinel
+# WattSentry
 
 **An energy agent for PPC (Romania).** On each low-voltage feeder it schedules home batteries so midday solar export
 stays under the feeder's limit and is released into the evening peak. It watches wind-turbine fleets to separate
@@ -49,17 +49,17 @@ One 15-minute tick (plan §3.1):
 
 - **Estimate.** Each model answers one question and returns the same prediction envelope
   (`q10/q50/q90`, `fault_probs`, `ood_score`, `member_std`; [team/contracts/model.md](team/contracts/model.md)).
-- **Qualify** ([sentinel/agent/qualify.py](sentinel/agent/qualify.py)). Stale telemetry → excluded. Wide interval,
+- **Qualify** ([wattsentry/agent/qualify.py](wattsentry/agent/qualify.py)). Stale telemetry → excluded. Wide interval,
   ensemble disagreement or out-of-distribution input → **human review** (no truck, out of the pool). Confident PV
   fault → derated. Turbines: fault stop → excluded; curtailment → eligible, logged, no work order; icing → safety
   alert. Thresholds are tuned on validation and frozen in [models/thresholds.json](models/thresholds.json).
-- **Decide** ([sentinel/opt/lp.py](sentinel/opt/lp.py)). A per-feeder LP (cvxpy + HiGHS) keeps the *worst plausible*
+- **Decide** ([wattsentry/opt/lp.py](wattsentry/opt/lp.py)). A per-feeder LP (cvxpy + HiGHS) keeps the *worst plausible*
   export (P90 PV − P10 load, plus the non-participating homes) under the limit, never breaks the customer's
   comfort reserve, and shaves the 17:00–22:00 import peak. Slack is reported, not hidden.
-- **Commit** ([sentinel/opt/commit.py](sentinel/opt/commit.py)). ~200 conformal-calibrated scenarios per
+- **Commit** ([wattsentry/opt/commit.py](wattsentry/opt/commit.py)). ~200 conformal-calibrated scenarios per
   feeder-day → `committed = (1 − haircut) · Q10(deliverable)`. Nominal ≥ available ≥ committed; realised is
   measured afterwards.
-- **Act + log** ([sentinel/agent/](sentinel/agent/), [replay.py](replay.py)). Battery schedules, feeder commitments,
+- **Act + log** ([wattsentry/agent/](wattsentry/agent/), [replay.py](replay.py)). Battery schedules, feeder commitments,
   work orders (top-K per crew type, score = P(fault) × (lost kWh × price + lost flex × value) × days to visit),
   alerts, park reports, zone demand. Each action has an `audit_log` row with model version, input hash,
   prediction, threshold and status.
@@ -75,7 +75,7 @@ The mode is in the URL (`?mode=feeders`), so a reviewer can be sent straight to 
 | **Production** (producție) | Wind particles from the real ERA5 100 m wind field, parks and counties by expected MWh | on main (#39, #55, #59) |
 | **Demand** (cerere) | Zones by peak-stress score, peak hour, P50 with P10–P90 band | on main (#40) |
 
-The app reads `demo/sentinel.sqlite` (the promoted replay, #29), else `demo/fixtures.sqlite` (mock week from
+The app reads `demo/wattsentry.sqlite` (the promoted replay, #29), else `demo/fixtures.sqlite` (mock week from
 `python3 demo/fixtures/make_fixtures.py`, labelled synthetic), else an empty in-memory DB. It never runs Python,
 torch or the LP: every panel is precomputed by `replay.py`.
 
@@ -99,8 +99,8 @@ external API). Each one has a fallback, so a missing model degrades a panel, nev
 
 Not ML: the per-feeder LP, the P10 rollout and the qualification rules.
 
-Model code reaches `main` when its config is chosen (plan R17): `train.py` + `sentinel/model/` came with #14,
-`sentinel/model/wind/` with #41, the promoted ONNX weights in `models/` with #29 (runs listed in
+Model code reaches `main` when its config is chosen (plan R17): `train.py` + `wattsentry/model/` came with #14,
+`wattsentry/model/wind/` with #41, the promoted ONNX weights in `models/` with #29 (runs listed in
 [models/README.md](models/README.md)).
 
 ### Training
@@ -141,7 +141,7 @@ Two targets regenerate the README's numbers:
 - `make eval` = **eval#521** (#110): `eval.py --predictor onnx,baselines --models models --drills`. Every PVNet,
   LoadNet, SiteHealth, pvlib and persistence metric matches the lab run exactly. The LightGBM baseline is retrained
   on each run, so it moves in the third decimal (e.g. PV seen sites 0.040 vs 0.041).
-- `make replay-demo` = **replay#506** (#29, `demo/sentinel.sqlite`): builds the data cache, then
+- `make replay-demo` = **replay#506** (#29, `demo/wattsentry.sqlite`): builds the data cache, then
   `replay.py --world sim --policy baseline,sentinel` with the committed `models/`. Its KPIs match replay#506 exactly
   (6645 → 1905 minutes, P10 92.0 %, 23.73 lei), also after #99's M6 rule merged. The bytes differ
   (`runs.created_at` is wall-clock time).
@@ -159,17 +159,17 @@ results.
 | `make demand` | M3 DemandNet on real RO load, test 2025 (#44) | `demand/` | ~10 s |
 | `make uncertainty` | conformal calibration + P10 commitment on mock forecasts (#27) | `uncertainty.json` | ~3 s |
 | `make replay` | baseline vs Sentinel on the mock world: pipeline check (#17) | `sentinel.sqlite` | ~15 s |
-| `make replay-demo` | replay#506: #10 windows, #22 wind parks, #13 grid-twin, then the sim-world replay with `models/` (#29) | `demo/sentinel.sqlite` | ~30 s with a warm cache, ~2.5 min after `make eval`, ~9 min from nothing |
-| `make app` | `npm ci`, `npm run build`, `npm start` (`APP_DB=.lab-out/reproduce/demo/sentinel.sqlite` to view the rebuilt replay) | http://localhost:3000 | ~40 s build |
+| `make replay-demo` | replay#506: #10 windows, #22 wind parks, #13 grid-twin, then the sim-world replay with `models/` (#29) | `demo/wattsentry.sqlite` | ~30 s with a warm cache, ~2.5 min after `make eval`, ~9 min from nothing |
+| `make app` | `npm ci`, `npm run build`, `npm start` (`APP_DB=.lab-out/reproduce/demo/wattsentry.sqlite` to view the rebuilt replay) | http://localhost:3000 | ~40 s build |
 | `make train` | prints the lab commands; `TRAIN_LOCAL=1 MODEL=…` trains locally | `train/` | — |
 | `make clean` | removes `.lab-out/reproduce/` | | |
 
 \*Apple-silicon laptop CPU, measured on this commit. Useful variables: `DEMO=0` (`reproduce` without
 `replay-demo`), `EVAL_ARGS=--quick` (150-site eval fleet, a smoke test), `FULL=1` (fault injector on the full fleet,
-~4 min), `SEED`, `PROMOTE=1` (allow writing a committed `demo/sentinel.sqlite`). Not regenerated locally: the wind
+~4 min), `SEED`, `PROMOTE=1` (allow writing a committed `demo/wattsentry.sqlite`). Not regenerated locally: the wind
 model numbers (M6, M7) and train-time numbers; they cite lab train runs.
 
-Data can be re-downloaded with `python -m sentinel.data.download` (no keys; `--only <job>`). Optional Rust kernels
+Data can be re-downloaded with `python -m wattsentry.data.download` (no keys; `--only <job>`). Optional Rust kernels
 (#48): `sh rust/build.sh build`; Python is the reference and the default when the extension is missing.
 
 ---
@@ -260,7 +260,7 @@ sentinel/                 Python package
   eval/uncertainty/       conformal, OOD, thresholds          kernels/                  Python kernels (+ optional Rust, rust/)
 train.py  eval.py  replay.py  Makefile
 apps/web/                 Next.js app: shell, map, modes      packages/db/  Drizzle schema = the shared SQLite contract
-packages/api/             oRPC routers                         demo/         fixtures/ + promoted sentinel.sqlite
+packages/api/             oRPC routers                         demo/         fixtures/ + promoted wattsentry.sqlite
 data/raw/                 committed raw inputs                 models/       promoted weights + thresholds.json
 team/                     brief, plan, decisions, contracts    tests/        pytest
 ```

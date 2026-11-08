@@ -3,7 +3,7 @@
 // Live chart (#130): measured export up to "now", the P10–P90 band and P50 ahead of it, and the
 // past P50 predictions behind it so each tick's miss is visible. Plain SVG: the shared LineChart
 // draws one gap-free series per key, and here every series stops or starts at "now".
-import type { LivePoint, LiveView } from "@sentinel-app/api/contract/live";
+import type { LivePoint, LiveView } from "@wattsentry/api/contract/live";
 import { scaleLinear, scaleTime } from "d3-scale";
 import { area, line } from "d3-shape";
 import { useMemo } from "react";

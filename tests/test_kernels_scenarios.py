@@ -5,11 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels import park_scenarios_py as ref
-from sentinel.model.windpower import scenarios
+from wattsentry import kernels
+from wattsentry.kernels import park_scenarios_py as ref
+from wattsentry.model.windpower import scenarios
 
-needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 def _data(n_all=40, T=96, S=50, dtype=np.float32, seed=0):
@@ -46,9 +46,9 @@ def test_rust_matches_reference(dtype, n_cols, mode):
 def test_call_site_dispatches(monkeypatch):
     q, rated, ratio, u, pu, der = _data()
     cols = np.flatnonzero(np.arange(q.shape[1]) % 3 == 1)
-    monkeypatch.setenv("SENTINEL_KERNELS", "python")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "python")
     a = scenarios.park_scenarios(q, rated, cols, ratio, u, pu, der)
     np.testing.assert_array_equal(a, ref(q, rated, cols, ratio, u, pu, der))
     if kernels.rust_available():
-        monkeypatch.setenv("SENTINEL_KERNELS", "rust")
+        monkeypatch.setenv("WATTSENTRY_KERNELS", "rust")
         np.testing.assert_array_equal(scenarios.park_scenarios(q, rated, cols, ratio, u, pu, der), a)

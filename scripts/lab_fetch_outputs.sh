@@ -35,7 +35,7 @@ dump() {  # dump <label> <dir>
 retrain() {
   case "$job" in
     load@s[0-3] | pv_fc) $PY train.py --preset "$job" ;;
-    windnbm) $PY -m sentinel.sim.wind --no-plots &&
+    windnbm) $PY -m wattsentry.sim.wind --no-plots &&
       $PY train.py --model windnbm --epochs 40 --normal-select label_free --seed 0 ;;
     windfailure) $PY train.py --model windfailure --residuals nbm ;;
     *) echo "unknown job $job" >&2; return 2 ;;

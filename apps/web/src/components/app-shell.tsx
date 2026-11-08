@@ -1,7 +1,7 @@
 "use client";
 
-import { Map, useMap } from "@sentinel-app/ui/components/map";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { Map, useMap } from "@wattsentry/ui/components/map";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { useCallback, useEffect, useState } from "react";
 

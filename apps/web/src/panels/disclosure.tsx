@@ -6,8 +6,8 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@sentinel-app/ui/components/sheet";
-import { cn } from "@sentinel-app/ui/lib/utils";
+} from "@wattsentry/ui/components/sheet";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useRef } from "react";
 

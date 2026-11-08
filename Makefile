@@ -1,4 +1,4 @@
-# Prosumer Sentinel: clean checkout -> every number the presentation shows.
+# WattSentry: clean checkout -> every number the presentation shows.
 #
 #   make reproduce        setup + tests + simulator + eval + demand + uncertainty + replay + replay-demo, then a provenance summary
 #   make replay-demo      the demo replay with the committed models/ (regenerates replay#506's KPIs)
@@ -26,11 +26,11 @@ FULL         ?= 0
 # REPLAY_WORLD: mock (same as lab.toml [runs.replay]) | sim (needs the caches that `make replay-demo` builds).
 REPLAY_WORLD ?= mock
 REPLAY_DAYS  ?= 7
-# REPLAY_OUT may point at a committed file (demo/sentinel.sqlite, #29) only with PROMOTE=1.
-REPLAY_OUT   ?= $(OUT)/sentinel.sqlite
+# REPLAY_OUT may point at a committed file (demo/wattsentry.sqlite, #29) only with PROMOTE=1.
+REPLAY_OUT   ?= $(OUT)/wattsentry.sqlite
 PROMOTE      ?= 0
-# DEMO_OUT: where `make replay-demo` writes (demo/sentinel.sqlite only with PROMOTE=1).
-DEMO_OUT     ?= $(OUT)/demo/sentinel.sqlite
+# DEMO_OUT: where `make replay-demo` writes (demo/wattsentry.sqlite only with PROMOTE=1).
+DEMO_OUT     ?= $(OUT)/demo/wattsentry.sqlite
 # DEMO=0: `make reproduce` skips replay-demo (~9 min on a laptop CPU, most of it building the data cache).
 DEMO         ?= 1
 # EVAL_ARGS: extra eval.py flags, e.g. --quick (150-site fleet, a smoke test, not the eval#521 numbers).
@@ -40,7 +40,7 @@ TRAIN_LOCAL  ?= 0
 MODEL        ?= pvnet
 TRAIN_ARGS   ?=
 CARD         ?= 14
-# APP_DB: sqlite file for `make app`; empty = demo/sentinel.sqlite, else demo/fixtures.sqlite.
+# APP_DB: sqlite file for `make app`; empty = demo/wattsentry.sqlite, else demo/fixtures.sqlite.
 APP_DB       ?=
 comma        := ,
 
@@ -61,7 +61,7 @@ endef
 .PHONY: help reproduce setup test sim baselines eval demand uncertainty replay replay-demo train app app-600 fixtures summary clean clean-venv
 
 help:
-	@echo "Prosumer Sentinel"
+	@echo "WattSentry"
 	@echo "  make reproduce   setup, test, sim, eval, demand, uncertainty, replay, replay-demo, summary (DEMO=0 skips replay-demo)"
 	@echo "  make setup       $(VENV) with Python $(PY_VERSION) + requirements.txt (uv, else python$(PY_VERSION) -m venv)"
 	@echo "  make test        pytest tests/"
@@ -108,10 +108,10 @@ test: setup
 # the quick fleet by default (120 sites, 2024) because the full one takes minutes. Both are deterministic (seeded).
 sim: setup
 	$(call step,sim,\
-	  $(PYTHON) -m sentinel.sim.fleet --no-plots --out $(OUT)/fleet && \
+	  $(PYTHON) -m wattsentry.sim.fleet --no-plots --out $(OUT)/fleet && \
 	  if [ "$(FULL)" = 1 ]; then F=$(OUT)/fleet; \
-	  else F=$(OUT)/fleet-quick; $(PYTHON) -m sentinel.sim.fleet --quick --no-plots --out $$F; fi && \
-	  $(PYTHON) -m sentinel.sim.faults --fleet $$F --out $(OUT)/faults)
+	  else F=$(OUT)/fleet-quick; $(PYTHON) -m wattsentry.sim.fleet --quick --no-plots --out $$F; fi && \
+	  $(PYTHON) -m wattsentry.sim.faults --fleet $$F --out $(OUT)/faults)
 
 # ------------------------------------------------------------------------------------------------------ baselines
 # The numbers the models must beat (PV / load / fault: #15; wind WindMon rules: #24), alone. `make eval` prints the
@@ -120,12 +120,12 @@ sim: setup
 baselines: setup
 ifneq ($(wildcard eval.py),)
 	$(call step,baselines,mkdir -p $(OUT)/baselines && \
-	  SENTINEL_CACHE=$(CACHE) LAB_OUTPUT_DIR=$(OUT)/baselines $(PYTHON) eval.py --baselines $(EVAL_ARGS))
-else ifneq ($(wildcard sentinel/eval/baselines/pv/run.py),)
+	  WATTSENTRY_CACHE=$(CACHE) LAB_OUTPUT_DIR=$(OUT)/baselines $(PYTHON) eval.py --baselines $(EVAL_ARGS))
+else ifneq ($(wildcard wattsentry/eval/baselines/pv/run.py),)
 	$(call step,baselines,mkdir -p $(OUT)/baselines && \
-	  SENTINEL_CACHE=$(CACHE) $(PYTHON) -m sentinel.eval.baselines.pv.run --seed $(SEED) \
+	  WATTSENTRY_CACHE=$(CACHE) $(PYTHON) -m wattsentry.eval.baselines.pv.run --seed $(SEED) \
 	    --out $(OUT)/baselines && \
-	  if [ ! -d sentinel/eval/baselines/wind ]; then echo "note: wind baselines not on main yet (#24)"; fi)
+	  if [ ! -d wattsentry/eval/baselines/wind ]; then echo "note: wind baselines not on main yet (#24)"; fi)
 else
 	$(call skip,baselines,PV baselines not on main yet (#15))
 endif
@@ -138,16 +138,16 @@ ifeq ($(wildcard eval.py),)
 	$(call skip,eval,eval.py not on main yet (#16); model numbers in the README cite lab train runs (#14 / #41))
 else
 	$(call step,eval,mkdir -p $(OUT)/eval && \
-	  SENTINEL_CACHE=$(CACHE) LAB_OUTPUT_DIR=$(OUT)/eval $(PYTHON) eval.py --predictor onnx$(comma)baselines --models models --drills $(EVAL_ARGS))
+	  WATTSENTRY_CACHE=$(CACHE) LAB_OUTPUT_DIR=$(OUT)/eval $(PYTHON) eval.py --predictor onnx$(comma)baselines --models models --drills $(EVAL_ARGS))
 endif
 
 # --------------------------------------------------------------------------------------------------------- demand
 demand: setup
-	$(call step,demand,$(PYTHON) -m sentinel.demand --seed $(SEED) --out $(OUT)/demand)
+	$(call step,demand,$(PYTHON) -m wattsentry.demand --seed $(SEED) --out $(OUT)/demand)
 
 # ---------------------------------------------------------------------------------------------------- uncertainty
 uncertainty: setup
-	$(call step,uncertainty,$(PYTHON) -m sentinel.eval.uncertainty --seed $(SEED) \
+	$(call step,uncertainty,$(PYTHON) -m wattsentry.eval.uncertainty --seed $(SEED) \
 	  --calibration-out $(OUT)/calibration --report $(OUT)/uncertainty.json)
 
 # --------------------------------------------------------------------------------------------------------- replay
@@ -158,20 +158,20 @@ replay: setup
 	  echo "REPLAY_WORLD=sim needs the data caches: run 'make replay-demo' (it builds them)"; exit 1; fi
 	$(call step,replay,\
 	  mkdir -p $$(dirname $(REPLAY_OUT)) && \
-	  SENTINEL_CACHE=$(CACHE) $(PYTHON) replay.py --policy baseline$(comma)sentinel \
+	  WATTSENTRY_CACHE=$(CACHE) $(PYTHON) replay.py --policy baseline$(comma)sentinel \
 	    --world $(REPLAY_WORLD) --days $(REPLAY_DAYS) --seed $(SEED) --out $(REPLAY_OUT))
 
 # ---------------------------------------------------------------------------------------------------- replay-demo
-# The demo replay (demo/sentinel.sqlite, card #29) with the committed models/: same commands as replay#506. Builds
+# The demo replay (demo/wattsentry.sqlite, card #29) with the committed models/: same commands as replay#506. Builds
 # the #10 windows (fleet #11 + faults #12), the #22 wind parks and the #13 grid-twin into $(CACHE) first.
 replay-demo: setup
 	@if git ls-files --error-unmatch "$(DEMO_OUT)" >/dev/null 2>&1 && [ "$(PROMOTE)" != 1 ]; then \
 	  echo "refusing to overwrite committed $(DEMO_OUT); rerun with PROMOTE=1 if you mean it"; exit 1; fi
 	$(call step,replay-demo,\
-	  export SENTINEL_CACHE=$(CACHE) && \
-	  $(PYTHON) -m sentinel.data.windows && \
-	  $(PYTHON) -m sentinel.sim.wind --no-plots && \
-	  $(PYTHON) -m sentinel.gridtwin.run && \
+	  export WATTSENTRY_CACHE=$(CACHE) && \
+	  $(PYTHON) -m wattsentry.data.windows && \
+	  $(PYTHON) -m wattsentry.sim.wind --no-plots && \
+	  $(PYTHON) -m wattsentry.gridtwin.run && \
 	  mkdir -p $$(dirname $(DEMO_OUT)) && \
 	  $(PYTHON) replay.py --world sim --policy baseline$(comma)sentinel --out $(DEMO_OUT))
 
@@ -196,21 +196,21 @@ endif
 endif
 
 # ------------------------------------------------------------------------------------------------------------ app
-# The app reads demo/sentinel.sqlite (promoted replay, #29), else demo/fixtures.sqlite (#30), unless APP_DB is set.
+# The app reads demo/wattsentry.sqlite (promoted replay, #29), else demo/fixtures.sqlite (#30), unless APP_DB is set.
 app:
 	@[ -d node_modules ] || npm ci --no-audit --no-fund
-	@if [ -z "$(APP_DB)" ] && [ ! -f demo/sentinel.sqlite ] && [ ! -f demo/fixtures.sqlite ]; then \
+	@if [ -z "$(APP_DB)" ] && [ ! -f demo/wattsentry.sqlite ] && [ ! -f demo/fixtures.sqlite ]; then \
 	  python3 demo/fixtures/make_fixtures.py; fi
 	npm run build
-	@echo "serving on http://localhost:$${PORT:-3000}  (DB: $(if $(APP_DB),$(abspath $(APP_DB)),demo/sentinel.sqlite else demo/fixtures.sqlite))"
+	@echo "serving on http://localhost:$${PORT:-3000}  (DB: $(if $(APP_DB),$(abspath $(APP_DB)),demo/wattsentry.sqlite else demo/fixtures.sqlite))"
 	$(if $(APP_DB),DATABASE_URL=file:$(abspath $(APP_DB)),) npm start
 
 # The 600-home fleet (#118, replay #568; card #211): unpack the committed .gz, then serve it.
-demo/sentinel-homes600.sqlite: demo/sentinel-homes600.sqlite.gz
+demo/wattsentry-homes600.sqlite: demo/wattsentry-homes600.sqlite.gz
 	python3 -c 'import gzip,shutil; shutil.copyfileobj(gzip.open("$<"), open("$@","wb"))'
 
-app-600: demo/sentinel-homes600.sqlite
-	$(MAKE) app APP_DB=demo/sentinel-homes600.sqlite
+app-600: demo/wattsentry-homes600.sqlite
+	$(MAKE) app APP_DB=demo/wattsentry-homes600.sqlite
 
 fixtures:
 	python3 demo/fixtures/make_fixtures.py

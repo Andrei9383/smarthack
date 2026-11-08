@@ -13,8 +13,8 @@
   "iconLibrary": "lucide",
   "aliases": {
     "components": "@/components",
-    "utils": "@sentinel-app/ui/lib/utils",
-    "ui": "@sentinel-app/ui/components",
+    "utils": "@wattsentry/ui/lib/utils",
+    "ui": "@wattsentry/ui/components",
     "lib": "@/lib",
     "hooks": "@/hooks"
   },

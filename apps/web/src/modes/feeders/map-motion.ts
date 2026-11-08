@@ -1,4 +1,4 @@
-import { useMap } from "@sentinel-app/ui/components/map";
+import { useMap } from "@wattsentry/ui/components/map";
 import type { MapMouseEvent, Map as MapLibreMap } from "maplibre-gl";
 import { useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";

@@ -3,7 +3,7 @@ import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins";
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
-import { appRouter } from "@sentinel-app/api/routers/index";
+import { appRouter } from "@wattsentry/api/routers/index";
 import { NextRequest } from "next/server";
 
 import { createContext } from "../../../../context";

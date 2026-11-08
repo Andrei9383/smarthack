@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels import scatter_telemetry, scatter_telemetry_py as ref
+from wattsentry import kernels
+from wattsentry.kernels import scatter_telemetry, scatter_telemetry_py as ref
 
-needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+needs_rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 def _data(n, S=3, T=40, N=5, seed=0):

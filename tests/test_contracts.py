@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from sentinel.contracts import (
+from wattsentry.contracts import (
     DAY_STEPS,
     PAYLOAD_KEYS,
     Action,
@@ -220,7 +220,7 @@ def test_mock_window_caches_match_uncached_path():
     """#98: predict() caches per-window clear-sky / load terms; a plain list of times takes the uncached path."""
     from datetime import timedelta
 
-    from sentinel.contracts import parse_utc
+    from wattsentry.contracts import parse_utc
 
     t0 = "2025-10-26T00:00:00Z"  # DST change day
     times = [parse_utc(t0) + timedelta(minutes=15 * k) for k in range(96)]

@@ -6,7 +6,7 @@
   "split": "val-2024",
   "source_run": "train#674",
   "source": "report",
-  "note": "event metrics from r674 report (#202, sentinel.judge.priors.wind_priors): validation split (*, turbine), seen parks test (turbine|seen), held-out park WP2 test (turbine|unseen); #22 ERA5 parks",
+  "note": "event metrics from r674 report (#202, wattsentry.judge.priors.wind_priors): validation split (*, turbine), seen parks test (turbine|seen), held-out park WP2 test (turbine|unseen); #22 ERA5 parks",
   "scores": {
    "alarm_precision": {
     "*": {

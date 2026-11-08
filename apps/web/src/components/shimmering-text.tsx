@@ -2,7 +2,7 @@
 
 import { domAnimation, LazyMotion, m, useReducedMotion } from "motion/react";
 import type { ComponentProps } from "react";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 
 /**
  * Highlight band painted across the text. The gradient is 3× the text width

@@ -27,7 +27,7 @@ import { useVerdicts } from "@/panels/judge/use-judge";
 import { orpc } from "@/utils/orpc";
 import { VerdictCard } from "@/panels/judge/verdict-card";
 
-import { BASELINE_SERIES, LIMIT_SERIES, SENTINEL_SERIES, SOC_SERIES } from "./colors";
+import { BASELINE_SERIES, LIMIT_SERIES, WATTSENTRY_SERIES, SOC_SERIES } from "./colors";
 import { FeederRanking } from "./feeder-ranking";
 import { GridRow } from "./grid-section";
 import { LiveRow } from "./live-section";
@@ -316,7 +316,7 @@ export function FeederPanel() {
               <ChartLegend
                 items={[
                   { label: "Baseline", color: BASELINE_SERIES },
-                  { label: "WattSentry", color: SENTINEL_SERIES },
+                  { label: "WattSentry", color: WATTSENTRY_SERIES },
                   { label: "Limit", color: LIMIT_SERIES, dashed: true },
                 ]}
               />
@@ -332,7 +332,7 @@ export function FeederPanel() {
             >
               <Grid rowTickValues={exportAxis.ticks} fadeHorizontal={false} />
               <Line dataKey="baseline_export" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="sentinel_export" stroke={SENTINEL_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+              <Line dataKey="sentinel_export" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} fadeEdges={false} />
               <Line dataKey="limit" stroke={LIMIT_SERIES} strokeWidth={2} fadeEdges={false} dashFromIndex={0} />
               <ChartTooltip />
             </LineChart>
@@ -377,7 +377,7 @@ export function FeederPanel() {
             <ChartLegend
               items={[
                 { label: "Baseline", color: BASELINE_SERIES },
-                { label: "WattSentry", color: SENTINEL_SERIES },
+                { label: "WattSentry", color: WATTSENTRY_SERIES },
               ]}
             />
           }
@@ -392,7 +392,7 @@ export function FeederPanel() {
             >
               <Grid rowTickValues={importAxis.ticks} fadeHorizontal={false} />
               <Line dataKey="baseline_import" stroke={BASELINE_SERIES} strokeWidth={2} curve={curveMonotoneX} fadeEdges={false} />
-              <Line dataKey="sentinel_import" stroke={SENTINEL_SERIES} curve={curveMonotoneX} fadeEdges={false} />
+              <Line dataKey="sentinel_import" stroke={WATTSENTRY_SERIES} curve={curveMonotoneX} fadeEdges={false} />
               <ChartTooltip />
             </LineChart>
             <ChartAxes dates={dates} top={importAxis.top} ticks={importAxis.ticks} unit="kW" now={nowDate} />

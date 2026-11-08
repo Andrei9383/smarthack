@@ -1,11 +1,11 @@
-"""K1 battery rollout: Python reference == sentinel.opt.commit.rollout, Rust == Python bit for bit (#50)."""
+"""K1 battery rollout: Python reference == wattsentry.opt.commit.rollout, Rust == Python bit for bit (#50)."""
 
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels.rollout import battery_rollout_py
-from sentinel.opt.commit import BatteryParams, rollout
+from wattsentry import kernels
+from wattsentry.kernels.rollout import battery_rollout_py
+from wattsentry.opt.commit import BatteryParams, rollout
 
 
 def make(rng, n=7, s=5, t=96):
@@ -37,7 +37,7 @@ def test_reference_2d_and_limits():
     assert np.all(batt[cap == 0] == 0) and np.all(soc[cap == 0] == 0)
 
 
-rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 @rust

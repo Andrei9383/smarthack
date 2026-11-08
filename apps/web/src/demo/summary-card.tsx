@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@sentinel-app/ui/components/button";
+import { Button } from "@wattsentry/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { TriangleAlert, X } from "lucide-react";
 

@@ -14,10 +14,10 @@ demo/fixtures.sqlite
 demo/fixtures.sqlite-*
 apps/web/public/maplibre-gl-worker.mjs
 # Rust extension built in place by `maturin develop` (rust/build.sh, card #48)
-sentinel/_core*.so
-sentinel/_core*.pyd
+wattsentry/_core*.so
+wattsentry/_core*.pyd
 # live feed output (card #128)
 demo/live.sqlite*
-# unpacked from demo/sentinel-homes600.sqlite.gz (card #211)
-demo/sentinel-homes600.sqlite
-demo/sentinel-homes600.sqlite-*
+# unpacked from demo/wattsentry-homes600.sqlite.gz (card #211)
+demo/wattsentry-homes600.sqlite
+demo/wattsentry-homes600.sqlite-*

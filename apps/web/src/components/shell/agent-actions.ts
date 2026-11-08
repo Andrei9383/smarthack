@@ -1,6 +1,6 @@
 "use client";
 
-import type { AuditLogItem } from "@sentinel-app/api/contract/audit";
+import type { AuditLogItem } from "@wattsentry/api/contract/audit";
 import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useCallback, useMemo } from "react";

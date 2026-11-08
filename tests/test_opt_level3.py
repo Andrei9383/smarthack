@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("scipy")
 
-from sentinel.opt import level3 as L3  # noqa: E402
+from wattsentry.opt import level3 as L3  # noqa: E402
 
 A, B = 1.4407, 0.7204
 
@@ -180,7 +180,7 @@ class _FakeSource:
 def test_replay_level3_glue_on_a_fake_source():
     import pandas as pd
 
-    from sentinel.data.prices import prices_at
+    from wattsentry.data.prices import prices_at
 
     src = _FakeSource()
     days = np.array([2, 3, 4])

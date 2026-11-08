@@ -1,5 +1,5 @@
 {
-  "extends": "@sentinel-app/config/tsconfig.base.json",
+  "extends": "@wattsentry/config/tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
@@ -7,7 +7,7 @@
     "noUncheckedIndexedAccess": false,
     "noUncheckedSideEffectImports": false,
     "paths": {
-      "@sentinel-app/ui/*": ["./src/*"]
+      "@wattsentry/ui/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

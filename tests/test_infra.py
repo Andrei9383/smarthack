@@ -1,10 +1,10 @@
-"""sentinel.infra harness (#47): metrics, stage timing, RunContext, manifest, memmap cache, ONNX export."""
+"""wattsentry.infra harness (#47): metrics, stage timing, RunContext, manifest, memmap cache, ONNX export."""
 import json
 
 import numpy as np
 import pytest
 
-from sentinel.infra import Metrics, RunContext, emit, stage, window_cache
+from wattsentry.infra import Metrics, RunContext, emit, stage, window_cache
 
 
 def test_emit_prints_and_merges_json(tmp_path, monkeypatch, capsys):
@@ -72,7 +72,7 @@ def test_export_onnx_parity(tmp_path):
     torch = pytest.importorskip("torch")
     pytest.importorskip("onnxruntime")
     pytest.importorskip("onnx")
-    from sentinel.infra.export import export_onnx
+    from wattsentry.infra.export import export_onnx
 
     model = torch.nn.Sequential(torch.nn.Linear(4, 8), torch.nn.ReLU(), torch.nn.Linear(8, 2))
     p = tmp_path / "m.onnx"

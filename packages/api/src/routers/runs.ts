@@ -1,5 +1,5 @@
-import type { Database } from "@sentinel-app/db";
-import { assetSteps, parkForecasts, runs, zoneDemand } from "@sentinel-app/db/schema/sentinel";
+import type { Database } from "@wattsentry/db";
+import { assetSteps, parkForecasts, runs, zoneDemand } from "@wattsentry/db/schema/sentinel";
 import { desc, sql } from "drizzle-orm";
 
 // An empty DB (clean checkout, no fixtures yet) has no tables: the app shows no data, not an error.

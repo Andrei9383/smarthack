@@ -1,4 +1,4 @@
-import type { ParkForecastItem } from "@sentinel-app/api/contract/production";
+import type { ParkForecastItem } from "@wattsentry/api/contract/production";
 
 import { stepToDate } from "@/demo/replay";
 

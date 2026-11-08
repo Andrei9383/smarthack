@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.contracts import BatterySpec, self_consumption_step
-from sentinel.eval import portfolio as P
+from wattsentry.contracts import BatterySpec, self_consumption_step
+from wattsentry.eval import portfolio as P
 
 T = P.H
 
@@ -64,7 +64,7 @@ def test_solar_level_shared_within_region():
 
 
 def test_sample_homes_matches_quantile_at():
-    from sentinel.eval.uncertainty.conformal import quantile_at
+    from wattsentry.eval.uncertainty.conformal import quantile_at
     rng = np.random.default_rng(0)
     q = np.sort(rng.random((7, T, 3)) * 3, axis=-1)
     z = rng.normal(size=(20, 7))
@@ -234,7 +234,7 @@ def test_validated_bands_passthrough_and_fallback():
 
 
 def test_validated_bands_dont_use_takes_fallback():
-    adapter = pytest.importorskip("sentinel.judge.adapter")
+    adapter = pytest.importorskip("wattsentry.judge.adapter")
     rng = np.random.default_rng(0)
     q = np.sort(rng.random((3, T, 3)), axis=-1)
     fb = np.full((3, T, 3), 7.0)

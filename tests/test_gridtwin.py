@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.gridtwin.run import score
-from sentinel.gridtwin.twin import effective_limit, feeder_specs, load_voltages, run_twin, to_geojson
-from sentinel.sim.fleet import FleetConfig, generate
+from wattsentry.gridtwin.run import score
+from wattsentry.gridtwin.twin import effective_limit, feeder_specs, load_voltages, run_twin, to_geojson
+from wattsentry.sim.fleet import FleetConfig, generate
 
 CFG = FleetConfig(n_sites=150, n_feeders=4, n_congested=1, start_year=2024, end_year=2024,
                   gis_wrong_phase_share=0.12, gis_wrong_feeder_share=0.05)

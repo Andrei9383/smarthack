@@ -1,4 +1,4 @@
-import { useMap } from "@sentinel-app/ui/components/map";
+import { useMap } from "@wattsentry/ui/components/map";
 import type { StyleSpecification } from "maplibre-gl";
 import { parseAsBoolean, useQueryState } from "nuqs";
 import { useEffect, useState } from "react";

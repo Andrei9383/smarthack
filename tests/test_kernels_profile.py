@@ -1,7 +1,7 @@
-"""sentinel.kernels.profile_replay.shares: inclusive time per function, recursion counted once (card #93)."""
+"""wattsentry.kernels.profile_replay.shares: inclusive time per function, recursion counted once (card #93)."""
 from types import SimpleNamespace as F
 
-from sentinel.kernels.profile_replay import shares
+from wattsentry.kernels.profile_replay import shares
 
 
 def test_shares_counts_recursion_once():

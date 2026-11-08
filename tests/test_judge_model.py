@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.judge import features as F
-from sentinel.judge import model as JM
+from wattsentry.judge import features as F
+from wattsentry.judge import model as JM
 
 lgb = pytest.importorskip("lightgbm")
 

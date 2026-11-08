@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels.battery_resim import battery_resim_py
+from wattsentry import kernels
+from wattsentry.kernels.battery_resim import battery_resim_py
 
 
 def make(rng, m=6, T=960, nan=True):
@@ -49,7 +49,7 @@ def test_reference_keeps_series_before_onset():
             assert np.all(batt[r, s:] == 0)
 
 
-rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 def _bits(a):

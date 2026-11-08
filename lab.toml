@@ -18,15 +18,15 @@ cmd     = "if [ -f package.json ]; then npm test; fi; if [ -d tests ]; then .ven
 timeout = "15m"
 
 [runs.preview]
-# #211: when demo/sentinel-homes600.sqlite.gz (600-home fleet, replay #568) is committed, the preview serves it;
-# delete the .gz to go back to demo/sentinel.sqlite (replay#506).
-setup   = "set -e; npm ci --no-audit --no-fund && { [ -f demo/sentinel.sqlite ] || python3 demo/fixtures/make_fixtures.py; } && { [ ! -f demo/sentinel-homes600.sqlite.gz ] || python3 -c 'import gzip,shutil; shutil.copyfileobj(gzip.open(\"demo/sentinel-homes600.sqlite.gz\"), open(\"demo/sentinel-homes600.sqlite\",\"wb\"))'; } && npm run build"
-cmd     = "if [ -f demo/sentinel-homes600.sqlite ]; then export DATABASE_URL=file:$PWD/demo/sentinel-homes600.sqlite; fi; npm start"   # must listen on $HOST:$PORT (both set by the lab)
+# #211: when demo/wattsentry-homes600.sqlite.gz (600-home fleet, replay #568) is committed, the preview serves it;
+# delete the .gz to go back to demo/wattsentry.sqlite (replay#506).
+setup   = "set -e; npm ci --no-audit --no-fund && { [ -f demo/wattsentry.sqlite ] || python3 demo/fixtures/make_fixtures.py; } && { [ ! -f demo/wattsentry-homes600.sqlite.gz ] || python3 -c 'import gzip,shutil; shutil.copyfileobj(gzip.open(\"demo/wattsentry-homes600.sqlite.gz\"), open(\"demo/wattsentry-homes600.sqlite\",\"wb\"))'; } && npm run build"
+cmd     = "if [ -f demo/wattsentry-homes600.sqlite ]; then export DATABASE_URL=file:$PWD/demo/wattsentry-homes600.sqlite; fi; npm start"   # must listen on $HOST:$PORT (both set by the lab)
 keep    = true
 
 # ML runs (Stefan, #6). Light deps everywhere; torch only where a run trains. MODEL / POLICY can be overridden per
 # submit with --cmd. Timing, metrics and the Rust kernels are described in team/infra.md.
-# Every ML run builds sentinel._core (rust/build.sh never fails; a failed build falls back to Python) and prints
+# Every ML run builds wattsentry._core (rust/build.sh never fails; a failed build falls back to Python) and prints
 # LAB_METRIC rust_build_ok=0/1 first, so each run says which kernel backend it used (#132).
 [runs.train]
 setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt -r requirements-train.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
@@ -36,7 +36,7 @@ gpu_mem = "4G"                      # only GPUs with this much memory take it (l
 timeout = "2h"
 
 # Judge (#148): replays 12 + 12 weeks in a process pool (about 6 min per year on rtx5070, cached under
-# ~/.cache/sentinel/judge_rows keyed by code + config), then LightGBM per family on CPU (the OpenCL GPU build was
+# ~/.cache/wattsentry/judge_rows keyed by code + config), then LightGBM per family on CPU (the OpenCL GPU build was
 # 0.3-0.6x the speed of 20 CPU threads in train#861/#908). No torch. 12G pins it to rtx5070 (31 GB RAM; the 16 GB
 # server cannot hold 4 week processes next to its other runs). `lab submit <card> --run judge`.
 [runs.judge]
@@ -60,7 +60,7 @@ timeout = "1h"
 
 [runs.replay]
 setup   = "uv venv -q --python 3.12 && uv pip install -q -r requirements.txt && { uv pip install -q maturin; sh rust/build.sh build; }"
-cmd     = "sh rust/build.sh status && .venv/bin/python replay.py --policy baseline,sentinel --out $LAB_OUTPUT_DIR/sentinel.sqlite"
+cmd     = "sh rust/build.sh status && .venv/bin/python replay.py --policy baseline,sentinel --out $LAB_OUTPUT_DIR/wattsentry.sqlite"
 needs   = "cpu"
 timeout = "1h"
 
@@ -74,7 +74,7 @@ timeout = "30m"
 # Imbalance replay (I6 #176, spec I step 8): profile / persistence / forecast_only / sentinel (+ sentinel_id) on the
 # 2025 test year -> $LAB_OUTPUT_DIR/imbalance.sqlite + parquet + LAB_METRIC avoidable_cost_lei etc. needs gpu = the
 # workers that hold the #10 window cache (the server OOMs building it).
-# data-v2 MaxControl sensitivity (#184, sentinel/eval/imbalance_v2.py; I4 #174 trained inside the run), one grid:
+# data-v2 MaxControl sensitivity (#184, wattsentry/eval/imbalance_v2.py; I4 #174 trained inside the run), one grid:
 #   lab submit <card> --run imbalance --time 2h --grid s=0,0.10,0.25,0.50,1.0 --cmd 'sh rust/build.sh status &&
 #     .venv/bin/python replay.py --mode imbalance --data v2 --share-maxcontrol {s} --v2-homes 2000'
 [runs.imbalance]
@@ -85,17 +85,17 @@ timeout = "1h"
 
 # Rust kernels (#48, team/infra.md §4). Not in `submit`/`check`: merges never depend on cargo. The setup uses
 # cargo if present, else installs rustup into $HOME/.cargo; it prints the toolchain + build time (worker probe)
-# and never fails on a build error. rustcheck then fails clearly if sentinel._core did not build; bench falls back
+# and never fails on a build error. rustcheck then fails clearly if wattsentry._core did not build; bench falls back
 # to timing Python only. Kernel cards submit with: lab submit <card> --run check --run rustcheck
 [runs.rustcheck]
 setup   = "set -e; uv venv -q --python 3.12; uv pip install -q -r requirements.txt maturin pytest; sh rust/build.sh build"
-cmd     = "sh rust/build.sh status --require && .venv/bin/python -m pytest -q -rs tests/test_kernels*.py && .venv/bin/python -m pytest -q -m slow --durations=15 tests && .venv/bin/python -m sentinel.kernels.bench"
+cmd     = "sh rust/build.sh status --require && .venv/bin/python -m pytest -q -rs tests/test_kernels*.py && .venv/bin/python -m pytest -q -m slow --durations=15 tests && .venv/bin/python -m wattsentry.kernels.bench"
 needs   = "cpu"
 timeout = "30m"
 
 [runs.bench]
 setup   = "set -e; uv venv -q --python 3.12; uv pip install -q -r requirements.txt maturin; sh rust/build.sh build"
-cmd     = "sh rust/build.sh status && .venv/bin/python -m sentinel.kernels.bench"
+cmd     = "sh rust/build.sh status && .venv/bin/python -m wattsentry.kernels.bench"
 needs   = "cpu"
 timeout = "30m"
 

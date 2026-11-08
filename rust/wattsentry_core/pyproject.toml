@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "wattsentry-core"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.maturin]
+# Mixed layout: `maturin develop` puts the extension at <repo>/wattsentry/_core.abi3.so, next to the
+# pure-Python package, so `import wattsentry._core` works from the repo root.
+module-name = "wattsentry._core"
+python-source = "../.."
+python-packages = ["wattsentry"]
+features = ["pyo3/extension-module"]

@@ -1,4 +1,4 @@
-import type { CountySeriesItem, ParkForecastItem, ParkItem } from "@sentinel-app/api/contract/production";
+import type { CountySeriesItem, ParkForecastItem, ParkItem } from "@wattsentry/api/contract/production";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 

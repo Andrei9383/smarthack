@@ -2,7 +2,7 @@
  "run_id": "1092",
  "world": "sim",
  "label": "synthetic RO",
- "adapter": "sentinel.judge.adapter",
+ "adapter": "wattsentry.judge.adapter",
  "recovery": {
   "gis_recovery_rate": 0.8714,
   "gis_flag_precision": 0.7531,
@@ -15,7 +15,7 @@
   "recovered_phase": 45,
   "n_flags": 81,
   "false_flags_on_clean": 18,
-  "source": "cache /var/lib/lab-gpu/.cache/sentinel/data-v4/gridtwin"
+  "source": "cache /var/lib/lab-gpu/.cache/wattsentry/data-v4/gridtwin"
  },
  "tau_effect": {
   "tau": {
@@ -138,7 +138,7 @@
     }
    }
   },
-  "adapter": "sentinel.judge.adapter",
+  "adapter": "wattsentry.judge.adapter",
   "minutes_over_g_max_tau": 480.0,
   "minutes_over_g_max_no_tau": 480.0,
   "minutes_over_g_tau_tau": 1905.0,
@@ -465,7 +465,7 @@
    }
   ],
   "n_moves": 3,
-  "adapter": "sentinel.judge.adapter",
+  "adapter": "wattsentry.judge.adapter",
   "world_note": "demo feeder subset"
  },
  "dso_value": {

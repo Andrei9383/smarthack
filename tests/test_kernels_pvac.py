@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels.pvac import pv_ac_batch_py
-from sentinel.model import physics as ph
+from wattsentry import kernels
+from wattsentry.kernels.pvac import pv_ac_batch_py
+from wattsentry.model import physics as ph
 
 T = 4 * 96
 
@@ -65,7 +65,7 @@ def _numpy_trig_is_libm() -> bool:
             and np.array_equal(np.cos(x * 3), [math.cos(v * 3) for v in x]))
 
 
-rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 @rust

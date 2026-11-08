@@ -6,7 +6,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from sentinel.opt.park_battery import (H, OUT_COLUMNS, Battery, MPCPlanner, Series, Variant, apply, fit_nowcast,
+from wattsentry.opt.park_battery import (H, OUT_COLUMNS, Battery, MPCPlanner, Series, Variant, apply, fit_nowcast,
                                        horizon_end, limits, lp_u, main, origin_residuals, rule_u,
                                        series_from_positions, simulate, step_costs, summarize, synth_positions)
 
@@ -118,7 +118,7 @@ def test_oracle_execution_equals_plan():
 
 
 def test_none_matches_w3_cost_and_idle_on_unscored():
-    from sentinel.eval.wind_portfolio import wind_cost_steps
+    from wattsentry.eval.wind_portfolio import wind_cost_steps
 
     act = np.array([10.0, 12.0, 8.0, 9.0] * (H // 4))
     sold = act - 1.0

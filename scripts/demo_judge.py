@@ -1,15 +1,15 @@
 """Judge tables for the demo DB (card #192): replay#506 again on the lab, ship only judge_verdicts / trust / outcomes.
 
-demo/sentinel.sqlite is replay#506's exact output, made before the Judge (#149) existed. The Judge only records
+demo/wattsentry.sqlite is replay#506's exact output, made before the Judge (#149) existed. The Judge only records
 verdicts (tests/test_judge_verdict.py::test_judge_on_and_off_give_identical_decisions, replay --judge-check), so a
 re-run of #506's command (same world, run id 506) gives the same agent rows plus the Judge tables. The lab has no
 artifact download, so `dump` prints the tables xz + base64 between markers and `load` reads them back from the log.
 
     lab submit 192 --run replay --needs gpu --cmd "sh rust/build.sh status && .venv/bin/python scripts/demo_judge.py dump"
-    lab logs <run> > run.log && python scripts/demo_judge.py load run.log      # into demo/sentinel.sqlite
-    python scripts/demo_judge.py digest demo/sentinel.sqlite                     # per-table row count + sha256
+    lab logs <run> > run.log && python scripts/demo_judge.py load run.log      # into demo/wattsentry.sqlite
+    python scripts/demo_judge.py digest demo/wattsentry.sqlite                     # per-table row count + sha256
 
-`dump` also prints the digest of every table of the re-run, to compare with `digest demo/sentinel.sqlite`.
+`dump` also prints the digest of every table of the re-run, to compare with `digest demo/wattsentry.sqlite`.
 `load` creates the tables with packages/db's judge migration, inserts the rows and fails unless every table that was
 there before has the same digest afterwards (no VACUUM: existing pages are not rewritten).
 """
@@ -33,7 +33,7 @@ JUDGE_TABLES = ("judge_verdicts", "trust", "outcomes")
 MIGRATION = next((ROOT / "packages" / "db" / "drizzle").glob("*_judge_tables/migration.sql"))
 BEGIN = re.compile(r"^=====BEGIN (\S+) ([0-9a-f]{64}) (\d+)=====$")
 # replay#506's command (demo/README.md), run id pinned so the rows carry the demo's run ids (506:sentinel)
-CACHES = [["-m", "sentinel.data.windows"], ["-m", "sentinel.sim.wind", "--no-plots"], ["-m", "sentinel.gridtwin.run"]]
+CACHES = [["-m", "wattsentry.data.windows"], ["-m", "wattsentry.sim.wind", "--no-plots"], ["-m", "wattsentry.gridtwin.run"]]
 REPLAY = ["replay.py", "--world", "sim", "--policy", "baseline,sentinel", "--run-id", "506", "--judge-check"]
 
 
@@ -117,7 +117,7 @@ def run(cmd: list[str], log: Path) -> int:
 def dump(a: argparse.Namespace) -> int:
     out = Path(os.environ.get("LAB_OUTPUT_DIR", ROOT / ".lab-out" / "demo-judge"))
     out.mkdir(parents=True, exist_ok=True)
-    db, log = out / "sentinel.sqlite", out / "replay.log"
+    db, log = out / "wattsentry.sqlite", out / "replay.log"
     db.unlink(missing_ok=True)
     py = sys.executable
     if a.overlay:  # e.g. card/145's Judge weights + slot fix before it is on main (worker checkout only, not committed)
@@ -204,10 +204,10 @@ def main() -> int:
     d = sub.add_parser("dump", help="lab: re-run replay#506, print digests + Judge tables")
     d.add_argument("--tables", default=",".join(JUDGE_TABLES))
     d.add_argument("--overlay", default="", help="branch whose --overlay-paths are checked out before the replay")
-    d.add_argument("--overlay-paths", default="models/judge.*,sentinel/judge/slot.py")
+    d.add_argument("--overlay-paths", default="models/judge.*,wattsentry/judge/slot.py")
     lo = sub.add_parser("load", help="local: import the Judge tables from a saved `lab logs` into the demo DB")
     lo.add_argument("log")
-    lo.add_argument("--db", default=str(ROOT / "demo" / "sentinel.sqlite"))
+    lo.add_argument("--db", default=str(ROOT / "demo" / "wattsentry.sqlite"))
     g = sub.add_parser("digest", help="row count + sha256 per table")
     g.add_argument("db")
     a = ap.parse_args()

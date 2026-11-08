@@ -6,8 +6,8 @@ import time
 import numpy as np
 import pytest
 
-from sentinel.contracts import DAY_STEPS, BatterySpec, Commitment, FeederPlan, MockPredictor, self_consumption_step
-from sentinel.eval.uncertainty import (
+from wattsentry.contracts import DAY_STEPS, BatterySpec, Commitment, FeederPlan, MockPredictor, self_consumption_step
+from wattsentry.eval.uncertainty import (
     DEFAULT_THRESHOLDS,
     THRESHOLDS_PATH,
     ConformalCalibration,
@@ -20,10 +20,10 @@ from sentinel.eval.uncertainty import (
     tune_thresholds,
     validate_thresholds,
 )
-from sentinel.eval.uncertainty.conformal import Z90, quantile_at
-from sentinel.eval.uncertainty.demo import make_feeder, mock_members, rule_schedule, run
-import sentinel.opt.commit as commit_mod
-from sentinel.opt.commit import (
+from wattsentry.eval.uncertainty.conformal import Z90, quantile_at
+from wattsentry.eval.uncertainty.demo import make_feeder, mock_members, rule_schedule, run
+import wattsentry.opt.commit as commit_mod
+from wattsentry.opt.commit import (
     battery_params,
     commit,
     hit_stats,
@@ -266,7 +266,7 @@ def _deliverable_ref(sched, soc0, specs, pv, load):
 
 @pytest.mark.parametrize("mode", ["python", "auto"])
 def test_deliverable_kernel_matches_numpy_rollout(feeder_day, monkeypatch, mode):
-    monkeypatch.setenv("SENTINEL_KERNELS", mode)
+    monkeypatch.setenv("WATTSENTRY_KERNELS", mode)
     f, pv, ld = feeder_day
     cap = {s["site_id"]: s["kwp_true"] for s in f.sites}
     sc = make_scenarios(pv, ld, n=64, seed=7, pv_cap=cap, batteries=f.batteries, soc0=f.soc0)
@@ -294,7 +294,7 @@ def test_deliverable_kernel_matches_numpy_rollout(feeder_day, monkeypatch, mode)
 
 # --- end to end ----------------------------------------------------------------------------------------------
 def test_cli_end_to_end(capsys):
-    from sentinel.eval.uncertainty.__main__ import main
+    from wattsentry.eval.uncertainty.__main__ import main
 
     t = time.perf_counter()
     assert main(["--feeders", "2", "--sites", "10", "--cal-days", "12", "--test-days", "3",

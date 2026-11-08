@@ -1,5 +1,5 @@
 {
-  "name": "@sentinel-app/db",
+  "name": "@wattsentry/db",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -21,7 +21,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@sentinel-app/config": "*",
+    "@wattsentry/config": "*",
     "drizzle-kit": "1.0.0-rc.5",
     "typescript": "^6.0.3"
   }

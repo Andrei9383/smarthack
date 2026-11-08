@@ -1,7 +1,7 @@
 // Sentinel Judge (#151, team/judge-design.md §8): verdicts per asset and the trust ledger per witness.
 // The judge_verdicts / trust / outcomes tables are written by the Judge (J4) and are not in the
 // Drizzle schema, so this reads them with raw SQL. A DB without them returns no data, never an error.
-import type { Database } from "@sentinel-app/db";
+import type { Database } from "@wattsentry/db";
 import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 

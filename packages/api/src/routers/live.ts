@@ -1,8 +1,8 @@
 // Live view (card #130): the #128 15-min loop's feeder rows, or the replay day when there is no feed.
 // Contract and the provisional live table: packages/api/src/contract/live.ts.
 import { call, implement } from "@orpc/server";
-import { createDb, type Database } from "@sentinel-app/db";
-import { feeders } from "@sentinel-app/db/schema/sentinel";
+import { createDb, type Database } from "@wattsentry/db";
+import { feeders } from "@wattsentry/db/schema/sentinel";
 import { eq, sql } from "drizzle-orm";
 
 import type { Context } from "../context";

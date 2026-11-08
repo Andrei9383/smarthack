@@ -1,7 +1,7 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-// Feature I (#177). Tables written by sentinel/eval/imbalance_replay.py (#176); MWh per 15-min step, lei.
+// Feature I (#177). Tables written by wattsentry/eval/imbalance_replay.py (#176); MWh per 15-min step, lei.
 const num = z.number().nullable();
 
 export const imbalanceStepSchema = z.object({

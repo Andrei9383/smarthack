@@ -1,7 +1,7 @@
 "use client";
 
 import { Popover as Base } from "@base-ui/react/popover";
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 import { type ReactNode, useRef } from "react";
 
 // A small white popover for progressive disclosure (ui-style.md §7): opens on click or Enter/Space,

@@ -7,9 +7,9 @@ import json
 import numpy as np
 import pytest
 
-from sentinel.contracts import BatterySpec, self_consumption_step
-from sentinel.eval import hosting_capacity as hc
-from sentinel.opt.policies import threshold_step
+from wattsentry.contracts import BatterySpec, self_consumption_step
+from wattsentry.eval import hosting_capacity as hc
+from wattsentry.opt.policies import threshold_step
 
 T = 96
 
@@ -113,14 +113,14 @@ def test_synthetic_homes_are_nested_scaled_and_follow_the_variant():
 
 
 def test_kernel_backends_agree_on_the_week(monkeypatch):
-    from sentinel import kernels
+    from wattsentry import kernels
 
     fw = _toy()
-    monkeypatch.setenv("SENTINEL_KERNELS", "python")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "python")
     py = hc.replay_week(fw, "self_consumption", keep_net=True).net_kw
     if not kernels.rust_available():
-        pytest.skip("sentinel._core not built")
-    monkeypatch.setenv("SENTINEL_KERNELS", "rust")
+        pytest.skip("wattsentry._core not built")
+    monkeypatch.setenv("WATTSENTRY_KERNELS", "rust")
     np.testing.assert_allclose(hc.replay_week(fw, "self_consumption", keep_net=True).net_kw, py, atol=1e-9)
 
 
@@ -135,7 +135,7 @@ def test_sentinel_lp_cuts_minutes_over_on_the_toy_feeder():
 
 
 def test_sentinel_folds_broken_homes_out_of_the_pool():
-    from sentinel.contracts import AssetStatus
+    from wattsentry.contracts import AssetStatus
 
     fw = _toy()
     fw.statuses[0]["S0"] = AssetStatus("S0", "excluded", 0.0, "battery_fault", battery_ok=False)
@@ -143,7 +143,7 @@ def test_sentinel_folds_broken_homes_out_of_the_pool():
 
     def planner(spec, elig, rest, fc, g, prices, *, statuses, t0):
         seen[t0] = [s.site_id for s in elig]
-        from sentinel.opt.policies import self_consumption_plan
+        from wattsentry.opt.policies import self_consumption_plan
 
         return self_consumption_plan(spec, elig, rest, fc, g, statuses=statuses, t0=t0)
 
@@ -176,8 +176,8 @@ def test_run_job_and_assemble_schema(tmp_path):
 
 # ------------------------------------------------------------------------------------------- end to end (mock world)
 def test_end_to_end_on_the_mock_world(tmp_path, monkeypatch):
-    from sentinel.agent.loop import default_components
-    from sentinel.agent.world import MockWorld
+    from wattsentry.agent.loop import default_components
+    from wattsentry.agent.world import MockWorld
 
     w = MockWorld(days=1, scale=0.4, with_wind=False)
     comps = default_components(w)
@@ -197,9 +197,9 @@ def test_end_to_end_on_the_mock_world(tmp_path, monkeypatch):
 
 
 def test_judge_verdicts_flow_through_the_c1_adapter():
-    adapter = pytest.importorskip("sentinel.judge.adapter")  # C1 #157; until it merges reads are passthrough
-    from sentinel.agent.loop import default_components
-    from sentinel.agent.world import MockWorld
+    adapter = pytest.importorskip("wattsentry.judge.adapter")  # C1 #157; until it merges reads are passthrough
+    from wattsentry.agent.loop import default_components
+    from wattsentry.agent.world import MockWorld
 
     w = MockWorld(days=1, scale=0.4, with_wind=False)
     comps = default_components(w)

@@ -6,7 +6,7 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from "@sentinel-app/ui/components/sheet";
+} from "@wattsentry/ui/components/sheet";
 import { useQuery } from "@tanstack/react-query";
 import { curveMonotoneX } from "d3-shape";
 import { type ReactNode, useMemo, useRef } from "react";

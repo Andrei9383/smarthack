@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sentinel.contracts import Prediction
-from sentinel.judge import features as F
-from sentinel.judge import rows as R
+from wattsentry.contracts import Prediction
+from wattsentry.judge import features as F
+from wattsentry.judge import rows as R
 
 
 def test_sample_weeks_shares_and_determinism():

@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@sentinel-app/ui/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { StatusPill } from "@/panels/disclosure";

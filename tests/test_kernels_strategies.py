@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from sentinel import kernels
-from sentinel.kernels.strategies import STRATEGY_CODES, battery_strategies_py, day_rank_median
+from wattsentry import kernels
+from wattsentry.kernels.strategies import STRATEGY_CODES, battery_strategies_py, day_rank_median
 
 DT = 0.25
 
@@ -81,7 +81,7 @@ def test_dispatch_registered():
     assert kernels.get("battery_strategies", "python") is battery_strategies_py
 
 
-rust = pytest.mark.skipif(not kernels.rust_available(), reason="sentinel._core not built")
+rust = pytest.mark.skipif(not kernels.rust_available(), reason="wattsentry._core not built")
 
 
 @rust

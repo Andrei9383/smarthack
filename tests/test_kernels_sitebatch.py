@@ -1,11 +1,11 @@
-"""#133 SiteReader == the old pandas batch read in sentinel.data.windows (filters -> sort -> .loc -> reshape)."""
+"""#133 SiteReader == the old pandas batch read in wattsentry.data.windows (filters -> sort -> .loc -> reshape)."""
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from sentinel.kernels.sitebatch import SiteReader
+from wattsentry.kernels.sitebatch import SiteReader
 
 COLS = ["pv_ac_w", "inv_status"]
 
