@@ -25,12 +25,12 @@ from sentinel.live.feed import LiveFeed, parse, run_realtime, run_speed, summary
 from sentinel.live.source import SimulatedSource  # noqa: E402
 
 
-def make_world(kind: str, days: int, seed: int, scale: float):
+def make_world(kind: str, days: int, seed: int, scale: float, wind: bool = False):
     from sentinel.agent.world import MockWorld, SimWorld
 
     if kind == "mock":
-        return MockWorld(days=days, seed=seed, scale=scale, with_wind=False)
-    return SimWorld(days=days, seed=seed, wind=False)
+        return MockWorld(days=days, seed=seed, scale=scale, with_wind=wind)
+    return SimWorld(days=days, seed=seed, wind=wind)
 
 
 def main(argv=None) -> int:
@@ -46,16 +46,33 @@ def main(argv=None) -> int:
     ap.add_argument("--days", type=int, default=7)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--scale", type=float, default=0.25, help="mock world size")
+    ap.add_argument("--agent", action="store_true",
+                    help="#129 experiment: the replay agent (policy sentinel) also decides each tick -> live_agent_*")
+    ap.add_argument("--gate", action="store_true",
+                    help="#129 gate: whole week tick by tick vs the batch replay loop, print both KPI sets, exit")
     a = ap.parse_args(argv)
 
-    world = make_world(a.world, a.days, a.seed, a.scale)
+    world = make_world(a.world, a.days, a.seed, a.scale, wind=a.gate)  # gate: replay#506's world (wind + judge on)
+    if a.gate:
+        from sentinel.live.agent import gate
+
+        g = gate(world, a.db, judge=True)
+        for k, v in g.items():
+            print(f"LAB_METRIC {k}={v}", flush=True)
+        return 0 if g["gate_identical"] else 1
     feeders = [f for f in a.feeders.split(",") if f] or [f for f in ("F7", "F10") if f in world.feeders] or None
     src = SimulatedSource(world, feeders)
     con = store.connect(a.db)
     clock = "realtime" if a.speed is None else f"speed:{a.speed:g}"
     run_id = a.run_id or f"live-{a.world}"
-    feed = LiveFeed(src, con, run_id, world=a.world, clock=clock,
-                    notes=f"simulated readings ({world.label}); clock {clock}; feeders {sorted(src.feeders())}")
+    agent = None
+    if a.agent:
+        from sentinel.live.agent import LiveAgent
+
+        agent = LiveAgent(world, con, f"{run_id}:agent", feeders=sorted(src.feeders()))
+    feed = LiveFeed(src, con, run_id, world=a.world, clock=clock, agent=agent,
+                    notes=f"simulated readings ({world.label}); clock {clock}; feeders {sorted(src.feeders())}"
+                          + ("; agent decides each tick (#129, live_agent_*)" if agent else ""))
     print(f"[live] {run_id} -> {store.db_path(a.db)}  feeders={sorted(src.feeders())} homes={len(src.sites())} "
           f"models={feed.da.versions()}  resume_after={feed.last}", flush=True)
     log = lambda s: print(s, flush=True)  # noqa: E731

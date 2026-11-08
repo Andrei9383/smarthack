@@ -645,6 +645,9 @@ class LoopConfig:
     n_scenarios: int = 200
     seed: int = 0
     judge: bool = True  # run comps.judge (if any) on the sentinel policy: verdicts only, decisions unchanged
+    # live driver (#129, experiment): called once per tick after the feeder curves with that tick's decisions; it may
+    # block until the next reading arrives. None (default) = batch replay, results unchanged.
+    on_tick: Optional[Callable[[dict], None]] = None
 
 
 @dataclass
@@ -1071,6 +1074,15 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                            "export_kw": round(max(x, 0.0), 4), "import_kw": round(max(-x, 0.0), 4),
                                            "limit_kw": g, "slack_kw": round(max(0.0, x - g), 4),
                                            "is_violation": int(over)})
+            if cfg.on_tick is not None:  # live driver (#129): hand over this tick's decisions, wait for the next
+                cfg.on_tick({"d": d, "k": k, "ts": ts, "feeder_net_kw": dict(fexp),
+                             "batt_kw": {s: executed[s][k] for s in batt_sites},
+                             "soc": {s: energy[s] / sites[s].battery.capacity_kwh for s in batt_sites},
+                             "status": {s: last_status.get(s) for s in sites},
+                             "pool": {f: sorted(live_pool[f] | held[f]) for f in live_pool},
+                             "planned_kw": {s: plans[f].schedule.get(s, [0.0] * DAY_STEPS)[k]
+                                            for f in plans for s in plans[f].schedule},
+                             "committed_kw": {f: c.committed[k] for f, c in commitments.items()}})
         # ---------------------------------------------------------------- end of day: log
         prev_oday = oday
         for s in sites:  # calibration slice for the next days: what was forecast vs what was observed

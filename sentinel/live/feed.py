@@ -34,8 +34,10 @@ def map_wall(wall_ts: int, span: tuple[int, int]) -> int:
 
 class LiveFeed:
     def __init__(self, source: Any, con: sqlite3.Connection, run_id: str, *, world: str = "sim",
-                 clock: str = "realtime", dayahead: Optional[DayAhead] = None, notes: str = ""):
+                 clock: str = "realtime", dayahead: Optional[DayAhead] = None, notes: str = "",
+                 agent: Any = None):
         self.src, self.con, self.run_id = source, con, run_id
+        self.agent = agent  # #129: LiveAgent stepped through each handled step (decisions as the readings arrive)
         self.da = dayahead or DayAhead(source.world, source.sites())
         feeders = [{"feeder_id": f, "limit_kw": round(float(x.spec.g_kw), 3),
                     "site_ids": [s for s in x.site_ids if s in source.sites()]} for f, x in source.feeders().items()]
@@ -62,6 +64,8 @@ class LiveFeed:
     def tick(self, r: int, *, missed: bool = False) -> dict[str, Any]:
         """Handle the step starting at r (it has just ended). Returns a small summary."""
         if self.last is not None and r <= self.last:
+            if self.agent is not None:  # restart: the agent fast-forwards to where the feed is
+                self.agent.until(r)
             return {"ts": iso(r), "status": "skipped"}
         readings = self.src.readings(r)
         got = {s: x for s, x in readings.items() if x.pv_kw is not None}
@@ -90,6 +94,8 @@ class LiveFeed:
             con.execute("ROLLBACK")
             raise
         self.last, self.prev = r, got
+        if self.agent is not None:
+            self.agent.until(r)
         return {"ts": iso(r), "status": status, "n_readings": len(got), "n_predictions": n_pred}
 
     def _score(self, r: int, readings: dict[str, Reading]) -> None:
