@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 # ----------------------------------------------------------------- shape of the week
 
 # 00:00 Europe/Bucharest on Mon 2 June 2025 (EEST, UTC+3), the same instant the UI's replay clock
-# starts at (apps/web/src/demo/replay.ts, WEEK_START_UTC). Far from both DST switches, so local time is a
+# starts at (apps/web/src/lib/replay.ts, WEEK_START_UTC). Far from both DST switches, so local time is a
 # fixed +3 h all week and every "hour of day" below is Bucharest wall-clock time.
 WEEK_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
 LOCAL_OFFSET = timedelta(hours=3)

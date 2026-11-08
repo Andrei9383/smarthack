@@ -8,7 +8,7 @@ Per hour it writes <HH>.png (R = u, G = v, the texture maplibre-gl-wind reads) a
   python scripts/windfield.py --input data/raw/weather_grid_ro.parquet
 
 --input expects ts (UTC), lat, lon and wind100_ms, wdir100_deg (where wind comes FROM, ERA5
-convention). --start must equal WEEK_START_UTC in apps/web/src/demo/replay.ts: file NN is the
+convention). --start must equal WEEK_START_UTC in apps/web/src/lib/replay.ts: file NN is the
 NNth hour of the replay clock.
 """
 
