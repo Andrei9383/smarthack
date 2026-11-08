@@ -117,7 +117,7 @@ export function AppShell() {
                 inspector give way to the briefing, the mini map and the glance sections. */}
             <div
               key={mode}
-              className="absolute inset-x-0 top-[72px] bottom-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-3 pb-[100px] [scrollbar-width:thin] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-250"
+              className="absolute inset-x-0 top-[72px] bottom-0 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-3 pb-[100px] [scrollbar-gutter:stable_both-edges] [scrollbar-width:thin] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-250"
             >
               <Page onTour={tour.start} />
             </div>
@@ -185,7 +185,7 @@ export function AppShell() {
         <AgentToast className={cn("absolute left-4 z-[25]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
         <TimelineDock
           compact={Boolean(Page)}
-          className={cn("absolute bottom-4 left-4 z-20", Page ? "right-4 max-w-[1200px]" : BESIDE_INSPECTOR)}
+          className={cn("absolute bottom-4 left-4 z-20", Page ? "right-4 mx-auto max-w-[1600px]" : BESIDE_INSPECTOR)}
         />
         <SummaryCard />
       </main>

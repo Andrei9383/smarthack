@@ -18,10 +18,9 @@ import { cn } from "@/lib/utils";
 /**
  * Elements the tour points at. The shell marks them with `data-tour="…"` (see README.md):
  * rail = mode navigation · map = map canvas · inspector = right-hand details panel ·
- * timeline = bottom dock (play / scrubber) · policy = Baseline/Sentinel toggle ·
- * demo = Demo menu button.
+ * timeline = bottom dock (play / scrubber) · policy = Baseline/Sentinel toggle.
  */
-export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy" | "demo";
+export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy";
 
 export type TourStep = {
   id: string;
@@ -72,14 +71,7 @@ export const defaultTourSteps: TourStep[] = [
     target: "policy",
     placement: "top",
     title: "Baseline vs Sentinel",
-    body: "Baseline is the same week without Sentinel: batteries only store their own solar. Flip the switch to see what the agent changes, with the same weather, homes and prices.",
-  },
-  {
-    id: "demo",
-    target: "demo",
-    placement: "bottom",
-    title: "Short on time? Use the Demo menu",
-    body: "Six guided jumps to the moments that matter, from the F7 overload to a stopped turbine. Press 1–6 anywhere. You can reopen this tour from the ? button.",
+    body: "Baseline is the same week without Sentinel: batteries only store their own solar. Flip the switch to see what the agent changes, with the same weather, homes and prices. You can reopen this tour from the ? button.",
   },
 ];
 
