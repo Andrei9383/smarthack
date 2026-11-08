@@ -23,7 +23,7 @@ export type FeederState = {
   peakKw: number | undefined;
   baselineMinutes: number | undefined;
   baselinePeakKw: number | undefined;
-  /** Sentinel's own numbers, whichever policy the dock shows (Overview compares the two). */
+  /** WattSentry's own numbers, whichever policy the dock shows (Overview compares the two). */
   sentinelMinutes: number | undefined;
   sentinelPeakKw: number | undefined;
   status: "ok" | "near" | "over" | "unknown";

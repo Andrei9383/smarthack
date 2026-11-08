@@ -11,8 +11,6 @@ import { useOverview } from "@/demo/kpi-strip";
 import { useReplayPlaying } from "@/demo/replay-bar";
 import { clampStep, clockLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
-import { useReviewQueue } from "@/modes/om/use-om-data";
-import { useOverviewFeeders } from "@/modes/overview/use-overview-data";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
 import { MODE_COPY } from "./mode-copy";
@@ -99,23 +97,6 @@ function RailReplayStatus({ runLabel }: { runLabel?: string }) {
   );
 }
 
-/** One glance mark per mode in the rail: what would make you open it right now. */
-function useModeMarks(): Partial<Record<ModeId, { kind: StatusKind; label: string }>> {
-  const feeders = useOverviewFeeders();
-  const { data: review } = useReviewQueue();
-  const over = feeders.filter((f) => f.status === "over").length;
-  const near = feeders.filter((f) => f.status === "near").length;
-  const waiting = (review ?? []).filter((r) => !r.resolved).length;
-  return {
-    feeders: over
-      ? { kind: "critical", label: `${over} feeder${over === 1 ? "" : "s"} over the limit today` }
-      : near
-        ? { kind: "warn", label: `${near} feeder${near === 1 ? "" : "s"} near the limit` }
-        : undefined,
-    om: waiting ? { kind: "review", label: `${waiting} case${waiting === 1 ? "" : "s"} waiting for a person` } : undefined,
-  };
-}
-
 /** #207: voice conversation with the ElevenLabs agent; hidden when the server has no key. */
 function AskSentinelItem({ expanded }: { expanded: boolean }) {
   const { available, live, toggle } = useAskSentinel();
@@ -125,7 +106,7 @@ function AskSentinelItem({ expanded }: { expanded: boolean }) {
       active={live}
       expanded={expanded}
       icon={<AudioLines className="size-5" strokeWidth={1.7} />}
-      label={live ? "End the talk" : "Ask Sentinel"}
+      label={live ? "End the talk" : "Ask WattSentry"}
       descriptor="Talk to the agent about the project"
       mark={live ? { kind: "live", label: "Talking" } : null}
       onClick={toggle}
@@ -149,7 +130,6 @@ export function Rail({
 }) {
   const [summaryOpen, setSummaryOpen] = useSummaryOpen();
   const { label } = useOverview();
-  const marks = useModeMarks();
 
   return (
     <nav
@@ -165,7 +145,7 @@ export function Rail({
           <Zap aria-hidden className="size-[18px]" />
         </span>
         <span className={cn("min-w-0 leading-tight transition-opacity duration-150", expanded ? "opacity-100" : "opacity-0")}>
-          <b className="block truncate text-title tracking-tight">Prosumer Sentinel</b>
+          <b className="block truncate text-title tracking-tight">WattSentry</b>
           <span className="block truncate text-caption text-muted-foreground">PPC · grid agent</span>
         </span>
       </div>
@@ -180,7 +160,6 @@ export function Rail({
             icon={<Icon className="size-5" strokeWidth={1.7} />}
             label={modeLabel}
             descriptor={MODE_COPY[id].descriptor}
-            mark={marks[id]}
             onClick={() => {
               setSummaryOpen(false);
               onMode(id);

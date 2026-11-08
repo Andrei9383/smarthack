@@ -227,13 +227,13 @@ const LOOPS: Record<HowItDecidesMode, { aside: string; steps: Step[] }> = {
 };
 
 /**
- * "How Sentinel decides": the agent's loop for one mode in 4 short steps (sees → predicts → decides → does),
+ * "How WattSentry decides": the agent's loop for one mode in 4 short steps (sees → predicts → decides → does),
  * with jargon wrapped in <Term>. Renders as a plain section (hairlines, numbered markers, no card), so drop it
  * into an inspector section as-is. `children` render under the steps, e.g. a "See the decision on F7 ›" link.
  */
 export function HowItDecides({
   mode,
-  title = "How Sentinel decides",
+  title = "How WattSentry decides",
   className,
   children,
 }: {

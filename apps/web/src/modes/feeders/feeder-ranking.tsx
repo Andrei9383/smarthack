@@ -8,7 +8,7 @@ import { DetailsLink, DetailsSheet, SectionHeader, SheetSection } from "@/panels
 import { useFeederList, useOverLimit } from "./use-feeder-data";
 
 // The Feeders glance list (Calm, #198): the five feeders with the most time over their limit today
-// without Sentinel, and what Sentinel left of it. Same getOverLimit / list queries as the panel;
+// without WattSentry, and what WattSentry left of it. Same getOverLimit / list queries as the panel;
 // a row selects the feeder (the `feeder` URL param), "See all" opens every feeder in a sheet.
 
 const TOP = 5;
@@ -82,7 +82,7 @@ export function FeederRanking({ selected, onSelect }: { selected: string; onSele
         lead="Feeders"
         aside={ranked.length > TOP ? <DetailsLink onClick={() => setOpen(true)}>See all</DetailsLink> : null}
       />
-      <p className="pb-1 text-caption text-muted-foreground">Minutes with Sentinel, of the baseline's minutes</p>
+      <p className="pb-1 text-caption text-muted-foreground">Minutes with WattSentry, of the baseline's minutes</p>
       <ol>
         {ranked.slice(0, TOP).map((row, index) => (
           <Row key={row.id} row={row} rank={index + 1} selected={row.id === selected} onSelect={() => onSelect(row.id)} />
@@ -93,7 +93,7 @@ export function FeederRanking({ selected, onSelect }: { selected: string; onSele
         open={open}
         onOpenChange={setOpen}
         title="Feeders over the limit today"
-        description="Baseline = what happens without Sentinel. Pick a feeder to open it."
+        description="Baseline = what happens without WattSentry. Pick a feeder to open it."
       >
         <SheetSection title={`All ${ranked.length} feeders`}>
           <table className="w-full text-dense tabular-nums">
@@ -101,8 +101,8 @@ export function FeederRanking({ selected, onSelect }: { selected: string; onSele
               <tr className="border-b border-border text-left">
                 <th scope="col" className="py-1.5 pl-2 font-medium">Feeder</th>
                 <th scope="col" className="py-1.5 text-right font-medium">Over, baseline</th>
-                <th scope="col" className="py-1.5 text-right font-medium">Over, Sentinel</th>
-                <th scope="col" className="py-1.5 pr-2 text-right font-medium">Peak, Sentinel</th>
+                <th scope="col" className="py-1.5 text-right font-medium">Over, WattSentry</th>
+                <th scope="col" className="py-1.5 pr-2 text-right font-medium">Peak, WattSentry</th>
               </tr>
             </thead>
             <tbody>

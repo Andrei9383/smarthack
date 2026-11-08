@@ -23,7 +23,7 @@ const JUMPS = [
   },
   {
     title: "Feeders F7",
-    note: "Sentinel keeps F7 Oșorhei under its limit at noon",
+    note: "WattSentry keeps F7 Oșorhei under its limit at noon",
     state: { mode: "feeders", feeder: "F7", policy: "sentinel", t: DEFAULT_STEP },
   },
   {

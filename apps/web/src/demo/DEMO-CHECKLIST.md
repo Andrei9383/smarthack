@@ -17,7 +17,7 @@ Every line must say `ok`. It loads all 6 modes, every script/style they referenc
 
 Press `6` (or open `?summary=1`). Expect, with no yellow "Fixture data … Not a result" banner:
 
-| Metric | Baseline | Sentinel |
+| Metric | Baseline | WattSentry |
 |---|---|---|
 | Peak reduction | — | 19.1 % |
 | Minutes over limit | 6645 min | 1905 min (−71 %) |

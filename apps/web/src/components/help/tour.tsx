@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 /**
  * Elements the tour points at. The shell marks them with `data-tour="…"` (see README.md):
  * rail = mode navigation · map = map canvas · inspector = right-hand details panel ·
- * timeline = bottom dock (play / scrubber) · policy = Baseline/Sentinel toggle.
+ * timeline = bottom dock (play / scrubber) · policy = Baseline/WattSentry toggle.
  */
 export type TourTarget = "rail" | "map" | "inspector" | "timeline" | "policy";
 
@@ -35,7 +35,7 @@ export type TourStep = {
 export const defaultTourSteps: TourStep[] = [
   {
     id: "welcome",
-    title: "Welcome to Prosumer Sentinel",
+    title: "Welcome to WattSentry",
     body: "An agent that forecasts rooftop solar, home batteries, wind turbines and demand across Romania, then acts on it: it schedules batteries, sends repair crews and flags risks before they happen.",
   },
   {
@@ -70,8 +70,8 @@ export const defaultTourSteps: TourStep[] = [
     id: "policy",
     target: "policy",
     placement: "top",
-    title: "Baseline vs Sentinel",
-    body: "Baseline is the same week without Sentinel: batteries only store their own solar. Flip the switch to see what the agent changes, with the same weather, homes and prices. You can reopen this tour from the ? button.",
+    title: "Baseline vs WattSentry",
+    body: "Baseline is the same week without WattSentry: batteries only store their own solar. Flip the switch to see what the agent changes, with the same weather, homes and prices. You can reopen this tour from the ? button.",
   },
 ];
 

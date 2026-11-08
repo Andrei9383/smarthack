@@ -75,7 +75,7 @@ export function Num({ value, unit, className }: { value: ReactNode; unit?: strin
   );
 }
 
-/** A change against a reference, e.g. Sentinel vs no Sentinel. `good` picks the colour; null = neutral. */
+/** A change against a reference, e.g. WattSentry vs no WattSentry. `good` picks the colour; null = neutral. */
 export type Delta = { text: ReactNode; good?: boolean | null };
 
 /** Small delta chip: the word or number first, colour second (never colour alone). */
@@ -328,7 +328,7 @@ export function SectionHeader({
   as: Heading = "h2",
 }: {
   title: ReactNode;
-  /** Muted words before the title: lead="Today vs" title="without Sentinel". */
+  /** Muted words before the title: lead="Today vs" title="without WattSentry". */
   lead?: ReactNode;
   aside?: ReactNode;
   className?: string;

@@ -184,7 +184,7 @@ export function AppShell() {
         {/* One instance each across modes: the dock owns the replay ticker (unmounting it pauses). */}
         <TopBar mode={mode} onSearch={() => setPaletteOpen(true)} className="absolute inset-x-4 top-3 z-30 h-14" />
         <AgentToast className={cn("absolute left-4 z-[25]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
-        {/* #207: the "Ask Sentinel" conversation sits in the toast's slot, above it. */}
+        {/* #207: the "Ask WattSentry" conversation sits in the toast's slot, above it. */}
         <VoicePanel className={cn("absolute left-4 z-[26]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
         <TimelineDock
           compact={Boolean(Page)}

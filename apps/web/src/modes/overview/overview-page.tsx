@@ -56,7 +56,7 @@ import { useOverviewData } from "./use-overview-data";
 // 1. Status strip: Prosumers, Grid cables, Wind farms: one number and one line each; the card opens that area.
 // 2. Needs your decision: only what a person must do (review cases, an intraday purchase when PPC is
 //    short). Empty, it says so and counts what the agent handled.
-// 3. The day's bought-vs-used chart and this month's imbalance cost with and without Sentinel.
+// 3. The day's bought-vs-used chart and this month's imbalance cost with and without WattSentry.
 
 const CARD = "rounded-xl bg-card shadow-card";
 const FOREVER = Number.POSITIVE_INFINITY;
@@ -97,7 +97,7 @@ function useGo() {
 }
 
 const BOUGHT_PROFILE = "Bought, standard profile";
-const BOUGHT_SENTINEL = "Bought, Sentinel";
+const BOUGHT_SENTINEL = "Bought, WattSentry";
 const ACTUAL = "Actually used";
 
 /** Today's imbalance for the day on the replay clock, plus the full-year totals per policy. */
@@ -128,7 +128,7 @@ function useImbalance() {
       .map(([, r]) => r);
   }, [day.data]);
 
-  // MWh Sentinel left PPC short today: customers used more than it bought (dev > 0 is the costly side).
+  // MWh WattSentry left PPC short today: customers used more than it bought (dev > 0 is the costly side).
   const shortMwh = useMemo(
     () =>
       (day.data?.steps ?? [])
@@ -164,7 +164,7 @@ function useImbalance() {
 
 const MORNING_STEP = HERO_DAY * STEPS_PER_DAY + 24; // 06:00 on the story day
 
-/** Starts the story day at 06:00 with Sentinel on; pressing again pauses, then resumes. */
+/** Starts the story day at 06:00 with WattSentry on; pressing again pauses, then resumes. */
 function usePlayDemo() {
   const [rawStep, setStep] = useReplayStep();
   const [, setPolicy] = usePolicy();
@@ -472,7 +472,7 @@ function Decisions() {
             Nothing needs you right now
           </span>
           <span className="text-dense text-muted-foreground">
-            Sentinel handled {plural(handled, "action")} today on its own.
+            WattSentry handled {plural(handled, "action")} today on its own.
           </span>
         </div>
       )}
@@ -488,7 +488,7 @@ function Decisions() {
       ) : null}
       {items.length ? (
         <p className="mt-auto pt-3 text-caption text-muted-foreground">
-          Sentinel handled {plural(handled, "other action")} today on its own.
+          WattSentry handled {plural(handled, "other action")} today on its own.
         </p>
       ) : null}
     </section>
@@ -749,12 +749,12 @@ function GapChart() {
 
 /* ---------- 3. This month so far ---------- */
 
-const WITHOUT = "Without Sentinel";
-const WITH = "With Sentinel";
+const WITHOUT = "Without WattSentry";
+const WITH = "With WattSentry";
 const MONTH = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Bucharest", month: "long" });
 const DAY_NUM = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Bucharest", day: "numeric" });
 
-/** Imbalance cost from the 1st of the month to the replay clock, with and without Sentinel. */
+/** Imbalance cost from the 1st of the month to the replay clock, with and without WattSentry. */
 function useMonthSoFar() {
   const [rawStep] = useReplayStep();
   const step = clampStep(rawStep);
@@ -821,7 +821,7 @@ function MonthSoFar() {
       </p>
       <p className="mt-2 text-dense text-text-secondary">
         Imbalance cost: <b className="font-medium text-foreground tabular-nums">{lei(m.with)} lei</b> with
-        Sentinel, <span className="tabular-nums">{lei(m.without)} lei</span> without.
+        WattSentry, <span className="tabular-nums">{lei(m.without)} lei</span> without.
       </p>
       <ul className="mt-4 flex items-center gap-4 text-caption text-text-secondary">
         <li className="flex items-center gap-1.5">

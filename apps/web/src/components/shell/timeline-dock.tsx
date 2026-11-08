@@ -75,7 +75,7 @@ function dayStatus(hours: number): { kind: StatusKind; text: string } {
 function PolicySwitch({ policy, onChange }: { policy: Policy; onChange: (p: Policy) => void }) {
   const options: { value: Policy; label: string }[] = [
     { value: "baseline", label: "Baseline" },
-    { value: "sentinel", label: "Sentinel" },
+    { value: "sentinel", label: "WattSentry" },
   ];
   return (
     <div role="radiogroup" aria-label="Policy shown" data-tour="policy" className="relative flex rounded-lg bg-surface-raised p-[3px]">

@@ -201,8 +201,8 @@ export function NoticeSection({ feederId, from, to }: { feederId: string; from: 
           PVNet P50/P90 solar ({notice.modelVersion.split(":").pop()}) minus {LOAD_SOURCE[notice.loadSource]}.
           {" "}
           {notice.actualStepsOver > 0
-            ? `Without Sentinel the feeder was over its limit ${notice.actualStepsOver * 15} min; ${inWindowShare}% of that fell inside the window.`
-            : `Without Sentinel the feeder stayed under its limit (peak ${Math.round(notice.actualPeakKw)} kW).`}
+            ? `Without WattSentry the feeder was over its limit ${notice.actualStepsOver * 15} min; ${inWindowShare}% of that fell inside the window.`
+            : `Without WattSentry the feeder stayed under its limit (peak ${Math.round(notice.actualPeakKw)} kW).`}
         </p>
       </div>
       </SheetSection>

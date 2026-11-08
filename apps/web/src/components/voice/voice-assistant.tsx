@@ -22,7 +22,7 @@ import { getDaySummary, getFaults, getFeeders, getWindParks } from "./data-tools
 import { narrator } from "./narrator";
 import { useVoiceStatus } from "./use-voice-status";
 
-// "Ask Sentinel" (card #207): a voice conversation with the ElevenLabs agent made by
+// "Ask WattSentry" (card #207): a voice conversation with the ElevenLabs agent made by
 // scripts/elevenlabs/sync-agent.mjs. It answers questions about the grid and the week on screen
 // (feeders, wind parks, faults, results), never about the code. Its facts come from client tools
 // that read the app's own API (./data-tools), so answers match the screens.
@@ -115,7 +115,7 @@ function VoiceTools() {
     return [
       `View: ${MODES[mode].label} (${MODES[mode].blurb})`,
       `Replay clock: ${clockLabel(clampStep(rawStep))}, week of 2 June 2025.`,
-      `Showing: ${policy === "sentinel" ? "with Sentinel" : "the baseline, without Sentinel"}.`,
+      `Showing: ${policy === "sentinel" ? "with WattSentry" : "the baseline, without WattSentry"}.`,
       selected.length ? `Selected: ${selected.join(", ")}.` : "Nothing selected.",
     ].join(" ");
   });
@@ -142,7 +142,7 @@ export function useAskSentinel() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       for (const track of stream.getTracks()) track.stop();
     } catch {
-      update({ error: "Microphone access is blocked. Allow it in the browser to talk to Sentinel." });
+      update({ error: "Microphone access is blocked. Allow it in the browser to talk to WattSentry." });
       setStarting(false);
       return;
     }
@@ -177,18 +177,18 @@ export function VoicePanel({ className }: { className?: string }) {
 
   const connected = status === "connected";
   const headline = error
-    ? "Sentinel can't talk right now"
+    ? "WattSentry can't talk right now"
     : connected
       ? isSpeaking
-        ? "Sentinel is speaking"
+        ? "WattSentry is speaking"
         : "Listening… ask about the project"
       : live
-        ? "Connecting to Sentinel…"
+        ? "Connecting to WattSentry…"
         : "Conversation ended";
 
   return (
     <section
-      aria-label="Talk to Sentinel"
+      aria-label="Talk to WattSentry"
       className={cn(
         "flex w-[380px] max-w-[calc(100%-2rem)] flex-col gap-2 rounded-xl bg-card px-3.5 py-3 shadow-overlay motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2",
         className,

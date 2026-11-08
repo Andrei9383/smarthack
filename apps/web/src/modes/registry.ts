@@ -59,14 +59,14 @@ export const MODES: Record<ModeId, ModeEntry> = {
     label: "Overview",
     icon: LayoutDashboard,
     blurb:
-      "What prosumers cost PPC in imbalance today, and how Sentinel cuts it.",
+      "What prosumers cost PPC in imbalance today, and how WattSentry cuts it.",
     card: "#124",
     Page: OverviewPage,
   },
   feeders: {
     label: "Feeders",
     icon: Network,
-    blurb: "Forecast export vs limit per feeder, baseline vs Sentinel.",
+    blurb: "Forecast export vs limit per feeder, baseline vs WattSentry.",
     card: "#19",
     Layers: FeedersLayers,
     Panel: FeederPanel,

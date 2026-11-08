@@ -3,7 +3,7 @@
 // §2, §3), so SVG strokes, fills and inline styles follow the light/dark theme. Components should still use
 // the Tailwind token classes (text-status-ok, bg-status-warn/12, …) wherever they can.
 
-export const OK = "var(--status-ok)"; // ok, eligible, Sentinel (= --primary)
+export const OK = "var(--status-ok)"; // ok, eligible, WattSentry (= --primary)
 export const WARN = "var(--status-warn)"; // derated, warning
 export const CRITICAL = "var(--status-critical)"; // over limit, fault
 export const FORECAST = "var(--status-forecast)"; // forecast / expected (dashed)

@@ -26,7 +26,7 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     what: (
       <>
         Rooftop solar can overload street cables (
-        <Term id="feeder">feeders</Term>) at midday. Sentinel charges home
+        <Term id="feeder">feeders</Term>) at midday. WattSentry charges home
         batteries to keep each feeder under its{" "}
         <Term id="feeder-limit">limit</Term>.
       </>

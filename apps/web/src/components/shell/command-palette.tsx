@@ -50,10 +50,10 @@ const CLEAR: Nav = { feeder: null, park: null, turbine: null, site: null, zone: 
 const DEMO_STEPS = [
   "Production: wind over Romania and WP01's 24 h forecast",
   "Demand: where use peaks this evening",
-  "Feeders F7: Sentinel keeps F7 Oșorhei under its limit",
+  "Feeders F7: WattSentry keeps F7 Oșorhei under its limit",
   "String failure at home 1042 becomes a repair job",
   "O&M park: WP01 turbines, crews and the review queue",
-  "Summary: the week, Sentinel against the baseline",
+  "Summary: the week, WattSentry against the baseline",
 ];
 
 const FOREVER = Number.POSITIVE_INFINITY;

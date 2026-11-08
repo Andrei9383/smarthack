@@ -8,7 +8,7 @@ import "../index.css";
 import Providers from "@/components/providers";
 
 export const metadata: Metadata = {
-  title: "Prosumer Sentinel",
+  title: "WattSentry",
   description: "Feeder peak shaving and fault detection for Romanian prosumers",
 };
 

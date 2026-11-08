@@ -13,7 +13,7 @@ export type GlossaryEntry = {
   term: string;
   /** The definition: 1–2 plain sentences. */
   short: string;
-  /** Optional "learn more" line: how Sentinel uses it, or a worked example. */
+  /** Optional "learn more" line: how WattSentry uses it, or a worked example. */
   more?: string;
 };
 
@@ -34,7 +34,7 @@ export const GLOSSARY = {
     term: "Feeder limit",
     short:
       "The most power a feeder can safely carry, e.g. 62 kW on F7 Oșorhei. Above it the voltage climbs, solar inverters trip off and the cable heats up.",
-    more: "When the grid map is doubtful (low GIS trust), Sentinel plans against a stricter limit, never a looser one.",
+    more: "When the grid map is doubtful (low GIS trust), WattSentry plans against a stricter limit, never a looser one.",
   },
   export: {
     term: "Export",
@@ -49,8 +49,8 @@ export const GLOSSARY = {
   "peak-shaving": {
     term: "Peak shaving",
     short:
-      "Cutting off the top of a power curve so it stays under a limit. Sentinel soaks up the midday solar surplus in home batteries and gives it back in the evening.",
-    more: "Replay week: minutes over the limit 6,645 without Sentinel, 1,905 with it.",
+      "Cutting off the top of a power curve so it stays under a limit. WattSentry soaks up the midday solar surplus in home batteries and gives it back in the evening.",
+    more: "Replay week: minutes over the limit 6,645 without WattSentry, 1,905 with it.",
   },
   prosumer: {
     term: "Prosumer",
@@ -60,7 +60,7 @@ export const GLOSSARY = {
   "home-battery": {
     term: "Home battery",
     short:
-      "A battery in a prosumer's home, typically 5–15 kWh, that normally stores only that roof's own solar. With the owner's opt-in, Sentinel decides when it charges and discharges.",
+      "A battery in a prosumer's home, typically 5–15 kWh, that normally stores only that roof's own solar. With the owner's opt-in, WattSentry decides when it charges and discharges.",
   },
   soc: {
     term: "SoC",
@@ -69,7 +69,7 @@ export const GLOSSARY = {
   "comfort-reserve": {
     term: "Comfort reserve",
     short:
-      "Energy in each home battery that Sentinel never uses, so the household always keeps enough for its own evening or an outage. Breaking it counts as a failure.",
+      "Energy in each home battery that WattSentry never uses, so the household always keeps enough for its own evening or an outage. Breaking it counts as a failure.",
     more: "Replay week: 0 comfort-reserve breaches.",
   },
   "kw-kwh": {
@@ -87,12 +87,12 @@ export const GLOSSARY = {
   p10: {
     term: "P10",
     short:
-      "A cautious-low forecast: the real value ends up below it only 1 time in 10. Sentinel promises the grid only its P10 flexibility, so the promise holds about 9 times out of 10.",
+      "A cautious-low forecast: the real value ends up below it only 1 time in 10. WattSentry promises the grid only its P10 flexibility, so the promise holds about 9 times out of 10.",
   },
   p90: {
     term: "P90",
     short:
-      "A cautious-high forecast: the real value goes above it only 1 time in 10. Sentinel plans each feeder against its P90 export, the worst plausible midday.",
+      "A cautious-high forecast: the real value goes above it only 1 time in 10. WattSentry plans each feeder against its P90 export, the worst plausible midday.",
   },
   "forecast-band": {
     term: "Forecast band",
@@ -104,7 +104,7 @@ export const GLOSSARY = {
   "committed-flex": {
     term: "Committed (P10) flexibility",
     short:
-      "The power reduction Sentinel promises the grid operator for each 15 minutes. It is the P10 of what the batteries can deliver, so it is met at least 9 times in 10.",
+      "The power reduction WattSentry promises the grid operator for each 15 minutes. It is the P10 of what the batteries can deliver, so it is met at least 9 times in 10.",
     more: "Replay week: the promise was kept in 92 % of slots. “We never sell the nominal number.”",
   },
   nominal: {
@@ -122,18 +122,18 @@ export const GLOSSARY = {
   committed: {
     term: "Committed",
     short:
-      "The part of available flexibility Sentinel actually promises: the cautious P10 amount, trimmed further if some homes may lose their data link.",
+      "The part of available flexibility WattSentry actually promises: the cautious P10 amount, trimmed further if some homes may lose their data link.",
     more: "Nominal ≥ available ≥ committed. Realised is measured afterwards.",
   },
   realised: {
     term: "Realised",
     short:
-      "What the batteries really delivered, measured after the fact. Comparing it with committed shows whether Sentinel kept its promise.",
+      "What the batteries really delivered, measured after the fact. Comparing it with committed shows whether WattSentry kept its promise.",
   },
   "hit-rate": {
     term: "Hit rate",
     short:
-      "The share of 15-minute slots where the batteries delivered at least what Sentinel committed. The target is 90 % or more.",
+      "The share of 15-minute slots where the batteries delivered at least what WattSentry committed. The target is 90 % or more.",
     more: "Replay week: 92 %, short by 16 kWh out of 1,845 kWh committed.",
   },
 
@@ -141,17 +141,17 @@ export const GLOSSARY = {
   baseline: {
     term: "Baseline",
     short:
-      "What happens without Sentinel: the same homes, weather and prices, with each battery only storing its own roof's solar. Every Sentinel number is compared against it.",
+      "What happens without WattSentry: the same homes, weather and prices, with each battery only storing its own roof's solar. Every WattSentry number is compared against it.",
   },
   sentinel: {
-    term: "Sentinel",
+    term: "WattSentry",
     short:
-      "The same week with the Sentinel agent in charge: it forecasts each feeder, promises only P10 flexibility and schedules the batteries to stay under the limit.",
+      "The same week with the WattSentry agent in charge: it forecasts each feeder, promises only P10 flexibility and schedules the batteries to stay under the limit.",
   },
   "gis-trust": {
     term: "GIS trust",
     short:
-      "How much Sentinel believes the grid map (GIS) for a feeder, such as which homes really hang on it. Low trust makes it plan against a stricter limit and flag the section for a field check.",
+      "How much WattSentry believes the grid map (GIS) for a feeder, such as which homes really hang on it. Low trust makes it plan against a stricter limit and flag the section for a field check.",
     more: "On the demo feeders trust is 0.68–0.90, which tightens F7's limit from 65.5 to 61.8 kW.",
   },
   audit: {
@@ -174,7 +174,7 @@ export const GLOSSARY = {
   "crew-top-k": {
     term: "Crew top-K",
     short:
-      "Each crew can only do so many jobs a day, so Sentinel gives each crew type its K most valuable jobs. Rank = chance of a real fault × energy and money lost × days until the next visit.",
+      "Each crew can only do so many jobs a day, so WattSentry gives each crew type its K most valuable jobs. Rank = chance of a real fault × energy and money lost × days until the next visit.",
     more: "Crew types: residential installers, wind technicians and remote checks.",
   },
   "remote-check": {
@@ -190,17 +190,17 @@ export const GLOSSARY = {
   },
   eligible: {
     term: "Eligible",
-    short: "Healthy and reporting on time, so Sentinel can count on the asset at full strength.",
+    short: "Healthy and reporting on time, so WattSentry can count on the asset at full strength.",
   },
   derated: {
     term: "Derated",
     short:
-      "Still working, but below par, like a solar site with a broken panel string. Sentinel keeps it in the plan but counts on less from it.",
+      "Still working, but below par, like a solar site with a broken panel string. WattSentry keeps it in the plan but counts on less from it.",
   },
   excluded: {
     term: "Excluded",
     short:
-      "Left out of the plan: its data is stale, its battery is faulty or the turbine has stopped. Sentinel counts on nothing from it until it is healthy again.",
+      "Left out of the plan: its data is stale, its battery is faulty or the turbine has stopped. WattSentry counts on nothing from it until it is healthy again.",
   },
   curtailment: {
     term: "Curtailment",
@@ -239,7 +239,7 @@ export const GLOSSARY = {
   replay: {
     term: "Replay",
     short:
-      "A recorded run of the agent over one test week (Mon 2 – Sun 8 June 2025) in 15-minute steps, once with Sentinel and once without. The timeline plays it back.",
+      "A recorded run of the agent over one test week (Mon 2 – Sun 8 June 2025) in 15-minute steps, once with WattSentry and once without. The timeline plays it back.",
   },
 } as const satisfies Record<string, GlossaryEntry>;
 

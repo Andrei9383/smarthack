@@ -15,9 +15,9 @@ import { DetailsLink, DetailsSheet, Metric, MetricRow, SheetSection, StatusPill 
 import { type Step, useImbalanceData } from "./use-imbalance-data";
 
 // Feature I (#177, spec I step 9c): what PPC buys for its prosumers vs what they really take, today's standard
-// profile against Sentinel. The dock's Baseline/Sentinel switch flips every number on the page.
-// Calm (#201): the glance is the title + policy pill, three KPIs (Sentinel's change as a delta chip) and the
-// bought-vs-actual chart; the waterfall by policy and "What Sentinel learned" sit in the Details sheet.
+// profile against WattSentry. The dock's Baseline/WattSentry switch flips every number on the page.
+// Calm (#201): the glance is the title + policy pill, three KPIs (WattSentry's change as a delta chip) and the
+// bought-vs-actual chart; the waterfall by policy and "What WattSentry learned" sit in the Details sheet.
 
 const MARGIN = { left: 36, right: 8, top: 22, bottom: 24 };
 const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
@@ -34,7 +34,7 @@ const STRATEGY: Record<string, string> = {
   none: "No battery",
   self_consumption: "Self-consumption",
   price_driven: "Follows the price (MaxControl)",
-  enrolled: "Enrolled with Sentinel",
+  enrolled: "Enrolled with WattSentry",
   battery: "Battery, strategy not classified yet",
   unknown: "Unknown",
 };
@@ -85,7 +85,7 @@ export function ImbalancePage() {
   const base = totals.get("profile");
   const sen = totals.get("sentinel");
   const band = steps.some((s) => s.hasBand);
-  const otherName = sentinel ? "today's method" : "Sentinel";
+  const otherName = sentinel ? "today's method" : "WattSentry";
   const day = window?.from ? DAY.format(new Date(Date.parse(window.from) + 3_600_000)) : "—";
   const kpis: [string, string, keyof NonNullable<typeof now>, (v: number) => string][] = [
     ["Avoidable cost today", "lei", "avoidableLei", lei],
@@ -112,12 +112,12 @@ export function ImbalancePage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="text-page text-foreground">Prosumer portfolio: bought vs actual</h1>
-            <StatusPill status={sentinel ? "ok" : "unknown"}>{sentinel ? "Sentinel" : "Today's method"}</StatusPill>
+            <StatusPill status={sentinel ? "ok" : "unknown"}>{sentinel ? "WattSentry" : "Today's method"}</StatusPill>
           </div>
           <p className="mt-1 text-body text-muted-foreground">
             <span className="text-text-secondary tabular-nums">{day}</span>
             {" · "}
-            {sentinel ? "Sentinel: calibrated band, battery behaviour, buys its own quantile" : "Today's method: the standard consumption profile"}
+            {sentinel ? "WattSentry: calibrated band, battery behaviour, buys its own quantile" : "Today's method: the standard consumption profile"}
           </p>
         </div>
         <DetailsLink onClick={() => setDetailsOpen(true)} className="mt-1" />
@@ -138,7 +138,7 @@ export function ImbalancePage() {
                 unit={unit}
                 tone={sentinel ? "text-status-ok" : undefined}
                 // Lower is better for all three: a cut is good, a rise is bad.
-                delta={d === null ? undefined : { text: `Sentinel ${signed(d)}`, good: d < 0 ? true : d > 0 ? false : null }}
+                delta={d === null ? undefined : { text: `WattSentry ${signed(d)}`, good: d < 0 ? true : d > 0 ? false : null }}
                 sub={`${otherName} ${o == null ? "—" : fmt(o)}`}
               />
             );
@@ -177,7 +177,7 @@ export function ImbalancePage() {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         title="Prosumer portfolio: details"
-        description={`${day} · ${sentinel ? "Sentinel" : "Today's method"}`}
+        description={`${day} · ${sentinel ? "WattSentry" : "Today's method"}`}
       >
         <SheetSection
           title="What each step brings · whole replay"
@@ -214,7 +214,7 @@ export function ImbalancePage() {
           </ol>
         </SheetSection>
 
-        <SheetSection title="What Sentinel learned">
+        <SheetSection title="What WattSentry learned">
           <ul className="space-y-2.5">
             {(strategies?.rows ?? []).map((r) => (
               <li key={r.strategy} className="text-dense">

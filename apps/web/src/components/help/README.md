@@ -59,7 +59,7 @@ const tour = useTour();              // auto-opens ~0.8 s after the first visit
 | `map` | the map container | 3 · Click anything on the map |
 | `inspector` | right-hand details panel | 4 · Details and the "why" |
 | `timeline` | bottom dock (play button, clock, scrubber, actions lane) | 5 · Play the week |
-| `policy` | Baseline / Sentinel toggle | 6 · Baseline vs Sentinel |
+| `policy` | Baseline / WattSentry toggle | 6 · Baseline vs WattSentry |
 
 Step 1 (Welcome) has no target.
 
@@ -67,7 +67,7 @@ Step 1 (Welcome) has no target.
 
 1. Add an entry to `GLOSSARY` in `apps/web/src/lib/glossary.ts`:
    ```ts
-   "my-term": { term: "My term", short: "One or two plain sentences.", more: "Optional how-Sentinel-uses-it line." },
+   "my-term": { term: "My term", short: "One or two plain sentences.", more: "Optional how-WattSentry-uses-it line." },
    ```
 2. Use it: `<Term id="my-term">my term</Term>`.
 
