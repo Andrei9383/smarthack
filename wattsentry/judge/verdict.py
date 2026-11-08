@@ -1,37 +1,23 @@
-"""Judge verdict rules (team/judge-design.md §7.5) and the per-prediction output contract (§7.7).
+"""Judge verdict rules and the per-prediction output (`OUTPUT_COLUMNS`).
 
     out = apply_rules(rows, thresholds=Thresholds.from_judge(judge))   # rows: one per (witness, asset, day)
 
-`rows` needs these columns (the loop slot, `wattsentry.judge.slot.judge_rows`, builds them):
-    family        forecast | detector
-    input_bad     bool: the input window failed the physics gate (§5.4) or the telemetry is stale
-    safety_call   bool: an icing / overheating call (M6)
-    p_valid       the Judge model's P(valid), NaN where it gave none (ledger-only mode fills it with `trust`)
-    trust, n_eff  ledger trust and effective evidence of this witness in this bucket (§6.3)
-    band_scale    the bucket's band scale (§6.4), 1.0 when unknown
-    substitute    the substitute model id (§3), sub_trust its ledger trust in the same bucket (its P(valid))
-    reasons       optional list of plain-word strings from the model (feature contributions)
-
-Rules, in order; the first match wins:
+`rows` columns (built by `judge.slot`): family, input_bad, safety_call, p_valid (NaN in ledger-only mode, then
+trust is used), trust, n_eff, band_scale, substitute, sub_trust, reasons. Rules, first match wins:
     1 bad input              -> dont_use ("input unreliable")
-    2 safety pass-through    -> use (an icing / overheating call is never suppressed; "low trust" when p < tau_use)
-    3 no record (n_eff = 0)  -> use, at the prior (user decision: no record -> trust the model)
+    2 safety pass-through    -> use (an icing / overheating call is never suppressed)
+    3 no record (n_eff = 0)  -> use, at the prior
     4 p_valid >= tau_use     -> use
     5 forecast, tau_widen <= p_valid < tau_use -> widen (band_scale x widen_factor)
-    6 otherwise              -> dont_use, naming the substitute if its P(valid) here is higher, else
-                                "no reliable source" (actions must treat it as unknown)
-
-Output (§7.7), one row per prediction: verdict, p_valid, p_valid_sd, trust, n_eff, band_scale, substitute,
-reasons (<= 3 strings), rule, judge_version.
-
-Default thresholds (ledger-only mode, no calibrated Judge yet; my call): tau_use 0.70, tau_widen 0.50,
-widen_factor 1.25. A trained Judge brings its own from models/judge.calibration.json (§7.5).
+    6 otherwise              -> dont_use, naming the substitute if its P(valid) is higher, else "no reliable source"
+Default thresholds (ledger-only, no calibrated Judge): tau_use 0.70, tau_widen 0.50, widen_factor 1.25; a trained
+Judge brings its own from models/judge.calibration.json.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
 import numpy as np
@@ -71,7 +57,6 @@ class Thresholds:
     widen_factor: Any = 1.25
     judge_version: str = LEDGER_ONLY
     source: str = "default (ledger-only)"
-    extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_judge(cls, judge: Any) -> "Thresholds":
@@ -107,7 +92,7 @@ def _flag(rows: pd.DataFrame, name: str) -> np.ndarray:
 
 
 def apply_rules(rows: pd.DataFrame, thresholds: Optional[Thresholds] = None) -> pd.DataFrame:
-    """§7.5 over every row at once. Returns a frame with OUTPUT_COLUMNS, same index as `rows`."""
+    """The rules over every row at once. Returns a frame with OUTPUT_COLUMNS, same index as `rows`."""
     th = thresholds or Thresholds()
     n = len(rows)
     if n == 0:
@@ -119,7 +104,7 @@ def apply_rules(rows: pd.DataFrame, thresholds: Optional[Thresholds] = None) -> 
     n_eff = np.nan_to_num(_num(rows, "n_eff", 0.0), nan=0.0)
     p = _num(rows, "p_valid")
     model_p = np.isfinite(p)
-    p = np.where(model_p, p, trust)  # ledger-only: P(valid) = trust (§7.4, §11)
+    p = np.where(model_p, p, trust)  # ledger-only: P(valid) = trust
     sd = _num(rows, "p_valid_sd")
     scale = np.nan_to_num(_num(rows, "band_scale", 1.0), nan=1.0)
     sub_trust = _num(rows, "sub_trust")
@@ -180,7 +165,7 @@ def apply_rules(rows: pd.DataFrame, thresholds: Optional[Thresholds] = None) -> 
 
 
 def verdict_rows(judged: pd.DataFrame, run_id: str, out: Optional[pd.DataFrame] = None) -> list[dict[str, Any]]:
-    """`judge_verdicts` table rows (packages/db/src/schema/sentinel.ts) from judged rows (rows + apply_rules
+    """`judge_verdicts` table rows (packages/db/src/schema/replay.ts) from judged rows (rows + apply_rules
     output in one frame, or the two frames as `judged` and `out`)."""
     if out is not None:
         judged = pd.concat([judged.drop(columns=[c for c in out.columns if c in judged.columns]), out], axis=1)

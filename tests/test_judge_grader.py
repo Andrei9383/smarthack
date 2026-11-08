@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import inspect
 import time
+import warnings
 
 import numpy as np
 import pytest
 
 from wattsentry.agent.world import ACTION_VISIT_WEIGHT, DEFAULT_START, CrewReport, MockWorld
 from wattsentry.contracts import Prediction, PvFault
-from wattsentry.judge import OUTCOME_COLUMNS, ReplayObs, bucket_days, grade, obs_from_world
 from wattsentry.judge import gate as G
 from wattsentry.judge import grader as GR
+from wattsentry.judge.grader import OUTCOME_COLUMNS, ReplayObs, grade, obs_from_world
 from wattsentry.judge import scores as S
 
 DAY0 = int(DEFAULT_START.timestamp())
@@ -107,7 +108,8 @@ def test_nanquantile_matches_numpy():
     x[rng.random(x.shape) < 0.3] = np.nan
     x[0, 0] = np.nan
     qs = (0.1, 0.5, 0.9)
-    with GR.G._quiet():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
         ref = np.moveaxis(np.nanquantile(x, qs, axis=-1), 0, -1)
     np.testing.assert_allclose(S.nanquantile(x, qs), ref, equal_nan=True)
 
@@ -174,7 +176,6 @@ def test_gate_physics_checks():
     assert code[0, 0] & G.FROZEN and code[3, 0] & G.PV_NIGHT and code[4, 0] & G.GAP
     assert code[1, 0] == 0 and code[2, 0] == 0
     assert (code[:, 1] == 0).all()
-    assert G.reasons(G.FROZEN | G.GAP) == ["frozen", "gap"]
     # unit jump: own-history median, causal
     e = np.array([[10, 10, 10, 10, 1.0, 10, 60.0]])
     assert G.own_history_jump(e).tolist() == [[False, False, False, False, True, False, True]]
@@ -203,17 +204,6 @@ def test_96_readings_count_as_one_asset_day():
     assert r["quality"] == "clean" and r["ood_high"] is False and r["source"] == "telemetry"
 
 
-def test_bucket_day_averaging_counts_one_unit_per_bucket_day():
-    obs = make_obs(n_sites=6, days=2)
-    preds = [fc(s, d, obs.load[i, d] - 0.3, obs.load[i, d], obs.load[i, d] + 0.3)
-             for i, s in enumerate(obs.site_ids) for d in range(2)]
-    rows = grade(preds, obs, run_id="t")
-    b = [x for x in bucket_days(rows) if x["model"] == "loadnet" and x["score_name"] == "calibration"]
-    # 6 sites x 2 days -> per day, one unit per (seen, battery) bucket, not one per site
-    assert sum(x["n"] for x in b) == 12
-    assert len(b) == 2 * len({(x["seen"], x["battery"]) for x in b})
-
-
 # ---------------------------------------------------------------------------------- §12: observed_at ordering
 def test_observed_at_ordering():
     obs = make_obs(n_sites=4, days=3)
@@ -231,9 +221,7 @@ def test_observed_at_ordering():
     assert a[0]["weight"] == 1.0  # explicit report weight; world.crew_report defaults action visits to 0.5
     assert [r["observed_at"] for r in rows] == sorted(r["observed_at"] for r in rows)
     # the ledger view on day 1 must not contain the crew report of day 2
-    early = bucket_days(rows, as_of=iso(DAY0 + 2 * DAY))
-    assert not [x for x in early if x["model"] == "sitehealth"]
-    assert [x for x in bucket_days(rows) if x["model"] == "sitehealth"]
+    assert not [r for r in pick(rows, model="sitehealth") if r["observed_at"] <= iso(DAY0 + 2 * DAY)]
 
 
 def test_m7_waits_14_days_and_m8_flags():
@@ -279,9 +267,7 @@ def test_gated_days_are_ungraded():
     assert all(r["score"] is None for r in g)
     assert {r["score_name"] for r in g} == {"calibration", "sharpness", "miss_score"}  # never a miss, never a pass
     assert not pick(rows, asset_id="S1", day=obs.day_label[0], score_name="norm_err")
-    b = bucket_days(rows)
-    assert all(x["score"] is not None for x in b)
-    assert sum(x["n"] for x in b if x["model"] == "pvnet" and x["score_name"] == "calibration") == 5
+    assert len([r for r in pick(rows, model="pvnet", score_name="calibration") if not r["gated"]]) == 5
 
 
 # ---------------------------------------------------------------------------------- crew reports + audit IPW

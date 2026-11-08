@@ -1,29 +1,15 @@
-"""The Judge slot in the agent loop (team/judge-design.md §7.5, §7.7, §8, §11, §13; card #149).
+"""The Judge slot in the agent loop: one verdict per (witness, asset, day), written to `judge_verdicts`.
 
     slot = JudgeSlot.load(models_dir)                  # never raises; ledger-only mode when the Judge is missing
     slot.start_run(world, run_id, sink)
     slot.at_t0(d, t0, pv_p, ld_p, hl_p, ages_t0_s)     # PV / load / SiteHealth verdicts, before decide
-    slot.observe_wind_tick(k, wind_preds)              # M6 classes as the loop sees them, tick by tick
-    slot.at_end_of_day(d, oday, tday, pv_p, ld_p)      # M6 day verdicts, grading hook, ledger update, trust rows
+    slot.observe_wind_tick(d, k, wind_preds)           # M6 classes as the loop sees them, tick by tick
+    slot.at_end_of_day(d, t0, oday, tday, wd_p, ...)   # M6 day verdicts, grading, ledger update, trust rows
 
-What it does: one verdict per (witness, asset, day), written to `judge_verdicts` next to the predictions. Actions
-are still open (§10): nothing in the loop reads the verdicts, so decisions and KPIs are unchanged with the judge on.
-
-Pieces, each optional (guarded imports, §11 "Judge model cannot load -> ledger-only mode"):
-- Judge model (J3, #148): `wattsentry.judge.model.load_judge(models_dir) -> Judge | None`; `Judge.predict(rows)` ->
-  p_valid, p_valid_sd, reasons; thresholds tau_use / tau_widen / widen_factor and judge_version. Missing module or
-  weights -> P(valid) = ledger trust, judge_version "ledger-only".
-- Ledger (J2, #147): `wattsentry.judge.ledger.Ledger` with `lookup(model, model_version, score_name, bucket, day)`
-  and `update(outcomes)`. Missing -> `PriorLedger`: trust = the model's validation prior (the `priors` block of its
-  calibration JSON, models/judge_priors.json, windnbm.priors.json), n_eff = 0, so every verdict is rule 1 or 3
-  (§11 "ledger empty": the agent behaves as today, at validated strength).
-- Grader (J1, #146): `wattsentry.judge.grader.grade` (via `_J1Grader`) -> §8 outcome rows at the end of each day.
-  Missing -> no outcomes, trust stays at the prior.
-
-Causality (§5.1, §5.5): at t0 the slot reads only the predictions, telemetry age at t0, and the observed telemetry
-of past days (kept from earlier `at_end_of_day` calls). Never fault labels or simulator truth.
-
-The per-prediction rows frame (`judge_rows`, also what J3 trains on) is documented on card #149 and in ROW_COLUMNS.
+Observer only: nothing in the loop reads the verdicts, so decisions and KPIs are identical with the judge on.
+Each piece degrades gracefully: no Judge model/weights -> P(valid) = ledger trust ("ledger-only"); no ledger ->
+`PriorLedger` (trust = validation prior, n_eff = 0); no grader -> no outcomes. At t0 the slot reads only the
+predictions, telemetry ages and past observed telemetry, never fault labels or simulator truth.
 """
 
 from __future__ import annotations
@@ -43,22 +29,20 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from .buckets import ancestors, season_of
 from .buckets import bucket_key as _bucket_key
-from .buckets import season_of
+from .gate import FROZEN_STEPS, JUMP_HI, JUMP_LO, TURB_MAX_FRAC
+from .gate import PV_MAX_FRAC as PV_MAX_KWP
 from .verdict import LEDGER_ONLY, SAFETY_CLASSES, Thresholds, apply_rules, verdict_rows
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MODELS = REPO_ROOT / "models"
 STALE_S = 3600.0  # qualify's stale limit (models/thresholds.json site.stale_minutes = 60)
-GAPPY = 0.10  # §6.1: > 10 % missing steps = gappy
-FROZEN_STEPS = 8  # §5.4: the same value for >= 8 steps
-PV_MAX_KWP = 1.2  # §5.4: PV <= 1.2 x kWp
-TURBINE_MAX_RATED = 1.1  # §5.4: turbine power <= 1.1 x rated
-UNIT_JUMP = (0.2, 5.0)  # §5.4: daily energy outside 0.2-5 x the asset's own median
+GAPPY = 0.10  # > 10 % missing steps = gappy
 ALARM_P = 0.6  # models/thresholds.json site.pfault_confident
 OOD_MAX = 3.0  # models/thresholds.json site/turbine ood_max
 
-# witness -> (family, substitute model id (J2 priors names), primary score for P(valid) in ledger-only mode)
+# witness -> (family, substitute model id as named in the priors)
 WITNESSES = {
     "pvnet": ("forecast", "lgbm_pv"),
     "loadnet": ("forecast", "lgbm_load"),
@@ -68,7 +52,7 @@ WITNESSES = {
     "windfailure": ("detector", "residual_trend"),
     "gridtwin": ("detector", "gis_recorded"),
 }
-LEDGER_ONLY_WITNESSES = frozenset({"windfailure", "gridtwin"})  # §7.4: too few graded outcomes to train on
+LEDGER_ONLY_WITNESSES = frozenset({"windfailure", "gridtwin"})  # too few graded outcomes to train on
 SCORES = {"forecast": ("calibration", "sharpness"), "detector": ("alarm_precision", "miss_score")}
 ROW_COLUMNS = (
     # id / context
@@ -91,15 +75,9 @@ def log(msg: str) -> None:
     print(f"[judge] {msg}", file=sys.stderr, flush=True)
 
 
-# ------------------------------------------------------------------------------------------- buckets (§6.1)
-def bucket_ancestors(key: str) -> list[str]:
-    parts = key.split("|") if key and key != "*" else []
-    return ["|".join(parts[:lv]) for lv in range(len(parts), 0, -1)] + ["*"]
-
-
 # ------------------------------------------------------------------------------------------- built-in ledger
 class PriorLedger:
-    """No live record: trust = the validation prior of that model version (§6.2), n_eff = 0, band scale 1."""
+    """No live record: trust = the validation prior of that model version, n_eff = 0, band scale 1."""
 
     version = "builtin:prior-only"
 
@@ -137,7 +115,7 @@ class PriorLedger:
 
     def prior(self, model: str, score: str, bucket: str) -> float:
         by_bucket = self.priors.get(model, {}).get(score, {})
-        for key in bucket_ancestors(bucket):
+        for key in ancestors(bucket):
             if key in by_bucket:
                 return by_bucket[key]
         return float("nan")
@@ -153,7 +131,7 @@ class PriorLedger:
 
 
 class _LedgerAdapter:
-    """Duck-typed wrapper over J2's ledger: lookup -> the mapping the slot needs, update(outcomes)."""
+    """Duck-typed wrapper over a ledger: lookup -> the mapping the slot needs (prior-only on errors), update."""
 
     def __init__(self, obj: Any, fallback: PriorLedger):
         self.obj, self.fallback = obj, fallback
@@ -187,10 +165,9 @@ class _LedgerAdapter:
                 f"counted, not printed)")
 
 
-class _J2Ledger:
-    """J2's batch ledger (#147, `wattsentry.judge.ledger.Ledger(outcomes, priors, start)`) used day by day: outcomes
-    accumulate as the replay grades them, the ledger is rebuilt when they change, and `lookup(day=D)` reads only
-    outcomes with observed_at <= D (J2's causal grid). No outcomes yet -> the version's prior (J2 `Priors`)."""
+class _BatchLedger:
+    """`judge.ledger.Ledger` used day by day: outcomes accumulate as the replay grades them, the ledger is rebuilt
+    when they change, and `lookup(day=D)` reads only outcomes observed by D. No outcomes yet -> the version's prior."""
 
     def __init__(self, mod: Any, models_dir: Path, start: Optional[str] = None, run_id: str = ""):
         self.mod, self.start, self.run_id = mod, start, run_id
@@ -228,10 +205,10 @@ def _load_ledger(models_dir: Path, start: Optional[str] = None, run_id: str = ""
     except Exception as e:
         log(f"WARNING wattsentry.judge.ledger failed to import ({type(e).__name__}: {e}); prior-only ledger")
         return fallback
-    try:  # J2 (#147)
-        return _LedgerAdapter(_J2Ledger(mod, models_dir, start, run_id), fallback)
+    try:
+        return _LedgerAdapter(_BatchLedger(mod, models_dir, start, run_id), fallback)
     except Exception as e:
-        log(f"WARNING J2 ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
+        log(f"WARNING ledger could not be built ({type(e).__name__}: {e}); prior-only ledger")
         return fallback
 
 
@@ -249,13 +226,12 @@ def _load_model(models_dir: Path) -> tuple[Any, str]:
     return (j, "loaded") if j is not None else (None, "no Judge weights")
 
 
-class _J1Grader:
-    """J1's grader (#146, `wattsentry.judge.grader.grade`) called once per replay day on that day's predictions.
+class _DayGrader:
+    """`judge.grader.grade` called once per replay day on that day's predictions.
 
-    Observations come from `obs_from_world` (what the agent observed, built once per run); reports are the Judge's
-    audit checks for the day (`world.audit_checks`, sampled towards uncertain verdicts, §5.6); M8 flags on day 0.
-    Outcomes that need later data (residual check, visits) carry their own later observed_at, and the ledger only
-    reads an outcome from the day it was observable (§5.5)."""
+    Observations come from `obs_from_world` (what the agent observed, built once per run); reports are the day's
+    audit checks (sampled towards uncertain verdicts); M8 flags on day 0. Outcomes that need later data carry their
+    own later observed_at, and the ledger only reads an outcome from the day it was observable."""
 
     def __init__(self, mod: Any):
         self.mod = mod
@@ -274,13 +250,7 @@ class _J1Grader:
                 p = copy.copy(p)  # the loop's per-tick M6 stand-in classes, summarised as the day's call
                 p.anomaly_class, p.anomaly_score = calls[t]
             preds.append(p)
-        reports = []
-        if hasattr(w, "audit_checks"):
-            weights = ctx.get("audit_weights") or None
-            try:
-                reports = list(w.audit_checks(d, weights=weights))
-            except TypeError:
-                reports = list(w.audit_checks(d))
+        reports = list(w.audit_checks(d, weights=ctx.get("audit_weights") or None))
         kw: dict[str, Any] = {"run_id": ctx["run_id"], "horizon_end_ts": int(w.day_ts(d)) + 86400}
         if d == 0 and ctx.get("gis_flags"):
             kw["gis_flags"] = ctx["gis_flags"]
@@ -293,10 +263,10 @@ def _load_grader() -> Optional[Callable[[dict[str, Any]], Any]]:
         mod = importlib.import_module("wattsentry.judge.grader")
     except Exception:
         return None
-    return _J1Grader(mod)
+    return _DayGrader(mod)
 
 
-# ------------------------------------------------------------------------------------------- input gate (§5.4)
+# ------------------------------------------------------------------------------------------- input gate
 def _runs_frozen(x: np.ndarray, ok: np.ndarray, n: int = FROZEN_STEPS) -> np.ndarray:
     """[A, T] -> [A] bool: >= n consecutive equal observed values > 0.05, ignoring runs at the day's max (a clipped
     inverter is flat at its limit; that is clipping, not a frozen sensor)."""
@@ -320,8 +290,7 @@ def _unit_jump(energy_today: np.ndarray, history: np.ndarray) -> np.ndarray:
     with np.errstate(invalid="ignore", divide="ignore"):
         med = np.nanmedian(history, axis=1)
         r = energy_today / med
-    lo, hi = UNIT_JUMP
-    return np.isfinite(r) & (med > 0.5) & ((r < lo) | (r > hi))
+    return np.isfinite(r) & (med > 0.5) & ((r < JUMP_LO) | (r > JUMP_HI))
 
 
 def _f(v: Any, default: float = float("nan")) -> float:
@@ -406,7 +375,7 @@ class JudgeSlot:
         t = time.perf_counter()
         try:
             return fn(*a)
-        except Exception as e:  # the judge never stops the loop: it is an observer until actions read it (§10)
+        except Exception as e:  # the judge is an observer: it never stops the loop
             n = self.errors.get(fn.__name__, 0)
             self.errors[fn.__name__] = n + 1
             if n == 0:
@@ -583,7 +552,7 @@ class JudgeSlot:
             why = []
             if tail * 900 > STALE_S:
                 why.append("SCADA stale")
-            if np.any(ok & (np.nan_to_num(x) > TURBINE_MAX_RATED * rated)):
+            if np.any(ok & (np.nan_to_num(x) > TURB_MAX_FRAC * rated)):
                 why.append("power over 1.1 x rated")
             if _runs_frozen(np.nan_to_num(x)[None, :], ok[None, :])[0]:
                 why.append("frozen power reading")
@@ -607,7 +576,7 @@ class JudgeSlot:
         return pd.DataFrame(out)
 
     def gis_rows(self, t0: str) -> pd.DataFrame:
-        """M8 flags (ledger-only, §7.4): one row per flagged site, judged on day 0 when the twin runs."""
+        """M8 flags (ledger-only): one row per flagged site, judged on day 0 when the twin runs."""
         d_iso, month, season = self._context(t0)
         out = []
         for fl in self.gis_flags:
@@ -717,7 +686,7 @@ class JudgeSlot:
         return rows
 
     def decide(self, d: int, rows: pd.DataFrame) -> pd.DataFrame:
-        """Ledger columns -> P(valid) -> §7.5 rules. Returns rows + the §7.7 output columns."""
+        """Ledger columns -> P(valid) -> verdict rules. Returns rows + the verdict output columns."""
         if rows.empty:
             return rows
         rows = self._fill_ledger(d, rows)
@@ -804,7 +773,7 @@ class JudgeSlot:
             if p is not None and ok.sum() >= 48:
                 e_fc = float(np.asarray(p.q50, float)[ok].sum())
                 self.residual_d1[s] = float(np.nansum(pv[ok])) / e_fc - 1.0 if e_fc > 1e-3 else float("nan")
-        # grading hook (J1) -> outcomes table + ledger update; observed_at ordering is the grader's job (§5.5)
+        # grading -> outcomes table + ledger update; observed_at ordering is the grader's job
         if self.grader is not None:
             rows = self.day_rows.get(d)
             ctx = {"run_id": self.run_id, "d": d, "day": rows["day"].iat[0] if rows is not None and len(rows) else None,
@@ -824,7 +793,7 @@ class JudgeSlot:
             if outc is not None and len(outc):
                 outc = led_rows = pd.DataFrame(outc)  # the ledger gets the grader's rows as they are
                 if "outcomes" in self.tables:
-                    if "bucket" not in outc.columns and "kind" in outc.columns:  # J1 rows carry the conditions
+                    if "bucket" not in outc.columns and "kind" in outc.columns:  # grader rows carry the conditions
                         outc = outc.assign(bucket=[
                             _bucket_key(kind=r.get("kind", "site"), seen=bool(r.get("seen", True)),
                                         battery=bool(r.get("battery", False)),
@@ -840,7 +809,7 @@ class JudgeSlot:
         return judged
 
     def _audit_weights(self, rows: Optional[pd.DataFrame]) -> dict[str, float]:
-        """§5.6: audit draws favour assets whose least-trusted verdict sits near a threshold (weight 0.1 + bump)."""
+        """Audit draws favour assets whose least-trusted verdict sits near a threshold (weight 0.1 + bump)."""
         if rows is None or rows.empty or "p_valid" not in rows:
             return {}
         p = rows.groupby("asset_id")["p_valid"].min().dropna()

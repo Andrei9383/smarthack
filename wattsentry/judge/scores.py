@@ -1,4 +1,4 @@
-"""Scores that cannot be gamed (team/judge-design.md §5.3). All in 0..1, higher is better; NaN = ungraded.
+"""Scores that cannot be gamed. All in 0..1, higher is better; NaN = ungraded.
 
 Vectorised: every function takes [P, T] arrays (P asset-days, T = 96 steps) plus a validity mask and returns [P].
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-TARGET_COVERAGE = 0.80  # team decision 13:52: P10-P90 should hold 80 %
+TARGET_COVERAGE = 0.80  # P10-P90 should hold 80 %
 ALPHA = 1.0 - TARGET_COVERAGE  # central interval -> Winkler alpha = 0.2
 MIN_STEPS = 8  # fewer valid steps in a day -> ungraded
 

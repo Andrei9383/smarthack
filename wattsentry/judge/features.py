@@ -124,7 +124,7 @@ def summarize_forecast(q10, q50, q90, kind: str) -> dict[str, np.ndarray]:
 
 def input_quality(y_prev: np.ndarray, valid_prev: Optional[np.ndarray] = None,
                   energy_ref: Optional[np.ndarray] = None) -> dict[str, np.ndarray]:
-    """Quality flags of the INPUT window (the day before the prediction), physics/own-history only (§5.4 spirit):
+    """Quality flags of the INPUT window (the day before the prediction), physics and own history only:
     in_gap_frac (missing or invalid share), in_frozen (same non-zero value >= 8 steps in a row), in_unit_jump
     (daily energy outside 0.2-5 x the asset's own reference energy)."""
     y = np.atleast_2d(np.asarray(y_prev, float))

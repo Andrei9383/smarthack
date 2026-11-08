@@ -1,40 +1,25 @@
-"""Trust ledger: how far each witness can be believed, per situation (team/judge-design.md §6).
+"""Trust ledger: how far each witness can be believed, per situation.
 
-Input: graded outcome rows (§8 `outcomes`) with bucket attributes, written by the grader (J1, #146):
+Input: graded outcome rows (run_id, model, model_version, asset_id, day, score_name, score, weight, source,
+observed_at, gated) with either a ready `bucket` key (judge.buckets) or the columns kind, seen, battery, quality,
+ood_high (season derived from `day` unless given). `gated = 1` rows are ignored. `norm_err` rows carry normalised
+forecast errors for the band scale, e = (q50 − y)/(q50 − q10) below the median, (y − q50)/(q90 − q50) above it.
+`brier` rows (lower is better) are details, not trust scores.
 
-    run_id, model, model_version, asset_id, day, score_name, score, weight, source, observed_at, gated
-    + bucket attributes: either a ready `bucket` key (wattsentry/judge/buckets.py) or the columns
-      kind (site|turbine|zone|feeder), seen (bool), battery (bool), quality ('clean'|'gappy' or bool gappy),
-      ood_high (bool); season is derived from `day` unless a `season` column is given.
-
-`gated = 1` means the asset-day failed the §5.4 quality gate: it is ungraded and ignored. Rows with
-`score_name = "norm_err"` are not trust scores: they carry normalised forecast errors for the band scale (§6.4),
-e = (q50 − y)/(q50 − q10) below the median, (y − q50)/(q90 − q50) above it, any number of rows per asset-day.
-
-Output: one row per (day, model, model_version, bucket, score_name) in the §8 `trust` shape (`trust_rows`).
-
-The rules (§6), all evaluated causally on each day D:
-- only outcomes with observed_at ≤ D are used (§5.5);
-- all asset-day scores of one (witness, version, score, bucket, day) are averaged into one bucket-day (§5.7); its
-  weight is min(1, mean outcome weight), so a day counts as at most one unit and action-caused visits (weight 0.5)
-  count half; inverse-probability weights > 1 only weight the mean within the day;
-- trust = (n0·prior + Σ wᵢ·sᵢ)/(n0 + Σ wᵢ), n0 = 7 bucket-days, wᵢ = 0.5^(age/14) × bucket-day weight, where age is
-  D minus the outcome's day; n_eff = Σ wᵢ (≤ ≈ 20.7 at this half-life, so trust can move far from the prior);
-- below 5 effective bucket-days a bucket reads its parent (conditions dropped last to first); below 5 at the root
-  (all of the model's evidence) it reads the prior; the prior comes from the model version's own validation
-  priors (`Priors`), so a new version starts from its own prior and **no record → trust = prior**;
+Rules, evaluated causally on each day D:
+- only outcomes with observed_at ≤ D are used;
+- the asset-day scores of one (witness, version, score, bucket, day) average into one bucket-day of weight
+  min(1, mean outcome weight), so a day counts at most once and action-caused visits (weight 0.5) count half;
+- trust = (n0·prior + Σ wᵢ·sᵢ)/(n0 + Σ wᵢ), n0 = 7, wᵢ = 0.5^(age/14) × bucket-day weight; n_eff = Σ wᵢ;
+- below 5 effective bucket-days a bucket reads its parent, below 5 at the root it reads the version's validation
+  prior (`Priors`): no record → trust = prior;
 - 80 % interval from Beta(trust·(n0+n_eff), (1−trust)·(n0+n_eff));
-- band scale: weighted split-conformal 0.80 quantile of the normalised errors (row mass = weight × decay), with
-  the same causality and backoff (≥ 5 effective bucket-days, one unit per bucket-day with norm_err rows),
-  bounded to 0.5–3 (1 when there is no evidence);
-- `brier` rows (M7 detail, lower is better) are not trust scores and are ignored;
-- health alert per bucket series: raised when trust < prior − 0.2 for 3 consecutive days with n_eff ≥ 5, cleared
-  when trust > prior − 0.1.
+- band scale: weighted 0.80 quantile of the normalised errors, same causality and backoff, bounded to 0.5–3;
+- health alert: raised after 3 consecutive days with trust < prior − 0.2 and n_eff ≥ 5, cleared above prior − 0.1.
 
-Implementation: the decay is a common factor, Σ 0.5^((D−dᵢ)/14)·xᵢ = 0.5^(D/14)·Σ 2^(dᵢ/14)·xᵢ, so every
-bucket-day becomes a fixed-weight event at its observation day, and the ledger over all days is a cumulative sum
-over observation days on a dense (series × day) grid. A bucket-day whose composition changes when a late outcome
-arrives (a crew report after the telemetry) enters as the delta of its contribution. No per-day Python loop.
+Implementation: Σ 0.5^((D−dᵢ)/14)·xᵢ = 0.5^(D/14)·Σ 2^(dᵢ/14)·xᵢ, so every bucket-day is a fixed-weight event at its
+observation day and the whole ledger is a cumulative sum on a dense (series × day) grid; a bucket-day changed by a
+late outcome enters as the delta of its contribution.
 """
 
 from __future__ import annotations
@@ -53,27 +38,25 @@ from scipy.special import betaincinv
 
 from wattsentry.judge.buckets import CONDITIONS, ROOT, ancestors, truncate
 
-N0 = 7.0                # prior strength in bucket-days (§6.3)
-HALF_LIFE = 14.0        # days (§6.3)
-MIN_EVIDENCE = 5.0      # effective bucket-days before a bucket is read instead of its parent (§6.1)
+N0 = 7.0                # prior strength in bucket-days
+HALF_LIFE = 14.0        # days
+MIN_EVIDENCE = 5.0      # effective bucket-days before a bucket is read instead of its parent
 ALERT_DROP = 0.2        # raise below prior − 0.2 ...
 ALERT_DAYS = 3          # ... for 3 consecutive days ...
-ALERT_CLEAR = 0.1       # ... clear above prior − 0.1 (§6.5)
+ALERT_CLEAR = 0.1       # ... clear above prior − 0.1
 BAND_TARGET = 0.80
 BAND_MIN, BAND_MAX = 0.5, 3.0
 BAND_SCORE = "norm_err"
 DETAIL_SCORES = frozenset({"brier"})  # graded details (lower is better), not trust scores
-DEFAULT_PRIOR = 0.5     # only for a model with no priors at all (should not happen once #147's priors ship)
-PRIOR_MIN_N = 20        # validation asset-days for a bucket's own prior to count as "covered" (§6.2)
+DEFAULT_PRIOR = 0.5     # only for a model with no priors at all
+PRIOR_MIN_N = 20        # validation asset-days for a bucket's own prior to count as "covered"
 INTERVAL = (0.10, 0.90)
 
 _BAND_EDGES = np.geomspace(BAND_MIN, BAND_MAX, 65)  # 64 log bins inside the bounds (2.8 % resolution)
-TRUST_COLUMNS = ["run_id", "day", "model", "model_version", "bucket", "score_name", "prior", "n_eff", "trust",
-                 "lo80", "hi80", "band_scale", "health_alert"]
 _STR = ("model", "model_version", "score_name", "bucket")
 
 
-# ---------------------------------------------------------------- priors (§6.2)
+# ---------------------------------------------------------------- priors
 
 @dataclass
 class Priors:
@@ -155,7 +138,7 @@ def _local_day(v: str) -> int:
 
 def _daynum_np(s: pl.Series) -> np.ndarray:
     """Day numbers (days since 1970-01-01) of a date / timestamp column. Timestamps are taken in local time
-    (Europe/Bucharest): J1 writes observed_at as the UTC instant of the next local midnight, e.g.
+    (Europe/Bucharest): the grader writes observed_at as the UTC instant of the next local midnight, e.g.
     2024-06-02T21:00:00Z = 2024-06-03 00:00 EEST, which must count as 06-03, not as the graded day 06-02."""
     if s.dtype == pl.Date or s.dtype.is_integer():
         return s.cast(pl.Int32).to_numpy()
@@ -305,7 +288,7 @@ def _band_units(c: Coded, n_buckets: int) -> pl.DataFrame | None:
     day = (nz // L) % nd + dmin
     return pl.DataFrame({"base": (lab // n_buckets).astype(np.int32), "b": (lab % n_buckets).astype(np.int32),
                          "day": day.astype(np.int32), "obs": (day + nz % L).astype(np.int32),
-                         # norm_err rows split their asset-day's weight (J1: 1/k each), so their mean weight says
+                         # norm_err rows split their asset-day's weight (1/k each), so their mean weight says
                          # nothing about the unit: each bucket-day with band rows counts as one unit
                          "sw": np.where(sw[nz] > 0, 1.0, 0.0) * n[nz],
                          "n": n[nz].astype(np.uint32)})
@@ -377,7 +360,7 @@ class _BandLevel:
 
 
 class Ledger:
-    """A replayed ledger over a day grid. `trust_rows()` gives the §8 table; `lookup()` answers any bucket."""
+    """A replayed ledger over a day grid. `frame()` gives every series on every day; `lookup()` answers any bucket."""
 
     def __init__(self, outcomes, priors: Priors | None = None, start=None, end=None, run_id: str = ""):
         self.priors = priors or Priors()
@@ -439,7 +422,7 @@ class Ledger:
                                  _alert_state(trust, prior, w)))
         return levels  # levels[0] = full buckets ... levels[-1] = root
 
-    # ---- band scale (§6.4)
+    # ---- band scale
     def _band_levels(self, c: Coded) -> list[_BandLevel]:
         """Recency-weighted conformal quantile per bucket from a dense (series × observation day × bin) histogram
         of the normalised errors; each row has mass weight × 2^(day/HL) (the common decay cancels in a quantile);
@@ -565,29 +548,6 @@ class Ledger:
                 .select(*_STR, pl.col("day").cast(pl.Date), *num[:-1], "read_conditions")
                 .with_columns(pl.col("health_alert").cast(pl.Int8)))
 
-    def trust_rows(self, extra=()) -> pl.DataFrame:
-        """The §8 `trust` table."""
-        f = self.frame(extra)
-        return f.with_columns(pl.lit(self.run_id).alias("run_id"),
-                              pl.col("day").cast(pl.Utf8)).select(TRUST_COLUMNS)
-
-    def alerts(self) -> pl.DataFrame:
-        """Health-alert episodes per series at every bucket level (e.g. "pvnet degraded on site|unseen since
-        2025-06-04"): model, model_version, score_name, bucket, since, until (null = still raised)."""
-        rows = []
-        for L in self.levels:
-            for r in np.flatnonzero(L.alert.any(axis=1)):
-                a = np.concatenate([[0], L.alert[r], [0]]).astype(np.int8)
-                starts, ends = np.flatnonzero(np.diff(a) == 1), np.flatnonzero(np.diff(a) == -1)
-                m, v, s, k = L.keys[int(r)]
-                for s0, e0 in zip(starts, ends):
-                    rows.append(dict(model=m, model_version=v, score_name=s, bucket=k, since=self.d0 + int(s0),
-                                     until=None if e0 >= self.n_days else self.d0 + int(e0)))
-        schema = {"model": pl.Utf8, "model_version": pl.Utf8, "score_name": pl.Utf8, "bucket": pl.Utf8,
-                  "since": pl.Int32, "until": pl.Int32}
-        out = pl.DataFrame(rows, schema=schema)
-        return out.with_columns(pl.col("since").cast(pl.Date), pl.col("until").cast(pl.Date))
-
 
 # ---------------------------------------------------------------- helpers
 
@@ -652,34 +612,3 @@ def _daynum(d) -> int:
     if isinstance(d, dt.date):
         return (d - _EPOCH).days
     return _local_day(str(d))
-
-
-def replay(outcomes, priors: Priors | None = None, run_id: str = "", start=None, end=None) -> pl.DataFrame:
-    """Replay the ledger over the outcomes' days → §8 `trust` rows."""
-    return Ledger(outcomes, priors, start, end, run_id).trust_rows()
-
-
-def main() -> None:
-    """python -m wattsentry.judge.ledger outcomes.parquet --out trust.parquet [--models models] [--alerts a.csv]"""
-    import argparse
-    import time
-    ap = argparse.ArgumentParser(description="Replay the Judge trust ledger (§6) over graded outcome rows.")
-    ap.add_argument("outcomes", type=Path, help="parquet/csv with §8 outcomes rows + bucket columns")
-    ap.add_argument("--out", type=Path, required=True, help="trust rows (.parquet or .csv)")
-    ap.add_argument("--models", type=Path, default=Path("models"), help="dir with calibration JSONs + priors")
-    ap.add_argument("--alerts", type=Path, help="optional csv of health-alert episodes")
-    ap.add_argument("--run-id", default="")
-    a = ap.parse_args()
-    t = time.perf_counter()
-    df = pl.read_parquet(a.outcomes) if a.outcomes.suffix == ".parquet" else pl.read_csv(a.outcomes)
-    led = Ledger(df, Priors.from_dir(a.models), run_id=a.run_id)
-    rows = led.trust_rows()
-    (rows.write_parquet if a.out.suffix == ".parquet" else rows.write_csv)(a.out)
-    if a.alerts:
-        led.alerts().write_csv(a.alerts)
-    print(f"LAB_METRIC t_ledger_s={time.perf_counter() - t:.3f}")
-    print(f"{df.height} outcome rows -> {rows.height} trust rows, {led.alerts().height} alert episodes")
-
-
-if __name__ == "__main__":
-    main()

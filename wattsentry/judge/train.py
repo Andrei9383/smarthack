@@ -1,21 +1,10 @@
-"""Judge training (team/judge-design.md §7.4-§7.6, §9 metrics): `python train.py --model judge [flags]`.
+"""Judge training: `python train.py --model judge [--quick] [--bench-device --device auto]`.
 
-    python train.py --model judge                         # 12 weeks of 2024 -> train, 12 weeks of 2025 -> test
-    python train.py --model judge --quick                 # smoke test: few sites / weeks / seeds (minutes, local)
-    python train.py --model judge --bench-device          # also time LightGBM on CPU (all threads) vs GPU
-    python -m wattsentry.judge.train --apply LOG_OR_DIR     # install a run's artifacts into models/
-
-Stages (each logs LAB_METRIC t_<stage>_s; gpu_util is sampled through the whole run):
-  data        the #10 window cache (built once into $LAB_CACHE_DIR/sentinel when missing)
-  rows_2024   training rows: sampled weeks replayed in a process pool (wattsentry.judge.rows), cached by code+config
-  rows_2025   test rows, same recipe with another seed (drift + cold starts included; "clean" = weeks without)
-  fit_<fam>   LightGBM per family, 5 seeds, on 70 % of the 2024 assets (15 % of those for early stopping)
-  calibrate   isotonic on the held-out 30 % of assets; tau_use (>= 90 % precision) and tau_widen / widen_factor
-  evaluate    2025: Judge vs ledger-only (isotonic on trust, same threshold rule) vs trust-everything
-Primary metrics (2025, all witnesses pooled, verdicts incl. rule 3 "no record -> use"): brier, precision_use,
-recall_dont_use; per family and per baseline with prefixes. Artifacts in --out ($LAB_OUTPUT_DIR): judge.<family>.s<k>
-.txt (LightGBM text), judge.calibration.json, judge_report.json; the same files are also printed to the log
-(JUDGE_FILE lines, gzip+base64) so `--apply` can install them from a saved log of a worker we cannot reach.
+Rows of 12 sampled weeks of 2024 (train) and 2025 (test, another seed) from `judge.rows`; LightGBM per family,
+5 seeds, on 70 % of the 2024 assets, isotonic calibration and thresholds on the other 30 %; 2025 evaluation of the
+Judge vs ledger-only vs trust-everything (LAB_METRIC brier, precision_use, recall_dont_use, ...). Artifacts in --out
+($LAB_OUTPUT_DIR): judge.<family>.s<k>.txt, judge.calibration.json, judge_report.json, also printed to the log
+(JUDGE_FILE lines, gzip+base64) so `python -m wattsentry.judge.train --apply LOG_OR_DIR` can install them into models/.
 """
 
 from __future__ import annotations
@@ -101,12 +90,12 @@ def ensure_windows(log=print) -> Path:
     w = find_windows()
     if w is None:
         from wattsentry.model.data import build_lab_windows
-        log("[judge] no #10 window cache: building fleet + faults + windows (one-off)")
+        log("[judge] no window cache: building fleet + faults + windows (one-off)")
         w = build_lab_windows(verbose=True)
     if w is None:
         raise SystemExit("judge: no window cache and it could not be built")
     log(f"[judge] windows: {w}")
-    try:  # M6 rows need #22/#23's wind data (built once, ~1 min); without it the detector family is M4 only
+    try:  # M6 rows need the wind data (built once, ~1 min); without it the detector family is M4 only
         from wattsentry.model.wind.data import external_wind_dir
         if external_wind_dir() is None:
             from wattsentry.sim.wind.build import build
@@ -127,8 +116,8 @@ def cal_assets(asset_ids: pd.Series, share: float = 0.3) -> np.ndarray:
 def fit_and_calibrate(tr: pd.DataFrame, fam: str, args, device: str, log=print) -> tuple[JM.FamilyModel, dict]:
     X, y = F.build(tr, fam), tr["valid"].to_numpy(float)
     cal = cal_assets(tr["asset_id"], args.cal_share)
-    # early stopping on whole held-out weeks (one sampled week per month): with 6 drift episodes, held-out assets of
-    # the same weeks reward memorising each week (train#908 ran to the 1500-round cap and lost test AUC)
+    # early stopping on whole held-out weeks (one sampled week per month): held-out assets of the same weeks reward
+    # memorising each week's drift episode (runs then hit the round cap and lose test AUC)
     es_groups = tr.loc[~cal, "month"].to_numpy() if "month" in tr else tr.loc[~cal, "asset_id"].to_numpy()
     boosters, info = JM.fit_family(X[~cal], y[~cal], es_groups, fam,
                                    seeds=range(args.seeds), rounds=args.rounds, threads=args.threads, device=device,
@@ -165,7 +154,7 @@ def fit_and_calibrate(tr: pd.DataFrame, fam: str, args, device: str, log=print) 
     return fm, {"iso": lo_iso, "tau": lo_tau, "widen": lo_widen, "factor": lo_factor}
 
 
-def evaluate(te: pd.DataFrame, fams: dict, lo: dict, prefix: str = "") -> dict:
+def evaluate(te: pd.DataFrame, fams: dict, lo: dict) -> dict:
     """Judge vs ledger-only vs trust-everything on test rows. Returns {name: metrics}."""
     res, pooled = {}, {"judge": ([], [], [], []), "ledger": ([], [], [], []), "trust_all": ([], [], [], [])}
     for fam, fm in fams.items():

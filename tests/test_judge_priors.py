@@ -1,4 +1,4 @@
-"""Judge priors (§6.2): score functions and per-bucket aggregation, on small arrays (no fleet)."""
+"""Judge priors: score functions and per-bucket aggregation, on small arrays (no fleet)."""
 
 import json
 from pathlib import Path
