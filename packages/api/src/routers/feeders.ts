@@ -1,31 +1,18 @@
 import { implement } from "@orpc/server";
-import {
-  assets,
-  commitments,
-  feederCurves,
-  feeders,
-  gisFlags,
-  schedules,
-} from "@wattsentry/db/schema/sentinel";
-import { and, asc, eq, gt, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
+import { assets, feederCurves, feeders, gisFlags, schedules } from "@wattsentry/db/schema/replay";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import type { Context } from "../context";
 import { feedersContract, type GridResults } from "../contract/feeders";
-import { currentRunIds, emptyIfNoTables } from "./runs";
+import { currentRunIds, emptyIfNoTables, inWindow } from "./runs";
 
 const os = implement(feedersContract).$context<Context>();
 
 const STEP_MINUTES = 15;
 const STEP_HOURS = STEP_MINUTES / 60;
 const MAX_ABSORBING_SITES = 8;
-
-function inWindow(ts: Parameters<typeof gte>[0], from?: string, to?: string): SQL[] {
-  return [from ? gte(ts, from) : undefined, to ? lt(ts, to) : undefined].filter(
-    (clause): clause is SQL => clause !== undefined,
-  );
-}
 
 function quantile(sorted: number[], q: number): number {
   if (sorted.length === 0) return 0;
@@ -37,9 +24,8 @@ function quantile(sorted: number[], q: number): number {
   return a + (b - a) * (position - low);
 }
 
-// Feature G documents: WATTSENTRY_GRID_DIR holds hosting_capacity.json (G1), voltage.json (G2) and
-// dso_value.json (G3); also tried: each writer's default --out, then the committed demo copies (demo/grid, #193),
-// from the repo root or apps/web.
+// Grid documents: WATTSENTRY_GRID_DIR holds hosting_capacity.json, voltage.json and dso_value.json; also tried:
+// each writer's default --out, then the committed demo copies (demo/grid), from the repo root or apps/web.
 type Doc = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const GRID_DIRS = [process.env.WATTSENTRY_GRID_DIR, "out/grid", "out/grid/g1", "out/hosting_capacity", ".lab-out/voltage", "demo/grid", "."]
   .filter((d): d is string => Boolean(d))
@@ -193,7 +179,7 @@ export const feedersRouter = os.router({
           and(
             inArray(feederCurves.runId, await currentRunIds(context.db, input.runId)),
             eq(feederCurves.feederId, input.feederId),
-            ...inWindow(feederCurves.ts, input.from, input.to),
+            inWindow(feederCurves.ts, input.from, input.to),
           ),
         )
         .orderBy(asc(feederCurves.ts)),
@@ -213,7 +199,7 @@ export const feedersRouter = os.router({
         .where(
           and(
             inArray(feederCurves.runId, await currentRunIds(context.db, input?.runId)),
-            ...inWindow(feederCurves.ts, input?.from, input?.to),
+            inWindow(feederCurves.ts, input?.from, input?.to),
           ),
         )
         .groupBy(feederCurves.feederId, feederCurves.policy),
@@ -233,7 +219,7 @@ export const feedersRouter = os.router({
             inArray(feederCurves.runId, await currentRunIds(context.db)),
             eq(feederCurves.policy, input.policy),
             sql`${feederCurves.exportKw} > ${feederCurves.limitKw}`,
-            ...inWindow(feederCurves.ts, input.from, input.to),
+            inWindow(feederCurves.ts, input.from, input.to),
           ),
         )
         .groupBy(feederCurves.ts)
@@ -252,7 +238,7 @@ export const feedersRouter = os.router({
             inArray(schedules.runId, await currentRunIds(context.db, input.runId)),
             eq(assets.feederId, input.feederId),
             eq(schedules.policy, input.policy),
-            ...inWindow(schedules.ts, input.from, input.to),
+            inWindow(schedules.ts, input.from, input.to),
           ),
         )
         .orderBy(asc(schedules.ts));
@@ -287,7 +273,7 @@ export const feedersRouter = os.router({
             eq(feederCurves.feederId, input.feederId),
             eq(feederCurves.policy, "baseline"),
             gt(feederCurves.exportKw, feederCurves.limitKw),
-            ...inWindow(feederCurves.ts, input.from, input.to),
+            inWindow(feederCurves.ts, input.from, input.to),
           ),
         );
       if (overSteps.length === 0) return [];
@@ -315,29 +301,6 @@ export const feedersRouter = os.router({
         .limit(MAX_ABSORBING_SITES);
       return charging;
     }),
-  ),
-
-  getCommitments: os.getCommitments.handler(({ context, input }) =>
-    emptyIfNoTables(async () =>
-      context.db
-        .select({
-          ts: commitments.ts,
-          nominalKw: commitments.nominalKw,
-          availableKw: commitments.availableKw,
-          committedKw: commitments.committedKw,
-          realisedKw: commitments.realisedKw,
-          haircutH: commitments.haircutH,
-          hit: commitments.hit,
-        })
-        .from(commitments)
-        .where(
-          and(
-            inArray(commitments.runId, await currentRunIds(context.db, input.runId)),
-            eq(commitments.feederId, input.feederId),
-          ),
-        )
-        .orderBy(asc(commitments.ts)),
-    ),
   ),
 
   listGisFlags: os.listGisFlags.handler(({ context, input }) =>

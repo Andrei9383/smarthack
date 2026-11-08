@@ -1,7 +1,7 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-export const assetListItemSchema = z.object({
+const assetListItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   assetKind: z.string(),
@@ -11,16 +11,15 @@ export const assetListItemSchema = z.object({
   county: z.string(),
   locality: z.string().nullable().optional(),
   gisTrust: z.enum(["ok", "low"]).nullable().optional(),
-  // #32: the O&M map needs a position and an owner for every marker
+  // the O&M map needs a position and an owner for every marker
   lat: z.number().optional(),
   lon: z.number().optional(),
   feederId: z.string().nullable().optional(),
   parkId: z.string().nullable().optional(),
   ratedKw: z.number().optional(),
 });
-export type AssetListItem = z.infer<typeof assetListItemSchema>;
 
-export const alertItemSchema = z.object({
+const alertItemSchema = z.object({
   actionId: z.string(),
   assetId: z.string().nullable().optional(),
   parkId: z.string().nullable().optional(),
@@ -33,7 +32,6 @@ export const alertItemSchema = z.object({
   curtailedMwh: z.number().nullable().optional(),
   evidenceJson: z.string().nullable().optional(),
 });
-export type AlertItem = z.infer<typeof alertItemSchema>;
 
 export const workOrderItemSchema = z.object({
   actionId: z.string(),
@@ -54,19 +52,18 @@ export const workOrderItemSchema = z.object({
   mwAtRisk: z.number().nullable().optional(),
   daysToVisit: z.number().nullable().optional(),
   evidenceJson: z.string().nullable().optional(),
-  leiPerDay: z.number().nullable().optional(), // W4: falls back to evidence_json, then lost_lei_day
+  leiPerDay: z.number().nullable().optional(), // falls back to evidence_json, then lost_lei_day
   triageScore: z.number().nullable().optional(),
-  bestRepairDay: z.string().nullable().optional(), // W6
+  bestRepairDay: z.string().nullable().optional(),
 });
-export type WorkOrderItem = z.infer<typeof workOrderItemSchema>;
 
-export const turbineDrawerSchema = z.object({
+const turbineDrawerSchema = z.object({
   assetId: z.string(),
   name: z.string(),
   parkId: z.string().nullable().optional(),
   ratedKw: z.number().nullable().optional(),
   turbineModel: z.string().nullable().optional(),
-  // W2 (#165): latest availability row up to `at` (tomorrow's day-ahead view), with the M7 risk.
+  // latest availability row up to `at` (tomorrow's day-ahead view), with the M7 risk.
   availability: z
     .object({
       day: z.string(),
@@ -89,7 +86,7 @@ export const turbineDrawerSchema = z.object({
   tempTrends: z.array(
     z.object({
       ts: z.string(),
-      ambientTempC: z.number().nullable().optional(), // #32: residual = component - ambient
+      ambientTempC: z.number().nullable().optional(), // residual = component - ambient
       convTempC: z.number().nullable().optional(),
       gearboxTempC: z.number().nullable().optional(),
       genTempC: z.number().nullable().optional(),
@@ -97,9 +94,8 @@ export const turbineDrawerSchema = z.object({
     }),
   ),
 });
-export type TurbineDrawerData = z.infer<typeof turbineDrawerSchema>;
 
-export const parkReportItemSchema = z.object({
+const parkReportItemSchema = z.object({
   actionId: z.string(),
   parkId: z.string().nullable().optional(),
   date: z.string(),
@@ -110,9 +106,8 @@ export const parkReportItemSchema = z.object({
   dataQualityPct: z.number().nullable().optional(),
   issuesJson: z.string().nullable().optional(),
 });
-export type ParkReportItem = z.infer<typeof parkReportItemSchema>;
 
-export const reviewItemSchema = z.object({
+const reviewItemSchema = z.object({
   actionId: z.string(),
   assetId: z.string(),
   ts: z.string(),
@@ -122,7 +117,6 @@ export const reviewItemSchema = z.object({
   memberStd: z.number().nullable().optional(),
   resolved: z.number(),
 });
-export type ReviewItem = z.infer<typeof reviewItemSchema>;
 
 export const omContract = {
   listAssets: oc

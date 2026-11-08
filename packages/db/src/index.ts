@@ -1,15 +1,13 @@
 import { createClient } from "@libsql/client";
+import { defineRelations } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 
-import type { DatabaseConfig } from "./config";
-import { relations } from "./relations";
+import * as schema from "./schema";
 
-export function createDb(env: DatabaseConfig) {
-  const client = createClient({
-    url: env.DATABASE_URL,
-  });
+const relations = { ...defineRelations(schema), ...schema.authRelations };
 
-  return drizzle({ client, relations });
+export function createDb(env: { DATABASE_URL: string }) {
+  return drizzle({ client: createClient({ url: env.DATABASE_URL }), relations });
 }
 
 export type Database = ReturnType<typeof createDb>;

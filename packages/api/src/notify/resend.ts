@@ -1,7 +1,7 @@
 // Resend API (https://resend.com/docs/api-reference/emails/send-batch-emails), plain fetch, no SDK.
 // The key only ever comes from the server environment (RESEND_API_KEY); it is never committed.
 
-export type OutgoingEmail = { to: string[]; subject: string; html: string; text: string; tags?: { name: string; value: string }[] };
+type OutgoingEmail = { to: string[]; subject: string; html: string; text: string; tags?: { name: string; value: string }[] };
 
 const DEFAULT_FROM = "WattSentry grid alerts <alerts@devsolution.ro>";
 const BATCH_MAX = 100; // Resend batch limit
@@ -35,7 +35,7 @@ function takeQuota(n: number, cap: number) {
   return true;
 }
 
-export type SendResult = { ok: true; ids: string[] } | { ok: false; error: string };
+type SendResult = { ok: true; ids: string[] } | { ok: false; error: string };
 
 export async function sendBatch(emails: OutgoingEmail[]): Promise<SendResult> {
   const cfg = notifyConfig();

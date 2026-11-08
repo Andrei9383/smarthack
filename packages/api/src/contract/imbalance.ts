@@ -1,10 +1,10 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-// Feature I (#177). Tables written by wattsentry/eval/imbalance_replay.py (#176); MWh per 15-min step, lei.
+// Imbalance replay tables written by wattsentry/eval/imbalance_replay.py; MWh per 15-min step, lei.
 const num = z.number().nullable();
 
-export const imbalanceStepSchema = z.object({
+const imbalanceStepSchema = z.object({
   ts: z.string(),
   policy: z.string(),
   p10: num, // the policy's day-ahead band (NULL for point policies)
@@ -16,7 +16,7 @@ export const imbalanceStepSchema = z.object({
   avoidableLei: num,
 });
 
-export const policyTotalsSchema = z.object({
+const policyTotalsSchema = z.object({
   policy: z.string(),
   avoidableLei: z.number(),
   intradayLei: z.number(),
@@ -29,7 +29,7 @@ export const policyTotalsSchema = z.object({
 });
 export type PolicyTotals = z.infer<typeof policyTotalsSchema>;
 
-export const strategyRowSchema = z.object({ strategy: z.string(), homes: z.number(), confidence: num });
+const strategyRowSchema = z.object({ strategy: z.string(), homes: z.number(), confidence: num });
 
 const windowInput = z.object({ from: z.string().optional(), to: z.string().optional() });
 
@@ -48,7 +48,7 @@ export const imbalanceContract = {
     ),
   // Totals per policy over the window (whole replay when omitted): the waterfall.
   getPolicyComparison: oc.input(windowInput.optional()).output(z.array(policyTotalsSchema)),
-  // Homes per battery strategy (site_strategy, I4 #174); falls back to assets.has_battery when not classified.
+  // Homes per battery strategy (site_strategy); falls back to assets.has_battery when not classified.
   getStrategyBreakdown: oc
     .input(z.object({}).optional())
     .output(z.object({ source: z.enum(["site_strategy", "assets", "none"]), rows: z.array(strategyRowSchema) })),

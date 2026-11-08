@@ -1,21 +1,21 @@
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
-// Congestion notices (card #120, team/contracts/notify.md).
+// Congestion notices: day-ahead congestion forecast per feeder and household emails.
 
-export const congestionLevelSchema = z.enum(["none", "watch", "congested", "severe"]);
+const congestionLevelSchema = z.enum(["none", "watch", "congested", "severe"]);
 export type CongestionLevelValue = z.infer<typeof congestionLevelSchema>;
 
-export const noticeStepSchema = z.object({
+const noticeStepSchema = z.object({
   ts: z.string(),
   q10Kw: z.number(),
   q50Kw: z.number(),
   q90Kw: z.number(),
   limitKw: z.number(),
-  actualKw: z.number().nullable(), // baseline export, what happened without Sentinel
+  actualKw: z.number().nullable(), // baseline export, what happened without WattSentry
 });
 
-export const householdSchema = z.object({
+const householdSchema = z.object({
   assetId: z.string(),
   locality: z.string(),
   county: z.string(),
@@ -34,7 +34,7 @@ export const householdSchema = z.object({
 });
 export type HouseholdItem = z.infer<typeof householdSchema>;
 
-export const feederNoticeSchema = z.object({
+const feederNoticeSchema = z.object({
   feederId: z.string(),
   feederName: z.string(),
   limitKw: z.number(),
@@ -59,12 +59,7 @@ export const feederNoticeSchema = z.object({
 });
 export type FeederNotice = z.infer<typeof feederNoticeSchema>;
 
-export const fleetNoticeSchema = feederNoticeSchema.omit({ steps: true, households: true }).extend({
-  householdCount: z.number(),
-});
-export type FleetNotice = z.infer<typeof fleetNoticeSchema>;
-
-export const sentLogSchema = z.object({
+const sentLogSchema = z.object({
   at: z.string(),
   feederId: z.string(),
   day: z.string(),
@@ -93,7 +88,6 @@ export const notifyContract = {
     }),
   ),
   getForecast: oc.input(z.object({ feederId: z.string(), ...dayInput })).output(feederNoticeSchema.nullable()),
-  getFleet: oc.input(z.object(dayInput)).output(z.array(fleetNoticeSchema)),
   preview: oc
     .input(z.object({ feederId: z.string(), assetId: z.string(), ...dayInput }))
     .output(z.object({ subject: z.string(), html: z.string(), text: z.string() }).nullable()),
