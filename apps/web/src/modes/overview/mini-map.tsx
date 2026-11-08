@@ -29,20 +29,10 @@ export function MiniMap({ onOpen, className }: { onOpen: () => void; className?:
     <section
       aria-label="Map of Romania with every asset"
       data-tour="map"
-      className={cn("relative flex flex-col overflow-hidden rounded-lg border border-border bg-card", className)}
+      className={cn("relative isolate overflow-hidden rounded-xl bg-card shadow-card", className)}
     >
-      <header className="flex items-baseline justify-between gap-3 px-4 pt-3 pb-2">
-        <h2 className="text-[13px] font-semibold text-foreground">Romania, every asset</h2>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="inline-flex items-center gap-0.5 rounded-md text-[13px] font-medium text-foreground transition-colors duration-150 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-        >
-          Open map
-          <ChevronRight aria-hidden className="size-3.5" />
-        </button>
-      </header>
-      <div className="relative min-h-0 flex-1 [&_.maplibregl-ctrl-attrib]:scale-90">
+      {/* Carvo-style map card: the map fills the card, title, action and legend float on top. */}
+      <div className="absolute inset-0 [&_.maplibregl-ctrl-attrib]:scale-90">
         <Map
           key={`${offline ? "offline" : "online"}-${mapTheme}`}
           styles={styles}
@@ -62,7 +52,20 @@ export function MiniMap({ onOpen, className }: { onOpen: () => void; className?:
           <OverviewLayers compact />
         </Map>
       </div>
-      <footer className="flex items-center gap-3 border-t border-border px-4 py-2 text-[11px] whitespace-nowrap text-text-secondary">
+      <header className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start justify-between gap-2">
+        <h2 className="pointer-events-auto rounded-lg bg-card/95 px-3 py-1.5 section-title shadow-floating backdrop-blur-sm">
+          Romania, every asset
+        </h2>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="pointer-events-auto inline-flex h-8 cursor-pointer items-center gap-0.5 rounded-lg bg-card px-3 text-dense font-medium text-foreground shadow-floating transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Open map
+          <ChevronRight aria-hidden className="size-3.5" />
+        </button>
+      </header>
+      <footer className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-4.5rem)] flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg bg-card/95 px-3 py-1.5 text-caption whitespace-nowrap text-text-secondary shadow-floating backdrop-blur-sm">
         <span className="flex items-center gap-1">
           <StatusMark kind="ok" size="xs" />
           within limit
@@ -75,7 +78,7 @@ export function MiniMap({ onOpen, className }: { onOpen: () => void; className?:
           <StatusMark kind="critical" size="xs" />
           over
         </span>
-        <span className="ml-auto text-muted-foreground">{offline ? "Offline basemap · " : ""}tint = evening demand</span>
+        <span className="text-muted-foreground">{offline ? "Offline basemap · " : ""}tint = evening demand</span>
       </footer>
     </section>
   );

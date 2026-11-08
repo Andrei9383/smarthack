@@ -1,13 +1,11 @@
 "use client";
 
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@sentinel-app/ui/components/sheet";
 import { cn } from "@sentinel-app/ui/lib/utils";
 import { ChevronRight, CircleHelp, Info, Pause, Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import { ShaderBanner } from "@/components/brand/shader-banner";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
 import {
@@ -20,20 +18,37 @@ import {
 } from "@/components/shell/agent-actions";
 import { CountUp } from "@/components/shell/count-up";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shell/popover";
+import { useOverview } from "@/demo/kpi-strip";
 import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
 import { clampStep, clockLabel, dayLabel, dayOfStep, HERO_DAY, STEPS_PER_DAY, timeLabel } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
-import { TrustBoard } from "@/panels/judge/trust-board";
 import { useGrid } from "@/modes/feeders/grid-section";
+import {
+  type Delta,
+  DeltaChip,
+  DetailsLink,
+  DetailsSheet,
+  Metric,
+  MetricRow,
+  Num,
+  PopList,
+  SectionHeader,
+  SheetSection,
+  StatusPill,
+} from "@/panels/disclosure";
+import { TrustBoard } from "@/panels/judge/trust-board";
+import { useTrustBoard } from "@/panels/judge/use-judge";
 import { orpc } from "@/utils/orpc";
 
 import { MiniMap } from "./mini-map";
 import { type FeederState, useOverviewData } from "./use-overview-data";
 
-// Overview v3 (#124): a page, not a full-screen map. One briefing on the shader banner, a small
-// map, then three glance sections whose details open in popovers or a sheet. Same data as before:
-// every number from the old Overview inspector is still here, at most two clicks away.
+// Overview, Calm (#197, after #124): a briefing card (one sentence, one primary action), a map card,
+// a row of four KPI tiles, then "Needs attention" (top 5), "Today vs. without Sentinel" (3 rows),
+// the last 5 agent actions and the imbalance glance (#192). Everything else (the full attention
+// list, the per-feeder table, all agent activity, the top-bar day numbers and model trust) sits in
+// one Details sheet. Same queries and data as before; nothing was removed, only moved.
 
 const NAV_PARSERS = {
   mode: parseAsString,
@@ -54,55 +69,23 @@ const plural = (n: number, noun: string, many = `${noun}s`) => `${n} ${n === 1 ?
 const turbineName = (id: string) => id.split(".")[1]?.replace("TID", "T") ?? id;
 const listOf = (parts: string[]) => parts.join(", ").replace(/, ([^,]*)$/, " and $1");
 const MORNING_STEP = HERO_DAY * STEPS_PER_DAY + 24; // 06:00 on the story day
+/** Rows on the glance; the rest sit in the Details sheet. */
+const TOP_ATTENTION = 5;
+const TOP_ACTIVITY = 5;
 
-function Unit({ children }: { children: ReactNode }) {
-  return <span className="ml-1 text-[0.45em] font-medium tracking-normal text-muted-foreground">{children}</span>;
-}
-
-function SectionHeading({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
-  return (
-    <div className="mb-2 flex min-h-6 items-center justify-between gap-3 px-1">
-      <h2 className="text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
-        {children}
-      </h2>
-      {aside}
-    </div>
-  );
-}
-
+/** Calm card: white on the pale page, 12px radius, hairline + whisper shadow (ui-style §3). */
+const CARD = "rounded-xl bg-card shadow-card";
+/** A quiet ink text control: "See all", "Breakdown", "Open imbalance". */
 const QUIET_LINK =
-  "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium whitespace-nowrap text-brand-700 transition-colors duration-150 hover:bg-brand-50 hover:text-brand-900 focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-brand-50";
+  "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-caption font-medium whitespace-nowrap text-foreground underline-offset-2 transition-colors duration-150 hover:bg-surface-raised hover:underline focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-surface-raised";
 
-function Delta({ from, to, up, className }: { from?: number; to?: number; up?: boolean; className?: string }) {
+/** Sentinel against a reference as a percentage chip; green when Sentinel is better, neutral otherwise. */
+function deltaOf(from?: number, to?: number, up?: boolean): Delta | null {
   if (from === undefined || to === undefined || from === 0) return null;
   const pct = Math.round(((to - from) / Math.abs(from)) * 100);
   if (pct === 0) return null;
   const better = up ? pct > 0 : pct < 0;
-  return (
-    <span
-      className={cn(
-        "inline-flex h-6 items-center rounded-full px-2 text-[12px] font-semibold whitespace-nowrap tabular-nums shadow-raised",
-        better ? "bg-brand-50 text-brand-700" : "bg-card text-text-secondary",
-        className,
-      )}
-    >
-      {pct < 0 ? "−" : "+"}
-      {Math.abs(pct)}%
-    </span>
-  );
-}
-
-function Facts({ rows }: { rows: [string, ReactNode][] }) {
-  return (
-    <dl className="mt-2.5 divide-y divide-border border-y border-border">
-      {rows.map(([label, value]) => (
-        <div key={label} className="flex items-baseline justify-between gap-4 py-1.5">
-          <dt className="text-[12px] text-text-secondary">{label}</dt>
-          <dd className="text-right text-[13px] font-semibold whitespace-nowrap text-foreground tabular-nums">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
+  return { text: `${pct < 0 ? "−" : "+"}${Math.abs(pct)}%`, good: better ? true : null };
 }
 
 function GoButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
@@ -110,7 +93,7 @@ function GoButton({ onClick, children }: { onClick: () => void; children: ReactN
     <button
       type="button"
       onClick={onClick}
-      className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-primary px-3 text-[13px] font-semibold text-primary-foreground shadow-brand transition-[background-color,transform] duration-150 outline-none hover:bg-brand-700 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+      className="mt-3 inline-flex h-8 w-full cursor-pointer items-center justify-center gap-1 rounded-lg bg-primary px-3 text-dense font-semibold text-primary-foreground transition-[background-color,transform] duration-150 outline-none hover:bg-primary/85 active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
     >
       {children}
       <ChevronRight aria-hidden className="size-3.5" />
@@ -118,19 +101,21 @@ function GoButton({ onClick, children }: { onClick: () => void; children: ReactN
   );
 }
 
-/* ---------- 1. The shift briefing ---------- */
+type DetailsTarget = "numbers" | "attention" | "feeders" | "activity" | "trust";
+type OpenDetails = (target: DetailsTarget) => void;
+const detailsId = (target: DetailsTarget) => `ov-details-${target}`;
+
+/* ---------- 1. The shift briefing: one sentence, one primary action ---------- */
 
 function Briefing({ onTour }: { onTour: () => void }) {
   const data = useOverviewData();
   const [rawStep, setStep] = useReplayStep();
   const [, setPolicy] = usePolicy();
   const playing = useReplayPlaying();
-  const { actions } = useAgentActions();
   const step = clampStep(rawStep);
 
   const over = data.feeders.filter((f) => f.status === "over");
   const near = data.feeders.filter((f) => f.status === "near");
-  const within = data.feeders.filter((f) => f.status === "ok" || f.status === "near").length;
   const extras = [
     near.length > 0 ? `${plural(near.length, "feeder")} near ${near.length === 1 ? "its" : "their"} limit` : null,
     data.stopped.length > 0 ? `${plural(data.stopped.length, "turbine")} stopped` : null,
@@ -138,26 +123,6 @@ function Briefing({ onTour }: { onTour: () => void }) {
   ].filter((part): part is string => Boolean(part));
   const lead = over.length === 0 ? "Grid is calm." : `${plural(over.length, "feeder")} went over the limit today.`;
   const sentence = data.ready ? `${lead} ${extras.length ? `${listOf(extras)}.` : "Nothing is waiting."}` : "Reading the grid…";
-
-  const today = dayOfStep(step);
-  const homes = actions
-    .filter((a) => a.kind === "dispatch" && dayOfStep(a.step) === today && a.step <= step)
-    .reduce((sum, a) => sum + (a.homes ?? 0), 0);
-  const wind = data.parks.reduce((sum, park) => sum + park.mwh, 0);
-
-  const numbers: { value: number; unit: ReactNode; label: ReactNode }[] = [
-    {
-      value: data.ready ? within : 0,
-      unit: `/ ${data.feeders.length || "–"}`,
-      label: (
-        <>
-          <Term id="feeder">feeders</Term> within their limit
-        </>
-      ),
-    },
-    { value: homes, unit: "", label: "home batteries in today's plan" },
-    { value: wind, unit: "MWh", label: "wind expected, next 24 h" },
-  ];
 
   // First press starts the story day at 06:00 with Sentinel on; after a pause it resumes, unless the
   // clock has left the story day's daylight hours.
@@ -175,68 +140,95 @@ function Briefing({ onTour }: { onTour: () => void }) {
   };
 
   return (
-    <ShaderBanner
-      tone="emerald"
-      className="flex h-full min-h-[300px] flex-col rounded-lg border border-border"
-    >
-      <div className="flex h-full flex-col px-7 pt-6 pb-6 min-[1440px]:px-8">
-        <p className="flex items-center gap-2 text-[12px] font-medium text-foreground/70">
-          <StatusMark kind={playing ? "live" : "ok"} size="sm" pulse={playing} />
-          <span className="font-mono text-[13px] font-semibold tracking-tight text-foreground tabular-nums">
-            {clockLabel(step)}
-          </span>
-          <span aria-hidden className="text-foreground/30">
-            /
-          </span>
+    <section aria-labelledby="ov-briefing" className={cn(CARD, "flex h-full min-h-[240px] flex-col p-6")}>
+      <div className="flex items-center gap-2.5">
+        <span className="font-mono text-dense font-semibold tracking-tight text-foreground">{clockLabel(step)}</span>
+        <StatusPill status={playing ? "forecast" : "ok"}>
+          <StatusMark kind={playing ? "live" : "ok"} size="xs" pulse={playing} />
           {playing ? "Replaying the story" : "Shift briefing"}
-        </p>
-
-        <p
-          aria-live="polite"
-          className="mt-3 max-w-[30ch] text-[26px] leading-[1.15] font-semibold tracking-[-0.02em] text-balance text-foreground min-[1440px]:text-[28px]"
-        >
-          {sentence}
-        </p>
-
-        <dl className="mt-auto flex flex-wrap gap-x-9 gap-y-3 pt-5">
-          {numbers.map((n, index) => (
-            <div key={index} className="min-w-0">
-              <dd className="font-mono text-[32px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
-                <CountUp value={n.value} />
-                {n.unit ? <Unit>{n.unit}</Unit> : null}
-              </dd>
-              <dt className="mt-1.5 text-[12px] whitespace-nowrap text-text-secondary">{n.label}</dt>
-            </div>
-          ))}
-        </dl>
-
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={playStory}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary pr-4 pl-3.5 text-[14px] font-semibold text-primary-foreground shadow-brand transition-[background-color,transform] duration-150 hover:bg-brand-700 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            {playing ? (
-              <Pause aria-hidden className="size-4 fill-current" />
-            ) : (
-              <Play aria-hidden className="size-4 fill-current" />
-            )}
-            {playing ? "Pause the story" : "Play today's story"}
-          </button>
-          <button
-            type="button"
-            onClick={onTour}
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-card/80 px-3.5 text-[14px] font-medium text-foreground shadow-raised backdrop-blur-sm transition-[background-color,box-shadow] duration-150 hover:bg-card hover:shadow-floating focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          >
-            <CircleHelp aria-hidden className="size-4 text-text-secondary" />
-            How it works
-          </button>
-          <span className="ml-1 hidden text-[12px] text-text-secondary min-[1440px]:inline">
-            from {clockLabel(MORNING_STEP)}, with Sentinel
-          </span>
-        </div>
+        </StatusPill>
       </div>
-    </ShaderBanner>
+
+      <p id="ov-briefing" aria-live="polite" className="mt-4 max-w-[36ch] text-page text-balance text-foreground">
+        {sentence}
+      </p>
+
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-6">
+        <button
+          type="button"
+          onClick={playStory}
+          className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-primary pr-4 pl-3.5 text-body font-semibold text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-primary/85 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          {playing ? <Pause aria-hidden className="size-4 fill-current" /> : <Play aria-hidden className="size-4 fill-current" />}
+          {playing ? "Pause the story" : "Play today's story"}
+        </button>
+        <button
+          type="button"
+          onClick={onTour}
+          className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-3.5 text-body font-medium text-foreground shadow-raised transition-[background-color,box-shadow] duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          <CircleHelp aria-hidden className="size-4 text-muted-foreground" />
+          How it works
+        </button>
+        <span className="ml-1 hidden text-caption text-muted-foreground min-[1440px]:inline">
+          from {clockLabel(MORNING_STEP)}, with Sentinel
+        </span>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- 2. KPI row: four tiles ---------- */
+
+function KpiRow({ onDetails }: { onDetails: OpenDetails }) {
+  const data = useOverviewData();
+  const [rawStep] = useReplayStep();
+  const { actions } = useAgentActions();
+  const { data: day } = useOverview();
+  const step = clampStep(rawStep);
+
+  const within = data.feeders.filter((f) => f.status === "ok" || f.status === "near").length;
+  const today = dayOfStep(step);
+  const homes = actions
+    .filter((a) => a.kind === "dispatch" && dayOfStep(a.step) === today && a.step <= step)
+    .reduce((sum, a) => sum + (a.homes ?? 0), 0);
+  const wind = data.parks.reduce((sum, park) => sum + park.mwh, 0);
+  const known = (v: number | null | undefined): v is number => v !== null && v !== undefined;
+
+  return (
+    <section aria-labelledby="ov-kpis" className={cn(CARD, "px-5 pt-3 pb-4")}>
+      <SectionHeader
+        title={<span id="ov-kpis">Today</span>}
+        aside={<DetailsLink onClick={() => onDetails("numbers")} />}
+      />
+      <MetricRow className="mt-2">
+        <Metric
+          size="lg"
+          label={
+            <>
+              <Term id="feeder">Feeders</Term> within their limit
+            </>
+          }
+          value={<CountUp value={data.ready ? within : 0} />}
+          unit={`/ ${data.feeders.length || "–"}`}
+        />
+        <Metric size="lg" label="Home batteries in today's plan" value={<CountUp value={homes} />} />
+        <Metric
+          size="lg"
+          label="Wind expected, next 24 h"
+          value={<CountUp value={wind} />}
+          unit="MWh"
+          sub={known(day?.productionMwh) ? `${day.productionMwh.toFixed(0)} MWh produced today` : undefined}
+        />
+        <Metric
+          size="lg"
+          label="Park availability"
+          value={known(day?.availabilityPct) ? <CountUp value={day.availabilityPct} digits={1} /> : "—"}
+          unit={known(day?.availabilityPct) ? "%" : undefined}
+          sub={known(day?.activeIssues) ? plural(day.activeIssues, "open work order") : undefined}
+        />
+      </MetricRow>
+    </section>
   );
 }
 
@@ -387,36 +379,42 @@ function useAttention(): Attention[] {
   }, [data.feeders, data.stopped, data.waiting, data.topOrder, go]);
 }
 
-function NeedsAttention() {
+const factRows = (facts: [string, ReactNode][]) => facts.map(([label, value]) => ({ key: label, label, value }));
+
+function NeedsAttention({ onDetails }: { onDetails: OpenDetails }) {
   const all = useAttention();
   const data = useOverviewData();
-  const rows = all.slice(0, 4);
+  const rows = all.slice(0, TOP_ATTENTION);
   const hidden = all.length - rows.length;
   return (
-    <section aria-labelledby="ov-attention">
-      <SectionHeading
+    <section aria-labelledby="ov-attention" className={cn(CARD, "h-full px-5 pt-3 pb-4")}>
+      <SectionHeader
+        title={<span id="ov-attention">Needs attention</span>}
         aside={
-          <span className="text-[12px] text-muted-foreground tabular-nums">
-            {all.length === 0 ? "" : hidden > 0 ? `top 4 of ${all.length}` : plural(all.length, "item")}
-          </span>
+          hidden > 0 ? (
+            <button type="button" onClick={() => onDetails("attention")} className={QUIET_LINK}>
+              See all {all.length}
+              <ChevronRight aria-hidden className="size-3.5" />
+            </button>
+          ) : all.length > 0 ? (
+            <span className="text-caption text-muted-foreground">{plural(all.length, "item")}</span>
+          ) : null
         }
-      >
-        <span id="ov-attention">Needs attention</span>
-      </SectionHeading>
+      />
       {!data.ready ? (
-        <p className="px-1 text-[13px] text-text-secondary">Loading…</p>
+        <p className="mt-2 text-dense text-text-secondary">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="flex items-center gap-2 px-1 py-2 text-[14px] text-text-secondary">
+        <p className="mt-2 flex items-center gap-2 py-2 text-body text-text-secondary">
           <StatusMark kind="ok" /> Nothing needs a person right now.
         </p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="-mx-2 mt-1 flex flex-col">
           {rows.map((row) => (
             <li key={row.key}>
               <Popover>
-                <PopoverTrigger className="group flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-[background-color,box-shadow] duration-150 hover:bg-card hover:shadow-raised focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-card data-[popup-open]:shadow-raised">
+                <PopoverTrigger className="group flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring data-[popup-open]:bg-surface-raised">
                   <StatusMark kind={row.mark} size="md" pulse={row.pulse} />
-                  <span className="min-w-0 flex-1 text-[14px] leading-snug text-text-secondary [&_b]:font-semibold [&_b]:text-foreground">
+                  <span className="min-w-0 flex-1 text-body leading-snug text-text-secondary [&_b]:font-semibold [&_b]:text-foreground">
                     {row.text}
                   </span>
                   <ChevronRight
@@ -425,11 +423,13 @@ function NeedsAttention() {
                   />
                 </PopoverTrigger>
                 <PopoverContent side="right" align="center" sideOffset={10}>
-                  <div className="flex items-center gap-2">
+                  <div className="mb-2.5 flex items-center gap-2">
                     <StatusMark kind={row.mark} size="sm" />
-                    <PopoverTitle className="text-[14px] font-semibold">{row.title}</PopoverTitle>
+                    <PopoverTitle className="section-title">{row.title}</PopoverTitle>
                   </div>
-                  <Facts rows={row.facts} />
+                  <div className="text-caption">
+                    <PopList rows={factRows(row.facts)} />
+                  </div>
                   <GoButton onClick={row.go}>{row.goLabel}</GoButton>
                 </PopoverContent>
               </Popover>
@@ -441,19 +441,50 @@ function NeedsAttention() {
   );
 }
 
-/* ---------- 4. Today vs. without Sentinel ---------- */
+/* ---------- 4. Today vs. without Sentinel: three rows ---------- */
 
-function TodayVsWithout() {
+type Comparison = { label: ReactNode; unit: string; sentinel?: number; baseline?: number; note: string; up?: boolean };
+
+function ComparisonRow({ row, ready }: { row: Comparison; ready: boolean }) {
+  const delta = deltaOf(row.baseline, row.sentinel, row.up);
+  return (
+    <li className="flex items-center gap-4 py-3.5">
+      <div className="min-w-0 flex-1">
+        <p className="text-dense text-text-secondary">
+          {row.label} <span className="text-muted-foreground">· {row.note}</span>
+        </p>
+        <p className="mt-1 text-caption text-muted-foreground">
+          without Sentinel{" "}
+          <span className="font-medium text-text-secondary">
+            {row.baseline === undefined ? "—" : Math.round(row.baseline)}
+            {row.unit ? ` ${row.unit}` : ""}
+          </span>
+        </p>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        {row.sentinel === undefined ? (
+          <span className="text-2xl leading-none font-semibold text-muted-foreground">—</span>
+        ) : (
+          <Num
+            value={<CountUp value={ready ? row.sentinel : 0} />}
+            unit={row.unit || undefined}
+            className="text-2xl leading-none font-semibold tracking-tight text-foreground"
+          />
+        )}
+        {delta ? <DeltaChip delta={delta} /> : null}
+      </div>
+    </li>
+  );
+}
+
+function TodayVsWithout({ onDetails }: { onDetails: OpenDetails }) {
   const data = useOverviewData();
-  const [rawStep] = useReplayStep();
-  const step = clampStep(rawStep);
   const sum = (pick: (f: FeederState) => number | undefined) =>
     data.feeders.every((f) => pick(f) === undefined) ? undefined : data.feeders.reduce((s, f) => s + (pick(f) ?? 0), 0);
   const max = (pick: (f: FeederState) => number | undefined) =>
     data.feeders.every((f) => pick(f) === undefined) ? undefined : Math.max(...data.feeders.map((f) => pick(f) ?? 0));
 
-  const grid = useGrid().data?.hosting;
-  const rows: { label: ReactNode; unit: string; sentinel?: number; baseline?: number; note: string; up?: boolean }[] = [
+  const rows: Comparison[] = [
     {
       label: (
         <>
@@ -473,117 +504,37 @@ function TodayVsWithout() {
       note: "today",
     },
     {
-      label: (
-        <>
-          <Term id="comfort-reserve">Comfort breaches</Term>
-        </>
-      ),
+      label: <Term id="comfort-reserve">Comfort breaches</Term>,
       unit: "",
       sentinel: data.comfort.sentinel,
       baseline: data.comfort.baseline,
       note: "this week",
     },
-    ...(grid
-      ? [
-          {
-            label: "Prosumers the cables can still take",
-            unit: "homes",
-            sentinel: grid.totalWith,
-            baseline: grid.totalWithout,
-            note: `all feeders, ${grid.label}`,
-            up: true,
-          },
-        ]
-      : []),
   ];
 
   return (
-    <section aria-labelledby="ov-today">
-      <SectionHeading
+    <section aria-labelledby="ov-today" className={cn(CARD, "h-full px-5 pt-3 pb-2")}>
+      <SectionHeader
+        lead="Today vs."
+        title={<span id="ov-today">without Sentinel</span>}
         aside={
-          <Popover>
-            <PopoverTrigger className={QUIET_LINK}>
-              <Info aria-hidden className="size-3.5" />
-              Breakdown
-            </PopoverTrigger>
-            <PopoverContent side="left" align="start" className="w-[360px]">
-              <PopoverTitle className="text-[14px] font-semibold">
-                Minutes over the limit, per feeder · {dayLabel(dayOfStep(step))}
-              </PopoverTitle>
-              <table className="mt-2.5 w-full text-[12px] tabular-nums">
-                <thead>
-                  <tr className="text-[10px] tracking-[0.05em] text-muted-foreground uppercase">
-                    <th className="pb-1.5 text-left font-medium">Feeder</th>
-                    <th className="pb-1.5 text-right font-medium">Limit kW</th>
-                    <th className="pb-1.5 text-right font-medium">Baseline</th>
-                    <th className="pb-1.5 text-right font-medium text-foreground">Sentinel</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border border-t border-border">
-                  {data.feeders.map((f) => (
-                    <tr key={f.id}>
-                      <td className="py-1.5 pr-2 font-medium whitespace-nowrap text-foreground">{f.name}</td>
-                      <td className="py-1.5 text-right text-text-secondary">{Math.round(f.limitKw)}</td>
-                      <td className="py-1.5 text-right text-text-secondary">{f.baselineMinutes ?? "—"}</td>
-                      <td className="py-1.5 text-right font-semibold text-foreground">{f.sentinelMinutes ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <dl className="mt-3 space-y-1.5 border-t border-border pt-2.5 text-[12px] leading-snug text-text-secondary">
-                <div>
-                  <dt className="inline font-semibold text-foreground">Baseline</dt>{" "}
-                  <dd className="inline">is the same week without Sentinel: batteries only store their own solar.</dd>
-                </div>
-                <div>
-                  <dt className="inline font-semibold text-foreground">Minutes over</dt>{" "}
-                  <dd className="inline">count 15-minute steps where export crossed the feeder's limit.</dd>
-                </div>
-                <div>
-                  <dt className="inline font-semibold text-foreground">A comfort breach</dt>{" "}
-                  <dd className="inline">is a home battery dropping below the reserve its owner keeps.</dd>
-                </div>
-              </dl>
-            </PopoverContent>
-          </Popover>
+          <button type="button" onClick={() => onDetails("feeders")} className={QUIET_LINK}>
+            <Info aria-hidden className="size-3.5" />
+            Breakdown
+          </button>
         }
-      >
-        <span id="ov-today">Today vs. without Sentinel</span>
-      </SectionHeading>
-      <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-card px-5">
+      />
+      <ul className="flex flex-col divide-y divide-border">
         {rows.map((row, index) => (
-          <li key={index} className="flex items-center gap-3 py-4">
-            <div className="min-w-0 flex-1">
-              <p className="text-[12px] text-text-secondary">
-                {row.label} <span className="text-muted-foreground">· {row.note}</span>
-              </p>
-              <p className="mt-1 font-mono text-[32px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
-                {row.sentinel === undefined ? (
-                  <span className="text-muted-foreground">—</span>
-                ) : (
-                  <>
-                    <CountUp value={data.ready ? row.sentinel : 0} />
-                    {row.unit ? <Unit>{row.unit}</Unit> : null}
-                  </>
-                )}
-              </p>
-              <p className="mt-1 text-[12px] text-muted-foreground tabular-nums">
-                without Sentinel{" "}
-                <span className="font-medium text-text-secondary">
-                  {row.baseline === undefined ? "—" : Math.round(row.baseline)}
-                  {row.unit ? ` ${row.unit}` : ""}
-                </span>
-              </p>
-            </div>
-            <Delta from={row.baseline} to={row.sentinel} up={row.up} />
-          </li>
+          <ComparisonRow key={index} row={row} ready={data.ready} />
         ))}
       </ul>
     </section>
   );
 }
 
-/* ---------- Imbalance glance (#177) ---------- */
+/* ---------- Imbalance glance (#177, #192) ---------- */
+
 function ImbalanceGlance() {
   const go = useGo();
   const { data } = useQuery({ ...orpc.imbalance.getPolicyComparison.queryOptions({ input: {} }), staleTime: Number.POSITIVE_INFINITY });
@@ -591,43 +542,52 @@ function ImbalanceGlance() {
   const sentinel = of("sentinel");
   const profile = of("profile");
   const lei = (v?: number) => (v === undefined ? "—" : Math.round(v).toLocaleString("en-US"));
+  const delta = deltaOf(profile?.avoidableLei, sentinel?.avoidableLei);
   return (
-    <section aria-labelledby="ov-imbalance">
-      <SectionHeading>
-        <span id="ov-imbalance">Imbalance cost</span>
-      </SectionHeading>
-      <div className="rounded-lg border border-border bg-card px-5 py-4">
-        <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-[12px] text-text-secondary">
-              Avoidable imbalance cost{" "}
-              <span className="text-muted-foreground">· {sentinel ? `${Math.round(sentinel.days)} days, portfolio` : "no imbalance replay yet"}</span>
-            </p>
-            <p className="mt-1 font-mono text-[32px] leading-none font-semibold tracking-[-0.03em] text-foreground tabular-nums">
-              {sentinel ? (
-                <>
-                  {lei(sentinel.avoidableLei)}
-                  <Unit>lei</Unit>
-                </>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </p>
-            <p className="mt-1 text-[12px] text-muted-foreground tabular-nums">
-              fixed profile <span className="font-medium text-text-secondary">{lei(profile?.avoidableLei)} lei</span>
-            </p>
-          </div>
-          <Delta from={profile?.avoidableLei} to={sentinel?.avoidableLei} />
+    <section aria-labelledby="ov-imbalance" className={cn(CARD, "h-full px-5 pt-3 pb-2")}>
+      <SectionHeader
+        title={<span id="ov-imbalance">Imbalance cost</span>}
+        aside={
+          <button
+            type="button"
+            onClick={() => go({ mode: "imbalance", feeder: null, park: null, turbine: null, site: null })}
+            className={QUIET_LINK}
+          >
+            Open imbalance
+            <ChevronRight aria-hidden className="size-3.5" />
+          </button>
+        }
+      />
+      <div className="flex items-center gap-4 py-3.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-dense text-text-secondary">
+            Avoidable imbalance cost{" "}
+            <span className="text-muted-foreground">
+              · {sentinel ? `${Math.round(sentinel.days)} days, portfolio` : "no imbalance replay yet"}
+            </span>
+          </p>
+          <p className="mt-1 text-caption text-muted-foreground">
+            fixed profile <span className="font-medium text-text-secondary">{lei(profile?.avoidableLei)} lei</span>
+          </p>
         </div>
-        <GoButton onClick={() => go({ mode: "imbalance", feeder: null, park: null, turbine: null, site: null })}>
-          Open imbalance
-        </GoButton>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {sentinel ? (
+            <Num
+              value={lei(sentinel.avoidableLei)}
+              unit="lei"
+              className="text-2xl leading-none font-semibold tracking-tight text-foreground"
+            />
+          ) : (
+            <span className="text-2xl leading-none font-semibold text-muted-foreground">—</span>
+          )}
+          {delta ? <DeltaChip delta={delta} /> : null}
+        </div>
       </div>
     </section>
   );
 }
 
-/* ---------- 5. Agent activity ---------- */
+/* ---------- 5. Agent activity: the last five ---------- */
 
 function when(markerStep: number, now: number) {
   return dayOfStep(markerStep) === dayOfStep(now)
@@ -643,11 +603,11 @@ function ActivityRow({ group, now, wide = false }: { group: ActionMarker; now: n
   return (
     <li
       className={cn(
-        "grid items-start gap-x-3 rounded-xl px-3 py-2 text-[13px] leading-snug transition-[background-color,box-shadow] duration-150 hover:bg-card hover:shadow-raised",
+        "grid items-start gap-x-3 rounded-lg px-2 py-2 text-dense leading-snug transition-colors duration-150 hover:bg-surface-raised",
         wide ? "grid-cols-[44px_12px_1fr]" : "grid-cols-[64px_12px_1fr]",
       )}
     >
-      <span className="pt-px font-mono text-[12px] whitespace-nowrap text-muted-foreground tabular-nums">
+      <span className="pt-px font-mono text-caption whitespace-nowrap text-muted-foreground">
         {wide ? timeLabel(group.step) : when(group.step, now)}
       </span>
       <StatusMark kind={ACTION_MARK[group.kind]} size="sm" className="mt-[3px]" label={ACTION_LABEL[group.kind]} />
@@ -658,7 +618,7 @@ function ActivityRow({ group, now, wide = false }: { group: ActionMarker; now: n
           type="button"
           onClick={() => explain(lead)}
           aria-label={`Why: ${lead.title}`}
-          className="font-medium whitespace-nowrap text-brand-700 underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+          className="cursor-pointer font-medium whitespace-nowrap text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-foreground focus-visible:decoration-foreground focus-visible:outline-none"
         >
           why?
         </button>
@@ -667,14 +627,11 @@ function ActivityRow({ group, now, wide = false }: { group: ActionMarker; now: n
   );
 }
 
-function AgentActivity() {
+function useActivity() {
   const [rawStep] = useReplayStep();
-  const [policy] = usePolicy();
   const step = clampStep(rawStep);
   const { actions, isLoading } = useAgentActions();
-  const [open, setOpen] = useState(false);
   const past = useMemo(() => groupMarkers(actions.filter((a) => a.step <= step)), [actions, step]);
-  const latest = past.slice(-3).reverse();
   const byDay = useMemo(() => {
     const days = new Map<number, ActionMarker[]>();
     for (const group of [...past].reverse()) {
@@ -684,62 +641,215 @@ function AgentActivity() {
     return [...days.entries()];
   }, [past]);
   const later = groupMarkers(actions).length - past.length;
+  return { step, past, byDay, later, isLoading };
+}
+
+function AgentActivity({ onDetails }: { onDetails: OpenDetails }) {
+  const [policy] = usePolicy();
+  const { step, past, isLoading } = useActivity();
+  const latest = past.slice(-TOP_ACTIVITY).reverse();
 
   return (
-    <section aria-labelledby="ov-activity">
-      <SectionHeading
+    <section aria-labelledby="ov-activity" className={cn(CARD, "h-full px-5 pt-3 pb-3")}>
+      <SectionHeader
+        title={<span id="ov-activity">Agent activity</span>}
         aside={
           past.length > 0 ? (
-            <button type="button" onClick={() => setOpen(true)} className={QUIET_LINK}>
+            <button type="button" onClick={() => onDetails("activity")} className={QUIET_LINK}>
               See all {past.length}
               <ChevronRight aria-hidden className="size-3.5" />
             </button>
           ) : null
         }
-      >
-        <span id="ov-activity">Agent activity</span>
-      </SectionHeading>
+      />
       {policy === "baseline" ? (
-        <p className="px-1 pb-1 text-[12px] text-muted-foreground">Showing what Sentinel did; Baseline has no agent.</p>
+        <p className="pb-1 text-caption text-muted-foreground">Showing what Sentinel did; Baseline has no agent.</p>
       ) : null}
       {isLoading ? (
-        <p className="px-1 text-[13px] text-text-secondary">Loading…</p>
+        <p className="mt-1 text-dense text-text-secondary">Loading…</p>
       ) : latest.length === 0 ? (
-        <p className="px-1 text-[13px] text-text-secondary">No actions yet at this point in the week.</p>
+        <p className="mt-1 text-dense text-text-secondary">No actions yet at this point in the week.</p>
       ) : (
-        <ul className="flex flex-col">
+        <ul className="-mx-2 flex flex-col">
           {latest.map((group) => (
             <ActivityRow key={`${group.kind}-${group.step}`} group={group} now={step} />
           ))}
         </ul>
       )}
-
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-[480px] border-0 bg-card p-0 shadow-overlay sm:max-w-[480px]">
-          <SheetHeader className="border-b border-border px-5 pt-5 pb-4">
-            <SheetTitle className="text-[16px] font-semibold">Agent activity</SheetTitle>
-            <SheetDescription className="text-[12px] text-text-secondary">
-              Everything Sentinel did up to <span className="font-mono tabular-nums">{clockLabel(step)}</span>, newest
-              first. {later > 0 ? `${later} more later in the week: play the replay to see them.` : ""}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-6 [scrollbar-width:thin]">
-            {byDay.map(([day, groups]) => (
-              <div key={day} className="pt-4">
-                <h3 className="sticky top-0 z-[1] bg-card/95 px-3 py-1 font-mono text-[11px] font-semibold tracking-[0.04em] text-muted-foreground uppercase backdrop-blur-sm">
-                  {dayLabel(day)} · {plural(groups.length, "action")}
-                </h3>
-                <ul className="flex flex-col">
-                  {groups.map((group) => (
-                    <ActivityRow key={`${group.kind}-${group.step}`} group={group} now={step} wide />
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </SheetContent>
-      </Sheet>
     </section>
+  );
+}
+
+/* ---------- Details: everything that is not on the glance ---------- */
+
+function OverviewDetails({ target, onClose }: { target: DetailsTarget | null; onClose: () => void }) {
+  // Hooks run while the sheet is closed too, so the page fetches exactly what it did before (#124).
+  const data = useOverviewData();
+  const attention = useAttention();
+  const { step, byDay, later } = useActivity();
+  const { data: day } = useOverview();
+  const grid = useGrid().data?.hosting;
+  const { data: trust } = useTrustBoard();
+
+  // Scroll the requested section into view once the sheet has opened.
+  useEffect(() => {
+    if (!target) return;
+    const timer = window.setTimeout(
+      () => document.getElementById(detailsId(target))?.scrollIntoView({ block: "start" }),
+      60,
+    );
+    return () => window.clearTimeout(timer);
+  }, [target]);
+
+  const fixed = (v: number | null | undefined, digits: number, unit = "") =>
+    v === null || v === undefined ? "—" : `${v.toFixed(digits)}${unit}`;
+  const prosumers = grid ? deltaOf(grid.totalWithout, grid.totalWith, true) : null;
+
+  return (
+    <DetailsSheet
+      open={target !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      title="Overview details"
+      description={
+        <>
+          Everything behind the glance, up to <span className="font-mono">{clockLabel(step)}</span>.
+        </>
+      }
+      wide
+    >
+      <SheetSection title={<span id={detailsId("numbers")} className="scroll-mt-4">Today&apos;s numbers</span>}>
+        <div className="text-dense">
+          <PopList
+            rows={[
+              { key: "mwh", label: "Production today", value: fixed(day?.productionMwh, 0, " MWh") },
+              { key: "wind", label: "Avg wind today", value: fixed(day?.avgWindKmh, 1, " km/h") },
+              { key: "avail", label: "Park availability", value: fixed(day?.availabilityPct, 1, "%") },
+              { key: "orders", label: "Open work orders", value: fixed(day?.activeIssues, 0) },
+            ]}
+          />
+        </div>
+      </SheetSection>
+
+      <SheetSection
+        title={<span id={detailsId("attention")} className="scroll-mt-4">Needs attention</span>}
+        aside={<span className="text-caption text-muted-foreground">{plural(attention.length, "item")}</span>}
+      >
+        {attention.length === 0 ? (
+          <p className="text-text-secondary">Nothing needs a person right now.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {attention.map((row) => (
+              <li key={row.key} className="py-3 first:pt-0">
+                <div className="flex items-start gap-2.5">
+                  <StatusMark kind={row.mark} size="sm" className="mt-1" />
+                  <p className="min-w-0 flex-1 leading-snug text-text-secondary [&_b]:font-semibold [&_b]:text-foreground">
+                    {row.text}
+                  </p>
+                </div>
+                <div className="mt-2 pl-5 text-caption">
+                  <PopList rows={factRows(row.facts)} />
+                </div>
+                <button type="button" onClick={row.go} className={cn(QUIET_LINK, "mt-1.5 ml-3.5")}>
+                  {row.goLabel}
+                  <ChevronRight aria-hidden className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SheetSection>
+
+      <SheetSection
+        title={
+          <span id={detailsId("feeders")} className="scroll-mt-4">
+            Minutes over the limit, per feeder
+          </span>
+        }
+        aside={<span className="text-caption text-muted-foreground">{dayLabel(dayOfStep(step))}</span>}
+      >
+        <table className="w-full text-dense">
+          <thead>
+            <tr className="text-caption text-muted-foreground">
+              <th className="pb-1.5 text-left font-medium">Feeder</th>
+              <th className="pb-1.5 text-right font-medium">Limit kW</th>
+              <th className="pb-1.5 text-right font-medium">Baseline</th>
+              <th className="pb-1.5 text-right font-medium text-foreground">Sentinel</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border border-t border-border">
+            {data.feeders.map((f) => (
+              <tr key={f.id}>
+                <td className="py-1.5 pr-2 font-medium whitespace-nowrap text-foreground">{f.name}</td>
+                <td className="py-1.5 text-right text-text-secondary">{Math.round(f.limitKw)}</td>
+                <td className="py-1.5 text-right text-text-secondary">{f.baselineMinutes ?? "—"}</td>
+                <td className="py-1.5 text-right font-semibold text-foreground">{f.sentinelMinutes ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {grid ? (
+          <div className="flex items-center gap-3 rounded-lg bg-surface-raised px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-text-secondary">
+                Prosumers the cables can still take{" "}
+                <span className="text-muted-foreground">· all feeders, {grid.label}</span>
+              </p>
+              <p className="mt-0.5 text-caption text-muted-foreground">
+                without Sentinel{" "}
+                <span className="font-medium text-text-secondary">{Math.round(grid.totalWithout)} homes</span>
+              </p>
+            </div>
+            <Num value={Math.round(grid.totalWith)} unit="homes" className="text-title text-foreground" />
+            {prosumers ? <DeltaChip delta={prosumers} /> : null}
+          </div>
+        ) : null}
+        <dl className="space-y-1.5 text-caption leading-snug text-text-secondary">
+          <div>
+            <dt className="inline font-semibold text-foreground">Baseline</dt>{" "}
+            <dd className="inline">is the same week without Sentinel: batteries only store their own solar.</dd>
+          </div>
+          <div>
+            <dt className="inline font-semibold text-foreground">Minutes over</dt>{" "}
+            <dd className="inline">count 15-minute steps where export crossed the feeder's limit.</dd>
+          </div>
+          <div>
+            <dt className="inline font-semibold text-foreground">A comfort breach</dt>{" "}
+            <dd className="inline">is a home battery dropping below the reserve its owner keeps.</dd>
+          </div>
+        </dl>
+      </SheetSection>
+
+      <SheetSection title={<span id={detailsId("activity")} className="scroll-mt-4">Agent activity</span>}>
+        <p className="text-caption text-text-secondary">
+          Everything Sentinel did up to <span className="font-mono">{clockLabel(step)}</span>, newest first.{" "}
+          {later > 0 ? `${later} more later in the week: play the replay to see them.` : ""}
+        </p>
+        {byDay.length === 0 ? (
+          <p className="text-text-secondary">No actions yet at this point in the week.</p>
+        ) : (
+          byDay.map(([d, groups]) => (
+            <div key={d} className="pt-2">
+              <h4 className="sticky top-0 z-[1] bg-card/95 py-1 section-label backdrop-blur-sm">
+                {dayLabel(d)} · {plural(groups.length, "action")}
+              </h4>
+              <ul className="-mx-2 flex flex-col">
+                {groups.map((group) => (
+                  <ActivityRow key={`${group.kind}-${group.step}`} group={group} now={step} wide />
+                ))}
+              </ul>
+            </div>
+          ))
+        )}
+      </SheetSection>
+
+      {trust?.witnesses.length ? (
+        <section id={detailsId("trust")} className="scroll-mt-4 border-t border-border py-5">
+          <TrustBoard />
+        </section>
+      ) : null}
+    </DetailsSheet>
   );
 }
 
@@ -747,11 +857,12 @@ function AgentActivity() {
 
 export function OverviewPage({ onTour }: ModePageProps) {
   const go = useGo();
+  const [details, setDetails] = useState<DetailsTarget | null>(null);
   return (
     <div className="@container w-full max-w-[1200px]">
       <div
         className={cn(
-          "grid grid-cols-1 gap-x-6 gap-y-7",
+          "grid grid-cols-1 gap-5",
           "@min-[880px]:grid-cols-[minmax(0,1fr)_400px] @min-[1100px]:grid-cols-[minmax(0,1fr)_420px]",
         )}
       >
@@ -760,24 +871,25 @@ export function OverviewPage({ onTour }: ModePageProps) {
         </div>
         <MiniMap
           onOpen={() => go({ mode: "feeders", site: null, turbine: null })}
-          className="h-[300px] @min-[880px]:col-start-2 @min-[880px]:row-start-1 @min-[880px]:h-auto @min-[880px]:min-h-[300px]"
+          className="h-[280px] @min-[880px]:col-start-2 @min-[880px]:row-start-1 @min-[880px]:h-auto @min-[880px]:min-h-[240px]"
         />
-        <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-2">
-          <NeedsAttention />
-        </div>
-        <div className="@min-[880px]:col-start-2 @min-[880px]:row-span-2 @min-[880px]:row-start-2">
-          <TodayVsWithout />
+        <div className="@min-[880px]:col-span-2 @min-[880px]:row-start-2">
+          <KpiRow onDetails={setDetails} />
         </div>
         <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-3">
-          <AgentActivity />
+          <NeedsAttention onDetails={setDetails} />
+        </div>
+        <div className="@min-[880px]:col-start-2 @min-[880px]:row-start-3">
+          <TodayVsWithout onDetails={setDetails} />
         </div>
         <div className="@min-[880px]:col-start-1 @min-[880px]:row-start-4">
-          <ImbalanceGlance />
+          <AgentActivity onDetails={setDetails} />
         </div>
         <div className="@min-[880px]:col-start-2 @min-[880px]:row-start-4">
-          <TrustBoard />
+          <ImbalanceGlance />
         </div>
       </div>
+      <OverviewDetails target={details} onClose={() => setDetails(null)} />
     </div>
   );
 }
