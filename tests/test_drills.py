@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from wattsentry.contracts import MockPredictor, Window
-from wattsentry.data.drills import DAY, DRILLS, telemetry_drill
+from wattsentry.data.drills import DAY, DRILLS
 
 T0 = pd.Timestamp("2025-06-10T00:00:00Z")
 

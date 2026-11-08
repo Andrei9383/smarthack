@@ -11,7 +11,6 @@ Time axis: every array is (homes, T) on the dataset's full UTC 15-min axis (``Wo
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
@@ -179,7 +178,3 @@ def truth_chunk(world: World, home_ids: Sequence[str], years: Sequence[int]) -> 
 def chunks(home_ids: Sequence[str], size: int) -> list[list[str]]:
     ids = list(home_ids)
     return [ids[i:i + size] for i in range(0, len(ids), size)]
-
-
-def n_threads() -> int:
-    return int(os.environ.get("WATTSENTRY_THREADS", os.cpu_count() or 4))

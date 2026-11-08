@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from wattsentry.gridtwin.run import score
-from wattsentry.gridtwin.twin import effective_limit, feeder_specs, load_voltages, run_twin, to_geojson
+from wattsentry.gridtwin.twin import load_voltages, run_twin, to_geojson
 from wattsentry.sim.fleet import FleetConfig, generate
 
 CFG = FleetConfig(n_sites=150, n_feeders=4, n_congested=1, start_year=2024, end_year=2024,
@@ -38,12 +37,10 @@ def test_limits_only_tighten(twin):
     f = res.feeders
     assert f.tau.between(0, 1).all()
     assert (f.g_kw <= f.g_max_kw + 1e-9).all() and (f.g_kw >= f.g_conservative_kw - 1e-9).all()
-    specs = feeder_specs(res)
-    assert set(specs) == set(feeders.feeder_id)
-    assert all(abs(specs[r.feeder_id].g_kw - r.g_kw) < 1e-9 for r in f.itertuples())
+    assert set(f.feeder_id) == set(feeders.feeder_id)
 
 
-def test_geojson_and_messages(twin, tmp_path):
+def test_geojson_and_messages(twin):
     _, _, res = twin
     gj = to_geojson(res)
     assert gj["type"] == "FeatureCollection" and len(gj["features"]) == len(res.flags)
@@ -54,6 +51,3 @@ def test_geojson_and_messages(twin, tmp_path):
         assert p["status"] == "review_requested" and 0 <= p["score"] <= 1
         assert p["message"].startswith("likely L") and "GIS says" in p["message"]
     json.dumps(gj)
-    (tmp_path / "feeders.json").write_text(json.dumps(res.feeders.to_dict("records")))
-    fid = res.feeders.feeder_id.iloc[0]
-    assert effective_limit(fid, tmp_path) == pytest.approx(float(res.feeders.g_kw.iloc[0]))

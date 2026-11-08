@@ -7,7 +7,7 @@ from datetime import date
 import numpy as np
 import pytest
 
-from wattsentry.contracts import PAYLOAD_KEYS, Action, Prediction
+from wattsentry.contracts import PAYLOAD_KEYS, Action
 from wattsentry.demand import (
     ROW_FIELDS,
     DemandNet,
@@ -22,7 +22,7 @@ from wattsentry.demand import (
     zone_demand_rows,
 )
 from wattsentry.demand.data import load_national, synthetic_ro_load
-from wattsentry.demand.model import NationalShape, default_split, evaluate_zone, nmae, peak_hour_error
+from wattsentry.demand.model import NationalShape, build_features, default_split, evaluate_zone, nmae, peak_hour_error
 from wattsentry.demand.train import demo_hierarchy, main
 
 T0_WINTER = "2025-01-14T22:00:00Z"  # local midnight, Europe/Bucharest (UTC+2)
@@ -53,7 +53,7 @@ def test_p90_of_sum_below_sum_of_p90(demo):
 
 def test_hierarchy_rollup_consistent(demo):
     sites, _, scen, agg = demo
-    zs, by_id = agg.zone_scenarios, agg.by_id()
+    zs, by_id = agg.zone_scenarios, {z.zone_id: z for z in agg.zones}
     assert {z.level for z in agg.zones} == {"feeder", "locality", "county"}
     for parent in agg.zones:
         if parent.level == "feeder":
@@ -91,7 +91,7 @@ def test_missing_site_and_capacity_options():
     scen[:, 3, :] = np.nan  # site with no data at all
     scen[:10, 7, 40:50] = np.nan  # a gap in some scenarios
     agg = aggregate_scenarios(scen, sites, feeders, t0=T0_WINTER, capacity="limit")
-    z = agg.by_id()[sites[3]["feeder_id"]]
+    z = next(z for z in agg.zones if z.zone_id == sites[3]["feeder_id"])
     assert z.n_missing_sites == 1
     assert all(np.isfinite(zz.q90_mw).all() for zz in agg.zones)
     assert z.capacity_mw == pytest.approx(0.08)  # tau = 1 -> limit = g_max
@@ -120,8 +120,6 @@ def test_rows_and_actions(demo):
         assert a.payload["level"] in ("county", "locality", "feeder")
         assert Action.from_json(a.to_json()).payload["zone_id"] == a.payload["zone_id"]
     assert {a.audit.status for a in actions if a.payload["zone_id"] == "FCT10"} == {"stressed"}
-    p = agg.by_id()["CT"].to_prediction()
-    assert isinstance(p, Prediction) and p.unit == "MW" and p.model == "demandnet"
 
 
 # --- calendar --------------------------------------------------------------------------------------------
@@ -168,13 +166,12 @@ def test_v2_trains_fast_on_small_synthetic(tmp_path):
     assert res["demand_nmae"] < 0.1
     assert res["demand_nmae"] < res["baseline_persistence_day_nmae"]
     assert 0.4 < res["demand_coverage_10_90"] <= 1.0
-    # save / load round trip and a day-ahead envelope
+    # save / load round trip
     model.save(tmp_path)
     m2 = DemandNet.load(tmp_path)
-    t0 = str(s.ts[-48]) + "Z"
-    p1, p2 = model.predict_day(s, t0, horizon=96), m2.predict_day(s, t0, horizon=96)
-    assert p1.unit == "MW" and p1.horizon == 96
-    np.testing.assert_allclose(p1.q50, p2.q50, rtol=1e-6)
+    X, cal = build_features(s, model.shape)
+    np.testing.assert_allclose(model.predict(s.zone_id, X[-96:], cal["level"][-96:]),
+                               m2.predict(s.zone_id, X[-96:], cal["level"][-96:]), rtol=1e-6)
 
 
 def test_metrics_basic():

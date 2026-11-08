@@ -28,7 +28,7 @@ from wattsentry.model.wind.data import (
 )
 from wattsentry.model.wind.features import clf_features, curtail_ok, decide, neighbours_for
 from wattsentry.model.wind.metrics import event_metrics
-from wattsentry.model.wind.physics import CLASS_2500, air_density, density_normalise, shear_to_hub, v_norm_from
+from wattsentry.model.wind.physics import CLASS_2500, air_density, density_normalise, shear_to_hub
 from wattsentry.model.wind.synth import SynthConfig, generate
 from wattsentry.model.wind.windmon_rules import windmon_classes, windmon_flags
 
@@ -100,8 +100,8 @@ def test_density_normalisation_numbers():
     assert density_normalise(10.0, 1.225) == pytest.approx(10.0)
     rho = air_density(1000.0, -10.0)
     assert rho == pytest.approx(100000 / (287.05 * 263.15), rel=1e-9)
-    assert v_norm_from(10.0, 1000.0, -10.0) == pytest.approx(10 * (rho / 1.225) ** (1 / 3), rel=1e-9)
-    assert v_norm_from(10.0, 1000.0, -10.0) > 10.0  # cold dense air carries more power
+    assert density_normalise(10.0, air_density(1000.0, -10.0)) == pytest.approx(10 * (rho / 1.225) ** (1 / 3), rel=1e-9)
+    assert density_normalise(10.0, air_density(1000.0, -10.0)) > 10.0  # cold dense air carries more power
     assert shear_to_hub(7.0, 120.0) == pytest.approx(7.0 * 1.2**0.14)
     assert CLASS_2500.power_frac(2.0) == 0 and CLASS_2500.power_frac(26.0) == 0
     assert CLASS_2500.power_frac(15.0) == pytest.approx(1.0, abs=1e-3)

@@ -91,25 +91,3 @@ def unseen_park(park_ids) -> str:
     s = pd.Series(np.asarray(park_ids).astype(str))
     counts = s.value_counts()
     return str(sorted(counts.index, key=lambda p: (counts[p], p))[0])
-
-
-def turbine_split(park_ids) -> np.ndarray:
-    """Per turbine: 'train' or 'unseen' (whole held-out park)."""
-    p = np.asarray(park_ids).astype(str)
-    return np.where(p == unseen_park(p), "unseen", "train")
-
-
-def check_no_leakage(splits: Splits, horizon_days: int = 1) -> None:
-    """Raise if any two splits share a target day, a train window's target reaches into a later split's days,
-    or an unseen site appears outside test."""
-    seen: dict[int, str] = {}
-    for name in SPLITS:
-        for d in splits.days[name]:
-            if d in seen:
-                raise AssertionError(f"day {d} in both {seen[d]} and {name}")
-            seen[d] = name
-    if len(splits.days["train"]) and len(splits.days["test"]):
-        if splits.days["train"].max() + horizon_days > splits.days["test"].min():
-            raise AssertionError("train targets overlap the test period")
-    if set(splits.train_sites) & set(splits.unseen_sites):
-        raise AssertionError("a site is both train and unseen")

@@ -18,7 +18,6 @@ verification; low trust only ever tightens the limit.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -183,19 +182,3 @@ def to_geojson(res: TwinResult) -> dict:
                        "status": "review_requested"},
     } for r in res.flags.itertuples()]
     return {"type": "FeatureCollection", "features": feats}
-
-
-def feeder_specs(res: TwinResult) -> dict[str, FeederSpec]:
-    return {r.feeder_id: FeederSpec(r.feeder_id, r.g_max_kw, r.g_conservative_kw, float(r.tau))
-            for r in res.feeders.itertuples()}
-
-
-def effective_limit(feeder_id: str, twin_dir: Path | None = None) -> float:
-    """G_f (kW) for the LP (#18), from the last grid-twin run (feeders.json)."""
-    from .run import default_out
-
-    path = Path(twin_dir or default_out()) / "feeders.json"
-    if not path.exists():
-        raise FileNotFoundError(f"{path}: run python -m wattsentry.gridtwin.run first (or use FeederSpec with tau=1)")
-    rows = {r["feeder_id"]: r for r in json.loads(path.read_text())}
-    return float(rows[feeder_id]["g_kw"])

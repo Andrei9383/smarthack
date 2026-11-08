@@ -16,11 +16,4 @@ Rule R12 (team/plan.md §8): M7 ships only with real lead time on held-out event
 """
 
 COMPONENTS = ["gearbox_t", "gen1_t", "gen2_t", "conv_t", "transformer_t"]  # contract sensor names
-COMPONENT_LABELS = {
-    "gearbox_t": "gearbox",
-    "gen1_t": "generator bearing 1",
-    "gen2_t": "generator bearing 2",
-    "conv_t": "converter",
-    "transformer_t": "transformer",
-}
 HORIZONS_D = (7, 14)

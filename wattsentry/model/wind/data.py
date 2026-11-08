@@ -31,7 +31,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from wattsentry.contracts.envelope import WindAnomaly
-from wattsentry.contracts.wind import CODE_SENSORS, SENSORS, make_tag, parse_tag
+from wattsentry.contracts.wind import SENSORS, make_tag, parse_tag
 
 CLASSES: list[str] = [a.value for a in WindAnomaly]  # index = label code
 CLASS_INDEX = {c: i for i, c in enumerate(CLASSES)}
@@ -50,7 +50,6 @@ PRIORITY = {
 # Classes that should reach an O&M queue (curtailment is logged, never a work order: plan §3.5 Qualify).
 ACTIONABLE = [c for c in CLASSES if c not in ("normal", "curtailment")]
 
-CONT_SENSORS = [s for s in SENSORS if s not in CODE_SENSORS]  # continuous sensors (codes = errors)
 POWER = "act_pwt"
 WIND = "wd_spd"
 AMBIENT = "turbine_t"

@@ -80,7 +80,8 @@ def test_battery_matches_contract():
                              eta_charge=float(rng.uniform(0.9, 0.98)), eta_discharge=float(rng.uniform(0.9, 0.98)),
                              soc_min=float(rng.uniform(0, 0.2)), soc_max=float(rng.uniform(0.85, 1.0)),
                              comfort_reserve_kwh=0.0) for _ in range(n)]
-    p = BatteryParams.from_specs(specs)
+    p = BatteryParams(*(np.array([getattr(s, k) for s in specs], float) for k in (
+        "capacity_kwh", "p_max_kw", "eta_charge", "eta_discharge", "soc_min", "soc_max", "comfort_reserve_kwh")))
     e = np.array([s.capacity_kwh * rng.uniform(s.soc_min, s.soc_max) for s in specs])
     for _ in range(50):
         pv_kw, load_kw = rng.uniform(0, 8, n), rng.uniform(0, 6, n)

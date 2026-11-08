@@ -29,7 +29,6 @@ class ParkWeather:
     alpha: np.ndarray  # [T, P] shear exponent per step (season of the step)
     alpha_table: dict[str, dict[str, float]]  # park -> season -> alpha
     table: "object"  # polars frame: contract `weather` rows, point_id = park id (hourly)
-    fit_ts_h: np.ndarray  # hourly grid of the fit year (calendar year of the first step)
     fit_hourly: dict[str, np.ndarray]  # FIELDS -> [H_fit, P]
     fit_alpha: np.ndarray  # [H_fit, P]
 
@@ -132,4 +131,4 @@ def load(path, layouts, ts15: np.ndarray, shear: str = "fit") -> ParkWeather:
             alpha[np.isin(months_q, months), p] = round(a, 4)
             alpha_h[np.isin(months_h, months), p] = round(a, 4)
     out_table = pl.concat(tables, how="diagonal_relaxed")
-    return ParkWeather(ts_h, hourly, q15, alpha, table, out_table, fy_ts, fy, alpha_h)
+    return ParkWeather(ts_h, hourly, q15, alpha, table, out_table, fy, alpha_h)

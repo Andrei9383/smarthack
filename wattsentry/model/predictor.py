@@ -217,14 +217,6 @@ class ForecastPredictor:
         qs, oods, _ = self.quantiles(self.raw(asset, window))
         return _envelope(self, asset, window, qs, oods)
 
-    def embed(self, asset, window) -> np.ndarray:
-        """OOD hook: per-member embeddings [n_members, d]."""
-        inp = F.build(self.kind, self.raw(asset, window))
-        feeds = {k: inp[k] for k in ("seq", "ref", "summ", "stat")}
-        feeds["mask"] = (~inp["night"]).astype(np.float32)
-        return np.concatenate([m.run(feeds)[1] for m in self.members])
-
-
 class LoadPredictor(ForecastPredictor):
     kind = "load"
 

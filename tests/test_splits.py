@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from wattsentry.data.splits import SPLITS, check_no_leakage, make_splits, turbine_split, unseen_park
+from wattsentry.data.splits import SPLITS, make_splits, unseen_park
 
 DAYS = pd.date_range("2022-01-01", "2025-12-30", freq="D", tz="UTC")
 
@@ -17,7 +17,6 @@ def test_time_and_site_splits_do_not_overlap():
     rng = np.random.default_rng(0)
     split_col = np.where(rng.random(600) < 0.3, "unseen", "train")
     sp = make_splits(DAYS, split_col)
-    check_no_leakage(sp)
     years = {k: set(DAYS[v].year) for k, v in sp.days.items()}
     assert years == {"train": {2022, 2023}, "val": {2024}, "cal": {2024}, "test": {2025}}
     all_days = np.concatenate([sp.days[k] for k in SPLITS])
@@ -35,33 +34,11 @@ def test_time_and_site_splits_do_not_overlap():
 def test_small_series_fallback_nonempty():
     sp = make_splits(pd.date_range("2024-01-01", periods=120, freq="D", tz="UTC"), ["train"] * 7 + ["unseen"] * 3)
     assert all(len(sp.days[k]) for k in SPLITS)
-    check_no_leakage(sp)
 
 
 def test_wind_park_holdout():
     parks = ["WPA"] * 50 + ["WPB"] * 23 + ["WPC"] * 47
     assert unseen_park(parks) == "WPB"
-    s = turbine_split(parks)
-    assert (s[50:73] == "unseen").all() and (s[:50] == "train").all() and (s[73:] == "train").all()
-
-
-def test_leakage_detected():
-    sp = make_splits(DAYS, ["train", "unseen"])
-    bad = type(sp)({**sp.days, "test": np.r_[sp.days["test"], sp.days["train"][:1]]}, sp.train_sites, sp.unseen_sites)
-    with pytest.raises(AssertionError):
-        check_no_leakage(bad)
-
-
-def _telemetry(n=96 * 3):
-    ts = pd.date_range("2024-06-01", periods=n, freq="15min", tz="UTC")
-    from wattsentry.sim.fleet.solar import solar_position
-
-    zen, _ = solar_position(ts, 44.49, 26.18)
-    pv = np.round(np.clip(np.cos(np.radians(zen)), 0, None) * 4000, 0)
-    return pd.DataFrame({"ts": ts, "site_id": "S0001", "pv_ac_w": pv, "load_w": 500.0, "batt_w": 0.0,
-                         "soc": 0.5, "inv_voltage_v": 231.0, "inv_status": 0})
-
-
 
 
 def test_window_cache_deterministic(tmp_path, monkeypatch):
@@ -75,7 +52,7 @@ def test_window_cache_deterministic(tmp_path, monkeypatch):
     cfg = FleetConfig(n_sites=16, n_feeders=2, n_congested=1, start_year=2024, end_year=2024)
     a = build_windows(fleet_cfg=cfg, fault_cfg=FaultConfig(faulty_share=0.3), out=tmp_path / "a", log=lambda *_: None)
     b = build_windows(fleet_cfg=cfg, fault_cfg=FaultConfig(faulty_share=0.3), out=tmp_path / "b", log=lambda *_: None)
-    ia, ib = json.loads((a / "index.json").read_text()), json.loads((b / "index.json").read_text())
+    ia = json.loads((a / "index.json").read_text())
     assert ia["format"] == "wattsentry-windows-v1" and ia["faults"] == FAULTS
     assert ia["n_steps"] % 96 == 0 and pd.Timestamp(ia["t_start"]).hour == 0
     for name, meta in ia["arrays"].items():

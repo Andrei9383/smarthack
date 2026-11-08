@@ -11,7 +11,7 @@ import pandas as pd
 
 from . import data as D
 from .classifier import PARAMS, STRATEGIES, StrategyClassifier
-from .net_model import NetQuantileModel, guessed_battery_arrays, portfolio_behaviour
+from .net_model import NetQuantileModel, portfolio_behaviour
 
 
 class BatteryModel:
@@ -70,23 +70,3 @@ class BatteryModel:
         st = steps[np.asarray(loc) == day]
         return portfolio_behaviour(code, {k: g[k].to_numpy() for k in PARAMS}, world.price[st], world.rank[st],
                                    world.med[st], world.cal["day_index"][st])
-
-    @classmethod
-    def portfolio_inputs(cls, fc: dict, day: str, region_key: str = "county"):
-        """(Fleet, behaviour) for I5 on data-v2 for one local day: the Fleet's battery arrays are the GUESSED ones
-        (PPC does not know the real battery), and behaviour = behaviour_for(fc, day). Usage:
-            fleet, fn = BatteryModel.portfolio_inputs(fc, "2025-06-02"); portfolio.set_behaviour(fn, "battery-i4")
-            portfolio.portfolio_scenarios(pv_q, load_q, fleet, ...)"""
-        from wattsentry.eval.portfolio import BatteryArrays, Fleet
-
-        world = fc["world"]
-        g = fc["guess"][fc["guess"]["day"] == day].set_index("home_id").loc[fc["home_ids"]]
-        code = g["strategy"].map({s: i for i, s in enumerate(STRATEGIES)}).to_numpy(np.int8)
-        bat = BatteryArrays(*guessed_battery_arrays(code, {k: g[k].to_numpy() for k in PARAMS}))
-        h = world.homes.set_index("home_id").loc[fc["home_ids"]]
-        names = h[region_key].astype(str).to_numpy()
-        regions = sorted(set(names))
-        rc = {r: i for i, r in enumerate(regions)}
-        fleet = Fleet(np.asarray(fc["home_ids"], dtype=object), np.array([rc[r] for r in names], np.int64), regions,
-                      bat, h["inverter_kw"].to_numpy(float))
-        return fleet, cls.behaviour_for(fc, day)

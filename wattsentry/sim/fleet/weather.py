@@ -42,9 +42,6 @@ def raw_path() -> Path | None:
     return next((p for p in RAW_CANDIDATES if p.exists()), None)
 
 
-VARS = ("ghi", "dni", "dhi", "temp_air", "wind_speed", "snow_depth_cm", "zenith", "azimuth")
-
-
 @dataclass
 class Weather:
     ts: pd.DatetimeIndex                 # 15-min UTC, interval start

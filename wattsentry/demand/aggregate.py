@@ -24,8 +24,6 @@ from wattsentry.contracts import (
     Action,
     ActionType,
     AuditRecord,
-    ModelId,
-    Prediction,
     input_hash,
 )
 
@@ -95,32 +93,11 @@ class ZoneDemand:
         """Stress clipped to 0..1 for the UI red scale (zone_demand.peak_stress)."""
         return float(min(1.0, max(0.0, self.stress)))
 
-    def to_prediction(self) -> Prediction:
-        """The zone as a standard prediction envelope (unit MW, model demandnet)."""
-        return Prediction(
-            asset_id=self.zone_id,
-            model=ModelId.DEMANDNET.value,
-            model_version=self.model_version,
-            t0=self.t0,
-            horizon=len(self.q50_mw),
-            q10=self.q10_mw,
-            q50=self.q50_mw,
-            q90=self.q90_mw,
-            unit="MW",
-            step_minutes=self.step_minutes,
-            extra={"level": self.level, "peak_t": self.peak_t, "peak_hour_local": self.peak_hour_local,
-                   "stress": self.stress, "capacity_mw": self.capacity_mw, "label": self.label},
-        )
-
-
 @dataclass
 class DemandAggregate:
     zones: list[ZoneDemand]
     zone_scenarios: dict[str, np.ndarray]  # zone_id -> [S, T] MW scenario sums (kept for checks / M3 stress)
     times: np.ndarray  # datetime64[s] UTC step starts
-
-    def by_id(self) -> dict[str, ZoneDemand]:
-        return {z.zone_id: z for z in self.zones}
 
     def level(self, level: str) -> list[ZoneDemand]:
         return [z for z in self.zones if z.level == level]

@@ -16,7 +16,7 @@ from wattsentry.contracts.envelope import Prediction, Window
 from wattsentry.model.wind.synth import SynthConfig, generate
 from wattsentry.model.windfailure import COMPONENTS, thermal
 from wattsentry.model.windfailure.features import FEATURES, daily_features, feature_index
-from wattsentry.model.windfailure.labels import Failure, daily_targets, day_grid, failures_from_episodes
+from wattsentry.model.windfailure.labels import Failure, daily_targets, day_grid
 from wattsentry.model.windfailure.metrics import evaluate_alarms
 from wattsentry.model.windfailure.train import day_folds
 

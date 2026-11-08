@@ -22,9 +22,9 @@ from typing import Any, Optional
 
 import numpy as np
 
-from wattsentry.contracts import ModelId, Prediction
+from wattsentry.contracts import ModelId
 
-from .calendar import calendar_features, degree_hours, parse_ts, utc_iso
+from .calendar import calendar_features, degree_hours
 from .data import LoadSeries
 
 QUANTILES = (0.1, 0.5, 0.9)
@@ -255,22 +255,6 @@ class DemandNet:
         P[:, 2] += off
         P = np.sort(np.maximum(P, 0.0), axis=1)
         return P * np.asarray(level, dtype=float)[:, None]
-
-    def predict_day(self, series: LoadSeries, t0: str, horizon: int = 96, step_minutes: int = 15) -> Prediction:
-        """Envelope for `series.zone_id` from `t0` (UTC): hourly quantiles held over each 15-min step, MW.
-
-        `series` must hold the zone's load up to t0 (for the 24 h / 168 h lags) and temperature for the window.
-        """
-        X, cal = build_features(series, self.shape)
-        start = parse_ts(t0)
-        times = start + np.arange(horizon) * np.timedelta64(step_minutes, "m")
-        pos = ((times.astype("datetime64[h]") - series.ts[0].astype("datetime64[h]")).astype(int))
-        if pos.min() < 0 or pos.max() >= len(series.ts):
-            raise ValueError("series does not cover the prediction window (append the window with load = NaN)")
-        P = self.predict(series.zone_id, X[pos], cal["level"][pos])
-        return Prediction(asset_id=series.zone_id, model=self.model, model_version=self.model_version,
-                          t0=utc_iso(start), horizon=horizon, q10=P[:, 0], q50=P[:, 1], q90=P[:, 2], unit="MW",
-                          step_minutes=step_minutes, extra={"label": series.label, "hourly": True})
 
     def feature_importance(self, zone_id: str) -> dict[str, float]:
         b = self.boosters[zone_id][0.5]

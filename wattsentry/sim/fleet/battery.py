@@ -1,15 +1,14 @@
 """Vectorised home battery + self-consumption rule: the same semantics as `BatterySpec.step` and
-`self_consumption_step` in wattsentry/contracts/opt.py (team/contracts/opt.md), over arrays of sites.
-tests/test_fleet_sim.py checks the two agree. Use the contract version for one site, this one for fleets
-(the simulator runs 600 sites x 140k steps; #27's P10 rollout runs ~200 scenarios per feeder).
+`self_consumption_step` in wattsentry/contracts/opt.py, over arrays of sites (tests/test_fleet_sim.py checks the
+two agree). Use the contract version for one site, this one for fleets.
 
 Units here: power in W, energy in kWh, dt in hours (the contract uses kW). Signs, as in the telemetry:
   batt_w > 0 charging, < 0 discharging;  grid_w > 0 export, < 0 import;  grid_w = pv_ac_w - load_w - batt_w
 
   e[t+1] = e[t] + eta_c * c[t] * dt - d[t] * dt / eta_d,   c, d <= P,   e in [soc_min * E, soc_max * E]
 
-The physical battery (and the self-consumption rule) only respects the soc_min floor. The comfort reserve binds
-the planner: `e_min_planner_kwh` = max(soc_min * E, comfort_reserve) is the floor the LP (#18) must use.
+The physical battery (and the self-consumption rule) only respects the soc_min floor; the comfort reserve binds
+only the planner.
 """
 
 from __future__ import annotations
@@ -44,13 +43,6 @@ class BatteryParams:
             comfort_reserve_kwh=sites.comfort_reserve_kwh.to_numpy(float),
         )
 
-    @classmethod
-    def from_specs(cls, specs) -> "BatteryParams":
-        """From a list of contracts.opt.BatterySpec."""
-        f = lambda k: np.array([getattr(s, k) for s in specs], float)  # noqa: E731
-        return cls(*(f(k) for k in ("capacity_kwh", "p_max_kw", "eta_charge", "eta_discharge", "soc_min",
-                                    "soc_max", "comfort_reserve_kwh")))
-
     @property
     def e_min_kwh(self) -> np.ndarray:
         return self.soc_min * self.capacity_kwh
@@ -58,11 +50,6 @@ class BatteryParams:
     @property
     def e_max_kwh(self) -> np.ndarray:
         return self.soc_max * self.capacity_kwh
-
-    @property
-    def e_min_planner_kwh(self) -> np.ndarray:
-        return np.maximum(self.e_min_kwh, self.comfort_reserve_kwh)
-
 
 def apply_power(p: BatteryParams, e_kwh: np.ndarray, batt_w: np.ndarray, dt_h: float) -> tuple[np.ndarray, np.ndarray]:
     """Clip a requested battery power to power and energy limits (BatterySpec.step, vectorised).

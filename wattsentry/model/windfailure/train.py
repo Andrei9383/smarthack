@@ -215,7 +215,6 @@ def main(argv: list[str] | None = None) -> dict:
     y, down = daily_targets(failures, days, N, HORIZONS_D)
     run.stage("features", t)
     warm = np.arange(D) >= WARMUP_D
-    ends = days + np.timedelta64(1440, "m")
 
     def fail_in(dmask, tmask):
         return [f for f in failures if tmask[f.turbine] and dmask[min(D - 1, int((f.t_fail - days[0]) // np.timedelta64(1440, "m")))]]
@@ -314,7 +313,7 @@ def main(argv: list[str] | None = None) -> dict:
     # Equal-FA comparison on test. M7 keeps its frozen threshold; the baseline is given its BEST test threshold with
     # false alarms <= M7's frozen test rate (an oracle advantage for the baseline: a conservative check for M7).
     m, b = res["test"]["model"], res["test"]["baseline"]
-    mh, bh = res["test_holdout"]["model"], res["test_holdout"]["baseline"]
+    mh = res["test_holdout"]["model"]
     diag = {
         "baseline_oracle_at_model_fa": recall_at_fa(score_b, elig_test, ev_test, days, m["false_alarms_per_turbine_year"]),
         "baseline_oracle_at_model_fa_holdout": recall_at_fa(score_b, elig_test_hold, ev_test_hold, days,
