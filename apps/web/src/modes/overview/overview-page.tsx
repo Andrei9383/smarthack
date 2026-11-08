@@ -35,7 +35,7 @@ import {
 } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import type { ModePageProps } from "@/modes/registry";
-import { type Delta, StatusPill } from "@/panels/disclosure";
+import type { Delta } from "@/panels/disclosure";
 import { wallClock } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
@@ -45,8 +45,7 @@ import { MiniMap } from "./mini-map";
 import { useOverviewData } from "./use-overview-data";
 
 // Overview: what a supplier needs when it lands on the app, on a calm day as much as on a bad one.
-// 1. Status strip: Prosumers, Grid cables, Wind farms, each "All clear" / "Watch" / "Problem",
-//    one number and one line, and the whole card opens that area.
+// 1. Status strip: Prosumers, Grid cables, Wind farms: one number and one line each; the card opens that area.
 // 2. Needs your decision: only what a person must do (review cases, an intraday purchase when PPC is
 //    short). Empty, it says so and counts what the agent handled.
 // 3. The day's bought-vs-used chart and what each Sentinel step saves over a year.
@@ -180,18 +179,6 @@ function usePlayDemo() {
 }
 
 type Level = "ok" | "watch" | "action";
-const LEVEL: Record<
-  Level,
-  { word: string; pill: "ok" | "warn" | "critical"; bar: string }
-> = {
-  ok: { word: "All clear", pill: "ok", bar: "bg-status-ok" },
-  watch: { word: "Watch", pill: "warn", bar: "bg-status-warn" },
-  action: {
-    word: "Problem",
-    pill: "critical",
-    bar: "bg-status-critical",
-  },
-};
 const SHORT_ACTION_MWH = 0.2;
 const mwh = (v: number) => (v < 10 ? v.toFixed(2) : Math.round(v).toString());
 const plural = (n: number, one: string, many = `${one}s`) =>
@@ -317,37 +304,20 @@ function StatusCard({
   line: string;
   onClick: () => void;
 }) {
-  const style = level ? LEVEL[level] : undefined;
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         CARD,
-        "group relative flex cursor-pointer flex-col overflow-hidden p-5 text-left transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring",
+        "group flex cursor-pointer flex-col p-5 text-left transition-colors duration-150 hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-ring",
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "absolute inset-y-0 left-0 w-1",
-          style?.bar ?? "bg-border",
-        )}
-      />
       <span className="flex items-center gap-2.5">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-raised text-foreground">
           <Icon aria-hidden className="size-[18px]" />
         </span>
         <span className="text-body font-semibold text-foreground">{title}</span>
-        {style ? (
-          <StatusPill status={style.pill} className="ml-auto">
-            {style.word}
-          </StatusPill>
-        ) : (
-          <span className="ml-auto text-caption text-muted-foreground">
-            Loading…
-          </span>
-        )}
       </span>
       <span className="mt-4 flex items-baseline gap-1.5">
         <span className="text-[28px] leading-none font-semibold tracking-[-0.02em] text-foreground tabular-nums">
@@ -356,7 +326,7 @@ function StatusCard({
         <span className="text-dense text-muted-foreground">{unit}</span>
       </span>
       <span className="mt-2 flex items-center gap-1 text-dense text-text-secondary">
-        <span className="min-w-0 flex-1">{style ? line : " "}</span>
+        <span className="min-w-0 flex-1">{level ? line : "Loading…"}</span>
         <ChevronRight
           aria-hidden
           className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5"
