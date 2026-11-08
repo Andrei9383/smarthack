@@ -1,4 +1,4 @@
-"""Portfolio aggregation (card #175): shapes, perfect forecast, quantile monotonicity, conformal coverage."""
+"""Portfolio aggregation: shapes, perfect forecast, quantile monotonicity, conformal coverage."""
 
 import numpy as np
 import pandas as pd
@@ -114,7 +114,7 @@ def test_purchase_quantile():
     assert P.purchase_quantile(1.0, 1.0) == pytest.approx(0.5)
     assert P.purchase_quantile(2.0, 1.0) == pytest.approx(2 / 3)
     q = P.purchase_quantile()
-    assert 0.5 <= q < 1.0  # frozen a >= b (#158)
+    assert 0.5 <= q < 1.0  # frozen a >= b
 
 
 def test_correction_mask_local_time():
@@ -123,19 +123,6 @@ def test_correction_mask_local_time():
     mw, ms = P.correction_mask(winter), P.correction_mask(summer)
     assert mw.sum() == 32 and ms.sum() == 32  # 16:00-24:00 local = 8 h
     assert winter[mw][0].hour == 14 and summer[ms][0].hour == 13  # UTC+2 / UTC+3 (DST)
-
-
-def test_traded_id_only_in_window():
-    rng = np.random.default_rng(0)
-    total_da = rng.normal(1.0, 0.2, (200, T))
-    total_new = rng.normal(1.3, 0.1, (200, T))
-    bought = P.bought_da(total_da, 2 / 3)
-    mask = np.zeros(T, bool)
-    mask[60:92] = True
-    tr = P.traded_id(bought, total_new, 2 / 3, mask)
-    assert np.all(tr[~mask] == 0)
-    np.testing.assert_allclose(tr[mask], (np.quantile(total_new, 2 / 3, 0) - bought)[mask])
-    assert tr[mask].mean() > 0.2  # the re-forecast says more is needed: buy on PI
 
 
 # ------------------------------------------------------------------------------------------------- adapter

@@ -1,46 +1,18 @@
-"""Portfolio baselines for the Imbalance feature (card #173, spec I step 4): what PPC buys day-ahead today.
+"""Portfolio baselines for the imbalance replay: what a supplier buys day-ahead today.
 
-Three policies, each writes a day-ahead position for every 15-min step of the test year:
+- ``profile``: DEER standard load profile x expected monthly consumption, minus a typical monthly solar curve x kWp
+  (no weather, no interval meters).
+- ``persistence``: the smart meter one week earlier (D-14, then the profile, when missing).
+- ``forecast_only``: validated PV and load q50 per home, load - pv, no battery model (persistence where unknown).
 
-| policy          | position for day D (decided on D-1, before the PZU gate)                                 |
-|-----------------|-------------------------------------------------------------------------------------------|
-| `profile`       | DEER standard load profile (PSC "Casnici urban/rural") x expected monthly consumption,    |
-|                 | minus a typical monthly solar curve x kWp. No weather, no interval meters. = PPC today.   |
-| `persistence`   | same 15-min step one week earlier, from the smart meters (D+1 data, so D-7 is known).     |
-| `forecast_only` | M1 PVNet (forecast weather) + M2 LoadNet q50 per home through the Judge adapter (#157),  |
-|                 | load - pv, no battery model, no M4.                                                       |
-
-Position format (consumed by X1 #158, I5 #175, I6 #176) - one row per 15-min step of the local test year:
-
-| column          | dtype               | unit / meaning                                                              |
-|-----------------|---------------------|-----------------------------------------------------------------------------|
-| `ts`            | datetime[ns, UTC]   | interval start                                                              |
-| `policy`        | str                 | `profile` / `persistence` / `forecast_only`                                 |
-| `bought_da_mwh` | f64                 | day-ahead position, MWh per step. **+ = net purchase** (portfolio import -  |
-|                 |                     | export); negative = PPC sells the portfolio's surplus                       |
-| `traded_id_mwh` | f64                 | intraday correction, MWh per step, same sign. 0.0 for these baselines       |
-| `actual_mwh`    | f64                 | metered portfolio net import, MWh per step, same sign                        |
-| `import_mwh`    | f64 >= 0            | sum over homes of metered import                                            |
-| `export_mwh`    | f64 >= 0            | sum over homes of metered export (= MWh injected, for lei_per_mwh_injected) |
-
-`actual_mwh = import_mwh - export_mwh`. Homes are netted per step at the portfolio level (one balancing
-position), but import/export are summed per home first, so `export_mwh` is the gross injection.
-
-Data. The current fleet (#11 + #12 faults, 600 homes, all smart-metered) is the default source: the meter is the
-connection flow `grid_w` (+ export) of the fault-injected telemetry, i.e. what physically crossed the meter in the
-world the models were trained on. Rows the fault injector blanked (sensor faults) are D+1 meter gaps for the
-policies; for `actual` the gap is filled from the clean fleet, since a logger fault does not change the physical
-flow. data-v2 (I2 #172) plugs in through `Portfolio` (`smart` mask: profile-metered homes get the profile in
-`persistence` and `forecast_only` fallbacks). Label: synthetic RO (homes) on real RO ERA5 weather + real RO DEER PSC.
-
-Fallbacks (robustness): `persistence` uses D-14 when D-7 is missing, then the home's profile estimate;
-`forecast_only` uses the home's persistence value where the model has no output (first history days, end of the
-window cache, verdict dont_use without substitute).
+``positions`` returns one row per 15-min step of the local test year with ``POSITION_COLUMNS``: ts (UTC),
+policy, bought_da_mwh, traded_id_mwh (0 here), actual_mwh = import_mwh - export_mwh. MWh per step, + = net purchase;
+import/export are summed per home first, so export_mwh is the gross injection. ``actual`` is the fault-injected
+meter flow with gaps filled from the clean fleet (a logger fault does not change the physical flow).
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import time
@@ -237,7 +209,7 @@ def _read_years(tdir: Path, years: Sequence[int], cols: Sequence[str]) -> pl.Dat
 
 def find_fleet_dirs(root: Optional[Path] = None) -> tuple[Path, Optional[Path]]:
     """(clean fleet dir, fault-injected dir or None). $WATTSENTRY_FLEET / $WATTSENTRY_FAULTS, else the dirs named in
-    #10's window cache index (the data the models were trained on; built if missing), else the newest fleet-*."""
+    the window cache index (the data the models were trained on; built if missing), else the newest fleet-*."""
     if root is not None:
         root = Path(root)
         mf = root / "manifest.json"
@@ -291,7 +263,7 @@ def load_fleet(year: int = 2025, root: Optional[Path] = None, site_ids: Optional
     actual = np.nan_to_num(actual)
     weather = pl.read_parquet(fleet / "weather.parquet", columns=["ts", "point_id", "ghi_wm2", "dni_wm2", "dhi_wm2",
                                                                     "temp_c"])
-    clim = solar_climatology(weather, [y for y in range(year - 3, year)])
+    clim = solar_climatology(weather, list(range(year - 3, year)))
     return Portfolio(sites=sites, year=year, ts=ts, meter_kw=meter, prev_ts=prev_ts, prev_meter_kw=prev,
                      actual_kw=actual, clim=clim, lead=lead,
                      source={"fleet": str(fleet), "faults": str(faults) if faults else None,
@@ -356,7 +328,7 @@ def persistence_site_kw(pf: Portfolio, fallback: Optional[np.ndarray] = None) ->
     return x
 
 
-# --- forecast_only: M1 + M2 through the Judge adapter ---------------------------------------------------------
+# --- forecast_only: PV + load forecasts through the Judge adapter ---------------------------------------------------------
 def validated_q50(model: str, site_ids: Sequence[str], days: Sequence[str], q: np.ndarray) -> np.ndarray:
     """THE single seam to the Judge: raw (N, 96, 3) kW -> validated q50 (N, 96), NaN = not known."""
     from wattsentry.judge.adapter import RawBatch, validated_many
@@ -367,20 +339,20 @@ def validated_q50(model: str, site_ids: Sequence[str], days: Sequence[str], q: n
 
 def model_forecasts_kw(pf: Portfolio, windows: Optional[Path] = None, model_dir: Optional[Path] = None,
                        batch: int = 512, log: Callable = print) -> dict[str, np.ndarray]:
-    """Raw day-ahead M1 (pvnet_fc, forecast weather) and M2 (loadnet seeds) quantiles [S, T, 3] kW on pf.ts,
-    computed over whole UTC days of #10's window cache exactly like the replay's ModelBank. NaN = no output."""
+    """Raw day-ahead PV (pvnet_fc, forecast weather) and load (loadnet seeds) quantiles [S, T, 3] kW on pf.ts,
+    computed over whole UTC days of the window cache exactly like the replay's ModelBank. NaN = no output."""
     from types import SimpleNamespace
 
     from wattsentry.agent.predictors import FleetSlice, ModelBank, _members, models_dir
     from wattsentry.agent.world import find_windows
 
     root = Path(windows) if windows else find_windows()
-    if root is None:  # fresh worker: build #10's cache (fleet + faults + windows, several minutes)
+    if root is None:  # fresh worker: build the window cache (fleet + faults + windows, several minutes)
         from wattsentry.model.data import build_lab_windows
 
         root = build_lab_windows()
     if root is None:
-        raise FileNotFoundError("no #10 window cache ($WATTSENTRY_WINDOWS or ~/.cache/wattsentry/data-v{N}/windows)")
+        raise FileNotFoundError("no window cache ($WATTSENTRY_WINDOWS or ~/.cache/wattsentry/data-v{N}/windows)")
     idx = json.loads((root / "index.json").read_text())
     cache_sites = [s["site_id"] for s in json.loads((root / "sites.json").read_text())]
     pos = {s: i for i, s in enumerate(cache_sites)}
@@ -419,7 +391,7 @@ def _local_days(ts: pd.DatetimeIndex) -> tuple[list[str], list[np.ndarray]]:
 
 def forecast_only_site_kw(pf: Portfolio, raw: Optional[dict[str, np.ndarray]] = None,
                           fallback: Optional[np.ndarray] = None, **kw) -> tuple[np.ndarray, dict]:
-    """[S, T] kW = validated M2 q50 - validated M1 q50 per home (no battery model); fallback where unknown."""
+    """[S, T] kW = validated load q50 - validated PV q50 per home (no battery model); fallback where unknown."""
     raw = model_forecasts_kw(pf, **kw) if raw is None else raw
     ids = pf.sites["site_id"].to_list()
     days, steps = _local_days(pf.ts)
@@ -486,53 +458,3 @@ def positions(policy: str, year: int = 2025, *, fleet: Optional[Portfolio] = Non
 
 
 # ============================================================================================ metrics + CLI
-def position_metrics(df: pl.DataFrame) -> dict[str, float]:
-    """Price-free errors of one policy: abs_dev_mwh, bias_mwh (+ = bought too much), nmae (vs mean |actual|),
-    double_cover_mwh_18_21 (bought above actual between 18:00 and 21:00 local), export_mwh."""
-    dev = (df["bought_da_mwh"] + df["traded_id_mwh"] - df["actual_mwh"]).to_numpy()
-    act = df["actual_mwh"].to_numpy()
-    hour = pd.DatetimeIndex(df["ts"].to_pandas()).tz_convert(TZ).hour.to_numpy()
-    eve = (hour >= 18) & (hour < 21)
-    return {"abs_dev_mwh": float(np.abs(dev).sum()), "bias_mwh": float(dev.sum()),
-            "nmae": float(np.abs(dev).mean() / max(np.abs(act).mean(), 1e-9)),
-            "abs_dev_mwh_17_21": float(np.abs(dev[(hour >= 17) & (hour < 21)]).sum()),
-            "double_cover_mwh_18_21": float(np.clip(dev[eve], 0, None).sum()),
-            "export_mwh": float(df["export_mwh"].sum()), "steps": float(df.height)}
-
-
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--year", type=int, default=2025)
-    ap.add_argument("--policy", default=",".join(POLICIES))
-    ap.add_argument("--out", default=None, help="positions parquet (default $LAB_OUTPUT_DIR/positions.parquet)")
-    ap.add_argument("--fleet", default=None, help="fleet or faults dir (default: the #10 window cache's)")
-    ap.add_argument("--sites", type=int, default=0, help="first N sites only (smoke runs)")
-    args = ap.parse_args(argv)
-    t0 = time.perf_counter()
-    ids = None
-    if args.sites:
-        fleet, _ = find_fleet_dirs(Path(args.fleet) if args.fleet else None)
-        ids = pl.read_parquet(fleet / "sites.parquet", columns=["site_id"]).sort("site_id")["site_id"][:args.sites].to_list()
-    pf = load_fleet(args.year, Path(args.fleet) if args.fleet else None, site_ids=ids)
-    print(f"LAB_METRIC t_load_s={time.perf_counter() - t0:.1f}", flush=True)
-    print(f"[portfolio] {pf.n_sites} homes, {len(pf.ts)} steps of {args.year}; label: {pf.label}; source {pf.source}")
-    frames = []
-    for pol in [p.strip() for p in args.policy.split(",") if p.strip()]:
-        t1 = time.perf_counter()
-        df = positions(pol, args.year, fleet=pf)
-        frames.append(df)
-        m = position_metrics(df)
-        print(f"LAB_METRIC t_{pol}_s={time.perf_counter() - t1:.1f}", flush=True)
-        for k, v in m.items():
-            if k != "steps":
-                print(f"LAB_METRIC {k}_{pol}={v:.4f}", flush=True)
-        assert df.height == len(pf.ts) and df["bought_da_mwh"].is_finite().all(), f"{pol}: incomplete position"
-    out = Path(args.out or Path(os.environ.get("LAB_OUTPUT_DIR", ".")) / "positions.parquet")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    pl.concat(frames).write_parquet(out, compression="zstd")
-    print(f"[portfolio] wrote {out} ({sum(f.height for f in frames)} rows) in {time.perf_counter() - t0:.1f}s")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

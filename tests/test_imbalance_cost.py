@@ -114,7 +114,7 @@ from wattsentry.data.prices import load_prices, prices_at  # noqa: E402
 
 
 def test_prices_15min_and_hourly_repeat():
-    # PZU switched to 15 min on 2025-10-01 00:00 CEST = 2025-09-30 22:00 UTC (#186)
+    # PZU switched to 15 min on 2025-10-01 00:00 CEST = 2025-09-30 22:00 UTC
     df = load_prices("2025-09-30T19:00", "2025-09-30T23:00")
     assert df.height == 16
     assert (df["ts"].diff().drop_nulls().dt.total_minutes() == 15).all()

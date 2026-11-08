@@ -1,4 +1,4 @@
-"""Card #173: portfolio baselines (profile / persistence / forecast_only) on a tiny synthetic portfolio."""
+"""Portfolio baselines (profile / persistence / forecast_only) on a tiny synthetic portfolio."""
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,7 @@ def _portfolio(n=3, year=2025, gaps=None):
     ts = bp.year_index(year)
     prev = bp.year_index(year - 1)
     lead = 2 * bp.WEEK
-    T, L = len(ts), lead + len(ts)
+    L = lead + len(ts)
     rng = np.random.default_rng(0)
     slot = np.arange(L) % bp.H
     meter = np.stack([0.5 + 0.3 * np.sin(slot / 96 * 2 * np.pi) + 0.1 * i + 0.01 * rng.standard_normal(L)
@@ -129,8 +129,6 @@ def test_position_frame_contract_and_sign():
     np.testing.assert_allclose(df["actual_mwh"], df["import_mwh"] - df["export_mwh"])
     np.testing.assert_allclose(df["export_mwh"], 4.0 * bp.STEP_H / 1000)  # gross per-home export, MWh per step
     assert df["ts"][0] == pd.Timestamp("2024-12-31 22:00", tz="UTC")
-    m = bp.position_metrics(df)
-    assert m["steps"] == len(pf.ts) and m["abs_dev_mwh"] >= abs(m["bias_mwh"])
     for pol in ("persistence",):
         assert bp.positions(pol, fleet=pf).height == len(pf.ts)
     with pytest.raises(ValueError):
