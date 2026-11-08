@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Live 15-min feed (card #128, EXPERIMENT): simulated readings in, next-15-min forecasts out, compared at the next
-tick. Writes the SQLite file the app's live view reads (team/contracts/live.md). Readings are simulated.
+"""Live 15-min feed: simulated readings in, next-15-min forecasts out, compared at the next tick. Writes the SQLite
+file the app's live view reads.
 
-  # demo: one tick every 10 s on the #506 week, F7 + F10, starting on the hero day morning
+  # demo: one tick every 10 s on the demo week, F7 + F10, starting on the hero day morning
   python scripts/live_feed.py --world sim --feeders F7,F10 --speed 10 --start 2025-06-04T04:00:00Z
-  # real time: wall clock mapped onto the #506 week by whole weeks, one tick per 15 min
+  # real time: wall clock mapped onto the demo week by whole weeks, one tick per 15 min
   python scripts/live_feed.py --world sim --feeders F7,F10
   # no window cache (tests, laptops): the mock world
   python scripts/live_feed.py --world mock --speed 0 --ticks 8 --db /tmp/live.sqlite

@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Build a demo database for one fleet size, calibrated to public Romanian data (team/datasets.md).
+"""Build a demo database for one fleet size, calibrated to public Romanian data.
 
 Runs fleet -> faults -> windows -> wind -> grid-twin -> replay into its own directories, so the default
 fleet, its window cache and demo/wattsentry.sqlite are untouched. Every feeder is planned and scored; only
 some homes keep per-step rows, because 15-minute rows for every home are what fills a database.
 
-  python scripts/build_dataset.py --homes 600 --out demo/   # -> demo/wattsentry-homes600.sqlite (gzip it, #211)
-
-Ported from card #118 (Tudor) in #215 without the PPC service-area option (`--zones ppc`): its localities, weather
-file and parks are only on card/118.
+  python scripts/build_dataset.py --homes 600 --out demo/   # -> demo/wattsentry-homes600.sqlite (then gzip it)
 """
 
 import argparse
@@ -17,8 +14,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-
-REPO = Path(__file__).resolve().parent.parent
 
 from wattsentry.agent.replay import replay
 from wattsentry.agent.world import SimWorld
@@ -72,7 +67,7 @@ def main() -> None:
     windows = build_windows(fleet_dir=fleet, fault_dir=faults, out=fleet.parent / f"windows-{name}")
     twin = fleet.parent / f"gridtwin-{name}"
     subprocess.run([sys.executable, "-m", "wattsentry.gridtwin.run", "--fleet", str(fleet), "--out", str(twin),
-                    "--start", "2025-01-01", "--days", "150"], check=True)  # nights before the June demo week only (#215)
+                    "--start", "2025-01-01", "--days", "150"], check=True)  # nights before the June demo week only
     parks = ALL_PARKS
     if not a.no_wind:
         subprocess.run([sys.executable, "-m", "wattsentry.sim.wind", "--no-plots"], check=True)

@@ -28,7 +28,7 @@ SPEED_MAX = 20.0  # m/s, top of the colour ramp
 WEEK_START = "2025-06-01T21:00:00+00:00"  # 2025-06-02 00:00 Europe/Bucharest
 WEEK_HOURS = 168
 FEATHER_PX = 6
-# light -> emerald, matches team/contracts/ui-style.md (PPC light theme)
+# light -> emerald, the app's light theme
 RAMP = [(0.0, (236, 251, 242)), (0.35, (108, 217, 160)), (0.65, (18, 183, 106)), (1.0, (11, 127, 72))]
 
 
@@ -113,7 +113,7 @@ def parquet_uv(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mock", action="store_true", help="invented field, labelled mock in the UI")
-    parser.add_argument("--input", help="weather Parquet from #9")
+    parser.add_argument("--input", help="weather Parquet (data/raw)")
     parser.add_argument("--start", default=WEEK_START, help="first hour, ISO-8601 with offset")
     parser.add_argument("--hours", type=int, default=WEEK_HOURS)
     parser.add_argument("--speed-col", default="wind100_ms")

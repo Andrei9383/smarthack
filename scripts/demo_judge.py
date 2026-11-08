@@ -1,15 +1,13 @@
-"""Judge tables for the demo DB (card #192): replay#506 again on the lab, ship only judge_verdicts / trust / outcomes.
+"""Judge tables for the demo DB: re-run the demo replay on the lab and ship only judge_verdicts / trust / outcomes.
 
-demo/wattsentry.sqlite is replay#506's exact output, made before the Judge (#149) existed. The Judge only records
-verdicts (tests/test_judge_verdict.py::test_judge_on_and_off_give_identical_decisions, replay --judge-check), so a
-re-run of #506's command (same world, run id 506) gives the same agent rows plus the Judge tables. The lab has no
+demo/wattsentry.sqlite predates the Judge. The Judge only records verdicts (replay --judge-check), so a re-run of
+the demo replay's command (same world, run id 506) gives the same agent rows plus the Judge tables. The lab has no
 artifact download, so `dump` prints the tables xz + base64 between markers and `load` reads them back from the log.
 
-    lab submit 192 --run replay --needs gpu --cmd "sh rust/build.sh status && .venv/bin/python scripts/demo_judge.py dump"
+    lab submit <card> --run replay --needs gpu --cmd "sh rust/build.sh status && .venv/bin/python scripts/demo_judge.py dump"
     lab logs <run> > run.log && python scripts/demo_judge.py load run.log      # into demo/wattsentry.sqlite
     python scripts/demo_judge.py digest demo/wattsentry.sqlite                     # per-table row count + sha256
 
-`dump` also prints the digest of every table of the re-run, to compare with `digest demo/wattsentry.sqlite`.
 `load` creates the tables with packages/db's judge migration, inserts the rows and fails unless every table that was
 there before has the same digest afterwards (no VACUUM: existing pages are not rewritten).
 """
@@ -17,22 +15,21 @@ there before has the same digest afterwards (no VACUUM: existing pages are not r
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
-import lzma
 import os
-import re
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 
+from demo_data_dump import dump as emit
+from demo_data_load import extract
+
 ROOT = Path(__file__).resolve().parents[1]
 JUDGE_TABLES = ("judge_verdicts", "trust", "outcomes")
 MIGRATION = next((ROOT / "packages" / "db" / "drizzle").glob("*_judge_tables/migration.sql"))
-BEGIN = re.compile(r"^=====BEGIN (\S+) ([0-9a-f]{64}) (\d+)=====$")
-# replay#506's command (demo/README.md), run id pinned so the rows carry the demo's run ids (506:sentinel)
+# the demo replay's command (demo/README.md), run id pinned so the rows carry the demo's run ids (506:sentinel)
 CACHES = [["-m", "wattsentry.data.windows"], ["-m", "wattsentry.sim.wind", "--no-plots"], ["-m", "wattsentry.gridtwin.run"]]
 REPLAY = ["replay.py", "--world", "sim", "--policy", "baseline,sentinel", "--run-id", "506", "--judge-check"]
 
@@ -87,14 +84,6 @@ def print_digests(path: Path) -> None:
         print(f"DIGEST {name} {n} {h}")
 
 
-def emit(name: str, data: bytes) -> None:
-    blob = base64.b64encode(lzma.compress(data, preset=9 | lzma.PRESET_EXTREME)).decode()
-    print(f"=====BEGIN {name} {hashlib.sha256(data).hexdigest()} {len(data)}=====", flush=True)
-    for i in range(0, len(blob), 4000):
-        print(blob[i : i + 4000])
-    print(f"=====END {name}=====", flush=True)
-
-
 def table_json(con: sqlite3.Connection, table: str) -> bytes:
     """Column-oriented JSON (compresses ~3x better than rows): {"columns": [...], "data": [[col0...], [col1...]]}."""
     cols = columns(con, table)
@@ -120,10 +109,6 @@ def dump(a: argparse.Namespace) -> int:
     db, log = out / "wattsentry.sqlite", out / "replay.log"
     db.unlink(missing_ok=True)
     py = sys.executable
-    if a.overlay:  # e.g. card/145's Judge weights + slot fix before it is on main (worker checkout only, not committed)
-        ok = subprocess.call(["git", "fetch", "-q", "origin", a.overlay], cwd=ROOT) == 0 and subprocess.call(
-            ["git", "checkout", "FETCH_HEAD", "--", *a.overlay_paths.split(",")], cwd=ROOT) == 0
-        print(f"# overlay {a.overlay} ({a.overlay_paths}): {'applied' if ok else 'NOT applied'}", flush=True)
     for c in CACHES:
         if run([py, *c], log):
             return 1
@@ -141,24 +126,6 @@ def dump(a: argparse.Namespace) -> int:
             emit(f"{t}.json", table_json(con, t))
     con.close()
     return 0
-
-
-def extract(log: str) -> dict[str, bytes]:
-    files: dict[str, bytes] = {}
-    name, chunks, sha, size = None, [], "", 0
-    for line in log.splitlines():
-        m = BEGIN.match(line.strip())
-        if m:
-            name, sha, size, chunks = m.group(1), m.group(2), int(m.group(3)), []
-        elif name and line.strip() == f"=====END {name}=====":
-            data = lzma.decompress(base64.b64decode("".join(chunks)))
-            if hashlib.sha256(data).hexdigest() != sha or len(data) != size:
-                raise ValueError(f"{name}: checksum mismatch")
-            files[name] = data
-            name = None
-        elif name:
-            chunks.append(line.strip())
-    return files
 
 
 def load(a: argparse.Namespace) -> int:
@@ -201,10 +168,8 @@ def load(a: argparse.Namespace) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    d = sub.add_parser("dump", help="lab: re-run replay#506, print digests + Judge tables")
+    d = sub.add_parser("dump", help="lab: re-run the demo replay, print digests + Judge tables")
     d.add_argument("--tables", default=",".join(JUDGE_TABLES))
-    d.add_argument("--overlay", default="", help="branch whose --overlay-paths are checked out before the replay")
-    d.add_argument("--overlay-paths", default="models/judge.*,wattsentry/judge/slot.py")
     lo = sub.add_parser("load", help="local: import the Judge tables from a saved `lab logs` into the demo DB")
     lo.add_argument("log")
     lo.add_argument("--db", default=str(ROOT / "demo" / "wattsentry.sqlite"))

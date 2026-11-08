@@ -1,16 +1,15 @@
-"""Print small lab outputs into the run log so they can be committed under demo/ (card #193).
+"""Print small lab outputs into the run log so they can be committed under demo/.
 
 The lab has no artifact download, only `lab logs <run>`. This script (re)generates the outputs on a GPU worker and
 prints each file xz-compressed + base64 between markers; `scripts/demo_data_load.py` turns a saved log back into files.
 
-    lab submit 193 --run replay --needs gpu --cmd "sh rust/build.sh status && .venv/bin/python scripts/demo_data_dump.py grid"
-    lab submit 193 --run imbalance --cmd "sh rust/build.sh status && .venv/bin/python scripts/demo_data_dump.py imbalance --from-run 1071"
+    lab submit <card> --run replay --needs gpu --cmd "sh rust/build.sh status && .venv/bin/python scripts/demo_data_dump.py grid"
+    lab submit <card> --run imbalance --cmd "sh rust/build.sh status && .venv/bin/python scripts/demo_data_dump.py imbalance --from-run 1071"
 
-grid:      G3 dso_value with --run-g1 (writes G1 hosting_capacity.json + dso_value.json in one run) and G2 voltage.json.
+grid:      dso_value with --run-g1 (hosting_capacity.json + dso_value.json in one run) and voltage.json.
 imbalance: the worker's stored imbalance.sqlite of --from-run if it is on this machine, else a fresh
            `replay.py --mode imbalance`; exported as compact CSV: imbalance_kpis (whole replay) and positions +
-           day-ahead portfolio_forecast for ts in [--from, --to) only. The lab keeps ~1 MB of log per run, and the
-           whole year of positions alone is 20 MB of CSV.
+           day-ahead portfolio_forecast for ts in [--from, --to) only (the lab keeps ~1 MB of log per run).
 """
 
 from __future__ import annotations
@@ -71,11 +70,6 @@ def table_csv(con: sqlite3.Connection, sql: str) -> bytes:
 
 def imbalance(from_run: str, ts_from: str, ts_to: str, regen: bool = True) -> int:
     cands = [WORK / "outputs" / from_run / "imbalance.sqlite", WORK / "runs" / from_run / ".lab-out" / "imbalance.sqlite"]
-    for d in (WORK / "outputs" / from_run, WORK / "runs" / from_run):
-        try:
-            print(f"# ls {d}: {sorted(p.name for p in d.iterdir()) if d.is_dir() else 'absent'}")
-        except OSError as e:
-            print(f"# ls {d}: {e}")
     src = next((p for p in cands if os.access(p, os.R_OK)), None)
     if src is None and not regen:
         print(f"# run {from_run} output not on this worker (host {os.uname().nodename}, user {os.getuid()})")
