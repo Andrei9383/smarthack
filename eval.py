@@ -94,11 +94,26 @@ WX_COLS = {"ghi": "ghi_wm2", "dni": "dni_wm2", "dhi": "dhi_wm2", "temp": "temp_c
            "snow": "snow_cm"}
 
 
+# Other fleets the models can be scored on (all unseen by training, which used the default fleet).
+# homes600 = #118's scripts/build_dataset.py fleet_config(600): the fleet of replay#568, served by preview #211.
+FLEETS = {
+    "homes600": dict(n_sites=600, n_feeders=24, n_congested=6, start_year=TEST_YEAR, end_year=TEST_YEAR,
+                     battery_share=0.20, county_weights={
+                         "Ilfov": 3.0, "Timiș": 2.19, "Bihor": 1.78, "Dolj": 1.75, "Iași": 1.50, "Cluj": 1.4,
+                         "Brașov": 1.3, "Constanța": 1.2, "Prahova": 1.0, "Sibiu": 1.0, "Argeș": 0.8,
+                         "Galați": 0.5, "Bacău": 0.5}),
+}
+FLEET = "default"  # set from --fleet
+
+
 def fleet(quick: bool) -> tuple[Path, Path]:
     from sentinel.sim.faults.dataset import inject_dataset
     from sentinel.sim.fleet.config import FleetConfig
     from sentinel.sim.fleet.generate import generate
-    cfg = FleetConfig(n_sites=150, n_feeders=6, start_year=TEST_YEAR - 1) if quick else FleetConfig()
+    if FLEET != "default":
+        cfg = FleetConfig(**FLEETS[FLEET])
+    else:
+        cfg = FleetConfig(n_sites=150, n_feeders=6, start_year=TEST_YEAR - 1) if quick else FleetConfig()
     clean = generate(cfg, plots=False)
     return clean, inject_dataset(clean)
 
@@ -170,6 +185,18 @@ def score_forecasts(rep: Report, block: str, label: str, preds_by_model: dict, t
                 model_version=ok[0].model_version if ok else "", note=f"{len(preds) - len(ok)} failed")
 
 
+def soiling_min() -> float:
+    from sentinel.agent.qualify import load_thresholds
+    return float(load_thresholds()["site"]["soiling_confident"])
+
+
+def is_alarm(p: Prediction, thr: float) -> bool:
+    """P(fault) over the threshold; a soiling call also needs P(soiling) >= soiling_confident (#214, as qualify)."""
+    if p.p_fault < thr:
+        return False
+    return p.top_fault != "soiling" or float((p.fault_probs or {}).get("soiling", 0.0)) >= soiling_min()
+
+
 def score_health(rep: Report, block: str, label: str, name: str, preds: list, labels: list[str]):
     keep = [(p, lab) for p, lab in zip(preds, labels) if p is not None]
     if not keep:
@@ -178,7 +205,7 @@ def score_health(rep: Report, block: str, label: str, name: str, preds: list, la
     y = np.array([lab != "healthy" for lab in labs])
     s = np.array([p.p_fault for p in ps])
     thr = float(ps[0].extra.get("p_fault_threshold") or 0.5)
-    m = {"pr_auc": M.average_precision(y, s), **M.prf(y, s >= thr), "threshold": thr,
+    m = {"pr_auc": M.average_precision(y, s), **M.prf(y, np.array([is_alarm(p, thr) for p in ps])), "threshold": thr,
          "positives": float(y.sum())}
     probs = [p.fault_probs or {} for p in ps]
     cls = [c for c in FAULTS if c != "healthy"]
@@ -258,7 +285,7 @@ def detection(rep, preds, labels, chosen, clean, faulty, wx, n_days, args) -> No
                 p = run(k["sitehealth"], {**r.to_dict(), "site_id": ep.asset_id},
                         site_window(tel_f, wx[str(r.locality_id)], d, True))
                 thr = float((p.extra.get("p_fault_threshold") if p else None) or 0.5)
-                if p is not None and p.p_fault >= thr:
+                if p is not None and is_alarm(p, thr):
                     hit = d
                     break
             if hit is None:
@@ -399,7 +426,11 @@ def main() -> None:
     ap.add_argument("--search-days", type=int, default=14, help="days after onset an alarm still counts")
     ap.add_argument("--pvdaq-days", type=int, default=40, help="days per PVDAQ system")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--fleet", default="default", choices=["default", *FLEETS],
+                    help="fleet for the synthetic blocks (homes600 = #118/#568, the #211 preview's fleet)")
     args = ap.parse_args()
+    global FLEET
+    FLEET = args.fleet
     if args.predictor == "auto":
         args.predictor = "onnx" if any(args.models.glob("*.onnx")) else "mock"
     names = ["baselines"] if args.baselines else [n for n in args.predictor.split(",") if n]

@@ -41,6 +41,9 @@ DEFAULT_THRESHOLDS: dict[str, Any] = {
     "site": {
         "stale_minutes": 60,
         "pfault_confident": 0.6,
+        # Soiling needs more (#214): on homes M4 never saw, a steady gap to the expected PV reads as soiling
+        # (only 20-34 % of those calls were right); every other class is 90-100 % right at pfault_confident.
+        "soiling_confident": 0.7,
         "pfault_std_max": 0.15,
         "rel_width_max": 0.8,
         "ood_max": 3.0,
@@ -444,6 +447,8 @@ def _assess_site(asset, pred, age, th, actual, data_gap, sensor_fault, battery_f
     q50, exp_kwh, peak_kw, prod = st.q50, st.exp_kwh, st.peak_kw, st.prod
     fault, p_fault = st.top
     confident = fault is not None and p_fault >= t["pfault_confident"]
+    if fault == PvFault.SOILING.value and float(pred.fault_probs.get(fault, 0.0)) < t["soiling_confident"]:
+        confident = False  # P(soiling) itself, not P(fault)
     base["expected_kwh_day"] = exp_kwh
 
     if sensor_fault or (confident and fault == PvFault.SENSOR_FAULT.value):
