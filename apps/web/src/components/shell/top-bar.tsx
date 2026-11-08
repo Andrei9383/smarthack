@@ -3,28 +3,26 @@
 import { cn } from "@wattsentry/ui/lib/utils";
 import { Search } from "lucide-react";
 
-import { DemoKeys } from "@/demo/demo-jumps";
+import { DemoKeys } from "@/components/shell/demo-jumps";
 import { MODES, type ModeId } from "@/modes/registry";
 
 import { useShortcutLabel } from "./command-palette";
-import { MODE_COPY } from "./mode-copy";
+import { MODE_DESCRIPTOR } from "./mode-descriptor";
 import { ThemeToggle } from "./theme-toggle";
 
 const FLOAT = "rounded-xl bg-card shadow-floating";
 
 /**
  * Floating top bar (Calm): the page title and one plain line under it, then search (⌘K) and the theme
- * switch. No numbers, no demo button, no data-source pill (#206): each view shows its own few KPIs and
- * the inspector keeps its provenance pill. Keys 1–6 still run the demo script.
+ * switch. No numbers: each view shows its own few KPIs. Keys 1–6 run the demo script.
  */
 export function TopBar({ mode, onSearch, className }: { mode: ModeId; onSearch: () => void; className?: string }) {
-  const copy = MODE_COPY[mode];
   const shortcut = useShortcutLabel();
   return (
     <header className={cn("pointer-events-none flex items-stretch gap-2.5 [&>*]:pointer-events-auto", className)}>
       <div className={cn(FLOAT, "flex min-w-0 shrink flex-col justify-center px-5 py-2")}>
         <h1 className="text-title leading-tight tracking-tight whitespace-nowrap text-foreground">{MODES[mode].label}</h1>
-        <p className="truncate text-caption text-muted-foreground">{copy.descriptor}</p>
+        <p className="truncate text-caption text-muted-foreground">{MODE_DESCRIPTOR[mode]}</p>
       </div>
       <div className="ml-auto flex shrink-0 items-stretch gap-2.5">
         <button

@@ -18,16 +18,17 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
 import { useDemandData } from "@/modes/demand/use-demand-data";
 import { useOmAssets } from "@/modes/om/use-om-data";
 import { useOverviewFeeders } from "@/modes/overview/use-overview-data";
 import { MODE_IDS, MODES } from "@/modes/registry";
-import { orpc } from "@/utils/orpc";
+import { orpc } from "@/lib/orpc";
+import { FOREVER } from "@/lib/utils";
 
-import { MODE_COPY } from "./mode-copy";
+import { MODE_DESCRIPTOR } from "./mode-descriptor";
 
-// ⌘K / Ctrl+K "Jump to…" (#124). Searches views, feeders, turbines, counties, parks and the demo
+// ⌘K / Ctrl+K "Jump to…". Searches views, feeders, turbines, counties, parks and the demo
 // script with data the app already queries (same query keys, so it's usually a warm cache), and
 // navigates through the existing URL keys. Built on Base UI's Dialog (already in packages/ui).
 
@@ -46,7 +47,7 @@ type Nav = Partial<{ [K in keyof typeof NAV]: K extends "summary" ? boolean | nu
 // A jump never inherits a selection from the view it leaves (the demo jumps follow the same rule).
 const CLEAR: Nav = { feeder: null, park: null, turbine: null, site: null, zone: null, omTab: null, summary: null };
 
-// The demo script's six steps (demo/demo-jumps.tsx owns them; pressing 1–6 runs them).
+// The demo script's six steps (demo-jumps.tsx owns them; pressing 1–6 runs them).
 const DEMO_STEPS = [
   "Production: wind over Romania and WP01's 24 h forecast",
   "Demand: where use peaks this evening",
@@ -55,8 +56,6 @@ const DEMO_STEPS = [
   "O&M park: WP01 turbines, crews and the review queue",
   "Summary: the week, WattSentry against the baseline",
 ];
-
-const FOREVER = Number.POSITIVE_INFINITY;
 
 type Item = {
   id: string;
@@ -128,7 +127,7 @@ function useItems(close: () => void, onTour: () => void): Item[] {
         id: `mode-${id}`,
         group: "Views",
         label,
-        hint: MODE_COPY[id].descriptor,
+        hint: MODE_DESCRIPTOR[id],
         icon: <Icon aria-hidden className="size-4" strokeWidth={1.8} />,
         run: jump({ mode: id }),
       });
@@ -213,7 +212,7 @@ function useItems(close: () => void, onTour: () => void): Item[] {
       id: "help-tour",
       group: "Help",
       label: "Show the tour",
-      hint: "How to read this screen, in 7 steps",
+      hint: "How to read this screen, in 6 steps",
       keywords: "help guide onboarding how it works",
       icon: <CircleHelp aria-hidden className="size-4" strokeWidth={1.8} />,
       run: () => {

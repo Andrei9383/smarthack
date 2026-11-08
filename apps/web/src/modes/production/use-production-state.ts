@@ -1,7 +1,7 @@
 import { parseAsString, useQueryState } from "nuqs";
 
-import { STEP_MINUTES } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
+import { STEP_MINUTES } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
 
 const STEPS_PER_HOUR = 60 / STEP_MINUTES;
 

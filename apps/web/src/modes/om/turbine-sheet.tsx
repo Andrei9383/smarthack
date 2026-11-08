@@ -13,14 +13,15 @@ import { useMemo, useRef } from "react";
 
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { Fold, Metric, MetricRow } from "@/panels/disclosure";
-import { VerdictCard } from "@/panels/judge/verdict-card";
-import { timeLabel } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { dayName, wallClock } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { Fold, Metric, MetricRow } from "@/components/panels/disclosure";
+import { VerdictCard } from "@/components/panels/judge/verdict-card";
+import { timeLabel } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { dayName, wallClock } from "@/lib/time";
+import { orpc } from "@/lib/orpc";
 
+import { parseJson } from "@/lib/utils";
 import { OmTimeAxis, OmYAxis } from "./chart-axes";
 import { OM_COLORS } from "./colors";
 import { ParkReport } from "./park-report";
@@ -68,17 +69,6 @@ const STATUS_KIND: Record<string, StatusKind> = {
 };
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const CHART_MARGIN = { left: 48, right: 8, top: 10, bottom: 24 };
-
-function parseJson(
-  text: string | null | undefined,
-): Record<string, unknown> | null {
-  if (!text) return null;
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
 
 export function TurbineSheet() {
   // Focus lands at the top of the sheet, not on the first collapsible row.
@@ -323,7 +313,7 @@ function TurbineView({ assetId }: { assetId: string }) {
             label="Reason"
             value={<span className="text-title">{asset?.reason.replaceAll("_", " ") ?? "—"}</span>}
           />
-          {/* M7 (component failure risk, via W2 availability) is optional: without it, show the trend only (R12) */}
+          {/* M7 (component failure risk, via W2 availability) is optional: without it, show the trend only */}
           {av?.m7PFail7d != null ? (
             <Metric
               label="Failure risk, 7 d"
@@ -472,7 +462,7 @@ function TurbineView({ assetId }: { assetId: string }) {
               data={residuals}
               aspectRatio="5 / 2"
               margin={CHART_MARGIN}
-              animationDuration={0}
+             
             >
               <OmYAxis unit="°C" />
               <OmTimeAxis />
@@ -482,7 +472,7 @@ function TurbineView({ assetId }: { assetId: string }) {
                   dataKey={r.key}
                   stroke={r.color}
                   curve={curveMonotoneX}
-                  fadeEdges={false}
+                 
                 />
               ))}
               <ChartTooltip />

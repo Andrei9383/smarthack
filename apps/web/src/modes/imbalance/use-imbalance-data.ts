@@ -1,16 +1,15 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { dayWindow } from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
-import { wallClock } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+import { dayWindow } from "@/lib/replay";
+import { usePolicy, useReplayStep } from "@/lib/use-replay";
+import { wallClock } from "@/lib/time";
+import { orpc } from "@/lib/orpc";
+import { FOREVER } from "@/lib/utils";
 
 // The global Baseline/WattSentry switch picks between PPC's method today and WattSentry. Every policy of the day is in
-// one query, so the switch only re-slices rows the browser already has (spec I step 9: < 1 s).
-export const POLICY_OF = { baseline: "profile", sentinel: "sentinel" } as const;
-const FOREVER = Number.POSITIVE_INFINITY;
-
+// one query, so the switch only re-slices rows the browser already has.
+const POLICY_OF = { baseline: "profile", sentinel: "sentinel" } as const;
 export type Step = { date: Date; ts: string; p10: number; p90: number; bought: number; actual: number; hasBand: boolean };
 
 export function useImbalanceData() {

@@ -6,7 +6,7 @@ export type WindMeta = {
   hours: { ts: string }[];
 };
 
-export const WIND_BASE_URL = "/windfield";
+const WIND_BASE_URL = "/windfield";
 
 export const textureUrl = (hour: number) => `${WIND_BASE_URL}/${String(hour).padStart(2, "0")}.png`;
 export const speedUrl = (hour: number) => `${WIND_BASE_URL}/${String(hour).padStart(2, "0")}-speed.png`;

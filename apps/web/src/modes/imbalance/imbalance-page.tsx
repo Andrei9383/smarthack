@@ -10,17 +10,17 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { FanHourTicks, FanYAxis } from "@/modes/production/fan-chart-overlays";
-import { DetailsLink, DetailsSheet, Metric, MetricRow, SheetSection, StatusPill } from "@/panels/disclosure";
+import { DetailsLink, DetailsSheet, Metric, MetricRow, SheetSection, StatusPill } from "@/components/panels/disclosure";
 
+import { lei } from "@/lib/utils";
 import { type Step, useImbalanceData } from "./use-imbalance-data";
 
-// Feature I (#177, spec I step 9c): what PPC buys for its prosumers vs what they really take, today's standard
+// Imbalance: what PPC buys for its prosumers vs what they really take, today's standard
 // profile against WattSentry. The dock's Baseline/WattSentry switch flips every number on the page.
-// Calm (#201): the glance is the title + policy pill, three KPIs (WattSentry's change as a delta chip) and the
+// The glance is the title + policy pill, three KPIs (WattSentry's change as a delta chip) and the
 // bought-vs-actual chart; the waterfall by policy and "What WattSentry learned" sit in the Details sheet.
 
 const MARGIN = { left: 36, right: 8, top: 22, bottom: 24 };
-const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
 const mwh = (v: number) => (Math.abs(v) < 10 ? v.toFixed(1) : Math.round(v).toLocaleString("en-GB"));
 const DAY = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Bucharest", weekday: "short", day: "numeric", month: "short", year: "numeric" });
 
@@ -101,7 +101,7 @@ export function ImbalancePage() {
   if (!isLoading && !steps.length)
     return (
       <p className={`max-w-[640px] ${CARD} text-dense text-text-secondary`}>
-        No imbalance replay in this database yet. Run <span className="font-mono text-foreground">python replay.py --mode imbalance</span> (#176)
+        No imbalance replay in this database yet. Run <span className="font-mono text-foreground">python replay.py --mode imbalance</span>
         into the demo DB to fill <span className="font-mono">positions</span> and <span className="font-mono">portfolio_forecast</span>.
       </p>
     );
@@ -158,11 +158,11 @@ export function ImbalancePage() {
           />
         </div>
         {steps.length ? (
-          <LineChart data={steps} aspectRatio="5 / 1.7" margin={MARGIN} animationDuration={0}>
-            <Grid numTicksRows={4} fadeHorizontal={false} strokeDasharray="none" />
+          <LineChart data={steps} aspectRatio="5 / 1.7" margin={MARGIN}>
+            <Grid numTicksRows={4} strokeDasharray="none" />
             {band ? <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill="var(--chart-band)" fillOpacity={1} strokeOpacity={0} curve={curveMonotoneX} /> : null}
-            <Line dataKey="bought" stroke={sentinel ? "var(--sentinel)" : "var(--chart-baseline)"} curve={curveStepAfter} fadeEdges={false} />
-            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} fadeEdges={false} />
+            <Line dataKey="bought" stroke={sentinel ? "var(--sentinel)" : "var(--chart-baseline)"} curve={curveStepAfter} />
+            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} />
             <EveningWindow steps={steps} />
             <FanYAxis numTicks={4} unit="MWh" />
             <FanHourTicks everyHours={3} />
