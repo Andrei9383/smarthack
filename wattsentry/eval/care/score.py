@@ -1,37 +1,22 @@
-"""CARE-to-Compare scorer for M7 and the fixed-threshold baseline (non-RO validation, plan §4 / R13).
+"""CARE-to-Compare scorer for M7 and the fixed-threshold baseline (non-RO transfer test), run by
+`python train.py --model windfailure --care`.
 
-    python -m wattsentry.eval.care --model-dir $LAB_OUTPUT_DIR [--max-gb 2]
-    (or `python -m wattsentry.model.windfailure.train --care`, which scores the artifacts it just wrote)
+Wind Farm A only (EDP, 5 onshore turbines, 22 datasets): the only farm whose feature descriptions name M7's sensors
+(FARM_A_MAP). 10-min rows are averaged onto the 15-min grid; per dataset the thermal residual model is fitted on its
+own normal-status training part and daily features are built as in training (single turbine: dev_park = dev).
+M7's LightGBM and both thresholds are applied frozen from the synthetic-RO run.
 
-Scope: Wind Farm A only (EDP open data, 5 onshore turbines in Portugal, 22 datasets). It is the only farm whose
-feature descriptions name the sensors M7 uses; farms B / C (offshore, anonymised, 257 / 957 features) would need a
-manual mapping per sensor, which we did not do (their datasets are also much larger to fetch).
-
-Column mapping (Farm A feature_description.csv → our contract sensor), matched on the description text:
-    act_pwt ← "Grid power" (kW)                      turbine_t ← "Ambient temperature"
-    gearbox_t ← "Temperature oil in gearbox"          gen1_t / gen2_t ← "generator bearing 1 / 2"
-    conv_t ← "IGBT-driver on the grid side inverter"  transformer_t ← "HV transformer phase L1"
-10-min CARE rows are averaged onto our 15-min grid. Per dataset, the physics residual model (thermal.py) is fitted on
-that dataset's own training part (train_test == "train", status 0 / 2: CARE's protocol, no labels) and the daily
-features are computed exactly as in training (a single turbine: `dev_park` is set to `dev`, i.e. the park is assumed
-normal). M7's LightGBM and both thresholds are applied FROZEN from the synthetic-RO run: a pure transfer test.
-
-A daily alarm raised at the end of day d flags every 10-min point of day d+1 (causal). CARE score = the paper's
-definition (Gück et al. 2024, doi:10.3390/data9120138; paper-aligned profile of the audited WT-EFD benchmark code):
-coverage (point-wise F0.5 on normal-status points of anomaly datasets), earliness (weight 1 over the first half of the
-event, then linearly to 0), reliability (event-wise F0.5; an event is predicted when the criticality counter — +1 per
-flagged normal-status point, −1 per unflagged, floored at 0 — reaches 72), accuracy (specificity on normal-status
-points of normal datasets), CARE = (coverage + earliness + reliability + 2·accuracy) / 5, = accuracy if accuracy < 0.5,
-= 0 if no event is predicted at all. Plus plain event recall, normal-dataset false-positive rate and lead time.
+A daily alarm at the end of day d flags day d+1 (causal). CARE score (Gück et al. 2024, doi:10.3390/data9120138):
+coverage = point-wise F0.5 on anomaly datasets, earliness = weight 1 over the event's first half then linear to 0,
+reliability = event-wise F0.5 (event predicted when the criticality counter, +1 / -1 per flagged / unflagged
+normal-status point, reaches 72), accuracy = specificity on normal datasets;
+CARE = (coverage + earliness + reliability + 2*accuracy) / 5, = accuracy if < 0.5, = 0 if no event predicted.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
 import re
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -54,9 +39,7 @@ FARM_A_MAP = {  # contract sensor → regex on Farm A's feature description
 }
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# CARE metric (paper-aligned)
-# ---------------------------------------------------------------------------------------------------------------
+# --- CARE metric ----------------------------------------------------------------------------------------------
 def f_beta(truth: np.ndarray, pred: np.ndarray, beta: float = 0.5) -> float:
     truth, pred = np.asarray(truth, bool), np.asarray(pred, bool)
     tp = int((truth & pred).sum())
@@ -107,9 +90,7 @@ def care_score(items: list[dict]) -> dict:
             "event_predictions": ev_pred}
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Farm A → our features
-# ---------------------------------------------------------------------------------------------------------------
+# --- Farm A → our features ------------------------------------------------------------------------------------
 def column_map(feature_description: Path) -> dict[str, str]:
     import pandas as pd
 
@@ -162,7 +143,7 @@ def daily_scores(sensors: dict, fit15: np.ndarray, boosters: dict | None):
     r = thermal.residuals(model, sensors, err, rated, np.array([0]))
     X = daily_features(r, sensors["act_pwt"], sensors["turbine_t"], rated, np.array([0]), np.array([0]))
     X[..., feature_index("dev_park")] = X[..., feature_index("dev")]  # single turbine: park assumed normal
-    dev = X[0:, 0, :, feature_index("dev")].astype(np.float64)
+    dev = X[:, 0, :, feature_index("dev")].astype(np.float64)
     p14 = None
     if boosters is not None:
         D, _, C, F = X.shape
@@ -274,15 +255,3 @@ def run(model_dir: Path, max_gb: float = 2.0, emit=None, log=print, out_dir: Pat
         Path(out_dir, "care_report.json").write_text(json.dumps(res, indent=1, default=float))
     return res
 
-
-def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(prog="python -m wattsentry.eval.care", description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model-dir", default=os.environ.get("LAB_OUTPUT_DIR", ".lab-out"))
-    ap.add_argument("--max-gb", type=float, default=2.0)
-    a = ap.parse_args(sys.argv[1:] if argv is None else argv)
-    run(Path(a.model_dir), a.max_gb, out_dir=Path(a.model_dir))
-
-
-if __name__ == "__main__":
-    main()

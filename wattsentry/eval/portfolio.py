@@ -1,78 +1,21 @@
-"""Portfolio aggregation for the supplier's day-ahead purchase (card #175, spec I step 6, "Adunarea pe portofoliu").
+"""Portfolio day-ahead forecast and purchase for the supplier, from per-home PV/load quantile bands.
 
-The supplier's position per 15 minutes = sum over its prosumers of (import - export). Quantiles do not add up (the sum
-of P90s is not the P90 of the sum), so the total comes from K coherent scenarios:
+Quantiles do not add up, so the total comes from K coherent scenarios: one PV quantile level per region and scenario
+(weather errors are shared by neighbours), an independent load level per home, each home through the battery
+``behaviour``, summed. A split-conformal scale per 6-h bucket (``TotalConformal``) calibrates the scenario spread to
+80 % P10-P90 coverage; the purchase is the quantile q* = a/(a+b) of the calibrated scenarios, and the 15:00 re-forecast
+(16:00-24:00 local, ``correction_mask``) gives the intraday trade.
 
-1. Per-home P10/P50/P90 for PV (M1) and load (M2), read through the Judge adapter (C1 #157, ``validated_bands``).
-2. K = 200 scenarios: ONE PV quantile level per region per scenario (PV errors are weather errors, shared by
-   neighbours; Latin hypercube over scenarios), an independent load level per home. A level maps to a value through
-   the home's three quantiles (piecewise linear in the normal score, split-normal tails; ``conformal.quantile_at``).
-3. Every scenario goes through the battery behaviour (``behaviour``; current fleet = the self-consumption rule
-   through the K1 kernel ``wattsentry.kernels.battery_rollout``, Rust when built; data-v2 = I4's model, one swap).
-4. total[k, t] = sum over homes of (import - export), MWh per step. P10/P50/P90 over scenarios.
-5. Split-conformal on the total (``TotalConformal``): per 6-h bucket one scale s that stretches (or shrinks) the
-   scenario spread around P50 so that the P10-P90 band covers 80 % of validation days. Applied to the scenarios
-   themselves, so every quantile (the purchase quantile too) is calibrated the same way.
-6. bought_da = quantile q* = a / (a + b) of the calibrated scenarios (a, b = frozen imbalance penalties, X1 #158).
-7. 15:00 correction (level 2): re-forecast 16:00-24:00 local with what is known at 15:00 (D-1 meter data, updated
-   weather), same steps 2-6; traded_id[t] = q*_new[t] - bought_da[t] on those steps, 0 elsewhere.
-
-Sign convention = consumption (the supplier buys), as in ``wattsentry.eval.imbalance``: total > 0 = net import.
-
-API (I6 #176 and the replay build on these; arrays are numpy, kW per home, MWh per step for the portfolio)
----------------------------------------------------------------------------------------------------------------
-    Fleet(site_ids, region, regions, battery, pv_cap)          static per-home inputs; Fleet.from_sites(rows)
-    validated_bands(model, site_ids, days, q_raw, *, substitutes=None, fallback=None, judge=None)
-        -> (q (N, T, 3), known (N,), counts)   the ONE place per-home bands are read (C1 adapter, validated_many)
-    draw_levels(n_scen, region, n_regions, seed=0) -> (u_pv (K, R), u_load (K, N))
-    behaviour(pv, load, battery, soc0=None) -> net import kW, pv's shape (..., N, T)   (set_behaviour(fn) swaps it)
-    warm_soc0(pv50, load50, battery) -> soc0 (N,) fraction   (midnight SoC the supplier cannot see; steady state)
-    portfolio_scenarios(pv_q, load_q, fleet, *, n_scen=200, seed=0, soc0=None, battery=True, chunk=256)
-        -> total (K, T) MWh/step
-    scenario_bands(total, levels=(0.1, 0.5, 0.9)) -> (T, 3)
-    TotalConformal.fit(bands (D, T, 3), actual (D, T), target=0.8) -> TotalConformal; .apply(bands);
-        .stretch(values (..., T), p50 (T,))
-    purchase_quantile(a=None, b=None) -> q* = a / (a + b)
-    bought_da(total, q_star, conformal=None) -> (T,)
-    correction_mask(ts_utc (T,), start_hour=16, end_hour=24) -> bool (T,)
-    traded_id(bought, total_new, q_star, mask, conformal=None) -> (T,)
-    forecast_day(pv_q, load_q, fleet, *, conformal=None, q_star=None, ...) -> DayForecast (total, bands, bought)
-
-Data layer for the current fleet (#10 windows, #11 fleet, M1/M2 ONNX in models/), used by ``main``:
-    fleet_from_source(src, region_key="county") -> Fleet
-    raw_bands(src, sites, day_idx, *, kind, models, mode, lag_days) -> q (n_days, N, T, 3) kW   (the swap point
-        for data-v2 / I4: return per-home raw bands from whatever source)
-    actual_net(src, sites, day_idx) -> (n_days, N, T) kW import - export (meter truth)
-
-Run (heavy: on the lab, never locally):
-    python -m wattsentry.eval.portfolio [--val-days 120 --test-days 180 --k 200 --seed 0]
-    -> LAB_METRIC portfolio_nmae, portfolio_coverage_p10_p90 (test 2025, synthetic RO), + the val/raw/intraday ones;
-       $LAB_OUTPUT_DIR/portfolio_forecast.parquet (issue_time, ts, policy, p10, p50, p90),
-       positions.parquet (ts, policy, bought_da, traded_id, actual), portfolio_report.json.
-
-Day convention: a portfolio day is one #10 window (96 steps from UTC midnight, as M1/M2 were trained and split);
-outputs carry UTC ``ts`` per step, so I6 joins prices with ``prices_at(ts)`` and local slices (16-24, 17-21) are
-taken by local clock time (``correction_mask``). The adapter day key is that UTC date.
-
-Labels: portfolio, homes, batteries and weather = synthetic RO (fleet simulator, ERA5-driven); a, b = proxy
-(calibrated on AFEER's public 200-375 lei/MWh, X1 #158). The intraday re-forecast uses the nowcast PVNet on ERA5
-weather as the "updated weather at 15:00" (a proxy: an upper bound for a 1-9 h weather update).
-
-Pending stubs (each is a single function): ``validated_bands`` passes predictions through as verdict "use" until
-``wattsentry.judge.adapter`` (#157) is on main; ``purchase_quantile`` reads models/imbalance_ab.json, else the frozen
-values of #158 (a = 1.4407, b = 0.7204), until ``wattsentry.eval.imbalance`` (#158) is on main; ``behaviour`` = the
-self-consumption kernel until I4 (#174) registers its model with ``set_behaviour``.
+Units: per-home kW, portfolio MWh per 15-min step. Sign = consumption (total > 0 = net import), as in
+``wattsentry.eval.imbalance``. A day = 96 steps from UTC midnight; outputs carry UTC ``ts``.
 """
 
 from __future__ import annotations
 
-import argparse
-import json
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, NamedTuple, Optional, Sequence
+from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 import numpy as np
 from scipy.special import ndtri
@@ -88,15 +31,11 @@ LEVELS = (0.1, 0.5, 0.9)
 COVER_TARGET = 0.80
 BUCKETS = ((0, 24), (24, 48), (48, 72), (72, 96))  # 6-h horizon buckets of the conformal scale
 LEVEL_CLIP = 1e-3
-ROOT = Path(__file__).resolve().parents[2]
-AB_PATH = ROOT / "models" / "imbalance_ab.json"
-AB_STUB = (1.4407, 0.7204)  # #158's frozen a, b (a = 2b), used only if neither the module nor the JSON is present
-LABEL = "synthetic RO"
 
 
 # ================================================================================================ static inputs
 class BatteryArrays(NamedTuple):
-    """Per-home battery arrays (N,), the K1 kernel's argument order. Energies kWh, powers kW, eta one-way.
+    """Per-home battery arrays (N,), in ``battery_rollout``'s argument order. Energies kWh, powers kW, eta one-way.
     e_lo = the physical floor soc_min * E (self-consumption rule, as ``BatterySpec.step``); E = 0 means no battery."""
 
     capacity_kwh: np.ndarray
@@ -125,7 +64,7 @@ class Fleet:
 
     @classmethod
     def from_sites(cls, rows: Sequence[Mapping[str, Any]], region_key: str = "county") -> "Fleet":
-        """From sites-table rows (#11 sites.parquet / windows sites.json): battery_kwh, battery_kw, eta_*, soc_*."""
+        """From sites-table rows (sites.parquet / windows sites.json): battery_kwh, battery_kw, eta_*, soc_*."""
         def col(k: str, default: float) -> np.ndarray:
             return np.array([float(r.get(k) if r.get(k) is not None else default) for r in rows])
 
@@ -141,16 +80,10 @@ class Fleet:
 
 
 # ================================================================================================ 1. per-home bands
-def _passthrough(model: str, site_ids: Sequence[Any], days: Any, q: np.ndarray):
-    n = len(site_ids)
-    return q, np.ones(n, bool), {"use": n, "widen": 0, "dont_use": 0, "unknown": 0, "substituted": 0,
-                                 "adapter": "stub (#157 not on main): passthrough, verdict use"}
-
-
 def validated_bands(model: str, site_ids: Sequence[Any], days: Any, q_raw: np.ndarray, *,
                     substitutes: Optional[Mapping[str, np.ndarray]] = None, fallback: Optional[np.ndarray] = None,
                     judge: Any = None) -> tuple[np.ndarray, np.ndarray, dict]:
-    """Per-home bands as the Judge allows them to be used (team/judge-design.md §7.7, C1 adapter #157).
+    """Per-home bands as the Judge allows them to be used (``wattsentry.judge.adapter``).
 
     q_raw: (N, T, 3) raw q10/q50/q90 of ``model`` ('pvnet' | 'loadnet'), rows aligned with site_ids; days: one day
     'YYYY-MM-DD' or (N,). substitutes: {model id: (N, T, 3)} baselines the Judge may name. Returns (q, known,
@@ -159,19 +92,16 @@ def validated_bands(model: str, site_ids: Sequence[Any], days: Any, q_raw: np.nd
     This is the only function that touches the adapter; swapping in the Judge = pass judge=SqliteVerdicts(db, run)
     or set_default_judge(...) in the adapter.
     """
+    from wattsentry.judge.adapter import RawBatch, validated_many
+
     q_raw = np.asarray(q_raw, dtype=np.float64)
-    try:
-        from wattsentry.judge.adapter import RawBatch, validated_many
-    except ImportError:
-        q, known, counts = _passthrough(model, site_ids, days, q_raw)
-    else:
-        t = q_raw.shape[1]
-        if t != H:
-            raise ValueError(f"adapter works on {H}-step days, got {t}")
-        subs = {k: RawBatch(q=np.asarray(v, dtype=np.float64)) for k, v in (substitutes or {}).items()}
-        b = validated_many(model, list(site_ids), days, raw=RawBatch(q=q_raw), substitutes=subs, judge=judge)
-        q, known, counts = b.q, np.asarray(b.known, bool), dict(b.counts())
-        counts["adapter"] = "wattsentry.judge.adapter.validated_many"
+    t = q_raw.shape[1]
+    if t != H:
+        raise ValueError(f"adapter works on {H}-step days, got {t}")
+    subs = {k: RawBatch(q=np.asarray(v, dtype=np.float64)) for k, v in (substitutes or {}).items()}
+    b = validated_many(model, list(site_ids), days, raw=RawBatch(q=q_raw), substitutes=subs, judge=judge)
+    q, known, counts = b.q, np.asarray(b.known, bool), dict(b.counts())
+    counts["adapter"] = "wattsentry.judge.adapter.validated_many"
     q = np.array(q, dtype=np.float64)
     if fallback is not None and (~known).any():
         q[~known] = np.asarray(fallback, dtype=np.float64)[~known]
@@ -212,7 +142,7 @@ def sample_homes(q: np.ndarray, z: np.ndarray, cap: Optional[np.ndarray] = None)
 def self_consumption_behaviour(pv: np.ndarray, load: np.ndarray, battery: BatteryArrays,
                                soc0: Optional[np.ndarray] = None) -> np.ndarray:
     """Current fleet: every battery runs the self-consumption rule (charge from PV surplus, cover load), the rule the
-    fleet history was generated under. One K1 kernel call over all scenarios (Rust when built, else numpy).
+    fleet history was generated under. One ``battery_rollout`` call over all scenarios (Rust when built, else numpy).
     pv, load (..., N, T) kW; soc0 (N,) or (..., N) fraction (None = soc_min). Returns import - export kW."""
     pv = np.asarray(pv, dtype=np.float64)
     load = np.asarray(load, dtype=np.float64)
@@ -234,28 +164,17 @@ def self_consumption_behaviour(pv: np.ndarray, load: np.ndarray, battery: Batter
 
 def no_battery_behaviour(pv: np.ndarray, load: np.ndarray, battery: BatteryArrays,
                          soc0: Optional[np.ndarray] = None) -> np.ndarray:
-    """``forecast_only`` (spec I step 4): M1 + M2 without any battery model."""
+    """``forecast_only``: PV and load forecasts without any battery model."""
     return np.asarray(load, dtype=np.float64) - np.asarray(pv, dtype=np.float64)
 
 
-Behaviour = Callable[[np.ndarray, np.ndarray, BatteryArrays, Optional[np.ndarray]], np.ndarray]
-_BEHAVIOUR: dict[str, Any] = {"fn": self_consumption_behaviour, "name": "self_consumption (K1 kernel)"}
-
-
-def set_behaviour(fn: Optional[Behaviour], name: str = "") -> None:
-    """Swap the battery model for every caller (I4 #174 on data-v2). None restores the self-consumption kernel."""
-    _BEHAVIOUR.update(fn=fn or self_consumption_behaviour,
-                      name=name or ("self_consumption (K1 kernel)" if fn is None else getattr(fn, "__name__", "?")))
+BEHAVIOUR_NAME = "self_consumption (K1 kernel)"
 
 
 def behaviour(pv: np.ndarray, load: np.ndarray, battery: BatteryArrays,
               soc0: Optional[np.ndarray] = None) -> np.ndarray:
     """THE battery model of the portfolio: per-home import - export kW for scenarios pv/load (..., N, T)."""
-    return _BEHAVIOUR["fn"](pv, load, battery, soc0)
-
-
-def behaviour_name() -> str:
-    return str(_BEHAVIOUR["name"])
+    return self_consumption_behaviour(pv, load, battery, soc0)
 
 
 def warm_soc0(pv50: np.ndarray, load50: np.ndarray, battery: BatteryArrays) -> np.ndarray:
@@ -392,35 +311,20 @@ def nmae(pred: np.ndarray, actual: np.ndarray, mask: Optional[np.ndarray] = None
 
 # ================================================================================================ 6. purchase
 def purchase_quantile(a: Optional[float] = None, b: Optional[float] = None) -> float:
-    """q* = a / (a + b): the newsvendor quantile of the imbalance penalties (a = short, b = long).
-
-    Frozen a, b from X1 (#158): ``wattsentry.eval.imbalance.q_star`` when on main, else models/imbalance_ab.json,
-    else #158's frozen values (stub, a = 2b -> q* = 2/3)."""
+    """q* = a / (a + b): the newsvendor quantile of the imbalance penalties (a = short, b = long); frozen a, b from
+    models/imbalance_ab.json for the ones not given."""
     if a is not None and b is not None:
         return float(a) / (float(a) + float(b))
-    try:
-        from wattsentry.eval.imbalance import q_star
-        return float(q_star(a, b))
-    except ImportError:
-        pass
-    a0, b0 = AB_STUB
-    if AB_PATH.exists():
-        d = json.loads(AB_PATH.read_text())
-        a0, b0 = float(d["a"]), float(d["b"])
-    a, b = (a0 if a is None else a), (b0 if b is None else b)
-    return float(a) / (float(a) + float(b))
-
-
-def _quantile_cal(total: np.ndarray, q: float, conformal: Optional[TotalConformal]) -> np.ndarray:
-    total = np.asarray(total, dtype=np.float64)
-    if conformal is not None:
-        total = conformal.stretch(total, np.quantile(total, 0.5, axis=0))
-    return np.quantile(total, q, axis=0)
+    from wattsentry.eval.imbalance import q_star
+    return float(q_star(a, b))
 
 
 def bought_da(total: np.ndarray, q_star: float, conformal: Optional[TotalConformal] = None) -> np.ndarray:
     """Day-ahead purchase (T,) MWh = quantile q* of the (calibrated) portfolio scenarios (K, T)."""
-    return _quantile_cal(total, q_star, conformal)
+    total = np.asarray(total, dtype=np.float64)
+    if conformal is not None:
+        total = conformal.stretch(total, np.quantile(total, 0.5, axis=0))
+    return np.quantile(total, q_star, axis=0)
 
 
 def correction_mask(ts_utc: Any, start_hour: int = 16, end_hour: int = 24, tz: str = "Europe/Bucharest") -> np.ndarray:
@@ -432,13 +336,6 @@ def correction_mask(ts_utc: Any, start_hour: int = 16, end_hour: int = 24, tz: s
     loc = ts.tz_convert(tz)
     h = loc.hour + loc.minute / 60.0
     return np.asarray((h >= start_hour) & (h < end_hour))
-
-
-def traded_id(bought: np.ndarray, total_new: np.ndarray, q_star: float, mask: np.ndarray,
-              conformal: Optional[TotalConformal] = None) -> np.ndarray:
-    """Intraday (PI) trade (T,) MWh: + buy more, - sell back. q*_new - bought_da on the masked steps, 0 elsewhere."""
-    q_new = _quantile_cal(total_new, q_star, conformal)
-    return np.where(np.asarray(mask, bool), q_new - np.asarray(bought, dtype=np.float64), 0.0)
 
 
 # ================================================================================================ one day, end to end
@@ -464,7 +361,7 @@ def forecast_day(pv_q: np.ndarray, load_q: np.ndarray, fleet: Fleet, *, conforma
 
 # ================================================================================================ data layer (fleet)
 def fleet_from_source(src: Any, region_key: str = "county") -> Fleet:
-    """Fleet from a #10 window source (``wattsentry.model.data.ArraySource``): sites.json rows."""
+    """Fleet from a window source (``wattsentry.model.data.ArraySource``): sites.json rows."""
     return Fleet.from_sites(src.sites, region_key)
 
 
@@ -556,28 +453,16 @@ def actual_net(src: Any, sites: np.ndarray, day_idx: np.ndarray) -> np.ndarray:
     return net.reshape(len(day_idx), len(sites), H)
 
 
-# ================================================================================================ lab run
-def _emit(name: str, value: float) -> None:
-    from wattsentry.infra.metrics import emit
-
-    emit(name, value)
-
-
-def _sample(days: np.ndarray, n: int, rng: np.random.Generator) -> np.ndarray:
-    days = np.asarray(days)
-    return days if n <= 0 or n >= len(days) else np.sort(rng.choice(days, n, replace=False))
-
-
+# ================================================================================================ evaluation split
 def run_split(src: Any, fleet: Fleet, sites: np.ndarray, days: np.ndarray, *, models: Mapping[str, Sequence[Any]],
               n_scen: int, seed: int, chunk_days: int, timings: dict, log=print) -> dict:
     """Day-ahead and 15:00 scenarios for a set of days -> raw bands, scenario quantiles, actuals."""
     import pandas as pd
 
     q_lv = purchase_quantile()
-    t_steps = H
     t0_ = pd.Timestamp(src.t_start)
     t_origin = (t0_.tz_convert("UTC").tz_localize(None) if t0_.tzinfo else t0_).to_datetime64().astype("datetime64[ns]")
-    out ={k: [] for k in ("day", "ts", "da_bands", "da_q", "fo_bands", "id_bands", "id_q", "actual", "mask")}
+    out = {k: [] for k in ("day", "ts", "da_bands", "da_q", "fo_bands", "id_bands", "id_q", "actual", "mask")}
     counts: dict[str, int] = {}
 
     def tick(key: str, t0: float) -> None:
@@ -595,7 +480,7 @@ def run_split(src: Any, fleet: Fleet, sites: np.ndarray, days: np.ndarray, *, mo
         act = actual_net(src, sites, dd).sum(axis=1) * KW_TO_MWH
         tick("t_inference_s", t0)
         for j, d in enumerate(dd):
-            ts = t_origin + (int(d) * H + np.arange(t_steps)) * np.timedelta64(15, "m")  # UTC, naive
+            ts = t_origin + (int(d) * H + np.arange(H)) * np.timedelta64(15, "m")  # UTC, naive
             day = str(np.datetime_as_string(ts[0], unit="D"))
             t0 = time.perf_counter()
             bands = {}
@@ -627,7 +512,7 @@ def run_split(src: Any, fleet: Fleet, sites: np.ndarray, days: np.ndarray, *, mo
             out["mask"].append(correction_mask(ts))
         log(f"[portfolio] {min(c + chunk_days, len(days))}/{len(days)} days  " +
             "  ".join(f"{k}={v:.1f}" for k, v in timings.items()))
-    res = {k: (np.stack(v) if k not in ("day",) else v) for k, v in out.items()}
+    res = {k: (v if k == "day" else np.stack(v)) for k, v in out.items()}
     res["counts"] = counts
     return res
 
@@ -636,141 +521,3 @@ def _qstar_raw(total: np.ndarray, q: float) -> np.ndarray:
     """Raw quantile q* and P50 of the scenarios, (T, 2): kept so the conformal stretch can be applied afterwards
     (stretch is linear around P50, so stretching the quantile equals the quantile of the stretched scenarios)."""
     return np.stack([np.quantile(total, q, axis=0), np.quantile(total, 0.5, axis=0)], axis=-1)
-
-
-def _stretch_q(conf: TotalConformal, qq: np.ndarray) -> np.ndarray:
-    return conf.stretch(qq[..., 0], qq[..., 1])
-
-
-def local_hours(ts: np.ndarray, tz: str = "Europe/Bucharest") -> np.ndarray:
-    import pandas as pd
-
-    idx = pd.DatetimeIndex(np.asarray(ts).ravel()).tz_localize("UTC").tz_convert(tz)
-    return (idx.hour + idx.minute / 60.0).to_numpy().reshape(np.shape(ts))
-
-
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m wattsentry.eval.portfolio", description=__doc__.split("\n")[0])
-    ap.add_argument("--data", default="lab", help="lab | auto | synth | <windows dir> (wattsentry.model.data)")
-    ap.add_argument("--models", default=str(ROOT / "models"))
-    ap.add_argument("--val-days", type=int, default=120, help="sampled 2024 days for the conformal fit (0 = all)")
-    ap.add_argument("--test-days", type=int, default=180, help="sampled 2025 days for the metrics (0 = all)")
-    ap.add_argument("--k", type=int, default=N_SCENARIOS)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--region", default="county", help="sites column that defines a solar region")
-    ap.add_argument("--chunk-days", type=int, default=8)
-    ap.add_argument("--max-sites", type=int, default=0, help="smoke runs only")
-    args = ap.parse_args(argv)
-
-    from wattsentry import kernels
-    from wattsentry.model.data import make_splits, open_source
-
-    t_all = time.perf_counter()
-    src = open_source(args.data)
-    fleet = fleet_from_source(src, args.region)
-    sites = np.arange(len(fleet)) if args.max_sites <= 0 else np.arange(min(args.max_sites, len(fleet)))
-    sp = make_splits(src)
-    rng = np.random.default_rng(args.seed)
-    lag_ok = lambda d: d[d >= 15 + 1]  # noqa: E731  14 history days + 1 day of meter lag
-    val_days = _sample(lag_ok(np.concatenate([sp.days["val"], sp.days["cal"]])), args.val_days, rng)
-    test_days = _sample(lag_ok(sp.days["test"]), args.test_days, rng)
-    md = Path(args.models)
-    models = {"pv_da": find_models("pvnet", md / "pvnet_fc"), "pv_id": find_models("pvnet", md),
-              "load": find_models("loadnet", md)}
-    print(f"[portfolio] {len(sites)} homes, {len(fleet.regions)} regions ({args.region}), K={args.k}, "
-          f"val {len(val_days)} days, test {len(test_days)} days, kernels={kernels.backend()}, "
-          f"behaviour={behaviour_name()}, q*={purchase_quantile():.4f}", flush=True)
-    print(f"[portfolio] models: pv_da={[p.name for p in models['pv_da']]} pv_id={[p.name for p in models['pv_id']]} "
-          f"load={[p.name for p in models['load']]}", flush=True)
-    timings: dict[str, float] = {}
-    val = run_split(src, fleet, sites, val_days, models=models, n_scen=args.k, seed=args.seed,
-                    chunk_days=args.chunk_days, timings=timings)
-    test = run_split(src, fleet, sites, test_days, models=models, n_scen=args.k, seed=args.seed + 7919,
-                     chunk_days=args.chunk_days, timings=timings)
-
-    conf_da = TotalConformal.fit(val["da_bands"], val["actual"])
-    conf_id = TotalConformal.fit(np.where(val["mask"][..., None], val["id_bands"], np.nan),
-                                 np.where(val["mask"], val["actual"], np.nan))
-    conf_fo = TotalConformal.fit(val["fo_bands"], val["actual"])
-    q_lv = purchase_quantile()
-    m: dict[str, float] = {}
-    for name, s in (("val", val), ("test", test)):
-        y = s["actual"]
-        da = conf_da.apply(s["da_bands"])
-        idb = conf_id.apply(s["id_bands"])
-        mask = s["mask"]
-        hrs = local_hours(s["ts"])
-        eve = (hrs >= 17) & (hrs < 21)
-        pre = "portfolio" if name == "test" else "portfolio_val"
-        m[f"{pre}_nmae"] = nmae(da[..., 1], y)
-        m[f"{pre}_coverage_p10_p90"] = coverage(da, y)
-        m[f"{pre}_coverage_raw"] = coverage(s["da_bands"], y)
-        m[f"{pre}_nmae_17_21"] = nmae(da[..., 1], y, eve)
-        m[f"{pre}_forecast_only_nmae"] = nmae(s["fo_bands"][..., 1], y)
-        m[f"{pre}_forecast_only_nmae_17_21"] = nmae(s["fo_bands"][..., 1], y, eve)
-        m[f"{pre}_forecast_only_coverage_p10_p90"] = coverage(conf_fo.apply(s["fo_bands"]), y)
-        m[f"{pre}_band_width_mwh"] = float(np.mean(da[..., 2] - da[..., 0]))
-        m[f"{pre}_id_nmae_16_24"] = nmae(idb[..., 1], y, mask)
-        m[f"{pre}_id_coverage_16_24"] = coverage(idb[mask], y[mask])
-        bought = _stretch_q(conf_da, s["da_q"])
-        traded = np.where(mask, _stretch_q(conf_id, s["id_q"]) - bought, 0.0)
-        m[f"{pre}_abs_dev_da_mwh_per_day"] = float(np.abs(y - bought).sum() / len(y))
-        m[f"{pre}_abs_dev_after_id_mwh_per_day"] = float(np.abs(y - bought - traded).sum() / len(y))
-        m[f"{pre}_abs_dev_da_16_24_mwh_per_day"] = float(np.abs((y - bought)[mask]).sum() / len(y))
-        m[f"{pre}_abs_dev_after_id_16_24_mwh_per_day"] = float(np.abs((y - bought - traded)[mask]).sum() / len(y))
-        m[f"{pre}_mean_actual_mwh_per_day"] = float(y.sum() / len(y))
-        s["bought"], s["traded"], s["da_cal"], s["id_cal"] = bought, traded, da, idb
-    for k, v in m.items():
-        _emit(k, v)
-    _emit("portfolio_q_star", q_lv)
-    _emit("portfolio_k", args.k)
-    _emit("portfolio_homes", len(sites))
-    for i, v in enumerate(conf_da.scale):
-        _emit(f"portfolio_conformal_scale_b{i}", v)
-    _emit("rust_kernels", float(kernels.backend() == "rust"))
-    timings["t_total_s"] = time.perf_counter() - t_all
-    for k, v in timings.items():
-        _emit(k, v)
-    _emit("share_scenarios_of_total", timings.get("t_scenarios_s", 0.0) / max(timings["t_total_s"], 1e-9))
-    print(f"[portfolio] labels: metrics = {LABEL} (fleet {src.index.get('source_key', {}).get('fleet', '?')}, "
-          f"test 2025 = {len(test_days)} days); a, b = proxy (#158); intraday weather = ERA5 proxy", flush=True)
-
-    out = Path(os.environ.get("LAB_OUTPUT_DIR", "."))
-    out.mkdir(parents=True, exist_ok=True)
-    _write_outputs(out, test, run_id=os.environ.get("LAB_RUN_ID", "local"))
-    report = {"card": 175, "run_id": os.environ.get("LAB_RUN_ID", "local"), "label": LABEL, "metrics": m,
-              "conformal_da": conf_da.to_json(), "conformal_id": conf_id.to_json(),
-              "conformal_forecast_only": conf_fo.to_json(), "q_star": q_lv, "k": args.k,
-              "homes": int(len(sites)), "regions": fleet.regions, "region_key": args.region,
-              "val_days": val["day"], "test_days": test["day"], "adapter_counts": {"val": val["counts"],
-                                                                                   "test": test["counts"]},
-              "behaviour": behaviour_name(), "kernels": kernels.backend(), "timings": timings,
-              "models": {k: [str(p) for p in v] for k, v in models.items()},
-              "labels": {"portfolio": LABEL, "imbalance_ab": "proxy (#158, AFEER public range)",
-                         "intraday_weather": "proxy: ERA5 analysis as the 15:00 weather update"}}
-    (out / "portfolio_report.json").write_text(json.dumps(report, indent=1, default=float))
-    return 0
-
-
-def _write_outputs(out: Path, s: dict, run_id: str) -> None:
-    """portfolio_forecast.parquet + positions.parquet (spec I step 6 'Ce iese'), test days, policy 'sentinel'."""
-    import pandas as pd
-
-    ts = pd.DatetimeIndex(s["ts"].ravel()).tz_localize("UTC")
-    d, t = s["ts"].shape
-    issue_da = np.repeat([pd.Timestamp(x).tz_localize("UTC") - pd.Timedelta(hours=13) for x in s["ts"][:, 0]], t)
-    rows = []
-    for kind, bands, issue in (("da", s["da_cal"], issue_da), ("id", s["id_cal"], None)):
-        f = pd.DataFrame({"issue_time": issue if issue is not None else ts.floor("D") + pd.Timedelta(hours=13),
-                          "ts": ts, "policy": "sentinel", "horizon": kind, "p10": bands[..., 0].ravel(),
-                          "p50": bands[..., 1].ravel(), "p90": bands[..., 2].ravel(), "run_id": run_id})
-        if kind == "id":
-            f = f[s["mask"].ravel()]
-        rows.append(f)
-    pd.concat(rows).to_parquet(out / "portfolio_forecast.parquet", index=False)
-    pd.DataFrame({"ts": ts, "policy": "sentinel", "bought_da": s["bought"].ravel(), "traded_id": s["traded"].ravel(),
-                  "actual": s["actual"].ravel(), "run_id": run_id}).to_parquet(out / "positions.parquet", index=False)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

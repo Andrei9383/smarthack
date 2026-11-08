@@ -1,8 +1,4 @@
-"""All PV / load / site-health baselines as contract Predictors, for eval.py (#16) and the agent fallbacks.
-
-    from wattsentry.eval.baselines.pv import predictors
-    P = predictors(fleet_dir)          # {"pvlib": {"pv": ...}, "persistence": {"pv", "load"},
-                                       #  "lgbm": {"pv", "load"}, "threshold_cusum": {"sitehealth"}}
+"""All PV / load / site-health baselines as contract Predictors, for eval.py and the agent fallbacks.
 
 LightGBM fits on the fleet's training years (2022-2023) and `split == train` sites only, and is cached next to the
 fleet dir (`baselines-pv-<fleet>-<key>/`), so the second call loads in about a second.

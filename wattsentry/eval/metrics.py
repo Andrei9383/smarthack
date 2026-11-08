@@ -1,4 +1,4 @@
-"""Test-set metrics shared by eval.py and the baselines (#16); numpy only, NaN in the truth = missing (masked out).
+"""Test-set metrics shared by eval.py and the baselines; numpy only, NaN in the truth = missing (masked out).
 
 Forecasts: arrays [N, H] of truth y and quantiles q10/q50/q90 in the same unit. Detection: one score per case.
 """
@@ -40,7 +40,7 @@ def npinball(q10, q50, q90, y, mask=None) -> float:
 
 
 def coverage(q10, q90, y, mask=None, eps: float = 0.0) -> float:
-    """Share of truth inside [q10 - eps, q90 + eps]; target 78-82 % (plan §2)."""
+    """Share of truth inside [q10 - eps, q90 + eps]; target 78-82 %."""
     m = _mask(y, q10, q90, mask=mask)
     return float(((q10[m] <= y[m] + eps) & (y[m] <= q90[m] + eps)).mean()) if m.any() else NAN
 

@@ -1,4 +1,4 @@
-"""Build demo/imbalance.sqlite from the CSVs printed by `scripts/demo_data_dump.py imbalance` (card #193).
+"""Build demo/imbalance.sqlite from the CSVs printed by `scripts/demo_data_dump.py imbalance`.
 
     python scripts/demo_data_load.py run.log --out /tmp/imb && python scripts/demo_imbalance_db.py /tmp/imb
 

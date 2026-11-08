@@ -1,4 +1,4 @@
-"""pvlib physical baseline: expected AC power from the RECORDED metadata only (plan §4 "fair pvlib baseline").
+"""pvlib physical baseline: expected AC power from the RECORDED metadata only (the "fair pvlib baseline").
 
 Never reads `*_true` / `true_*` columns: the gap between recorded and true tilt / azimuth / kWp, shading, snow,
 degradation and the inverter curve is exactly what the learned models are allowed to beat.
@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 import pvlib
 
-STEP = pd.Timedelta(minutes=15)
 HALF_STEP = pd.Timedelta(minutes=7.5)
 
 # PVWatts-style defaults (what an installer's tool would assume; the simulator's hidden values differ per site)

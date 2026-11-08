@@ -1,7 +1,7 @@
-"""Load the synthetic RO fleet (#11) + fault injector output (#12) into wide day-aligned arrays for the baselines.
+"""Load the synthetic RO fleet + fault injector output into wide day-aligned arrays for the baselines.
 
 Everything is [n_sites, n_days, 96] with UTC days (00:00-24:00 UTC holds all Romanian daylight). Split by the UTC
-day's year: train < val_year, val == val_year, test == test_year (plan §4). Site split (`train` / `unseen`) comes
+day's year: train < val_year, val == val_year, test == test_year. Site split (`train` / `unseen`) comes
 from sites.parquet. Physical-model outputs (pvlib with recorded metadata) are computed here once per site.
 """
 
@@ -32,19 +32,11 @@ class FleetArrays:
     fault: np.ndarray                # [n, d, 96] str-coded fault id (0 = healthy), see fault_names
     fault_names: list[str] = field(default_factory=list)
     labels: pd.DataFrame | None = None
-    source: str = "synthetic RO"
     eval_truth: pd.DataFrame | None = None  # hidden site truth, ONLY for error analysis (never a model input)
 
     @property
     def n(self) -> int:
         return len(self.sites)
-
-    def day_mask(self, years) -> np.ndarray:
-        years = [years] if isinstance(years, int) else list(years)
-        return np.isin(self.days.year, years)
-
-    def ts(self) -> pd.DatetimeIndex:
-        return day_grid(self.days)
 
 
 def day_grid(days: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -66,15 +58,12 @@ def ensure_dataset(n_sites: int = 100, n_feeders: int = 6, start_year: int = 202
     return inject_dataset(fleet, log=log)
 
 
-def load_arrays(data_dir: Path, years: list[int] | None = None, max_sites: int | None = None,
-                site_ids: list[str] | None = None) -> FleetArrays:
+def load_arrays(data_dir: Path, years: list[int] | None = None, site_ids: list[str] | None = None) -> FleetArrays:
     data_dir = Path(data_dir)
     sites = pd.read_parquet(data_dir / "sites.parquet")
     sites["site_id"] = sites.site_id.astype(str)
     if site_ids is not None:
         sites = sites[sites.site_id.isin([str(s) for s in site_ids])]
-    if max_sites:
-        sites = sites.iloc[:max_sites]
     truth_cols = [c for c in ("true_metadata_wrong", "true_shaded") if c in sites.columns]
     eval_truth = sites[truth_cols].reset_index(drop=True) if truth_cols else None
     keep = [c for c in sites.columns if not (c.endswith("_true") or c.startswith("true_"))

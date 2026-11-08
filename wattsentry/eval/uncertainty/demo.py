@@ -2,9 +2,9 @@
 
 The mock has no actuals, so a synthetic "truth" is drawn around its quantiles with a deliberately wider spread
 than the mock claims (`inflate`), daily weather shared across a feeder and per-step noise. Conformal calibration
-has to fix that miscalibration; the P10 hit rate then checks the whole chain. #18's LP is not available here, so
-the demo schedule is a simple rule (`rule_schedule`): charge in the feeder's midday export peak, discharge in the
-evening, idle otherwise.
+has to fix that miscalibration; the P10 hit rate then checks the whole chain. The demo schedule is a simple rule
+instead of the LP (`rule_schedule`): charge in the feeder's midday export peak, discharge in the evening, idle
+otherwise.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class DemoFeeder:
 
 
 def make_feeder(feeder_id: str, n_sites: int = 20, seed: int = 0, battery_share: float = 0.85) -> DemoFeeder:
-    """RO-like residential sites: kWp 3-10 (R7), battery 5-15 kWh / 3-5 kW, comfort reserve 0.5-2 kWh."""
+    """RO-like residential sites: kWp 3-10, battery 5-15 kWh / 3-5 kW, comfort reserve 0.5-2 kWh."""
     rng = np.random.default_rng(seed)
     sites, batts, soc0 = [], {}, {}
     for i in range(n_sites):
@@ -90,7 +90,7 @@ def feeder_truth(feeder: DemoFeeder, fc_pv, fc_load, rng: np.random.Generator, n
     return pv, load
 
 
-# --- rule schedule (stand-in for #18's LP) -------------------------------------------------------------------
+# --- rule schedule (stand-in for the LP) ---------------------------------------------------------------------
 def _local_hours(t0: str, horizon: int = DAY_STEPS) -> np.ndarray:
     start = parse_utc(t0)
     hours = []

@@ -6,7 +6,7 @@ Daily performance ratio r[s, d] = measured / pvlib(recorded metadata) energy ove
 Each site's ratio is divided by its own reference level (median r over the calibration = training days), so wrong
 recorded metadata does not look like a fault: q = r / ref, x = 1 - q (> 0 = under-producing).
 
-threshold rule (card): alarm on day d when q < theta on d-2, d-1 and d (theta = 0.8, i.e. "< 80 % for 3 days").
+threshold rule: alarm on day d when q < theta on d-2, d-1 and d (theta = 0.8, i.e. "< 80 % for 3 days").
 CUSUM: two-sided CUSUM on x (cusum.py); alarm while s_pos >= h. k, h tuned for day-level F1 on training days.
 """
 
@@ -198,7 +198,7 @@ INV_OVERVOLTAGE = 37  # inverter code "grid voltage too high" (sim/faults/kinds.
 
 
 class ThresholdCusumPredictor:
-    """M4 fallback as a contracts.Predictor (same Window conventions as #14's SiteHealth).
+    """M4 fallback as a contracts.Predictor (same Window conventions as SiteHealth).
 
     Today's ratio = window.meta["telemetry"]["pv_ac_w"] / pvlib(window.weather, recorded metadata) over daylight.
     Past ratios come from window.residual_summary[:, 0] (oldest first) when given, otherwise from the ratios this
