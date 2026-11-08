@@ -6,7 +6,6 @@ import { StatusMark } from "@/components/brand/status-mark";
 import { dayName } from "@/panels/site/time";
 import { orpc } from "@/utils/orpc";
 
-import { SECTION_LABEL } from "./ui";
 import { useReplayTs } from "./use-om-data";
 
 type Issue = { asset_id?: string; code?: string; curtailed_mwh?: number };
@@ -36,22 +35,22 @@ export function ParkReport({ parkId, title = true }: { parkId: string; title?: b
 
   return (
     <section className="space-y-2">
-      {title ? <h3 className={SECTION_LABEL}>Daily report, park {parkId}</h3> : null}
+      {title ? <h3 className="section-title">Daily report, park {parkId}</h3> : null}
       {rows.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-dense text-muted-foreground">
           {reports.isLoading ? "Loading…" : "No reports yet."}
         </p>
       ) : (
         <div>
-          <table className="w-full text-[13px] tabular-nums">
-            <thead className="border-b border-border text-[11px] tracking-[.02em] whitespace-nowrap text-text-secondary uppercase">
+          <table className="w-full text-dense tabular-nums">
+            <thead className="bg-surface-raised text-caption whitespace-nowrap text-muted-foreground">
               <tr className="text-left">
-                <th className="px-2.5 py-2 font-medium">Day</th>
+                <th className="rounded-l-md px-2.5 py-2 font-medium">Day</th>
                 <th className="px-1.5 py-2 text-right font-medium">MWh</th>
                 <th className="px-1.5 py-2 text-right font-medium">vs exp.</th>
                 <th className="px-1.5 py-2 text-right font-medium">Avail.</th>
                 <th className="px-1.5 py-2 text-right font-medium">Curtailed</th>
-                <th className="px-2.5 py-2 text-right font-medium">Data</th>
+                <th className="rounded-r-md px-2.5 py-2 text-right font-medium">Data</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -65,7 +64,7 @@ export function ParkReport({ parkId, title = true }: { parkId: string; title?: b
                     key={r.actionId}
                     className={
                       r.date === today
-                        ? "bg-surface-raised font-medium text-foreground"
+                        ? "bg-surface-raised/60 font-medium text-foreground"
                         : "text-foreground"
                     }
                     title={issues
@@ -74,29 +73,29 @@ export function ParkReport({ parkId, title = true }: { parkId: string; title?: b
                       )
                       .join(", ")}
                   >
-                    <td className="px-2.5 py-1.5 whitespace-nowrap">
+                    <td className="px-2.5 py-2 whitespace-nowrap">
                       {dayName(`${r.date}T09:00:00Z`)}
                       {issues.length ? (
                         <StatusMark kind="warn" size="xs" label={`${issues.length} data issues`} className="ml-1.5 align-middle" />
                       ) : null}
                     </td>
-                    <td className="px-1.5 py-1.5 text-right">
+                    <td className="px-1.5 py-2 text-right">
                       {(r.energyMwh ?? 0).toFixed(0)}
                     </td>
                     <td
-                      className={`px-1.5 py-1.5 text-right ${gap < -0.02 ? "font-medium text-status-warn" : "text-text-secondary"}`}
+                      className={`px-1.5 py-2 text-right ${gap < -0.02 ? "font-medium text-status-warn" : "text-text-secondary"}`}
                     >
                       {(gap * 100).toFixed(0)}%
                     </td>
                     <td
-                      className={`px-1.5 py-1.5 text-right ${(r.availabilityPct ?? 100) < 97 ? "font-medium text-status-warn" : ""}`}
+                      className={`px-1.5 py-2 text-right ${(r.availabilityPct ?? 100) < 97 ? "font-medium text-status-warn" : ""}`}
                     >
                       {(r.availabilityPct ?? 0).toFixed(1)}%
                     </td>
-                    <td className="px-1.5 py-1.5 text-right">
+                    <td className="px-1.5 py-2 text-right">
                       {r.curtailedMwh ? `${r.curtailedMwh} MWh` : "—"}
                     </td>
-                    <td className="px-2.5 py-1.5 text-right text-text-secondary">
+                    <td className="px-2.5 py-2 text-right text-text-secondary">
                       {(r.dataQualityPct ?? 0).toFixed(0)}%
                     </td>
                   </tr>
@@ -106,7 +105,7 @@ export function ParkReport({ parkId, title = true }: { parkId: string; title?: b
           </table>
         </div>
       )}
-      <p className="text-[11px] leading-relaxed text-muted-foreground">
+      <p className="text-caption leading-relaxed text-muted-foreground">
         Curtailment is a market instruction: it is reported here and logged as
         an alert, never sent to a crew.
       </p>
