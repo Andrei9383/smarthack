@@ -4,7 +4,6 @@ import { Button } from "@sentinel-app/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { TriangleAlert, X } from "lucide-react";
 
-import { ProvenancePill } from "@/components/provenance-pill";
 import { Fold } from "@/panels/disclosure";
 
 import { orpc } from "@/utils/orpc";
@@ -92,7 +91,6 @@ export function SummaryCard() {
   const realRun = runs?.find((run) => run.kind === "replay");
   const anyKpi = (kpis?.length ?? 0) > 0;
 
-  const label = METRICS.map(({ name }) => (find(name, "sentinel") ?? find(name, "baseline"))?.label).find(Boolean);
   const runIds = [
     ...new Set(
       METRICS.flatMap(({ name }) => [find(name, "baseline")?.runId, find(name, "sentinel")?.runId]).filter(
@@ -116,7 +114,6 @@ export function SummaryCard() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <h2 className="text-page text-foreground">Results</h2>
-            {label ? <ProvenancePill label={label} /> : null}
           </div>
           <Button
             variant="ghost"

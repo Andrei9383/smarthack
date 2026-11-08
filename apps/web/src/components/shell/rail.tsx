@@ -1,10 +1,11 @@
 "use client";
 
 import { cn } from "@sentinel-app/ui/lib/utils";
-import { BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react";
+import { AudioLines, BarChart3, CircleHelp, PanelLeftClose, PanelLeftOpen, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
+import { useAskSentinel } from "@/components/voice/voice-assistant";
 import { useSummaryOpen } from "@/demo/demo-jumps";
 import { useOverview } from "@/demo/kpi-strip";
 import { useReplayPlaying } from "@/demo/replay-bar";
@@ -115,6 +116,23 @@ function useModeMarks(): Partial<Record<ModeId, { kind: StatusKind; label: strin
   };
 }
 
+/** #207: voice conversation with the ElevenLabs agent; hidden when the server has no key. */
+function AskSentinelItem({ expanded }: { expanded: boolean }) {
+  const { available, live, toggle } = useAskSentinel();
+  if (!available) return null;
+  return (
+    <RailItem
+      active={live}
+      expanded={expanded}
+      icon={<AudioLines className="size-5" strokeWidth={1.7} />}
+      label={live ? "End the talk" : "Ask Sentinel"}
+      descriptor="Talk to the agent about the project"
+      mark={live ? { kind: "live", label: "Talking" } : null}
+      onClick={toggle}
+    />
+  );
+}
+
 export function Rail({
   mode,
   onMode,
@@ -181,6 +199,7 @@ export function Rail({
         onClick={() => setSummaryOpen(!summaryOpen)}
         shortcut="6"
       />
+      <AskSentinelItem expanded={expanded} />
 
       <div className="flex-1" />
 

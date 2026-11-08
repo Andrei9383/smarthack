@@ -16,7 +16,6 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { ProvenancePill } from "@/components/provenance-pill";
 import { Fold, Metric, MetricRow, StatusPill } from "@/panels/disclosure";
 import { VerdictCard } from "@/panels/judge/verdict-card";
 import { STEP_MINUTES, timeLabel } from "@/demo/replay";
@@ -185,7 +184,6 @@ function SiteView({ assetId }: { assetId: string }) {
   const detail = useQuery(
     orpc.sites.getDetail.queryOptions({ input, retry: false }),
   );
-  const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const steps = useQuery(orpc.sites.getSteps.queryOptions({ input }));
   const statuses = useQuery(orpc.sites.getStatuses.queryOptions({ input }));
   const schedule = useQuery(orpc.sites.getSchedule.queryOptions({ input }));
@@ -318,9 +316,6 @@ function SiteView({ assetId }: { assetId: string }) {
             <span className="font-mono text-caption text-muted-foreground tabular-nums">
               at {timeLabel(step)}
             </span>
-          ) : null}
-          {run.data ? (
-            <ProvenancePill label={run.data.label} className="ml-auto" />
           ) : null}
         </div>
       </SheetHeader>

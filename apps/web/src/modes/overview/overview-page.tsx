@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { parseAsString, useQueryStates } from "nuqs";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -25,6 +25,7 @@ import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { useAgentActions } from "@/components/shell/agent-actions";
+import { useStoryNarration } from "@/components/voice/story-narration";
 import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
 import {
   clampStep,
@@ -162,6 +163,9 @@ function usePlayDemo() {
   const [, setPolicy] = usePolicy();
   const playing = useReplayPlaying();
   const started = useRef(false);
+  // #207: each fresh start from 06:00 is a new narrated run (voice only, when the server has a key).
+  const [storyRun, setStoryRun] = useState(0);
+  useStoryNarration(storyRun);
   const step = clampStep(rawStep);
   const toggle = () => {
     if (playing) {
@@ -171,7 +175,10 @@ function usePlayDemo() {
     const inStory =
       step >= MORNING_STEP && step < HERO_DAY * STEPS_PER_DAY + 80;
     setPolicy("sentinel");
-    if (!started.current || !inStory) setStep(MORNING_STEP);
+    if (!started.current || !inStory) {
+      setStep(MORNING_STEP);
+      setStoryRun((run) => run + 1);
+    }
     started.current = true;
     setPlaying(true);
   };

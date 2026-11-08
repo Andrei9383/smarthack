@@ -14,7 +14,6 @@ import { useMemo, useRef } from "react";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { ProvenancePill } from "@/components/provenance-pill";
 import { Fold, Metric, MetricRow } from "@/panels/disclosure";
 import { VerdictCard } from "@/panels/judge/verdict-card";
 import { timeLabel } from "@/demo/replay";
@@ -232,7 +231,6 @@ function TurbineView({ assetId }: { assetId: string }) {
     // by day, so scrubbing inside a day does not refetch the telemetry
     orpc.om.getTurbineDrawer.queryOptions({ input: { assetId, at: nowTs.slice(0, 10) } }),
   );
-  const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const orders = useQuery(
     orpc.om.listWorkOrders.queryOptions({ input: { assetId } }),
   );
@@ -299,12 +297,6 @@ function TurbineView({ assetId }: { assetId: string }) {
           {d
             ? `${d.turbineModel ?? "turbine"} · ${((d.ratedKw ?? 0) / 1000).toFixed(1)} MW · park ${parkId}`
             : "Loading…"}
-          {run.data ? (
-            <>
-              {" "}
-              · <ProvenancePill label={run.data.label} />
-            </>
-          ) : null}
         </SheetDescription>
       </SheetHeader>
 

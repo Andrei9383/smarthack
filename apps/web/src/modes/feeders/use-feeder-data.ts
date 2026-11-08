@@ -19,11 +19,6 @@ export function useOverLimit() {
   return useQuery(orpc.feeders.getOverLimit.queryOptions({ input: window }));
 }
 
-export function useRunLabel() {
-  const { data } = useQuery(orpc.manifest.getRuns.queryOptions({ input: {} }));
-  return data?.[0]?.label;
-}
-
 export type FeederNow = {
   exportKw: number;
   limitKw: number;

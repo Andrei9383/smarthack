@@ -10,7 +10,6 @@ import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
 import { stepToDate } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
-import { useShowOwnPill } from "@/components/shell/inspector-embedded";
 import { Term } from "@/components/help";
 import { DetailsSheet, Metric, MetricRow, PopList, RowButton, SectionHeader, SheetSection } from "@/panels/disclosure";
 
@@ -24,7 +23,6 @@ import { fetchWindMeta } from "./wind-field";
 // Sentinel's own forecast: primary green line over a brand-500 P10–P90 band (ui-style §3).
 const FAN_FILL = "var(--brand-500)";
 const FAN_LINE = "var(--sentinel)";
-const PILL = "inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-caption font-medium whitespace-nowrap text-text-secondary";
 const Y_TICKS = 4;
 const TICK_HOURS = 6;
 const CHART_MARGIN = { left: 32, right: 8, top: 26, bottom: 24 };
@@ -57,25 +55,7 @@ function wallClock(ts: string) {
   return new Date(parts.year as number, (parts.month as number) - 1, parts.day as number, parts.hour as number);
 }
 
-// Same dot colours as the shared provenance pill (ui-pass2): synthetic grey, real RO green, non-RO blue.
-function provenanceDot(text: string | undefined) {
-  if (!text) return "bg-status-unknown";
-  if (/non-RO/i.test(text)) return "bg-status-forecast";
-  if (/synthetic|mock/i.test(text)) return "bg-status-unknown";
-  if (/real RO/i.test(text)) return "bg-status-ok";
-  return "bg-status-unknown";
-}
-
-function Pill({ text }: { text: string }) {
-  return (
-    <span className={PILL}>
-      <span className={`size-1.5 shrink-0 rounded-full ${provenanceDot(text)}`} aria-hidden />
-      {text}
-    </span>
-  );
-}
-
-// Park names carry a trailing "(synthetic RO)"-style tag that the pill already shows; mute it.
+// Park names carry a trailing "(synthetic RO)"-style tag; the panel shows the name without it (#212).
 function splitTag(name: string): [string, string | null] {
   const match = /^(.*?)\s*(\([^()]+\))$/.exec(name);
   return match ? [match[1] ?? name, match[2] ?? null] : [name, null];
@@ -90,9 +70,8 @@ export function ProductionPanel() {
     queryFn: fetchWindMeta,
     staleTime: Number.POSITIVE_INFINITY,
   });
-  const { label, parks, rows, counties, isLoading } = useProductionData();
+  const { parks, rows, counties, isLoading } = useProductionData();
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const showPill = useShowOwnPill(label);
   const park = parks.find((p) => p.id === selected) ?? parks[0];
 
   const { fan, bestHours, parkMwh } = useMemo(() => {
@@ -120,10 +99,9 @@ export function ProductionPanel() {
   const nowRow = fan[0];
   const now = stepToDate(step);
   const nowDate = new Date(wallClock(now.toISOString()).getTime() + now.getUTCMinutes() * 60_000);
-  const [parkName, parkTag] = park ? splitTag(park.name) : ["", null];
+  const [parkName] = park ? splitTag(park.name) : [""];
 
   const hourTs = meta?.hours[hour]?.ts;
-  const windLabel = meta?.source === "mock" ? "mock wind field" : "real RO, ERA5 100 m wind";
   const mwFmt = (v: number) => (v >= 10 ? Math.round(v).toString() : v.toFixed(1));
 
   return (
@@ -134,18 +112,11 @@ export function ProductionPanel() {
             {park ? (
               <>
                 {`${park.id} · ${parkName}`}
-                {/* The tag repeats the provenance pill; hide it when the shell pill already says it. */}
-                {parkTag && showPill && <span className="text-body font-normal text-muted-foreground"> {parkTag}</span>}
               </>
             ) : (
               "Production"
             )}
           </h2>
-          {showPill ? (
-            <span className="shrink-0 pt-0.5">
-              <Pill text={label ?? (isLoading ? "loading" : "no run loaded")} />
-            </span>
-          ) : null}
         </div>
         {park && (
           <p className="text-caption text-muted-foreground tabular-nums">
@@ -339,10 +310,7 @@ export function ProductionPanel() {
               <dl className="divide-y divide-border text-dense">
                 <div className="flex items-center justify-between gap-3 py-2.5">
                   <dt className="text-text-secondary">Wind at 100 m</dt>
-                  <dd className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground tabular-nums">{hourTs ? localLabel(hourTs) : "—"}</span>
-                    <Pill text={meta ? windLabel : "loading"} />
-                  </dd>
+                  <dd className="font-semibold text-foreground tabular-nums">{hourTs ? localLabel(hourTs) : "—"}</dd>
                 </div>
                 {windCounties.map(({ county, windMwh }) => (
                   <div key={county} className="flex items-baseline justify-between gap-3 py-2.5">

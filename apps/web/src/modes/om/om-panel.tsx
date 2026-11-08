@@ -12,8 +12,7 @@ import { type ReactNode, useEffect, useState } from "react";
 
 import { StatusMark } from "@/components/brand/status-mark";
 import { Term } from "@/components/help";
-import { ProvenancePill } from "@/components/provenance-pill";
-import { useInspectorEmbedded, useShowOwnPill } from "@/components/shell/inspector-embedded";
+import { useInspectorEmbedded } from "@/components/shell/inspector-embedded";
 import { dayLabel, dayOfStep, timeLabel } from "@/demo/replay";
 import { useReplayStep } from "@/demo/use-replay";
 import {
@@ -521,9 +520,7 @@ export function OmPanel() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const run = useQuery(orpc.sites.getRun.queryOptions({ input: {} }));
   const embedded = useInspectorEmbedded();
-  const showPill = useShowOwnPill(run.data?.label);
   const { data: assets } = useOmAssets();
   const { data: orders } = useWorkOrders();
   const { data: review } = useReviewQueue();
@@ -582,7 +579,6 @@ export function OmPanel() {
           <p className="font-mono text-caption text-muted-foreground tabular-nums">
             As of {dayLabel(dayOfStep(step))} · {timeLabel(step)}
           </p>
-          {run.data && showPill ? <ProvenancePill label={run.data.label} className="ml-auto" /> : null}
         </div>
       </header>
 
