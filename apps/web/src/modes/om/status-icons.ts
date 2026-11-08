@@ -3,12 +3,12 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 import { OM_COLORS } from "./colors";
 
 // The O&M map draws the same shape-coded status marks as the legend and the panels
-// (components/brand/status-mark.tsx, ui-style §7): ok = LED, derated = triangle, stopped = diamond,
+// (components/status-mark.tsx): ok = LED, derated = triangle, stopped = diamond,
 // waiting for a person = hexagon with a hollow core, left out / no data = hollow ring.
 // MapLibre symbol layers need bitmaps, so each mark is painted once on a canvas and added as an
 // image; the geometry mirrors StatusMark's 16-unit SVG viewBox.
 
-export const STATUS_ICON = {
+const STATUS_ICON = {
   ok: "om-mark-ok",
   warn: "om-mark-warn",
   critical: "om-mark-critical",

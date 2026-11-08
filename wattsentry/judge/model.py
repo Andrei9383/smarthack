@@ -1,17 +1,10 @@
-"""The Judge validity model (team/judge-design.md §7.4): LightGBM binary classifiers per family (forecast / detector),
-5 seeds averaged, isotonic calibration on held-out assets, thresholds tau_use / tau_widen.
+"""The Judge validity model: LightGBM binary classifiers per family (forecast / detector), 5 seeds averaged,
+isotonic calibration on held-out assets, thresholds tau_use / tau_widen. Artifacts (written by `judge.train`):
+judge.<family>.s<k>.txt (one LightGBM text model per seed) and judge.calibration.json.
 
-Artifacts in a models dir (what `load_judge` reads; written by wattsentry.judge.train):
-    judge.<family>.s<k>.txt      LightGBM text model, one per seed
-    judge.calibration.json       {judge_version, tau_use, tau_widen, widen_factor, families: {family: {features,
-                                  categorical, seeds, isotonic: {x, y}, tau_use, tau_widen, widen_factor, ...}},
-                                  ledger_only: [...], metrics}
-
-Inference (J4, #149):
-    judge = load_judge(models_dir)            # None when the weights are missing -> ledger-only mode (§11)
-    out = judge.predict(rows)                 # rows = raw rows (wattsentry.judge.features.RAW_COLUMNS)
-    out.p_valid, out.p_valid_sd, out.reasons  # calibrated 5-seed mean, seed disagreement, up to 3 plain reasons
-Rows of M7 / M8 (and any witness without a family model) get p_valid = trust_main (ledger only, §7.4).
+    judge = load_judge(models_dir)   # None when the weights are missing -> the loop runs ledger-only
+    out = judge.predict(rows)        # p_valid (calibrated seed mean), p_valid_sd (seed disagreement), reasons
+Witnesses without a family model (M7, M8) get p_valid = trust_main.
 """
 
 from __future__ import annotations
@@ -27,8 +20,8 @@ import pandas as pd
 from wattsentry.judge import features as F
 
 CAL_FILE = "judge.calibration.json"
-PRECISION_USE = 0.90  # §7.5: tau_use = lowest P(valid) at which >= 90 % of "use" predictions are valid
-WIDEN_CAL = 0.80  # §7.5: tau_widen = lowest P(valid) at which widened bands reach 0.80 calibration (§5.3)
+PRECISION_USE = 0.90  # tau_use = lowest P(valid) at which >= 90 % of "use" predictions are valid
+WIDEN_CAL = 0.80  # tau_widen = lowest P(valid) at which widened bands reach 0.80 calibration
 MIN_USE = 30  # a threshold needs at least this many held-out predictions above it
 DEFAULT_PARAMS = {"objective": "binary", "learning_rate": 0.05, "num_leaves": 31, "min_data_in_leaf": 40,
                   "feature_fraction": 0.8, "bagging_fraction": 0.8, "bagging_freq": 1, "lambda_l2": 1.0,
@@ -98,7 +91,7 @@ def widened_hit(hit_m: dict[float, np.ndarray], band_scale: np.ndarray, factor: 
 
 
 def calibration_score(hit: np.ndarray) -> np.ndarray:
-    """§5.3 calibration of an 80 % band: 1 - |hit - 0.8| / 0.8 (1 at the nominal rate, 0.75 for a band that never
+    """Calibration of an 80 % band: 1 - |hit - 0.8| / 0.8 (1 at the nominal rate, 0.75 for a band that never
     misses)."""
     return 1.0 - np.abs(np.asarray(hit, float) - 0.8) / 0.8
 
@@ -106,8 +99,8 @@ def calibration_score(hit: np.ndarray) -> np.ndarray:
 def widen_choice(p: np.ndarray, hit_m: dict[float, np.ndarray], band_scale: np.ndarray, tau_use: float,
                  target: float = WIDEN_CAL, factors: Sequence[float] = (1.0, 1.25, 1.5, 2.0, 2.5, 3.0),
                  min_n: int = MIN_USE) -> tuple[float, float]:
-    """(tau_widen, widen_factor) for forecasts (§7.5 rule 5). A widened band = band x band_scale x factor. For each
-    factor, tau_widen(factor) = lowest t < tau_use such that rows with t <= p < tau_use reach a mean §5.3
+    """(tau_widen, widen_factor) for forecasts. A widened band = band x band_scale x factor. For each
+    factor, tau_widen(factor) = lowest t < tau_use such that rows with t <= p < tau_use reach a mean
     calibration score of the widened band >= target (0.80). Over-wide bands (hit ~1) score 0.75, so widening cannot
     rescue a forecast by making it useless. The factor reaching the lowest tau wins (ties: the smaller factor)."""
     p = np.asarray(p, float)
@@ -218,12 +211,6 @@ class Judge:
         self.tau_widen = float(calibration.get("tau_widen", 1.01))
         self.widen_factor = float(calibration.get("widen_factor", 1.0))
 
-    def thresholds(self, model: str) -> dict[str, float]:
-        fm = self.families.get(F.family_of(model) or "")
-        if fm is None:
-            return {"tau_use": self.tau_use, "tau_widen": self.tau_widen, "widen_factor": self.widen_factor}
-        return {"tau_use": fm.tau_use, "tau_widen": fm.tau_widen, "widen_factor": fm.widen_factor}
-
     def predict(self, rows: pd.DataFrame, reasons: bool = True) -> pd.DataFrame:
         rows = rows.reset_index(drop=True)
         out = pd.DataFrame({"p_valid": np.nan, "p_valid_sd": np.nan, "family": "", "tau_use": np.nan,
@@ -245,7 +232,7 @@ class Judge:
                 for j, r in zip(idx, rs):
                     out.at[j, "reasons"] = r
         rest = np.nonzero(out["family"].eq("").to_numpy())[0]
-        if len(rest):  # M7 / M8 and anything without a family model: ledger trust is P(valid) (§7.4, §11)
+        if len(rest):  # M7 / M8 and anything without a family model: ledger trust is P(valid)
             t = pd.to_numeric(rows.iloc[rest].get("trust_main", pd.Series(np.nan, index=rows.index[rest])),
                               errors="coerce").to_numpy(float)
             out.loc[rest, "p_valid"] = t
@@ -283,7 +270,7 @@ class Judge:
 
 def load_judge(models_dir: Path | str) -> Optional[Judge]:
     """The Judge from `models_dir`, or None when judge.calibration.json or any of its LightGBM files is missing
-    (the loop then runs ledger-only, §11)."""
+    (the loop then runs ledger-only)."""
     d = Path(models_dir)
     p = d / CAL_FILE
     if not p.exists():

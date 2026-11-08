@@ -1,4 +1,4 @@
-"""Card #26: qualify (sites + turbines) and O&M triage, driven by the MockPredictor."""
+"""Qualify (sites + turbines) and O&M triage, driven by the MockPredictor."""
 
 import dataclasses
 import json
@@ -10,12 +10,11 @@ import pytest
 
 from wattsentry.agent import qualify as Q
 from wattsentry.agent import triage as TR
-from wattsentry.agent.qualify import DEFAULT_THRESHOLDS, assess, load_thresholds, qualify, qualify_many, rel_width
+from wattsentry.agent.qualify import DEFAULT_THRESHOLDS, assess, load_thresholds, qualify_many, rel_width
 from wattsentry.agent.triage import (
     TriageConfig,
     WindInputs,
     lei_per_day,
-    offline_windows,
     pzu_next24_mean,
     triage,
     triage_score,
@@ -40,9 +39,13 @@ PV = MockPredictor("sitehealth")
 WIND = MockPredictor("wind")
 
 
+def qualify(*args, **kw) -> AssetStatus:
+    return assess(*args, **kw).status
+
+
 @pytest.fixture(autouse=True)
 def _builtin_thresholds(monkeypatch, tmp_path):
-    """Tests assume the built-in defaults, whatever #27 commits to models/thresholds.json."""
+    """Tests assume the built-in defaults, whatever is committed to models/thresholds.json."""
     monkeypatch.setenv(Q.THRESHOLDS_ENV, str(tmp_path / "none.json"))
 
 
@@ -128,7 +131,7 @@ def test_site_without_actual_uses_class_default_loss():
 
 
 def test_soiling_needs_its_own_higher_probability():
-    """#214: P(fault) 0.65 is enough for a string outage, not for soiling (P(soiling) 0.64 < soiling_confident)."""
+    """P(fault) 0.65 is enough for a string outage, not for soiling (P(soiling) 0.64 < soiling_confident)."""
     assert assess(SITE_1042, site_pred(fault=PvFault.STRING_OUTAGE.value, p=0.65), 0).status.status == "derated"
     a = assess(SITE_1042, site_pred(fault=PvFault.SOILING.value, p=0.65), 0)
     assert a.status.status == "eligible" and a.status.reason == "ok"
@@ -144,7 +147,7 @@ def test_site_healthy_eligible():
 def test_stale_telemetry_excluded(age):
     a = assess(SITE_1042, site_pred(), age)
     assert a.status.status == "excluded" and a.status.reason == "stale_telemetry" and a.offline
-    assert a.status.headroom_factor == 0.0 and not a.needs_work_order
+    assert a.status.headroom_factor == 0.0 and a.crew_type is None
 
 
 def test_data_gap_and_missing_prediction_excluded():
@@ -293,7 +296,7 @@ def test_turbine_data_gap_is_one_offline_window():
     t = turbine(9)
     ticks = [f"2025-06-21T{h:02d}:00:00Z" for h in range(8, 16)]
     gap = {"2025-06-21T10:00:00Z", "2025-06-21T11:00:00Z", "2025-06-21T12:00:00Z", "2025-06-21T13:00:00Z"}
-    state, alerts, opened, closed = None, [], [], []
+    state, alerts = None, []
     for tick in ticks:
         if tick in gap:
             a = assess(t, wind_pred(t, WindAnomaly.DATA_GAP.value), 20)
@@ -303,21 +306,12 @@ def test_turbine_data_gap_is_one_offline_window():
         res = triage([a], tick, state=state)
         state = res.state
         alerts += res.alerts
-        opened += res.offline_opened
-        closed += res.offline_closed
         assert not res.work_orders
     assert len(alerts) == 1 and alerts[0].payload["code"] == "offline"
-    assert len(opened) == 1 and closed == [{"asset_id": "WP1.TID09", "asset_kind": "turbine",
-                                           "start": "2025-06-21T10:00:00Z", "end": "2025-06-21T14:00:00Z"}]
+    assert "WP1.TID09" not in state.offline_since  # window closed once it reported again
     # stale SCADA counts as offline too
     s = assess(t, wind_pred(t, WindAnomaly.NORMAL.value, score=0.1), 120)
     assert s.status.reason == "stale_telemetry" and s.offline
-
-
-def test_offline_windows_helper():
-    recs = [("A", "t1", False), ("A", "t2", True), ("A", "t3", True), ("A", "t4", False), ("B", "t4", True)]
-    assert offline_windows(recs) == [{"asset_id": "A", "start": "t2", "end": "t4"},
-                                     {"asset_id": "B", "start": "t4", "end": None}]
 
 
 def test_anemometer_fault_remote_check():
@@ -450,7 +444,7 @@ def test_full_tick_with_mock_fleet():
 
 
 def test_per_prediction_cache_follows_reassigned_fields():
-    """#98: _assess_site caches per-prediction stats; reassigning q / fault_probs (as world mocks do) invalidates."""
+    """_assess_site caches per-prediction stats; reassigning q / fault_probs (as world mocks do) invalidates."""
     pred = site_pred()
     assert qualify(SITE_1042, pred, 0).status == "eligible"
     pred.fault_probs = {c.value: (0.9 if c == PvFault.STRING_OUTAGE else 0.1 / 7) for c in PvFault}
@@ -460,7 +454,7 @@ def test_per_prediction_cache_follows_reassigned_fields():
     assert qualify(SITE_1042, pred, 0).reason == "wide_interval"
 
 
-# --- Wind D2 (card #167): turbine work orders ranked by lei per day ------------------------------------------
+# --- turbine work orders ranked by lei per day ------------------------------------------------------------
 def _wind_fleet():
     """WP9 at noon on a windy mock day: T06 stopped, T03 10 % low, T11 anemometer, T05 curtailed, T09 data gap."""
     ts = {n: turbine(n, "WP9") for n in (6, 3, 11, 5, 9)}
@@ -492,7 +486,7 @@ def test_wind_om_queue_ranked_by_triage_score_stopped_turbine_on_top():
     assert [r["asset_id"] for r in q][:2] == ["WP9.TID06", "WP9.TID03"]
     assert [r["triage_score"] for r in q] == sorted([r["triage_score"] for r in q], reverse=True)
     top = q[0]
-    # fault_stop: lost MWh = what it would produce over the next 24 h (M6 expected stands in for M5 until #164)
+    # fault_stop: lost MWh = what it would produce over the next 24 h (M6 expected stands in for M5)
     lost6 = float(np.mean(p6.q50[48:])) * 24 / 1000
     assert top["lost_src"] == "windnbm_expected" and top["lost_mwh_24h"] == pytest.approx(lost6, rel=1e-3)
     assert top["lei_per_day"] == pytest.approx(lost6 * 500.0, rel=1e-3)
@@ -558,8 +552,8 @@ def test_wind_judge_unknown_is_remote_check_after_scored_orders(monkeypatch):
         == ["WP9.TID03"]
 
 
-def test_wind_reads_p_fault_through_the_c1_adapter():
-    adapter = pytest.importorskip("wattsentry.judge.adapter")  # card #157
+def test_wind_reads_p_fault_through_the_adapter():
+    adapter = pytest.importorskip("wattsentry.judge.adapter")
     items, tick, _, _ = _wind_fleet()
     day = TR.local_day(tick)
     rules = dataclasses.replace(items[0].prediction, model="windmon_rules", anomaly_score=0.6)

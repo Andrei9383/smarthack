@@ -1,4 +1,4 @@
-"""The live feed's SQLite file (team/contracts/live.md). WAL, so the app can read while the feed writes."""
+"""The live feed's SQLite file. WAL, so the app can read while the feed writes."""
 
 from __future__ import annotations
 
@@ -66,9 +66,9 @@ CREATE TABLE IF NOT EXISTS live_predictions (
   PRIMARY KEY (run_id, ts, level, entity_id, quantity, method)
 );
 CREATE INDEX IF NOT EXISTS live_predictions_feeder ON live_predictions (run_id, level, feeder_id, ts);
--- #130's reader (packages/api/src/routers/live.ts) reads this shape: feeder net export, headline method, latest run.
+-- packages/api/src/routers/live.ts reads this shape: feeder net export, headline method, latest run.
 -- tick_at = wall clock of the last write touching the row (actual at tick ts, else the prediction at ts - 15 min);
--- speed = simulated-time speed-up (900 / seconds per tick), NULL in real time (#130 reads NULL as 1).
+-- speed = simulated-time speed-up (900 / seconds per tick), NULL in real time (read as 1).
 CREATE VIEW IF NOT EXISTS live_feeder_steps AS
 SELECT p.run_id, p.feeder_id, p.ts, p.actual AS actual_kw, p.q10 AS q10_kw, p.q50 AS q50_kw, p.q90 AS q90_kw,
   (SELECT x.q50 FROM live_predictions x WHERE x.run_id = p.run_id AND x.ts = p.ts AND x.level = 'feeder'
@@ -90,7 +90,7 @@ READ_COLS = ("run_id", "ts", "site_id", "feeder_id", "pv_kw", "load_kw", "batt_k
 
 
 def db_path(path: Optional[str | Path] = None) -> Path:
-    return Path(path or os.environ.get("WATTSENTRY_LIVE_DB") or os.environ.get("LIVE_DB") or DEFAULT_DB)  # LIVE_DB: #130
+    return Path(path or os.environ.get("WATTSENTRY_LIVE_DB") or os.environ.get("LIVE_DB") or DEFAULT_DB)
 
 
 def connect(path: Optional[str | Path] = None) -> sqlite3.Connection:

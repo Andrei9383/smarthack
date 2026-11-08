@@ -1,45 +1,18 @@
-"""The agent loop (card #17, plan §3.1): perceive -> estimate -> qualify -> decide -> act -> log, every 15 min.
+"""The agent loop: perceive -> estimate -> qualify -> decide -> act -> log, every 15 min, for one policy.
 
-    comps = default_components(world)                 # real #18/#26/#27/#44 modules if importable, else fallbacks
+    comps = default_components(world)          # real modules where they import, built-in fallbacks otherwise
     res = run_policy(world, comps, LoopConfig(policy="sentinel", run_id="r1"), sink=AuditDB(...))
 
-Per day: predictions for every site / turbine (estimate) -> qualify at t0 -> per-feeder day-ahead plan of the pool
-(MUST) + P10 commitment -> every tick: re-qualify (telemetry, measured loss), triage (work orders, alerts, human
-review), execute the plan through the battery model with a feasibility clip that never goes below the comfort
-reserve (MUST), optional hourly re-solve on the remaining horizon (SHOULD, `resolve_hourly`). Wind: statuses ->
-work orders / curtailment log / park report; turbines never enter the LP (R20).
+Per day: predictions (estimate) -> qualify at t0 -> per-feeder day-ahead plan + P10 commitment -> every tick:
+re-qualify, triage, execute the plan through the battery model with a feasibility clip that never goes below the
+comfort reserve, optional hourly re-solve. Turbines get statuses, work orders, curtailment alerts and a park report
+but never enter the LP. Policies: `baseline` (self-consumption rule), `threshold` (per-home export threshold) and
+`sentinel`; all see identical inputs (`PolicyResult.input_hashes`), only decide/act differ.
 
-Observation vs physics: every read of telemetry (input hashes, telemetry ages at t0 and per tick, measured PV for
-qualify, measurements rows) goes through `world.observed_site_day`; `world.site_day` is the physics (battery step,
-grid, realised flex). Telemetry loss (#78 drills) is handled in three places, all switchable in LoopConfig:
-  hold_blind     a pool site that qualify drops only for missing telemetry (stale_telemetry / data_gap) leaves
-                 re-planning but keeps running today's schedule already on its device (feasibility clip and comfort
-                 floor still apply on the device); a site dropped for a fault / review goes to its own local rule.
-  readmit        a dropped pool site rejoins the live pool as soon as its telemetry is fresh and it re-qualifies.
-  blind_haircut  at commit time (t0), the share of the planned reduction coming from pool sites expected to be
-                 blind at a step (same step of the trailing day's observation over the 60-min stale limit, +-1 h)
-                 is not committed: committed_k *= 1 - loss_k, h_k = 1 - (1 - h)(1 - loss_k) in commitments.haircut_h.
-                 Sites already stale at t0 are out of the pool (qualify) and so out of the commitment.
-
-Policies: `baseline` (= `self_consumption`, contract rule on every site), `threshold` (per-home export threshold),
-`sentinel`. All policies run the same perceive + estimate stages on the same world, so their inputs are identical
-(`PolicyResult.input_hashes`); only decide/act differ.
-
-Components (dependency injection, `Components`): each slot is filled by the real module when it imports and
-otherwise by a minimal built-in, and `Components.sources` records which (also written to `runs.notes`):
-    planner    wattsentry.opt.lp.plan_feeder (#18) -> on LPSolveError wattsentry.opt.aggregate.plan_feeder_aggregate
-               -> fallback: built-in greedy peak-shaving heuristic (not an LP)
-    qualify    wattsentry.agent.qualify.qualify_many (#26) -> fallback: eligible unless confident fault / stale / OOD
-    triage     wattsentry.agent.triage.triage (#26)        -> fallback: once-per-episode top-K per crew type
-    committer  wattsentry.opt.commit.make_scenarios + commit (#27) -> fallback: committed = 0.8 x planned reduction
-    demand     wattsentry.demand.aggregate_scenarios + zone_demand_rows/actions (#44) -> fallback: summed quantiles
-    predictors world.default_predictors() (MockPredictor / world-aware mock) until trained models are injected
-    judge      wattsentry.judge.slot.JudgeSlot (#149, judge-design §7.5/§7.7/§8): one verdict per (witness, asset, day)
-               into judge_verdicts (+ trust, outcomes when J1/J2 are in); Judge model (J3) if its weights load, else
-               ledger-only mode. Observer only: actions are still open (§10), so decisions and KPIs do not change.
-               Not counted in `fallbacks` (it never changes a number); its mode is in runs.notes["judge"].
-    wind       built-in rule classifier (M6 stand-in: fault stop / underperformance / data gap from expected power);
-               baseline alerts = WindMon's four rules (#24 wattsentry.eval.baselines.wind; built-in stand-in fallback)
+Observation vs physics: every telemetry read goes through `world.observed_site_day`, while `world.site_day` drives
+the physics. A pool site dropped only for missing telemetry keeps running today's schedule on its device; it rejoins
+the pool once its telemetry is fresh and it re-qualifies; at commit time the planned reduction from sites expected to
+be blind (same steps of the trailing day, +-1 h) is not committed.
 """
 
 from __future__ import annotations
@@ -148,7 +121,7 @@ def builtin_plan_feeder(feeder: FeederSpec, eligible_sites: Sequence[Mapping[str
 
     Finds the lowest level L >= G that the pool's energy headroom can hold the worst plausible export
     (P90 PV - P10 load) under, splits the required absorption by headroom, keeps that much room free until the
-    window, charges own surplus otherwise and discharges to cover load. Same signature as #18's plan_feeder.
+    window, charges own surplus otherwise and discharges to cover load. Same signature as `opt.lp.plan_feeder`.
     """
     statuses = statuses or {}
     g = float(feeder.g_kw if G is None else G)
@@ -217,7 +190,7 @@ def builtin_plan_feeder(feeder: FeederSpec, eligible_sites: Sequence[Mapping[str
 
 @dataclass
 class FallbackAssessment:
-    """Minimal stand-in for #26's Assessment (same attribute names the loop reads)."""
+    """Minimal stand-in for `qualify.Assessment` (the attributes the loop and fallback triage read)."""
 
     asset_id: str
     asset_kind: str
@@ -305,7 +278,7 @@ def fallback_qualify_many(assets: Sequence[Mapping[str, Any]], predictions: Mapp
         for x in out:
             if x.asset_kind == "turbine" and not x.offline:
                 parks.setdefault(x.group_id or "", []).append(x)
-        for park, xs in parks.items():
+        for xs in parks.values():
             hit = [x for x in xs if x.fault in ("fault_stop", "underperformance") and x.crew_type]
             if len(hit) >= 3 and len(hit) >= 0.6 * len(xs):
                 for x in hit:
@@ -329,13 +302,12 @@ class FallbackTriageResult:
     work_orders: list[Action]
     alerts: list[Action]
     human_reviews: list[Action]
-    curtailment_log: list[dict[str, Any]]
     state: dict[str, Any]
 
 
 def fallback_triage(assessments: Sequence[Any], t: str, state: Optional[dict[str, Any]] = None,
                     config: Optional[FallbackTriageConfig] = None, **_: Any) -> FallbackTriageResult:
-    """FALLBACK triage: one action per episode; work orders top-K per UTC day per crew type by plan §3.5 score."""
+    """FALLBACK triage: one action per episode; work orders top-K per UTC day per crew type by triage score."""
     cfg = config or FallbackTriageConfig()
     st = copy.deepcopy(state) if state else {"wo": set(), "issued": {}, "offline": set(), "rev": set(), "al": set()}
     wos, als, revs, cands = [], [], [], {}
@@ -390,7 +362,7 @@ def fallback_triage(assessments: Sequence[Any], t: str, state: Optional[dict[str
                 "lost_flex_mwh_day": x.lost_flex_mwh_day, "mw_at_risk": x.mw_at_risk, "p_fault": x.p_fault,
                 "visit_days": 1.0, "rank": used + i + 1, "status": x.status.status, "reason": x.status.reason,
                 ("park_id" if x.asset_kind == "turbine" else "feeder_id"): x.group_id}, rec(x), x.asset_id, crew))
-    return FallbackTriageResult(wos, als, revs, [], st)
+    return FallbackTriageResult(wos, als, revs, st)
 
 
 def fallback_commit(feeder: FeederSpec, plan: FeederPlan, ctx: Mapping[str, Any]) -> Commitment:
@@ -451,8 +423,8 @@ class Components:
     threshold_step: Callable[..., tuple[float, float, float]]
     sources: dict[str, str] = field(default_factory=dict)
     errors: dict[str, int] = field(default_factory=dict)
-    windmon_flags: Optional[Callable[..., dict[str, np.ndarray]]] = None  # #24 rules (baseline policy); None = builtin
-    judge: Optional[Any] = None  # wattsentry.judge.slot.JudgeSlot (#149); None = no verdicts
+    windmon_flags: Optional[Callable[..., dict[str, np.ndarray]]] = None  # WindMon rules (baseline policy); None = builtin
+    judge: Optional[Any] = None  # wattsentry.judge.slot.JudgeSlot; None = no verdicts
 
     @property
     def fallbacks(self) -> list[str]:
@@ -495,8 +467,7 @@ def _builtin_threshold_step(battery, e, pv, load, threshold_kw, dt_h=DT):
 
 
 def default_components(world: World, force_fallback: bool | Sequence[str] = False,
-                       predictors: Optional[dict[str, Any]] = None, judge: bool = True,
-                       models_dir: Optional[Any] = None) -> Components:
+                       predictors: Optional[dict[str, Any]] = None, judge: bool = True) -> Components:
     """Real modules where they import (lazy), built-in fallbacks otherwise. `force_fallback=True` or a list of
     slots (planner, qualify, triage, committer, demand) forces the built-ins (tests, A/B checks)."""
     forced = set(["planner", "qualify", "triage", "committer", "demand", "wind_baseline"] if force_fallback is True
@@ -525,7 +496,7 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
             log(f"WARNING {slot}: real module failed to load ({type(e).__name__}: {e}); FALLBACK in use")
         return None
 
-    # planner (#18) ------------------------------------------------------------------------------------------
+    # planner: LP, aggregate LP as backup, greedy built-in
     plan, backup, rest_fn, thr_step = builtin_plan_feeder, None, None, _builtin_threshold_step
     src["planner"] = "fallback:builtin_greedy"
     src["rest_of_feeder"] = "fallback:builtin"
@@ -548,7 +519,7 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
     if rest_fn is None:
         rest_fn = _builtin_rest
 
-    # qualify + triage (#26) ---------------------------------------------------------------------------------
+    # qualify + triage
     qmany, tri = fallback_qualify_many, fallback_triage
     tcfg = lambda price, run_id, policy: FallbackTriageConfig(price, policy, run_id)  # noqa: E731
     src["qualify"], src["triage"] = "fallback:builtin_qualify", "fallback:builtin_triage"
@@ -562,7 +533,7 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
     elif q is not None:
         log("WARNING qualify and triage must come from the same module set; using both fallbacks")
 
-    # committer (#27) ----------------------------------------------------------------------------------------
+    # committer
     commit_fn: Callable = fallback_commit
     src["committer"] = "fallback:0.8x_planned_reduction"
     cm = _try("committer", lambda: __import__("wattsentry.opt.commit", fromlist=["commit", "make_scenarios"]))
@@ -580,7 +551,7 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
                                       t0=plan.t0)
             return _cm.commit(feeder, plan, scen, haircut=ctx.get("haircut", 0.05), t0=plan.t0)
 
-    # demand (#44) -------------------------------------------------------------------------------------------
+    # zone demand
     zd: Callable = fallback_zone_demand
     src["demand"] = "fallback:summed_quantiles"
     dm = _try("demand", lambda: __import__("wattsentry.demand.aggregate", fromlist=["aggregate_scenarios"]))
@@ -605,13 +576,13 @@ def default_components(world: World, force_fallback: bool | Sequence[str] = Fals
     if wm is not None and hasattr(wm, "windmon_flags"):
         comps.windmon_flags = wm.windmon_flags
         src["wind_baseline"] = "real:wattsentry.eval.baselines.wind.windmon_rules (#24)"
-    # judge (#149): observer slot, never fails the loop ------------------------------------------------------
+    # judge: observer slot, never fails the loop
     src["judge"] = "off"
     if judge:
         try:
             from wattsentry.judge.slot import JudgeSlot
 
-            comps.judge = JudgeSlot.load(models_dir)
+            comps.judge = JudgeSlot.load()
             src["judge"] = comps.judge.source
         except Exception as e:  # e.g. pandas missing: the agent runs as before, without verdicts
             log(f"WARNING judge slot unavailable ({type(e).__name__}: {e}); no verdicts this run")
@@ -634,20 +605,16 @@ class LoopConfig:
     step_predictions: bool = True  # per-step pv/load rows in predictions (False = lite DB; asset_steps keeps PV q's)
     detail_sites: Optional[frozenset[str]] = None  # large worlds: per-site rows only for these; None = every site
     write_schedules: bool = True  # per-step schedules rows (replay default: sentinel only; the UI shows policy 'sentinel')
-    beta: float = 0.5  # export remuneration ratio (same default as #18)
-    c_deg_lei_kwh: float = 0.12  # ~EUR 0.025/kWh per direction (plan §3.5), both policies
+    beta: float = 0.5  # export remuneration ratio (same default as the LP)
+    c_deg_lei_kwh: float = 0.12  # battery degradation, ~EUR 0.025/kWh per direction, both policies
     threshold_alpha: float = 0.5
     haircut: float = 0.05
-    readmit: bool = True  # re-admit a dropped pool site to the live pool once its telemetry is fresh and it re-qualifies
-    hold_blind: bool = True  # a pool site dropped only for missing telemetry keeps running the schedule on its device
-    blind_haircut: bool = True  # haircut committed flex by the share expected to be unobserved (trailing-day profile)
-    conformal: bool = True  # commit on PV/load quantiles conformally recalibrated on the replay's PAST days (observed)
     conformal_buckets: int = 24  # hour-of-day buckets (t0 = local midnight): dawn load misses differ from midday PV
     n_scenarios: int = 200
     seed: int = 0
     judge: bool = True  # run comps.judge (if any) on the sentinel policy: verdicts only, decisions unchanged
-    # live driver (#129, experiment): called once per tick after the feeder curves with that tick's decisions; it may
-    # block until the next reading arrives. None (default) = batch replay, results unchanged.
+    # live driver: called once per tick after the feeder curves with that tick's decisions; it may block until the
+    # next reading arrives. None = batch replay.
     on_tick: Optional[Callable[[dict], None]] = None
 
 
@@ -843,7 +810,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
         if write_inputs:
             created = Ts(day_ts)
             for s in sites:
-                for model_key, p in ((("pv", pv_p[s]), ("load", ld_p[s])) if cfg.step_predictions else ()):
+                for p in ((pv_p[s], ld_p[s]) if cfg.step_predictions else ()):
                     for k in range(DAY_STEPS):
                         sink.add("predictions", {"run_id": run_id, "asset_id": s, "model": p.model,
                                                  "model_version": p.model_version, "ts": Ts(world.tick_ts(d, k)),
@@ -854,7 +821,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                 if cfg.detail_sites is not None and s not in cfg.detail_sites:
                     continue
                 sink.add("predictions", _health_row(run_id, s, hl_p[s], created, 0, comps))
-            rows, acts = _safe_zone_demand(comps, world, d, ld_p, run_id, policy)
+            rows, acts = _guarded(comps, "demand", comps.zone_demand, fallback_zone_demand, world, d, ld_p, run_id,
+                                  policy)
             sink.add_many("zone_demand", rows)
             for a in acts:
                 act(a, day_ts)
@@ -873,8 +841,8 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                 {s: oday[s].telemetry_age_s[0] / 60 for s in sites}, None, {})
             for x in ass:
                 statuses[x.asset_id] = x.status
-            blind = _blind_profile(prev_oday, cfg) if cfg.blind_haircut else {}
-            cal = _fit_conformal(cal_hist, cfg) if cfg.conformal else {}
+            blind = _blind_profile(prev_oday)
+            cal = _fit_conformal(cal_hist, cfg)
             res.conformal[d] = {k: c.to_dict() for k, c in cal.items()}
             for fid, feeder in world.feeders.items():
                 members = feeder.site_ids
@@ -915,7 +883,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
             tsx = Ts(ts)
             t_iso = iso(ts)
             local_h = local_dt(ts).hour
-            # -- hourly re-solve (SHOULD) on the remaining horizon with current energies
+            # -- hourly re-solve on the remaining horizon with current energies
             if sentinel and cfg.resolve_hourly and k > 0 and k % 4 == 0:
                 revision += 1
                 for fid, feeder in world.feeders.items():
@@ -978,11 +946,11 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                         fid = sites[x.asset_id].feeder_id
                         if x.asset_id in live_pool[fid] and not st.in_pool:
                             live_pool[fid].discard(x.asset_id)  # out of re-planning
-                            if cfg.hold_blind and st.reason in BLIND_REASONS:
+                            if st.reason in BLIND_REASONS:
                                 held[fid].add(x.asset_id)  # blind only: the device keeps today's schedule
                         elif x.asset_id in held[fid] and not st.in_pool and st.reason not in BLIND_REASONS:
                             held[fid].discard(x.asset_id)  # a real problem now: its own local rule
-                        elif (cfg.readmit and x.asset_id in cf_e and x.asset_id not in live_pool[fid]
+                        elif (x.asset_id in cf_e and x.asset_id not in live_pool[fid]
                               and st.in_pool and st.battery_ok):
                             live_pool[fid].add(x.asset_id)  # telemetry fresh again and re-qualified: back on plan
                             held[fid].discard(x.asset_id)
@@ -993,7 +961,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                     act(a, ts)
                     if a.payload.get("asset_kind") == "turbine":
                         res.turbine_alerts += 1
-                _wind_tick(world, d, k, ts, ass, wd_p, tday, park_acc, curt_ep, act, run_id, policy, sink,
+                _wind_tick(k, ts, ass, wd_p, tday, park_acc, curt_ep, act, run_id, policy, sink,
                            write_inputs, res)
             elif world.turbines:
                 _windmon_tick(world, k, ts, tday, windmon_active, act, run_id, policy, res, windmon, d)
@@ -1078,7 +1046,7 @@ def run_policy(world: World, comps: Components, cfg: LoopConfig, sink: Any = Non
                                            "export_kw": round(max(x, 0.0), 4), "import_kw": round(max(-x, 0.0), 4),
                                            "limit_kw": g, "slack_kw": round(max(0.0, x - g), 4),
                                            "is_violation": int(over)})
-            if cfg.on_tick is not None:  # live driver (#129): hand over this tick's decisions, wait for the next
+            if cfg.on_tick is not None:  # live driver: hand over this tick's decisions, wait for the next
                 cfg.on_tick({"d": d, "k": k, "ts": ts, "feeder_net_kw": dict(fexp),
                              "batt_kw": {s: executed[s][k] for s in batt_sites},
                              "soc": {s: energy[s] / sites[s].battery.capacity_kwh for s in batt_sites},
@@ -1198,14 +1166,20 @@ def _wind_preds(world, wd_p, tday, k, tb_obs, under_run) -> dict[str, Prediction
     return out
 
 
-def _safe_qualify(comps, assets, preds, ages, actuals, flags):
+def _guarded(comps: Components, slot: str, fn: Callable, fallback: Callable, *args: Any, **kw: Any) -> Any:
+    """fn(*args, **kw); if a real component raises, count the error and use its built-in fallback instead."""
     try:
-        return comps.qualify_many(assets, preds, ages, None, actuals=actuals, flags=flags)
+        return fn(*args, **kw)
     except Exception as e:
-        if comps.qualify_many is fallback_qualify_many:
+        if fn is fallback:
             raise
-        comps.note_error("qualify", e)
-        return fallback_qualify_many(assets, preds, ages, None, actuals=actuals, flags=flags)
+        comps.note_error(slot, e)
+        return fallback(*args, **kw)
+
+
+def _safe_qualify(comps, assets, preds, ages, actuals, flags):
+    return _guarded(comps, "qualify", comps.qualify_many, fallback_qualify_many, assets, preds, ages, None,
+                    actuals=actuals, flags=flags)
 
 
 def _safe_triage(comps, ass, t, state, config):
@@ -1219,18 +1193,8 @@ def _safe_triage(comps, ass, t, state, config):
                                                                   config.run_id))
 
 
-def _safe_zone_demand(comps, world, d, ld_p, run_id, policy):
-    try:
-        return comps.zone_demand(world, d, ld_p, run_id, policy)
-    except Exception as e:
-        if comps.zone_demand is fallback_zone_demand:
-            raise
-        comps.note_error("demand", e)
-        return fallback_zone_demand(world, d, ld_p, run_id, policy)
-
-
 def _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, prices_kwh, t0, res):
-    """Call the planner for one feeder: pool = controlled sites, the others are the rest of the feeder (R3)."""
+    """Call the planner for one feeder: pool = controlled sites, the others are the rest of the feeder."""
     sites = world.sites
     rows = {s: {**sites[s].row, "e0_kwh": energy.get(s)} for s in members}
     fc = {s: {"pv": pv_p[s], "load": ld_p[s]} for s in members}
@@ -1257,7 +1221,7 @@ def _plan(comps, world, spec, members, pool_ids, pv_p, ld_p, statuses, energy, p
     return pl
 
 
-def _blind_profile(prev_oday: Mapping[str, SiteDay], cfg: LoopConfig) -> dict[str, np.ndarray]:
+def _blind_profile(prev_oday: Mapping[str, SiteDay]) -> dict[str, np.ndarray]:
     """Per site, the steps of the day it is expected to be blind (telemetry age over the qualify stale limit), from
     the same steps of the trailing day's observation, widened by +-1 h. Only what is known at t0; {} on day 0."""
     out = {}
@@ -1341,19 +1305,13 @@ def _plan_and_commit(comps, cfg, world, spec, members, pool_ids, pv_p, ld_p, sta
            "soc0": {s: energy[s] / sites[s].battery.capacity_kwh for s in pool_ids},
            "pv_cap": {s: float(sites[s].row.get("kwp_recorded") or 10.0) for s in pool_ids},
            "n_scenarios": cfg.n_scenarios, "seed": cfg.seed}
-    try:
-        c = comps.commit(spec, pl, ctx)
-    except Exception as e:
-        if comps.commit is fallback_commit:
-            raise
-        comps.note_error("committer", e)
-        c = fallback_commit(spec, pl, ctx)
+    c = _guarded(comps, "committer", comps.commit, fallback_commit, spec, pl, ctx)
     if blind:
         c = _blind_haircut(c, contrib, blind)
     return pl, c
 
 
-def _wind_tick(world, d, k, ts, ass, wd_p, tday, park_acc, curt_ep, act, run_id, policy, sink, write_inputs, res):
+def _wind_tick(k, ts, ass, wd_p, tday, park_acc, curt_ep, act, run_id, policy, sink, write_inputs, res):
     """Park forecasts, curtailment episodes (one alert per park episode, no work order), park report sums."""
     by_park: dict[str, list[Any]] = {}
     for x in ass:
@@ -1418,7 +1376,7 @@ def _close_curtailment(pid, curt_ep, act, run_id, policy, ts, res):
 
 
 def _windmon_precompute(world, comps):
-    """#24's WindMon rules over the whole replay (causal: each step uses only past steps); None -> builtin rules."""
+    """WindMon rules over the whole replay (causal: each step uses only past steps); None -> builtin rules."""
     fn = comps.windmon_flags
     if fn is None:
         return None
@@ -1436,8 +1394,8 @@ def _windmon_precompute(world, comps):
 
 
 def _windmon_tick(world, k, ts, tday, active, act, run_id, policy, res, windmon=None, d=0):
-    """Baseline wind O&M: WindMon's four rules on raw SCADA, one alert per rule episode per turbine (#24's rules when
-    importable, else the builtin stand-in)."""
+    """Baseline wind O&M: WindMon's four rules on raw SCADA, one alert per rule episode per turbine (the eval
+    baseline's rules when importable, else the builtin stand-in)."""
     for t, tb in world.turbines.items():
         td = tday[t]
         a, w, gb = td.act_pwt_kw[k], td.wd_spd_kmh[k], td.gearbox_t_c[k]

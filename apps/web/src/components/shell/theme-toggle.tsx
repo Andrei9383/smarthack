@@ -8,8 +8,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_THEME, themeName } from "@/lib/palette";
 
 /**
- * Light/Dark switch for the top bar (Cockpit, #181). Dark is the default; light is for bright rooms and
- * projectors. Labelled with the theme it switches to, so it never relies on the icon alone.
+ * Light/Dark switch for the top bar. Light is the default. Labelled with the theme it switches to, so it never relies on the icon alone.
  */
 export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme();

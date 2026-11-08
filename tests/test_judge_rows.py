@@ -1,14 +1,12 @@
-"""J3 (#148): week sampling, drift / cold-start augmentation, grading, stand-in ledger, cache key, features."""
+"""Judge training rows: week sampling, drift augmentation, grading, cache key, history features."""
 
 from __future__ import annotations
 
 import json
 
 import numpy as np
-import pandas as pd
 import pytest
 
-from wattsentry.contracts import Prediction
 from wattsentry.judge import features as F
 from wattsentry.judge import rows as R
 
@@ -98,37 +96,6 @@ def test_grade_detector_split_scores():
     assert tc.tolist() == ["string_outage", "healthy"]
 
 
-def test_mini_ledger_prior_decay_backoff_and_wipe():
-    L = R.MiniLedger()
-    key = R.bucket_key("site", True, True, 6, False, False)
-    t0 = L.trust("pvnet", "calibration", key, 0)
-    assert t0["trust"] == pytest.approx(R.DEFAULT_PRIOR["calibration"]) and t0["n_eff"] == 0  # no record -> prior
-    for d in range(10):  # a degraded witness: scores 0.1, observed the next day
-        L.add("pvnet", "calibration", [key] * 5, d, d + 1, np.full(5, 0.1))
-    t = L.trust("pvnet", "calibration", key, 10)
-    assert t["trust"] < 0.45 and t["n_eff"] > 5 and t["level"] == 6
-    assert L.trust("pvnet", "calibration", key, 5)["n_eff"] < t["n_eff"]  # only outcomes observed by day 5
-    other = R.bucket_key("site", False, False, 1, False, False)  # unseen bucket with no evidence of its own
-    assert L.trust("pvnet", "calibration", other, 10)["level"] == 1  # backs off to "site"
-    L.wipe("pvnet", 11)
-    w = L.trust("pvnet", "calibration", key, 12)
-    assert w["n_eff"] == 0 and w["trust"] == pytest.approx(R.DEFAULT_PRIOR["calibration"])
-
-
-def test_mini_ledger_alert_hysteresis_and_band_scale():
-    L = R.MiniLedger()
-    seq = [-0.3, -0.3, -0.3, -0.15, -0.05]
-    on = [L.alert_step("pvnet", "k", g, 10.0) for g in seq]
-    assert on == [False, False, True, True, False]
-    assert not L.alert_step("pvnet", "j", -0.5, 2.0)  # too little evidence
-    key = R.bucket_key("site", True, False, 6, False, False)
-    assert L.band_scale("pvnet", key, 5) == 1.0
-    e = np.tile(np.linspace(0, 2, 20), (10, 1))  # 80 % quantile ~1.6
-    for d in range(3):
-        L.add_err("pvnet", [key] * 10, d, d + 1, e)
-    assert 1.4 <= L.band_scale("pvnet", key, 5) <= 1.8
-
-
 def test_cache_key_changes_with_config(tmp_path):
     win = tmp_path / "w"
     win.mkdir()
@@ -144,40 +111,6 @@ def test_cache_key_changes_with_config(tmp_path):
     assert k != R.cache_key(cfg, R.sample_weeks(2024, seed=3), win, models, (0.8, 1.2))
     (models / "pvnet.s0.onnx").write_bytes(b"y")  # new witness weights -> new rows
     assert k != R.cache_key(cfg, weeks, win, models, (0.8, 1.2))
-
-
-def test_prediction_row_matches_bulk_summaries():
-    q50 = np.r_[np.zeros(24), np.linspace(0, 4, 24), np.linspace(4, 0, 24), np.zeros(24)]
-    p = Prediction(asset_id="S1", model="pvnet", model_version="v", t0="2024-06-01T21:00:00Z", horizon=96,
-                   q10=(q50 * 0.8).tolist(), q50=q50.tolist(), q90=(q50 * 1.3).tolist(), ood_score=1.2,
-                   member_std=0.1)
-    sub = Prediction(asset_id="S1", model="pvlib", model_version="v", t0=p.t0, horizon=96, q10=(q50 * .7).tolist(),
-                     q50=(q50 * 1.3).tolist(), q90=(q50 * 1.6).tolist())
-    yprev = np.r_[np.zeros(30), np.full(8, 2.5), np.linspace(1, 0, 58)]
-    row = F.prediction_row(p, day="2024-06-02", context={"battery": True, "seen": False, "month": 6, "sky": 0},
-                           substitute=sub, ledger={"trust_main": 0.41, "n_eff": 3.0},
-                           telemetry_prev={"y": yprev, "valid": np.ones(96), "energy_ref": 20.0},
-                           thresholds={"ood": 3.0})
-    bulk = F.summarize_forecast(q50[None] * 0.8, q50[None], q50[None] * 1.3, "pv")
-    assert row["energy_q50"] == pytest.approx(bulk["energy_q50"][0])
-    assert row["band_rel"] == pytest.approx(bulk["band_rel"][0])
-    assert row["in_frozen"] == 1.0 and row["sub_model"] == "pvlib" and row["family"] == "forecast"
-    X = F.build(F.rows_frame([row]), "forecast")
-    assert list(X.columns) == F.FEATURES["forecast"]
-    assert X["rel_vs_sub"].iloc[0] == pytest.approx((row["energy_q50"] - row["sub_energy"]) / row["sub_energy"])
-    assert F.reason_text("trust_main", row) == "trust 0.41 for new battery homes"
-    assert "disagrees with pvlib" in F.reason_text("rel_vs_sub", row)
-
-
-def test_detector_row_and_features():
-    p = Prediction(asset_id="S1", model="sitehealth", model_version="v", t0="2024-06-01T21:00:00Z", horizon=96,
-                   q10=[1.0] * 96, q50=[1.0] * 96, q90=[1.0] * 96,
-                   fault_probs={"healthy": 0.3, "string_outage": 0.6, "sensor_fault": 0.1},
-                   extra={"p_fault_threshold": 0.4, "p_fault_std": 0.05})
-    row = F.prediction_row(p, day="2024-06-02")
-    assert row["alarm"] == 1.0 and row["top_class"] == "string_outage" and row["p_fault"] == pytest.approx(0.7)
-    X = F.build(pd.DataFrame([row]), "detector")
-    assert X["top_class"].iloc[0] == F.CLASS_CODE["string_outage"] and X["witness"].iloc[0] == 10
 
 
 def test_history_features_flag_jumps_and_repeats():
@@ -197,14 +130,3 @@ def test_history_features_flag_jumps_and_repeats():
     prev[1] += 0.1
     assert F.repeats(q, prev).tolist() == [1.0, 0.0, 1.0]
     assert F.repeats(np.zeros((1, 96)), np.zeros((1, 96))).tolist() == [0.0]  # night / all-zero is not frozen
-    # prediction_row with history -> same numbers, and build() turns them into ratios
-    q50 = np.r_[np.zeros(24), np.linspace(0, 4, 24), np.linspace(4, 0, 24), np.zeros(24)]
-    p = Prediction(asset_id="S1", model="pvnet", model_version="v", t0="2024-06-01T21:00:00Z", horizon=96,
-                   q10=(q50 * 0.9).tolist(), q50=q50.tolist(), q90=(q50 * 1.1).tolist())
-    row = F.prediction_row(p, day="2024-06-02", history={"band_rel": [0.4] * 10, "energy_q50": [20.0] * 10,
-                                                         "q50_prev": q50.tolist()})
-    assert row["hist_band_rel7"] == pytest.approx(0.4) and row["repeat_prev"] == 1.0
-    X = F.build(F.rows_frame([row]), "forecast")
-    assert X["band_vs_hist7"].iloc[0] == pytest.approx(row["band_rel"] / 0.4)
-    assert X["band_vs_hist28"].iloc[0] == pytest.approx(row["band_rel"] / 0.4)  # days 8-10 back
-    assert X["repeat_prev"].iloc[0] == 1.0

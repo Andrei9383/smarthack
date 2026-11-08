@@ -1,14 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { usePolicy } from "@/demo/use-replay";
-import { canonicalName } from "@/demo/kpi-format";
+import { usePolicy } from "@/lib/use-replay";
+import { canonicalName } from "@/lib/kpi-format";
 import { useDemandData } from "@/modes/demand/use-demand-data";
 import { useFeederList, useOverLimit } from "@/modes/feeders/use-feeder-data";
 import { useOmAssets, useReviewQueue, useWorkOrders } from "@/modes/om/use-om-data";
 import { expectedMwh } from "@/modes/production/data";
 import { useProductionData } from "@/modes/production/use-production-data";
-import { orpc } from "@/utils/orpc";
+import { orpc } from "@/lib/orpc";
+import { lineOf } from "@/lib/utils";
 
 // Overview reuses each mode's own hooks and queries (same query keys), so it adds no new API
 // and switching to a mode afterwards hits a warm cache.
@@ -28,15 +29,6 @@ export type FeederState = {
   sentinelPeakKw: number | undefined;
   status: "ok" | "near" | "over" | "unknown";
 };
-
-function lineOf(geometryJson?: string | null): [number, number][] {
-  if (!geometryJson) return [];
-  try {
-    return (JSON.parse(geometryJson) as { coordinates?: [number, number][] }).coordinates ?? [];
-  } catch {
-    return [];
-  }
-}
 
 const NEAR_SHARE = 0.9; // a peak within 10 % of the limit counts as "near"
 
@@ -95,7 +87,6 @@ export function useOverviewData() {
     const stopped = turbines.filter((t) => t.status === "excluded");
     const waiting = (review ?? []).filter((r) => !r.resolved);
     const openOrders = (orders ?? []).filter((o) => o.status === "open");
-    const topOrder = [...openOrders].sort((a, b) => b.score - a.score)[0];
     const parks = production.parks.map((park) => ({
       ...park,
       mwh: expectedMwh(production.rows.filter((row) => row.parkId === park.id)),
@@ -109,12 +100,10 @@ export function useOverviewData() {
       stopped,
       waiting,
       openOrders,
-      topOrder,
       parks,
       counties: demand.counties,
-      demandTs: demand.ts,
       comfort: { baseline: kpi("comfort_breaches", "baseline"), sentinel: kpi("comfort_breaches", "sentinel") },
       ready: feeders.length > 0,
     };
-  }, [feeders, assets, review, orders, production.parks, production.rows, demand.counties, demand.ts, kpis]);
+  }, [feeders, assets, review, orders, production.parks, production.rows, demand.counties, kpis]);
 }

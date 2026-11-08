@@ -1,5 +1,5 @@
 // Raw colour values for MapLibre paint, which can't read Tailwind classes. They re-use the mode
-// colour modules (team/contracts/ui-style.md §2–3) so Overview reads exactly like each mode.
+// colour modules so Overview reads exactly like each mode.
 import { onPaletteTheme, rgba } from "@/lib/palette";
 
 export { FEEDER_CASING, FEEDER_OK, FEEDER_OVER, FEEDER_UNKNOWN, FEEDER_WARN } from "../feeders/colors";

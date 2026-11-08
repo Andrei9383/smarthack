@@ -13,7 +13,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { type GlossaryId, getTerm } from "@/lib/glossary";
-import { cn } from "@/lib/utils";
+import { cn } from "@wattsentry/ui/lib/utils";
 
 const OPEN_DELAY_MS = 120;
 const CLOSE_DELAY_MS = 120;
@@ -26,27 +26,21 @@ type Pos = { left: number; top: number; side: "top" | "bottom" };
 /**
  * A jargon word with a dotted underline and a plain-English definition on hover, keyboard focus or tap.
  *
- *   <Term id="p90">P90</Term>      // label = children
- *   <Term id="feeder-limit" />     // label = the glossary's own name
+ *   <Term id="p90">P90</Term>
  *
  * Accessible: the definition is the trigger's aria-describedby (a hidden node, so screen readers get it
  * without opening the popover); Esc closes; tap toggles on touch; taps on a Term don't bubble to a
  * clickable parent row. Ids are typed from lib/glossary.ts.
  *
  * Not built on packages/ui's TooltipContent on purpose: that one is a dark, square tooltip, and Base UI
- * tooltips do not open on tap. This is a white card per ui-style.md, positioned with fixed coordinates.
+ * tooltips do not open on tap. This is a white card, positioned with fixed coordinates.
  */
 export function Term({
   id,
   children,
-  more = true,
-  className,
 }: {
   id: GlossaryId;
-  children?: ReactNode;
-  /** Show the entry's "learn more" line, if it has one. */
-  more?: boolean;
-  className?: string;
+  children: ReactNode;
 }) {
   const entry = getTerm(id);
   const descId = useId();
@@ -150,10 +144,9 @@ export function Term({
           "cursor-help rounded-[3px] underline decoration-muted-foreground decoration-dotted decoration-[1.5px] underline-offset-[3px] outline-none transition-colors duration-150",
           "hover:decoration-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-1",
           open && "decoration-foreground",
-          className,
         )}
       >
-        {children ?? entry.term}
+        {children}
       </span>
       <span id={descId} hidden>
         {entry.short}
@@ -178,7 +171,7 @@ export function Term({
             <p className="mt-1 text-[12px] leading-[1.45] font-normal text-text-secondary normal-case tracking-normal">
               {entry.short}
             </p>
-            {more && entry.more ? (
+            {entry.more ? (
               <p className="mt-2 border-t border-border pt-1.5 text-[11px] leading-[1.45] font-normal text-muted-foreground normal-case tracking-normal">
                 {entry.more}
               </p>

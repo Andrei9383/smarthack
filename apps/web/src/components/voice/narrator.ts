@@ -1,8 +1,8 @@
 "use client";
 
-import { setReplayHeld } from "@/demo/replay-bar";
+import { setReplayHeld } from "@/lib/replay-playing";
 
-// Speaks story lines one after another through /api/voice/tts (ElevenLabs), card #207.
+// Speaks story lines one after another through /api/voice/tts (ElevenLabs).
 // While a line is waiting or playing, the replay clock is held so the voice and the screen
 // stay on the same moment. Pausing the story pauses the voice; stop() drops everything.
 
@@ -28,24 +28,6 @@ export function loadLine(text: string): Promise<string | null> {
   }
   return url;
 }
-
-let line: string | null = null;
-const listeners = new Set<() => void>();
-const setLine = (next: string | null) => {
-  line = next;
-  for (const listener of listeners) listener();
-};
-
-/** The line being spoken right now, for on-screen captions. */
-export const narratorLine = {
-  subscribe(listener: () => void) {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  },
-  get: () => line,
-};
 
 class Narrator {
   private queue: string[] = [];
@@ -78,7 +60,6 @@ class Narrator {
     this.finish?.();
     this.audio = null;
     this.running = false;
-    setLine(null);
     setReplayHeld(false);
   }
 
@@ -91,12 +72,10 @@ class Narrator {
       const url = await loadLine(text);
       if (generation !== this.generation) return;
       if (!url) continue;
-      setLine(text);
       await this.play(url);
     }
     if (generation !== this.generation) return;
     this.running = false;
-    setLine(null);
     setReplayHeld(false);
   }
 

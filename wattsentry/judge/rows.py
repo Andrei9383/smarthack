@@ -1,25 +1,8 @@
-"""Judge training rows (team/judge-design.md §7.6): replay sampled weeks of the witnesses with drift and cold-start
-augmentation, grade every prediction, run the trust ledger forward causally, and emit one raw row per
-(witness, asset, local day) with its §7.2 target.
+"""Judge training rows: replay sampled weeks of the witnesses (PVNet, LoadNet, SiteHealth, WindNBM) on the window
+cache with drift and cold-start augmentation, grade every prediction, run the live trust ledger forward causally and
+emit one raw row per (witness, asset, local day) with its validity target (simulator truth).
 
     rows = generate(RowConfig(year=2024), workers=20)       # 12 weeks in a process pool, cached on disk
-
-What one week does (`run_week`, one process each):
-1. Slice #10's window cache (the arrays the models train on) for all sites: 15 days of model history + `burn_in`
-   days for the ledger + the 7 sampled days. Run the witnesses exactly as the replay does (wattsentry.agent.predictors
-   ModelBank over wattsentry.model.features -> wattsentry.kernels): M1 PVNet day-ahead (`pv_fc`), M2 LoadNet day-ahead,
-   M4 SiteHealth at local midnight on the trailing 24 h. Substitutes (§3): pvlib on forecast weather with recorded
-   metadata (band from 2022-23 actual / pvlib quantiles) for M1, yesterday's load for M2.
-2. Drift (§7.6) in half of the weeks: one random witness degraded from a random day, for all of its assets or one
-   context (battery homes / unseen sites): bias +-20-40 %, bands x0.5, frozen output, or for detectors fault-class
-   confusion (e.g. string outage -> sensor fault), false alarms or blindness.
-3. Grade (§5.3, §7.2): one score per asset-day, observed at d+1 (telemetry) or d+2/d+3 (crew / residual check).
-4. Ledger (§6.3) forward in time with those delays: each day's rows read only outcomes observed by that day.
-   Cold start (§7.6) in a quarter of the weeks: the ledger is wiped at a random day (outcomes of earlier
-   predictions are dropped, as for a new model version).
-
-The ledger is J2's `wattsentry.judge.ledger` (#147); `MiniLedger` below is the earlier stand-in with the same §6.3
-formulas (kept for its tests). Targets come from simulator truth (perfect crew coverage) by default; the live ledger never sees truth (§5.1).
 """
 
 from __future__ import annotations
@@ -42,14 +25,12 @@ from wattsentry.judge import features as F
 from wattsentry.judge.buckets import bucket_key as _bucket_key
 
 H = 96
-STEP_S = 900
 DAY_S = 86400
 HIST_DAYS = 15  # ModelBank needs 14 days of history + 1 spare before the first local day
 ALPHA = 0.2  # interval score for the P10-P90 band
-HIT_LO, HIT_HI = 0.60, 0.95  # §7.2 forecast validity
+HIT_LO, HIT_HI = 0.60, 0.95  # forecast validity: hit rate of the P10-P90 band
 MULTS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0)  # band multipliers for tau_widen / widen_factor
-N0, HALF_LIFE, BACKOFF_MIN = 7.0, 14.0, 5.0  # §6.3
-DEFAULT_PRIOR = {"calibration": 0.7, "sharpness": 0.3, "alarm_precision": 0.6, "miss_score": 0.9}
+N0 = 7.0  # ledger prior weight
 FORECAST_SCORES = ("calibration", "sharpness")
 DETECTOR_SCORES = ("alarm_precision", "miss_score")
 SUBSTITUTE = {"pvnet": "pvlib", "loadnet": "persistence_load"}
@@ -60,7 +41,7 @@ DRIFT_FORMS = {"pvnet": ("bias", "narrow", "frozen"), "loadnet": ("bias", "narro
 WIND_CONFUSION = {"curtailment": "fault_stop", "fault_stop": "curtailment", "icing": "underperformance",
                   "underperformance": "icing", "overheating": "underperformance",
                   "anemometer_fault": "underperformance"}
-WIND_HOLDOUT_PARKS = ("WP2",)  # M6's held-out park (models/reports/r135-windnbm.report.json) = unseen
+WIND_HOLDOUT_PARKS = ("WP2",)  # M6's held-out park = unseen
 CONFUSION = {"string_outage": "sensor_fault", "soiling": "shading", "shading": "soiling",
              "overvoltage_trip": "clipping", "battery_fade": "sensor_fault", "clipping": "overvoltage_trip"}
 ROW_FILES = ("rows.py", "features.py", "grader.py", "scores.py", "gate.py", "ledger.py", "buckets.py")
@@ -97,7 +78,6 @@ class RowConfig:
     seed: int = 0
     sites: str = "all"  # all | <n> (first n sites per split, for smoke tests)
     witnesses: tuple = WITNESSES
-    target: str = "truth"  # truth (sim labels, perfect crew coverage) | graded (J1 outcomes only)
     models_dir: Optional[str] = None
     windows: Optional[str] = None
 
@@ -201,8 +181,9 @@ def drift_detector(p: np.ndarray, spec: DriftSpec, days_on: np.ndarray, assets: 
     return p
 
 
-# ============================================================================================ grading (§5.3)
+# ============================================================================================ grading
 def interval_score(q10, q90, y, alpha: float = ALPHA):
+    """Per-step Winkler score: width + 2/alpha x distance outside the band (NaN where y is NaN)."""
     lo, hi = np.minimum(q10, q90), np.maximum(q10, q90)
     return (hi - lo) + (2 / alpha) * np.clip(lo - y, 0, None) + (2 / alpha) * np.clip(y - hi, 0, None)
 
@@ -224,7 +205,7 @@ def _mmean(x, m):
 
 def grade_forecast(q: np.ndarray, y: np.ndarray, mask: np.ndarray, ref: Optional[np.ndarray]) -> dict[str, np.ndarray]:
     """q [N, 96, 3], y [N, 96], mask [N, 96] scored steps, ref [N, 96, 3] substitute (None = no sharpness).
-    -> hit, calibration, sharpness, valid (§7.2), graded, hit_m<mult> (widened-band hit rates), e_q (vigintiles)."""
+    -> hit, calibration, sharpness, valid, graded, hit_m<mult> (widened-band hit rates), e_q (vigintiles)."""
     q10, q50, q90 = q[..., 0], q[..., 1], q[..., 2]
     ok = mask & np.isfinite(y) & np.isfinite(q50)
     hit, n = _mmean(((y >= q10) & (y <= q90)).astype(float), ok)
@@ -275,7 +256,7 @@ def truth_class(fault_steps: np.ndarray, classes: Sequence[str] = F.PV_CLASSES, 
 
 
 def grade_detector(alarm: np.ndarray, called: np.ndarray, truth: np.ndarray, healthy: str = "healthy"):
-    """-> alarm_precision (alarm rows), miss_score (healthy-call rows), valid (§7.2)."""
+    """-> alarm_precision (alarm rows), miss_score (healthy-call rows), valid."""
     alarm = np.asarray(alarm, bool)
     faulty = truth != healthy
     ap = np.where(called == truth, 1.0, np.where(faulty, 0.5, 0.0))
@@ -287,128 +268,8 @@ def grade_detector(alarm: np.ndarray, called: np.ndarray, truth: np.ndarray, hea
 
 # ============================================================================================ buckets + ledger
 def bucket_key(kind: str, seen: bool, battery: bool, month: int, gappy: bool, ood_high: bool) -> str:
-    """kind|seen|battery|season|quality|ood (§6.1), J2's wattsentry.judge.buckets key."""
+    """kind|seen|battery|season|quality|ood, the `judge.buckets` key."""
     return _bucket_key(kind, bool(seen), bool(battery), int(month), bool(gappy), bool(ood_high))
-
-
-def ancestors(key: str) -> list[str]:
-    parts = key.split("|")
-    return ["|".join(parts[:lv]) if lv else "*" for lv in range(len(parts), -1, -1)]
-
-
-class MiniLedger:
-    """Stand-in for J2's ledger (§6.3-§6.5). Outcome rows: model, day (int
-    day index), observed (int day index), bucket, score_name, score, weight; norm-error vigintiles for band scale."""
-
-    def __init__(self, priors: Optional[dict] = None):
-        self.priors = priors or {}
-        self.store: dict[tuple, dict[str, dict[int, list]]] = {}  # (model, score) -> key -> day -> [sum ws, sum w, obs]
-        self.err: list[tuple] = []  # (model, bucket, day, observed, e_q [20])
-        self.wipe_from: dict[str, int] = {}
-        self._alert: dict[tuple, int] = {}
-        self._alert_on: dict[tuple, bool] = {}
-        self._err_arr: Optional[tuple] = None
-
-    def prior(self, model: str, score: str, key: str) -> float:
-        p = self.priors.get(model.split("::")[0], {}).get(score, {})
-        for k in ancestors(key):
-            if k in p:
-                return float(p[k]["prior"] if isinstance(p[k], dict) else p[k])
-        return DEFAULT_PRIOR.get(score, 0.5)
-
-    def add(self, model: str, score_name: str, buckets: Sequence[str], day: int, observed: int,
-            scores: np.ndarray, weights: Optional[np.ndarray] = None) -> None:
-        """Asset-day scores of one graded day; summed per bucket and every ancestor (bucket-day averaging, §5.7)."""
-        w = np.ones(len(scores)) if weights is None else np.asarray(weights, float)
-        acc: dict[str, list] = {}
-        for b, sc, ww in zip(buckets, np.asarray(scores, float), w):
-            if np.isfinite(sc):
-                a = acc.setdefault(b, [0.0, 0.0])
-                a[0] += sc * ww
-                a[1] += ww
-        store = self.store.setdefault((model, score_name), {})
-        for b, (ws, ww) in acc.items():
-            for k in ancestors(b):
-                e = store.setdefault(k, {}).setdefault(day, [0.0, 0.0, observed])
-                e[0] += ws
-                e[1] += ww
-                e[2] = max(e[2], observed)
-
-    def add_err(self, model: str, buckets: Sequence[str], day: int, observed: int, e_q: np.ndarray) -> None:
-        for b, e in zip(buckets, e_q):
-            if np.isfinite(e).any():
-                self.err.append((model, b, day, observed, np.asarray(e, float)))
-        self._err_arr = None
-
-    def wipe(self, model: str, day: int) -> None:
-        """Cold start: forget every outcome of predictions made before `day` (a new model version)."""
-        self.wipe_from[model] = day
-
-    def _bucket_days(self, model: str, score: str, day: int) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-        """key (every ancestor) -> (graded days, bucket-day mean scores) observed by `day` (§5.7 averaging)."""
-        wipe = self.wipe_from.get(model, -10 ** 9)
-        out = {}
-        for k, by_day in self.store.get((model, score), {}).items():
-            ds = [(d, e[0] / e[1]) for d, e in by_day.items() if e[2] <= day and d >= wipe and e[1] > 0]
-            if ds:
-                arr = np.array(ds, float)
-                out[k] = (arr[:, 0], arr[:, 1])
-        return out
-
-    def trust(self, model: str, score: str, key: str, day: int, cache: Optional[dict] = None) -> dict[str, float]:
-        bd = cache if cache is not None else self._bucket_days(model, score, day)
-        chain = ancestors(key)
-        for lvl, k in enumerate(chain):
-            days, s = bd.get(k, (np.zeros(0), np.zeros(0)))
-            w = 0.5 ** ((day - days) / HALF_LIFE)
-            n_eff = float(w.sum())
-            if n_eff >= BACKOFF_MIN or k == "*":
-                prior = self.prior(model, score, key)
-                t = (N0 * prior + float((w * s).sum())) / (N0 + n_eff)
-                return {"trust": t, "n_eff": n_eff, "prior": prior, "level": len(chain) - 1 - lvl}
-        raise AssertionError("unreachable")
-
-    def band_scale(self, model: str, key: str, day: int) -> float:
-        """§6.4: the weighted 80 % quantile of recent normalised errors (hit rate -> 0.80), bounded 0.5-3; backs off
-        to the parent bucket below 5 effective asset-days; 1.0 with no evidence."""
-        if self._err_arr is None:
-            self._err_arr = (np.array([r[0] for r in self.err], object), np.array([r[1] for r in self.err], str),
-                             np.array([r[2] for r in self.err], float), np.array([r[3] for r in self.err], float),
-                             np.stack([r[4] for r in self.err]) if self.err else np.zeros((0, 20)))
-        mods, bks, days, obs, E = self._err_arr
-        base = (mods == model) & (obs <= day) & (days >= self.wipe_from.get(model, -10 ** 9))
-        if not base.any():
-            return 1.0
-        for k in ancestors(key):
-            m = base if k == "*" else base & ((bks == k) | np.char.startswith(bks, k + "|"))
-            w = 0.5 ** ((day - days[m]) / HALF_LIFE)
-            if w.sum() >= BACKOFF_MIN or k == "*":
-                if not m.any():
-                    return 1.0
-                e = E[m].ravel()
-                ww = np.repeat(w, E.shape[1])
-                ok = np.isfinite(e)
-                e, ww = e[ok], ww[ok]
-                if ww.sum() <= 0:
-                    return 1.0
-                o = np.argsort(e)
-                cw = np.cumsum(ww[o]) / ww.sum()
-                return float(np.clip(e[o][min(np.searchsorted(cw, 0.8), len(e) - 1)], 0.5, 3.0))
-        return 1.0
-
-    def alert_step(self, model: str, key: str, gap: float, n_eff: float) -> bool:
-        """§6.5 hysteresis on gap = trust - prior (worst score): raise after 3 consecutive days below -0.2 with
-        n_eff >= 5, clear once it is back above -0.1."""
-        k = (model, key)
-        on = self._alert_on.get(k, False)
-        if on:
-            on = gap <= -0.1
-            self._alert[k] = 0
-        else:
-            self._alert[k] = self._alert.get(k, 0) + 1 if (gap < -0.2 and n_eff >= BACKOFF_MIN) else 0
-            on = self._alert[k] >= 3
-        self._alert_on[k] = on
-        return on
 
 
 def lo80(trust, n_eff):
@@ -421,7 +282,7 @@ def lo80(trust, n_eff):
 # ============================================================================================ wind (M6)
 def drift_wind_steps(cls: np.ndarray, spec: DriftSpec, days_on: np.ndarray, assets: np.ndarray,
                      rng: np.random.Generator) -> np.ndarray:
-    """cls [N, D, 96] per-step M6 class codes (0 = normal) -> degraded copy (§7.6 for a detector)."""
+    """cls [N, D, 96] per-step M6 class codes (0 = normal) -> degraded copy."""
     cls = cls.copy()
     if not assets.any() or not days_on.any():
         return cls
@@ -449,7 +310,7 @@ def drift_wind_steps(cls: np.ndarray, spec: DriftSpec, days_on: np.ndarray, asse
 
 def wind_week(day0: int, D: int, models_dir: Path) -> Optional[dict]:
     """M6 WindNBM over every park for the local days [day0, day0 + D) (+ 29 days of history, as the replay), with
-    the parks' fault labels (truth for targets only). None when the #22 wind cache or M6 weights are missing."""
+    the parks' fault labels (truth for targets only). None when the wind cache or M6 weights are missing."""
     import polars as pl
 
     from wattsentry.agent.predictors import WindBank
@@ -714,13 +575,13 @@ def run_week(spec: WeekSpec, cfg: RowConfig, band: tuple[float, float], threads:
                 g["truth"] = truth
                 grades[m].append(g)
 
-    # ---- outcomes (§8 rows) of every day, then the ledger over them (causal by observed_at) -------------------
+    # ---- outcome rows of every day, then the ledger over them (causal by observed_at) -----------------------
     ood_hi_of = {m: (p["ood"] > (p.get("ood_thr") or ood_thr.get(m, 3.0))) for m, p in preds.items()}
     cold = spec.cold_day
 
     extra_versions: dict[str, str] = {}
 
-    def version(m: str, d: int) -> str:  # a wiped ledger = a new model version from the cold day on (§6.3)
+    def version(m: str, d: int) -> str:  # a wiped ledger = a new model version from the cold day on
         v = preds[m]["version"] if m in preds else extra_versions.get(m) or SUB_VERSION.get(m, m)
         return f"{v}@cold{cold}" if cold is not None and d >= cold else v
 
@@ -946,9 +807,8 @@ def _week_rows(m, p, d, keys, table, version, g, subs, spec, asset_ids, seen, ba
     return pd.DataFrame(r)
 
 
-
 def _history_cols(p: dict, fam: str, d: int) -> dict[str, np.ndarray]:
-    """The witness's own outputs on earlier days of the replay (burn-in included, drift included): F.HISTORY_COLUMNS.
+    """The witness's own outputs on earlier days of the replay (burn-in included, drift included): the hist_* columns.
     Per-day summaries are computed once per witness and kept on `p`."""
     if "_daily" not in p:
         if fam == "forecast":
@@ -968,7 +828,7 @@ SUB_VERSION = {"pvlib": "pvlib-recorded", "persistence_load": "persistence-d1"}
 
 def _outcome_rows(model: str, ver: str, asset_ids: list, keys: np.ndarray, day_dates: list, d: int, lag: int,
                   g: dict, scores: Sequence[str], norm_err: bool = False) -> pd.DataFrame:
-    """§8 outcome rows of one witness and graded day (gated = ungraded asset-days, kept as gated=1)."""
+    """Outcome rows of one witness and graded day (gated = ungraded asset-days, kept as gated=1)."""
     graded = np.asarray(g["graded"], bool)
     day, obs = day_dates[d].isoformat(), (day_dates[0] + timedelta(days=d + lag)).isoformat()
     parts = []
@@ -999,7 +859,7 @@ def vigintiles_from(g: dict, k: int) -> np.ndarray:
 
 def ledger_table(outcomes: pd.DataFrame, lookups: Sequence[tuple], day_dates: list, models_dir: Path) -> dict:
     """{(model, version, score, bucket): {trust, prior, n_eff, health_alert, band_scale: arrays over day index}} from
-    J2's wattsentry.judge.ledger (the live ledger, so training sees the same numbers as the loop)."""
+    the live `judge.ledger`, so training sees the same numbers as the loop."""
     import polars as pl
 
     from wattsentry.judge.ledger import Ledger, Priors
@@ -1031,8 +891,8 @@ def _hash_file(p: Path, h) -> None:
 
 def cache_key(cfg: RowConfig, weeks: Sequence[WeekSpec], windows: Path, models_dir: Path,
               band: tuple[float, float]) -> str:
-    """Code + config key (card #148: 'keyed by commit+config'): the row-generation sources, the witness weights,
-    the data version, the config and the sampled weeks. Unrelated commits keep the cache; any change here misses."""
+    """Code + config key: the row-generation sources, the witness weights, the data version, the config and the
+    sampled weeks. Unrelated commits keep the cache; any change here misses."""
     h = hashlib.sha256()
     here = Path(__file__).resolve().parent
     for name in ROW_FILES:
@@ -1066,8 +926,8 @@ def _mem_available_gb() -> float:
     return 1e9
 
 
-WEEK_GB = 4.0  # memory budget per week process (measured ~1.5 GB peak on macOS; Linux + ONNX arenas run higher)
-MAX_WORKERS = 6  # rtx5070's lab worker was OOM-killed (27 GB cgroup peak) with 11 week processes next to another run
+WEEK_GB = 4.0  # memory budget per week process (~1.5 GB peak on macOS; Linux + ONNX arenas run higher)
+MAX_WORKERS = 6  # 11 week processes next to another run OOM-killed a 31 GB worker
 
 
 def _peak_mb() -> float:
@@ -1088,7 +948,7 @@ def generate(cfg: RowConfig, workers: int = 0, use_cache: bool = True, log=print
 
     win = Path(cfg.windows) if cfg.windows else find_windows()
     if win is None:
-        raise FileNotFoundError("no #10 window cache; build it with python -m wattsentry.data.windows")
+        raise FileNotFoundError("no window cache; build it with python -m wattsentry.data.windows")
     cfg.windows = str(win)
     models_dir = Path(cfg.models_dir) if cfg.models_dir else Path(__file__).resolve().parents[2] / "models"
     cfg.models_dir = str(models_dir)

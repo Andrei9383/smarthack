@@ -5,11 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { MapSpark, type SparkPoint, SparkKey } from "@/components/map-spark/map-spark";
-import { dayWindow, stepToDate } from "@/demo/replay";
-import { useReplayStep } from "@/demo/use-replay";
-import { orpc } from "@/utils/orpc";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { MapSpark, type SparkPoint, SparkKey } from "@/components/map-spark";
+import { dayWindow, stepToDate } from "@/lib/replay";
+import { useReplayStep } from "@/lib/use-replay";
+import { orpc } from "@/lib/orpc";
 
 import { tweenPaint, useMotionAllowed } from "../feeders/map-motion";
 import {
@@ -22,7 +22,9 @@ import {
   useKeepInView,
   useMarkerOffsets,
 } from "../production/production-layers";
-import { useMapRightPadding } from "../use-map-right-padding";
+import { useMapRightPadding } from "../map-hooks";
+import { lineOf, PANEL_PADDING_PX } from "@/lib/utils";
+import { hm } from "@/lib/time";
 import {
   DATA_BORDER,
   FEEDER_CASING,
@@ -42,7 +44,6 @@ type Geometry = GeoJSON.Polygon | GeoJSON.MultiPolygon;
 type CountyProperties = { code: string; name: string };
 type Counties = GeoJSON.FeatureCollection<Geometry, CountyProperties>;
 
-const PANEL_PADDING_PX = 452;
 const ZOOM_PADDING_PX = 48;
 const FOCUS_MS = 500;
 const STRESS_FADE_MS = 200; // the previous step's colours cross-fade into the new ones
@@ -74,17 +75,10 @@ const LEGEND_GRADIENT = `linear-gradient(to right, ${STRESS_RAMP.map(
   ([stress, color]) => `${color} ${stress * 100}%`,
 ).join(", ")})`;
 
-// County chips at country view (#137): the day's P50 demand with its P10–P90 band, so the evening
+// County chips at country view: the day's P50 demand with its P10–P90 band, so the evening
 // peak shows before anyone clicks. Demand here is tens of kW, so the chart reads in kW.
 const KW_PER_MW = 1000;
 const COUNTY_CHIP = { diameter: 132, halfWidth: 68, halfHeight: 33 } as const;
-const BUCHAREST_TIME = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-const sparkTime = (ms: number) => BUCHAREST_TIME.format(new Date(ms));
 
 function boxCentre(geometry: Geometry): [number, number] {
   const points = positions(geometry);
@@ -113,15 +107,6 @@ async function fetchCounties(): Promise<Counties> {
 function positions(geometry: Geometry) {
   const polygons = geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
   return polygons.flat(2);
-}
-
-function lineOf(geometryJson?: string | null): [number, number][] {
-  if (!geometryJson) return [];
-  try {
-    return (JSON.parse(geometryJson) as { coordinates?: [number, number][] }).coordinates ?? [];
-  } catch {
-    return [];
-  }
 }
 
 // Selecting a zone zooms to its county and feeders, clear of the panel. Leaving the mode jumps
@@ -508,8 +493,7 @@ export function DemandLayers() {
                     to={Date.parse(day.to) - 3_600_000}
                     unit="kW"
                     expanded={hoveredChip === code}
-                    formatTime={sparkTime}
-                    showKey
+                    formatTime={hm}
                   />
                 </span>
               </Displaced>

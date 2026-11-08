@@ -1,16 +1,8 @@
-"""The world the agent lives in: feeders, sites, turbines, prices and what actually happens each tick (card #17).
+"""The world the agent lives in: feeders, sites, turbines, prices and what actually happens each tick.
 
-`World` is the interface the loop reads. Two implementations:
-
-- `MockWorld`: deterministic small Romanian world built from `MockPredictor` (no files, no RNG state). Truth is
-  derived from the mock envelopes plus a few scripted demo stories (plan §7): congested feeder F7 on sunny days,
-  site 1042 with a string outage mid-week, one OOD site, one sensor dropout, wind park WP01 with one stopped turbine
-  and a park-wide curtailment, a data gap in WP2. Label: synthetic RO.
-- `SimWorld` (card #29): the demo week 2025-06-02..08 (Europe/Bucharest) on #11's fleet with #12's faults, read
-  from #10's window cache, real OPCOM prices (#9), #22/#23's ERA5-driven wind park, the promoted ONNX models
-  (wattsentry/agent/predictors.py) and the app's ids (F7, 1042, WP01). Raises a clear error without the cache.
-
-Units follow team/contracts: kW, kWh, lei/MWh prices, UTC unix seconds internally. Battery sign + = charging.
+`MockWorld` is a small deterministic RO world built from `MockPredictor` plus scripted demo stories; `SimWorld` is
+the demo week on the simulated fleet (window cache, real OPCOM prices, ERA5-driven wind park, promoted ONNX models).
+Units: kW, kWh, lei/MWh prices, UTC unix seconds internally. Battery sign + = charging.
 """
 
 from __future__ import annotations
@@ -26,7 +18,7 @@ from typing import Any, Optional, Sequence
 
 from wattsentry.contracts import DAY_STEPS, STEP_MINUTES, BatterySpec, FeederSpec, MockPredictor, Prediction, PvFault, Window
 
-from .audit import local_dt, parse_iso
+from .audit import iso, local_dt, parse_iso
 
 STEP_S = STEP_MINUTES * 60
 LABEL_SYNTHETIC = "synthetic RO"
@@ -41,10 +33,6 @@ def _u(*parts: Any) -> float:
 def _s(*parts: Any) -> float:
     """Deterministic uniform [-1, 1)."""
     return 2.0 * _u(*parts) - 1.0
-
-
-def iso(ts: int) -> str:
-    return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # --------------------------------------------------------------------------------------------- entities
@@ -63,7 +51,7 @@ class Feeder:
         return self.spec.feeder_id
 
     def row(self) -> dict[str, Any]:
-        """Row in the data.md `feeders` shape."""
+        """Row in the `feeders` table shape."""
         return {"feeder_id": self.feeder_id, "locality": self.locality, "county": self.county, "lat": self.lat,
                 "lon": self.lon, "g_max_kw": self.spec.g_max_kw, "g_conservative_kw": self.spec.g_conservative_kw,
                 "tau": self.spec.tau, "n_sites": len(self.site_ids), "congested": self.congested}
@@ -71,7 +59,7 @@ class Feeder:
 
 @dataclass
 class Site:
-    row: dict[str, Any]  # data.md `sites` row (truth + recorded metadata)
+    row: dict[str, Any]  # `sites` row (truth + recorded metadata)
     battery: Optional[BatterySpec]
 
     @property
@@ -95,7 +83,7 @@ class Park:
 
 @dataclass
 class Turbine:
-    row: dict[str, Any]  # wind.md `turbines` row
+    row: dict[str, Any]  # `turbines` row
 
     @property
     def turbine_id(self) -> str:
@@ -131,9 +119,9 @@ class TurbineDay:
 
 
 # --------------------------------------------------------------------------------------------- crew / audit (Judge)
-MISREPORT_RATE = 0.05  # judge-design §5.1 (my call): a technician gets the class wrong 1 visit in 20
-ACTION_VISIT_WEIGHT = 0.5  # §5.6: visits caused by actions are not a random sample
-AUDIT_PER_CREW = 2  # §5.6: Judge audit budget per crew type per day, outside any action budget
+MISREPORT_RATE = 0.05  # a technician gets the class wrong 1 visit in 20
+ACTION_VISIT_WEIGHT = 0.5  # visits caused by actions are not a random sample
+AUDIT_PER_CREW = 2  # Judge audit budget per crew type per day, outside any action budget
 AUDIT_LOCAL_HOUR = 13  # remote audit checks run at 13:00 local (day_ts is local midnight)
 _SITE_FAULTS = tuple(f.value for f in PvFault if f is not PvFault.HEALTHY)
 _TURBINE_FAULTS = ("fault_stop", "curtailment", "icing", "underperformance", "overheating", "anemometer_fault")
@@ -141,7 +129,7 @@ _TURBINE_FAULTS = ("fault_stop", "curtailment", "icing", "underperformance", "ov
 
 @dataclass(frozen=True)
 class CrewReport:
-    """What a technician (or a remote audit check) finds on one asset at one moment (judge-design §5.1, §5.6).
+    """What a technician (or a remote audit check) finds on one asset at one moment.
 
     The ONLY route by which simulator truth (fault_labels) reaches the live loop: the true state at `visit_ts`, for
     this asset only, misreported with probability MISREPORT_RATE (deterministic by world seed). `found` is a
@@ -152,7 +140,7 @@ class CrewReport:
     asset_id: str
     asset_kind: str  # site | turbine
     crew_type: str  # CrewType value
-    visit_ts: int  # UTC unix s; the report is known from this moment (= observed_at)
+    visit_ts: int  # UTC unix s; the report is known from this moment
     found: str
     onset_ts: Optional[int] = None
     gis_wrong: Optional[bool] = None  # sites: the field feeder / phase differ from the GIS record (M8 grading)
@@ -161,18 +149,8 @@ class CrewReport:
     p_sampled: Optional[float] = None  # audit inclusion probability (None for action visits)
 
     @property
-    def observed_at(self) -> int:
-        return self.visit_ts
-
-    @property
     def is_fault(self) -> bool:
         return self.found not in ("healthy", "normal")
-
-
-def audit_weight(p: float, thresholds: Sequence[float] = (0.5,), width: float = 0.15, floor: float = 0.1) -> float:
-    """Sampling weight for an audit candidate: high when P(valid) (or P(fault)) is near a decision threshold."""
-    near = max((math.exp(-(((p - t) / width) ** 2)) for t in thresholds), default=0.0)
-    return floor + near
 
 
 # --------------------------------------------------------------------------------------------- interface
@@ -217,15 +195,15 @@ class World:
         raise NotImplementedError
 
     def observed_site_day(self, site_id: str, d: int) -> SiteDay:
-        """What the agent receives (telemetry): every observation read in run_policy goes through this; `site_day`
-        stays the physics. Identical by default; replay drills (#78) override it to corrupt only the observation."""
+        """What the agent observes (telemetry); `site_day` is the physics. Identical by default; a world may override
+        it to corrupt only the observation."""
         return self.site_day(site_id, d)
 
     def turbine_day(self, turbine_id: str, d: int) -> TurbineDay:
         raise NotImplementedError
 
     def turbine_sensors(self) -> Optional[tuple[list[str], dict[str, Any], Any, Any]]:
-        """Raw SCADA over the replay days for the baseline WindMon rules (#24): (turbine ids, {PPC sensor: [T, N]},
+        """Raw SCADA over the replay days for the baseline WindMon rules: (turbine ids, {PPC sensor: [T, N]},
         error codes [T, N], rated kW [N]), T = days x 96. Default: the TurbineDay fields (other sensors NaN)."""
         import numpy as np
 
@@ -256,10 +234,10 @@ class World:
         return []
 
     def fault_truth(self) -> list[dict[str, Any]]:
-        """fault_labels rows (data.md) — for evaluation and the UI only, never read by the agent."""
+        """fault_labels rows, for evaluation and the UI only, never read by the agent."""
         return []
 
-    # -- crew reports and audit checks (judge-design §5.1, §5.6) ------------------------------------
+    # -- crew reports and audit checks ---------------------------------------------------------------
     def _truth_index(self) -> dict[str, list[tuple[int, Optional[int], str]]]:
         """asset -> [(onset_ts, end_ts, fault)] from fault_truth(), cached. Read ONLY by crew_report()."""
         idx = getattr(self, "_truth_idx", None)
@@ -276,7 +254,7 @@ class World:
                     p_sampled: Optional[float] = None, crew_type: Optional[str] = None) -> CrewReport:
         """Simulated visit: the asset's true state at `visit_ts` (this asset only), 5 % misreported.
 
-        Deterministic by (world seed, asset, visit time). Action visits default to weight 0.5 (§5.6).
+        Deterministic by (world seed, asset, visit time). Action visits default to weight ACTION_VISIT_WEIGHT.
         """
         is_turbine = asset_id in self.turbines
         kind = "turbine" if is_turbine else "site"
@@ -320,8 +298,8 @@ class World:
     def audit_checks(self, d: int, weights: Optional[dict[str, float]] = None,
                      pools: Optional[dict[str, Sequence[str]]] = None, per_crew: int = AUDIT_PER_CREW
                      ) -> list[CrewReport]:
-        """The Judge's own audit sample for day d (§5.6): `per_crew` draws per crew type, with replacement, with
-        P(draw i) proportional to weights[i] (default 1; use `audit_weight` to favour uncertain predictions).
+        """The Judge's own audit sample for day d: `per_crew` draws per crew type, with replacement, with
+        P(draw i) proportional to weights[i] (default 1).
 
         The inclusion probability is exact, pi_i = 1 - (1 - p_i)^per_crew, and each report carries weight 1/pi_i
         (inverse-probability weight), so the ledger's estimate stays unbiased. Deterministic by (seed, day).
@@ -358,8 +336,8 @@ class World:
 
 # --------------------------------------------------------------------------------------------- MockWorld
 # Feeder designs: id, locality, county, lat, lon, sites, limit factor vs forecast baseline peak, tau.
-# F7 is the demo feeder (plan §7): high PV penetration, limit well under its sunny-day export. Ids follow the app
-# (apps/web demo-jumps.tsx): feeders F<n>, sites as plain numbers (1042), parks WP0<n>, turbines WP0<n>.TIDxx.
+# F7 is the demo feeder: high PV penetration, limit well under its sunny-day export. Ids follow the app
+# (demo-jumps.tsx): feeders F<n>, sites as plain numbers (1042), parks WP0<n>, turbines WP0<n>.TIDxx.
 _FEEDERS = [
     ("F7", "Cumpana", "Constanta", 44.115, 28.556, 44, 0.62, 1.0),
     ("F5", "Otopeni", "Ilfov", 44.550, 26.070, 30, 1.35, 1.0),
@@ -378,7 +356,7 @@ _ARCHETYPES = ("base", "ac", "heat_pump", "electric_heating", "ac", "base")
 _FAULT_LOSS = {"soiling": 0.15, "shading": 0.2, "string_outage": 0.35, "clipping": 0.1, "overvoltage_trip": 0.3,
                "battery_fade": 0.0, "sensor_fault": 0.0}
 
-# Mon 2 June 2025 00:00 Europe/Bucharest (EEST) = 2025-06-01 21:00 UTC: the app's WEEK_START_UTC, no DST change (R19)
+# Mon 2 June 2025 00:00 Europe/Bucharest (EEST) = 2025-06-01 21:00 UTC: the app's WEEK_START_UTC, no DST change
 DEFAULT_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
 
 
@@ -408,7 +386,7 @@ class MockWorld(World):
 
     # -- construction -------------------------------------------------------------------------------
     def _build_sites(self, scale: float) -> None:
-        num = 1031  # F7 is built first, so its 12th site is 1042 (plan §7 story)
+        num = 1031  # F7 is built first, so its 12th site is 1042 (the story site)
         for fid, loc, county, lat, lon, n, _, tau in _FEEDERS:
             n = max(12, int(round(n * scale)))
             feeder = Feeder(FeederSpec(fid, 1.0, 1.0, 1.0), loc, county, lat, lon)
@@ -715,26 +693,24 @@ class _WorldAwareHealthMock:
         rest = (1 - conf) / (len(classes) - 1)
         p.fault_probs = {c: (conf if c == top else rest) for c in classes}
         if sid in self.world.ood_sites:
-            p.ood_score = 5.0  # #26 thresholds: ood_max 3.0
+            p.ood_score = 5.0  # qualify's ood_max is 3.0
         p.validate()
         return p
 
 
 # --------------------------------------------------------------------------------------------- SimWorld
-# The demo week (plan §7, R19): Mon 2 June 2025 00:00 Europe/Bucharest (EEST, UTC+3) = 2025-06-01 21:00 UTC, the
-# same instant as the app's WEEK_START_UTC (apps/web/src/demo/replay.ts). Days below are local days.
-DEMO_WEEK_START = datetime(2025, 6, 1, 21, 0, tzinfo=timezone.utc)
+# The demo week starts at DEFAULT_START (the app's WEEK_START_UTC, apps/web/src/lib/replay.ts); days are local days.
 HERO_FEEDER_ID = "F7"  # the app's demo feeder (demo-jumps.tsx)
 STORY_SITE_ID = "1042"  # the app's string-failure site
-HERO_DAY, FAULT_DAY = 2, 3  # apps/web/src/demo/replay.ts
+HERO_DAY, FAULT_DAY = 2, 3  # apps/web/src/lib/replay.ts
 STORY_ONSET_TICK = 20  # 05:00 local on FAULT_DAY (before sunrise production; M4 re-checks from 10:00)
-# Demo subset of the 15-feeder fleet (keeps the DB < 50 MB, R18): the hero is chosen from data (below), plus
+# Demo subset of the 15-feeder fleet (keeps the DB < 50 MB): the hero is chosen from data (below), plus
 # other congested feeders and two uncongested ones in other counties.
 DEMO_EXTRA_FEEDERS = ("F03", "F10", "F07", "F11")
 DEMO_PARKS = ("WP1",)
 # Story site (fleet id) when the hero is the fleet's F06: a clean battery site where the interim (synthetic-trained)
 # M4 names the outage correctly. On 5 of the 8 clean battery sites of that feeder it calls the same outage a
-# sensor fault (team/insights.md, error analysis), so the pick is explicit rather than "largest array".
+# sensor fault, so the pick is explicit rather than "largest array".
 DEMO_STORY_SOURCE = {"F06": "S0284"}
 # What the weights in models/ are (models/README.md).
 WEIGHTS_LABEL = os.environ.get("WATTSENTRY_WEIGHTS_LABEL", "M1/M2/M4 fleet-trained on the #10 windows (#14 train#383-392, "
@@ -742,7 +718,7 @@ WEIGHTS_LABEL = os.environ.get("WATTSENTRY_WEIGHTS_LABEL", "M1/M2/M4 fleet-train
 
 
 def find_windows(root: Optional[Path] = None) -> Optional[Path]:
-    """#10's window cache (wattsentry-windows-v1): $WATTSENTRY_WINDOWS, else ~/.cache/wattsentry/data-v{N}/windows."""
+    """The window cache: $WATTSENTRY_WINDOWS, else ~/.cache/wattsentry/data-v{N}/windows."""
     if root is not None:
         return Path(root)
     if os.environ.get("WATTSENTRY_WINDOWS"):
@@ -753,22 +729,18 @@ def find_windows(root: Optional[Path] = None) -> Optional[Path]:
 
 
 class SimWorld(World):
-    """The simulated RO fleet replayed through the agent (card #29). Label: synthetic RO (ERA5-driven).
+    """The simulated RO fleet replayed through the agent. Label: synthetic RO (ERA5-driven).
 
-    Sites: #11's fleet with #12's injected faults, read from #10's window cache (the arrays the models train on):
-    actual PV (with faults), load, inverter voltage / status, logger validity. Feeders: the physical feeder, limit =
-    the fleet's g_max_kw. Prices: real OPCOM PZU (data/raw/prices.parquet, #9). Wind: #22's ERA5-driven parks with
-    #23's injected faults (~/.cache/wattsentry/data-v{N}/wind). Predictions: the promoted ONNX models in models/ via
-    wattsentry.agent.predictors, falling back per component to the mocks.
+    Sites: the fleet with injected faults, read from the window cache (the arrays the models train on). Feeders: the
+    physical feeder, limit = the fleet's g_max_kw (tightened by the grid-twin's tau). Prices: real OPCOM PZU. Wind: the
+    ERA5-driven parks with injected faults. Predictions: the promoted ONNX models via `predictors`, falling back per
+    component to the mocks.
 
-    Ids follow the app (demo-jumps.tsx): feeders `F<n>` (no zero pad), sites `1000 + n` for fleet `S0nnn`, parks
-    `WP0<n>`, turbines `WP0<n>.TIDxx`. The hero feeder (over its limit at midday under the baseline on HERO_DAY,
-    picked from the data) is relabelled `F7` and swaps its label with the fleet's F07; the string-outage site is
-    relabelled `1042` (swapping with whatever site had it). Only labels move; every number comes from the data.
-
-    Stories (deterministic): string outage (1 of 2 strings, #12's string_outage physics) at site 1042 from
-    FAULT_DAY 05:00; everything else (other site faults, OOD sites, turbine stops, the park curtailment) is what
-    #12 / #23 injected into that week, found by `stories()`.
+    Ids follow the app (demo-jumps.tsx): feeders `F<n>`, sites `1000 + n` for fleet `S0nnn`, parks `WP0<n>`, turbines
+    `WP0<n>.TIDxx`. The hero feeder (over its limit at midday under the baseline on HERO_DAY, picked from the data) is
+    relabelled `F7` and the string-outage site `1042` (swapping labels with whoever had them). Only labels move.
+    Story: a string outage (1 of 2 strings) at site 1042 from FAULT_DAY 05:00; every other fault is what the
+    simulator injected into that week.
     """
 
     name = "sim"
@@ -779,12 +751,12 @@ class SimWorld(World):
         win = find_windows(root)
         if win is None or not (Path(win) / "index.json").exists():
             raise FileNotFoundError(
-                "SimWorld: no #10 window cache ($WATTSENTRY_WINDOWS or ~/.cache/wattsentry/data-v{N}/windows). Build it "
-                "with `python -m wattsentry.data.windows` (fleet #11 + faults #12 + windows #10); use --world mock "
+                "SimWorld: no window cache ($WATTSENTRY_WINDOWS or ~/.cache/wattsentry/data-v{N}/windows). Build it "
+                "with `python -m wattsentry.data.windows`; use --world mock "
                 "until then.")
         from .predictors import FleetSlice
 
-        super().__init__(start or DEMO_WEEK_START, days, seed)
+        super().__init__(start or DEFAULT_START, days, seed)
         self.windows = Path(win)
         idx = json.loads((self.windows / "index.json").read_text())
         all_sites = json.loads((self.windows / "sites.json").read_text())
@@ -794,7 +766,6 @@ class SimWorld(World):
             import polars as pl
 
             frows = {r["feeder_id"]: r for r in pl.read_parquet(fleet_dir / "feeders.parquet").iter_rows(named=True)}
-        self.label = LABEL_SYNTHETIC
         self.data_label = idx.get("label", LABEL_SYNTHETIC)
         # time slice: 15 UTC days of history before the first local day, through the end of the last one
         t_first = self.day_ts(0)
@@ -812,10 +783,7 @@ class SimWorld(World):
         site_idx = [i for f in chosen for i in by_feeder.get(f, [])]
         self.src = FleetSlice(self.windows, site_idx, t_from, t_to)
         # -- id relabelling (labels only) -----------------------------------------------------------------
-        def fid_label(f: str) -> str:
-            return f"F{int(f[1:])}" if f[1:].isdigit() else f
-
-        self.feeder_label = {f: fid_label(f) for f in by_feeder}
+        self.feeder_label = {f: f"F{int(f[1:])}" if f[1:].isdigit() else f for f in by_feeder}
         hero_lbl = self.feeder_label[self.hero_source]
         for f, lbl in list(self.feeder_label.items()):
             if lbl == HERO_FEEDER_ID:
@@ -847,7 +815,7 @@ class SimWorld(World):
             sid = self.site_label[s["site_id"]]
             fid = self.feeder_label[s["feeder_id"]]
             gfid = self.feeder_label.get(s.get("gis_feeder_id") or s["feeder_id"], s.get("gis_feeder_id"))
-            row = {k: v for k, v in s.items() if k not in ("loc_idx",)}
+            row = {k: v for k, v in s.items() if k != "loc_idx"}
             row.update(site_id=sid, src_site_id=s["site_id"], feeder_id=fid, gis_feeder_id=gfid,
                        archetype=s.get("archetype") or "base")
             batt = None
@@ -860,7 +828,7 @@ class SimWorld(World):
             self.index[sid] = j
             if fid in self.feeders:
                 self.feeders[fid].site_ids.append(sid)
-        for fid, f in self.feeders.items():
+        for f in self.feeders.values():
             f.site_ids.sort(key=lambda x: int(x) if x.isdigit() else x)
         self._load_twin(fleet_dir)
         self._apply_story()
@@ -900,7 +868,7 @@ class SimWorld(World):
         return best
 
     def _pick_story_site(self, idx: list[int]) -> str:
-        """A site on the hero feeder with a battery, no #12 fault in the 15 days before nor during the week, and the
+        """A site on the hero feeder with a battery, no injected fault in the 15 days before nor during the week, and the
         largest array (so the outage is visible on the feeder)."""
         sites = json.loads((self.windows / "sites.json").read_text())
         from .predictors import FleetSlice
@@ -921,7 +889,7 @@ class SimWorld(World):
         return best
 
     def _load_twin(self, fleet_dir: Path) -> None:
-        """Grid-twin (M8, #13): tau per feeder -> G = tau*G_max + (1-tau)*G_cons (only ever tightens) and the GIS
+        """Grid-twin (M8): tau per feeder -> G = tau*G_max + (1-tau)*G_cons (only ever tightens) and the GIS
         flags. Reads the twin cache (python -m wattsentry.gridtwin.run -> ~/.cache/wattsentry/data-v{N}/gridtwin), else
         runs the twin in-process on the fleet's inverter voltages (~1 s); without either, the contract G (tau=1)."""
         self.gridtwin_version = "gridtwin:mock-1"
@@ -981,7 +949,7 @@ class SimWorld(World):
         return list(self._twin_flags)
 
     def _apply_story(self) -> None:
-        """String outage at the story site from FAULT_DAY 05:00 local: one of two strings open (#12 physics)."""
+        """String outage at the story site from FAULT_DAY 05:00 local: one of two strings open."""
         import numpy as np
 
         if self.days <= FAULT_DAY:
@@ -1016,7 +984,7 @@ class SimWorld(World):
 
         d = external_wind_dir()
         if d is None:
-            raise FileNotFoundError("no #22 wind cache (python -m wattsentry.sim.wind)")
+            raise FileNotFoundError("no wind cache (python -m wattsentry.sim.wind)")
         lo = datetime.fromtimestamp(self.day_ts(0) - 29 * 86400, timezone.utc)
         lo = lo.replace(hour=0, minute=0, second=0)
         hi = datetime.fromtimestamp(self.day_ts(self.days), timezone.utc)
@@ -1056,7 +1024,7 @@ class SimWorld(World):
 
     # -- per-day truth ------------------------------------------------------------------------------------------
     def prices(self, d: int) -> list[float]:
-        """OPCOM PZU day-ahead prices (lei/MWh, #9) for the local day, at 15 min. Synthetic shape if missing."""
+        """OPCOM PZU day-ahead prices (lei/MWh) for the local day, at 15 min. Synthetic shape if missing."""
         if d in self._prices_cache:
             return self._prices_cache[d]
         out: Optional[list[float]] = None
@@ -1160,7 +1128,7 @@ class SimWorld(World):
         return out
 
     def turbine_sensors(self) -> Optional[tuple[list[str], dict[str, Any], Any, Any]]:
-        """All PPC sensors of the #22 cache over the replay week (the rules see what WindMon would see)."""
+        """All PPC sensors of the wind cache over the replay week (the rules see what WindMon would see)."""
         import numpy as np
 
         if not self.turbines:

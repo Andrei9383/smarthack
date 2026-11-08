@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_windfield_starts_at_the_replay_clock():
-    replay = (ROOT / "apps/web/src/demo/replay.ts").read_text()
+    replay = (ROOT / "apps/web/src/lib/replay.ts").read_text()
     match = re.search(r"WEEK_START_UTC = Date\.UTC\((\d+), (\d+), (\d+), (\d+), (\d+)\)", replay)
     assert match, "WEEK_START_UTC not found in replay.ts"
     year, month, day, hour, minute = map(int, match.groups())
