@@ -14,16 +14,18 @@ import { type ReactNode, useState, useSyncExternalStore } from "react";
 
 import { StatusMark } from "@/components/brand/status-mark";
 import { setPlaying } from "@/demo/replay-bar";
-import { clampStep, clockLabel } from "@/demo/replay";
+import { clampStep, clockLabel, dayOfStep } from "@/demo/replay";
 import { usePolicy, useReplayStep } from "@/demo/use-replay";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
 
+import { getDaySummary, getFaults, getFeeders, getWindParks } from "./data-tools";
 import { narrator } from "./narrator";
 import { useVoiceStatus } from "./use-voice-status";
 
 // "Ask Sentinel" (card #207): a voice conversation with the ElevenLabs agent made by
-// scripts/elevenlabs/sync-agent.mjs. Its knowledge base is the README and the team docs, so it
-// answers questions about the project; two client tools let it open views and read the screen.
+// scripts/elevenlabs/sync-agent.mjs. It answers questions about the grid and the week on screen
+// (feeders, wind parks, faults, results), never about the code. Its facts come from client tools
+// that read the app's own API (./data-tools), so answers match the screens.
 // The browser never sees the API key: /api/voice/session mints a one-conversation token.
 
 type Said = { id: number; role: "user" | "agent"; text: string };
@@ -78,11 +80,21 @@ const NAV = {
   park: parseAsString,
 };
 
-/** The agent's client tools: open a view, describe what's on screen. */
+const failed = (error: unknown) =>
+  `The lookup failed (${error instanceof Error ? error.message : "unknown error"}). Say you couldn't get the data.`;
+
+/** The agent's client tools: look up the data, open a view, describe what's on screen. */
 function VoiceTools() {
   const [nav, setNav] = useQueryStates(NAV);
   const [rawStep] = useReplayStep();
   const [policy] = usePolicy();
+
+  const step = clampStep(rawStep);
+  const today = dayOfStep(step);
+  useConversationClientTool("get_feeders", (p: { day?: string }) => getFeeders(p.day, today).catch(failed));
+  useConversationClientTool("get_wind_parks", () => getWindParks(step).catch(failed));
+  useConversationClientTool("get_faults", (p: { day?: string }) => getFaults(p.day, today).catch(failed));
+  useConversationClientTool("get_day_summary", (p: { day?: string }) => getDaySummary(p.day, today, step).catch(failed));
 
   useConversationClientTool("open_view", (params: { mode?: string; feeder?: string }) => {
     const mode = MODE_IDS.find((id) => id === params.mode);
