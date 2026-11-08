@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://lab-demo.noclouds.club/onepager"><b>One-pager</b></a> ·
   <a href="#the-problem">Problem</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -18,6 +19,9 @@
   <a href="#explainability">Explainability</a> ·
   <a href="#reproducing-the-numbers">Reproduce</a>
 </p>
+
+> **New here? Start with the [one-pager](https://lab-demo.noclouds.club/onepager):** the whole project on one page
+> (problem, how it works, results).
 
 ![WattSentry overview](docs/screenshots/overview.png)
 
@@ -35,7 +39,7 @@ Rooftop solar and home batteries changed how energy flows, but three PPC teams s
 
 | PPC Energie · supplier | PPC Renewables · wind farms | Rețele Electrice · grid |
 |---|---|---|
-| **Paying twice for prosumers' energy** | **False alarms on wind turbines** | **Street cables over their limit** |
+| **Paying twice for prosumers' energy** | **Smart turbine farm monitoring** | **Smart grid congestion control** |
 | PPC buys tomorrow's energy for its customers on the day-ahead market using a standard profile. Prosumers don't follow it: their solar exports at noon and their batteries cover the evening. PPC buys energy those homes never take, then pays imbalance on the difference. | SCADA rules raise an alarm whenever power is low or a temperature is high. They can't tell a broken turbine from a grid curtailment, icing or a faulty wind sensor, so crews drive out for nothing while slow faults get missed or misnamed. | At midday, solar export pushes low-voltage feeders over their limit. Operators can't plan around it because the grid map (GIS) has the wrong cable or phase for some homes, and nobody knows which. |
 | **Agent:** learns each home's battery strategy from its smart meter alone, simulates tomorrow, and buys the quantile that minimises expected imbalance. | **Agent:** a normal-behaviour model per turbine plus a classifier name one of 8 states, then turn them into ranked work orders, safety alerts or "logged, no crew". | **Agent:** schedules home batteries so P90 export stays under each cable's limit, and flags GIS records the voltage data contradicts. |
 | **2025:** avoidable imbalance cost 873,110 → **177,397 lei (−79.7 %)**, 600 homes. | **Unseen park, 2025:** precision 0.84 → **0.92**, recall 0.75 → **0.89**; curtailment-vs-fault F1 0.39 → **0.93**. | **Demo week:** minutes over the limit 6,645 → **1,905**; wrong-cable records recovered **100 %**, wrong-phase **83 %**. |
