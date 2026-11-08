@@ -120,6 +120,10 @@ def dump(a: argparse.Namespace) -> int:
     db, log = out / "sentinel.sqlite", out / "replay.log"
     db.unlink(missing_ok=True)
     py = sys.executable
+    if a.overlay:  # e.g. card/145's Judge weights + slot fix before it is on main (worker checkout only, not committed)
+        ok = subprocess.call(["git", "fetch", "-q", "origin", a.overlay], cwd=ROOT) == 0 and subprocess.call(
+            ["git", "checkout", "FETCH_HEAD", "--", *a.overlay_paths.split(",")], cwd=ROOT) == 0
+        print(f"# overlay {a.overlay} ({a.overlay_paths}): {'applied' if ok else 'NOT applied'}", flush=True)
     for c in CACHES:
         if run([py, *c], log):
             return 1
@@ -199,6 +203,8 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("dump", help="lab: re-run replay#506, print digests + Judge tables")
     d.add_argument("--tables", default=",".join(JUDGE_TABLES))
+    d.add_argument("--overlay", default="", help="branch whose --overlay-paths are checked out before the replay")
+    d.add_argument("--overlay-paths", default="models/judge.*,sentinel/judge/slot.py")
     lo = sub.add_parser("load", help="local: import the Judge tables from a saved `lab logs` into the demo DB")
     lo.add_argument("log")
     lo.add_argument("--db", default=str(ROOT / "demo" / "sentinel.sqlite"))
