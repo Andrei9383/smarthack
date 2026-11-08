@@ -1,4 +1,4 @@
-"""K4 fused feature build (#94): the Python reference is features.pv_arrays / load_arrays, and Rust matches it
+"""K4 fused feature build: the Python reference is features.pv_arrays / load_arrays, and Rust matches it
 bit for bit except the trig channels (cos/sin of zenith/azimuth: <= 1 ulp)."""
 
 import numpy as np
@@ -53,7 +53,7 @@ def test_registered_and_shapes():
 
 
 def test_build_uses_dispatch(monkeypatch):
-    """features.build gives the same inputs on either backend (reference = the pre-#94 numpy code path)."""
+    """features.build gives the same inputs on either backend (reference = the numpy code path)."""
     r = make_raw(16)
     raw = {"wx": r["wx"], "geom": r["geom"], "cal": r["cal"], "pvclear": r["pvclear"], "pvlib": r["pvlib"],
            "hist_pv": r["hist"], "hist_load": load_args(r)[2], "kwp_recorded": r["kwp"], "azimuth_recorded": r["kwp"],

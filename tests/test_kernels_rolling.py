@@ -1,4 +1,4 @@
-"""K4 rolling mean (#95): reference vs a scalar loop, Rust == Python bit for bit, M6 rmean uses the kernel."""
+"""K4 rolling mean: reference vs a scalar loop, Rust == Python bit for bit, M6 rmean uses the kernel."""
 
 from __future__ import annotations
 

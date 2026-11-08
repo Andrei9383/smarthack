@@ -1,4 +1,4 @@
-"""Card #43 M7 WindFailure: feature determinism / causality, no leakage across splits, metrics, predictor shape,
+"""M7 WindFailure: feature determinism / causality, no leakage across splits, metrics,
 CARE scorer. Needs requirements.txt only (lightgbm); the M6-GRU residual source is torch-gated."""
 
 import os
@@ -127,7 +127,7 @@ def trained(tmp_path_factory, small):
     return out, rep
 
 
-@pytest.mark.slow  # trains LightGBM on 400 synthetic days (#179: run in rustcheck)
+@pytest.mark.slow  # trains LightGBM on 400 synthetic days
 def test_pipeline_artifacts_and_no_heldout_training(trained, small):
     out, rep = trained
     for f in ("windfailure_7d.txt", "windfailure_14d.txt", "windfailure_thresholds.json", "windfailure_report.json",

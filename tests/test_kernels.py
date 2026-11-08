@@ -1,4 +1,4 @@
-"""K3 CUSUM + kernel dispatch (team/infra.md §1-4). Rust parity tests skip when ``wattsentry._core`` is not built."""
+"""K3 CUSUM + kernel dispatch. Rust parity tests skip when ``wattsentry._core`` is not built."""
 
 from __future__ import annotations
 
@@ -111,7 +111,7 @@ def test_dispatched_runs_on_current_backend():
 
 
 def _old_pv_cusum(x, k, h):
-    """Verbatim copy of the pre-#49 numpy baseline in wattsentry/eval/baselines/pv/cusum.py."""
+    """Verbatim copy of the original numpy CUSUM baseline (wattsentry/eval/baselines/pv/cusum.py)."""
     x = np.asarray(x, np.float64)
     one_d = x.ndim == 1
     x2 = np.atleast_2d(x)

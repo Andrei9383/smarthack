@@ -1,4 +1,4 @@
-"""#136 exact medians: references vs scalar loops, Rust == Python bit for bit, select_normal / _frozen unchanged."""
+"""Exact medians: references vs scalar loops, Rust == Python bit for bit, select_normal / _frozen unchanged."""
 
 from __future__ import annotations
 

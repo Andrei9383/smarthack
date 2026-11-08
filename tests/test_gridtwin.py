@@ -1,4 +1,4 @@
-"""Grid-twin (#13): finds wrong GIS feeder / phase records from voltages; tau and G only ever tighten the limit."""
+"""Grid-twin: finds wrong GIS feeder / phase records from voltages; tau and G only ever tighten the limit."""
 
 from __future__ import annotations
 

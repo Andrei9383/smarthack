@@ -1,4 +1,4 @@
-"""Backend equivalence for every registered kernel (#179, team/infra.md §1).
+"""Backend equivalence for every registered kernel.
 
 For each kernel in ``wattsentry.kernels`` the Python reference and the Rust copy must give the same output on random
 inputs. Inputs come from the bench cases (``wattsentry.kernels.bench.CASES``) at small scales and several seeds, so a
@@ -35,7 +35,7 @@ def _outputs(x):
 
 
 def test_every_kernel_has_a_bench_case():
-    """A kernel without a bench case has no speedup number and no coverage below (team/infra.md §1.3)."""
+    """A kernel without a bench case has no speedup number and no coverage below."""
     covered = {c[0] for c in bench.CASES}
     missing = sorted(set(kernels.names()) - covered)
     assert not missing, f"kernels registered without a bench case in wattsentry/kernels/bench.py: {missing}"

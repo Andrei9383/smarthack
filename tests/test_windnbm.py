@@ -1,4 +1,4 @@
-"""Card #41 M6 WindNBM: stand-in data, contract conformance, normalisation, WindMon rules, splits, metrics.
+"""M6 WindNBM: stand-in data, contract conformance, normalisation, WindMon rules, splits, metrics.
 
 Always-on tests need only requirements.txt; the end-to-end train → ONNX → predictor test needs torch.
 """
@@ -82,7 +82,7 @@ def test_tags_parse_and_codes_follow_contract(tiny):
 
 
 def test_long_roundtrip_drops_in(tiny):
-    """#22/#23 output in the contract tables loads into the same wide view M6 trains on."""
+    """Simulator output in the contract tables loads into the same wide view M6 trains on."""
     sub = tiny.subset(np.arange(len(tiny.turbines)), slice(0, 2880))
     back = from_long(to_long(sub), turbines_table(sub), meteo=meteo_table(sub), weather=weather_table(sub),
                      fault_labels=fault_labels_table(sub))
@@ -194,7 +194,7 @@ def _probs(T, n):
 
 
 def test_park_capped_to_zero_is_curtailment_not_a_work_order():
-    """#99: a park-wide cap to 0 % leaves noisy near-zero power, so no common ceiling (park_cap_frac_m4 = 0).
+    """a park-wide cap to 0 % leaves noisy near-zero power, so no common ceiling (park_cap_frac_m4 = 0).
     The park consensus on p_curtailment still calls it curtailment: logged, no alert, no work order."""
     T, n = 160, 70
     ci = CLASS_INDEX["curtailment"]
@@ -239,7 +239,7 @@ def test_park_capped_to_zero_is_curtailment_not_a_work_order():
 
 
 def test_lone_low_turbine_is_never_hidden_as_curtailment():
-    """#99: one underperforming turbine in a normal park keeps its actionable class even when the classifier
+    """one underperforming turbine in a normal park keeps its actionable class even when the classifier
     leans to curtailment, also when its park is tuned together with a capped park (consensus is per park) and
     in a 2-turbine park (one turbine is half the park, but never a consensus)."""
     T = 160
@@ -285,7 +285,7 @@ def test_train_export_predict_end_to_end(tmp_path):
 
 
 def test_label_free_normal_selection_beats_base_rate():
-    """#70: telemetry-only normal selection is cleaner than taking every step, and never peeks at the labels."""
+    """telemetry-only normal selection is cleaner than taking every step, and never peeks at the labels."""
     from wattsentry.model.wind.features import density_inputs
     from wattsentry.model.wind.normal_select import select_normal, selection_quality
 

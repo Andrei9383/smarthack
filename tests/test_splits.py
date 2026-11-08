@@ -1,4 +1,4 @@
-"""#10: splits have no site/time leakage; data checks catch what they claim; window cache builds deterministically."""
+"""Splits have no site/time leakage; the window cache builds deterministically."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def test_window_cache_deterministic(tmp_path, monkeypatch):
     assert eps and all(fault[e["site"], e["onset"]] == FAULTS.index(e["fault"]) for e in eps)
     sites = json.loads((a / "sites.json").read_text())
     assert {"site_id", "loc_idx", "split", "kwp_recorded", "meta_wrong"} <= set(sites[0])
-    # wattsentry.model.data (#14) can open it, when present
+    # wattsentry.model.data can open it, when present
     data = pytest.importorskip("wattsentry.model.data")
     src = data.ArraySource(a)
     assert src.n_steps == T

@@ -1,4 +1,4 @@
-"""Card #22: WindMon's six quality rules and OK / DEGRADED / SUSPECT flags (wattsentry/data/wind/quality.py)."""
+"""WindMon's six quality rules and OK / DEGRADED / SUSPECT flags (wattsentry/data/wind/quality.py)."""
 
 from datetime import datetime, timedelta, timezone
 

@@ -1,4 +1,4 @@
-"""#28: every drill corrupts what it says, never mutates its input, is deterministic, and predictors survive it."""
+"""Every drill corrupts what it says, never mutates its input, is deterministic, and predictors survive it."""
 
 from __future__ import annotations
 

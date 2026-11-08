@@ -1,4 +1,4 @@
-"""Fleet simulator (#11, #52): contract columns, physics invariants, battery == contracts.opt, RO calendar."""
+"""Fleet simulator: contract columns, physics invariants, battery == contracts.opt, RO calendar."""
 
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def test_raw_weather(tmp_path, monkeypatch, fmt):
 
 
 def test_raw_weather_interval_start(tmp_path, monkeypatch):
-    """#9 stamps hourly means at interval start: a GHI symmetric around solar noon must stay centred on it."""
+    """stamps hourly means at interval start: a GHI symmetric around solar noon must stay centred on it."""
     from wattsentry.sim.fleet import solar
     from wattsentry.sim.fleet import weather as wmod
     from wattsentry.sim.fleet.localities import BY_ID

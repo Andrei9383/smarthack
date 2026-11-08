@@ -1,4 +1,4 @@
-"""Battery behaviour model (card #174): no hidden truth in features, day-ahead information rule, K8 simulation,
+"""Battery behaviour model: no hidden truth in features, day-ahead information rule, K8 simulation,
 portfolio behaviour shape, classifier round trip, and a tiny end-to-end run on generated data-v2 (slow)."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("wattsentry.kernels.strategies")  # K8 lands with I2 #172
+pytest.importorskip("wattsentry.kernels.strategies")
 
 from wattsentry.model.battery import classifier as C
 from wattsentry.model.battery import data as D

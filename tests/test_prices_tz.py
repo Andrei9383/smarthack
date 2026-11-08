@@ -1,4 +1,4 @@
-"""OPCOM PZU intervals are CET/CEST, not Romanian time (#183).
+"""OPCOM PZU intervals are CET/CEST, not Romanian time.
 
 Three checks: the parser starts delivery day D at 00:00 CET; the committed data/raw/prices.parquet matches an
 independent UTC source (Energy-Charts RO day-ahead price, EUR/MWh) on two DST days; and PZU lines up with

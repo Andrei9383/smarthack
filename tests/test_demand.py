@@ -1,4 +1,4 @@
-"""Card #44 M3 DemandNet: scenario aggregation, hierarchy roll-up, peak hour, RO calendar, v2 training, outputs."""
+"""M3 DemandNet: scenario aggregation, hierarchy roll-up, peak hour, RO calendar, v2 training, outputs."""
 
 import json
 import time

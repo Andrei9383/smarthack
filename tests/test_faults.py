@@ -1,4 +1,4 @@
-"""PV fault injector (#12): one test per class checks its signature; labels match the contract; deterministic;
+"""PV fault injector: one test per class checks its signature; labels match the contract; deterministic;
 works on a PV-only (PVDAQ-like) series."""
 
 from __future__ import annotations

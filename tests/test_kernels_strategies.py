@@ -1,4 +1,4 @@
-"""K8 battery strategies (#172): reference behaviour on hand cases, physics invariants, Rust == Python bit for bit."""
+"""K8 battery strategies: reference behaviour on hand cases, physics invariants, Rust == Python bit for bit."""
 
 import numpy as np
 import pytest

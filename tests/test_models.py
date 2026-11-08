@@ -1,4 +1,4 @@
-"""Card #14: synthetic data determinism, split leakage, features, metrics, predictor envelope, train.py registry.
+"""Synthetic data determinism, split leakage, features, metrics, predictor envelope, train.py registry.
 
 Runs under the lab check (requirements.txt only, no torch); torch-only tests use pytest.importorskip.
 """
@@ -291,6 +291,6 @@ def test_predictor_status_mapping_matches_windows():
 
     pv = np.array([0.0, 0.002, 1.0, 4.99, 0.0])
     raw = np.array([0, 0, 0, 0, 37])  # sim codes: 0 ok, 37 overvoltage
-    assert _status(raw, pv, 5.0).tolist() == [0, 0, 1, 2, 3]  # #10 encoding: off, off, producing, limiting, trip
+    assert _status(raw, pv, 5.0).tolist() == [0, 0, 1, 2, 3]  # off, off, producing, limiting, trip
     enc = np.array([0, 1, 2, 3, 1])
     assert _status(enc, pv, 5.0).tolist() == enc.tolist()  # already encoded -> unchanged
