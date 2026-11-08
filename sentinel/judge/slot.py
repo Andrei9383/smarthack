@@ -694,7 +694,10 @@ class JudgeSlot:
         if not m.any():
             return rows
         try:
-            out = self.judge.predict(rows.loc[m, [c for c in rows.columns if c != "reasons"]].copy())
+            x = rows.loc[m, [c for c in rows.columns if c != "reasons"]].copy()
+            if "model" not in x:  # the Judge model keys families on "model"; the slot calls it "witness"
+                x["model"] = x["witness"]
+            out = self.judge.predict(x)
             out = pd.DataFrame(out)
             out.index = rows.index[m.to_numpy()]
             rows.loc[m, "p_valid"] = pd.to_numeric(out.get("p_valid"), errors="coerce")

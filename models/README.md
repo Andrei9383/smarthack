@@ -27,6 +27,7 @@ Loaded by `sentinel.model.predictor.load_predictor(model, "models/")` (eval.py) 
 | `pvnet_fc/pvnet.onnx` + `.calibration.json` | M1 PVNet **forecast** mode (day-ahead, noisy weather) | #141 train#684 | laptop | 72e1337 | synthetic RO (#10 windows) | nMAE 0.1052 vs LightGBM 0.119 vs pvlib 0.169; coverage 0.80 |
 | `windnbm.onnx`, `windnbm_clf.txt`, `windnbm_thresholds.json`, `windnbm.priors.json` | M6 WindNBM (GRU NBM + LightGBM classes; label-free normal selection, seed 0) | #143 train#674 | server-gpu | 72e1337 | synthetic RO parks (#22, ERA5-driven; the replay's wind data) | held-out park WP2, test 2025: precision 0.913 vs WindMon 0.835, recall 0.898 vs 0.747, alerts/turbine-day 0.074 vs 0.077, curtail-vs-fault F1 0.936 vs 0.388 |
 | `windfailure/` (`windfailure_7d.txt`, `_14d.txt`, `_thresholds.json`, `_nbm.onnx`) | M7 WindFailure (LightGBM risk 7/14 d on NBM temperature residuals; `shipped: true`) | #144 train#778 | laptop | 3b624f5 | synthetic RO parks (#22) | test 2025: lead time 124.8 h vs fixed threshold 46.3 h, event recall 0.982 vs 0.873, false alarms 0.42 vs 0.37 /turbine-year; held-out park WP2 164.8 h vs 64.9 h |
+| `judge.calibration.json`, `judge.forecast.s0-4.txt`, `judge.detector.s0-4.txt` | J3 Judge (LightGBM, 5 seeds; trained on 2024 replay weeks) | #148 train#908 | rtx5070 | — | 2024 replay weeks (drift + faults) | 2025: tau_use precision below the 0.90 target; drifted rows 0.66 vs ledger-only 0.81 (#148 note) |
 | `thresholds.json` | qualify thresholds (#26 / #27 defaults) | — | — | — | — | — |
 | `reports/r<run>-*.json` | train-time manifest / report / metrics of each run above | | | | | |
 
@@ -65,3 +66,10 @@ Judge priors: the LoadNet calibration JSONs keep the eval#699 `priors` block of 
 `sentinel.judge.priors.wind_priors` (alarm precision 0.873, was 0.763 from r135). `reports/r135-windnbm.*` stay because
 `sentinel/judge/priors.py` still reads r135 by name; rerunning `python -m sentinel.judge.priors` would bring back the
 r135 wind priors until that path is updated.
+
+## T7 promotion (#145)
+
+- **Promoted:** J3 Judge #148 train#908 (first trained Judge; installed with `python -m sentinel.judge.train --apply`
+  from the run log). The slot now passes `witness` as `model` to `Judge.predict` (it raised KeyError once weights existed).
+- **Kept (not better):** M4 SiteHealth #391 (#142 train#746 PR-AUC 0.696 < 0.706); M1 PVNet nowcast #383-386
+  (#141 #676-679 within noise). The other campaign models were promoted by #202 (above).
