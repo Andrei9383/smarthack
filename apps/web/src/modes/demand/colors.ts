@@ -1,9 +1,8 @@
 // Raw colour values for MapLibre paint and SVG charts, which can't read Tailwind classes.
-// Mirrors team/contracts/ui-style.md (Cockpit, dark + light); the RGB source is apps/web/src/lib/palette.ts.
-// Components must not hold hex literals of their own.
+// The RGB source is lib/palette.ts; components must not hold hex literals of their own.
 import { hex, MAP_SAFE, onPaletteTheme, rgba } from "@/lib/palette";
 
-// Stress ramp, light → strong (§3 "Map colour ramps"). Stress 1 = P90 demand at capacity. One ramp for
+// Stress ramp, light → strong. Stress 1 = P90 demand at capacity. One ramp for
 // both themes (the legend reads it at import): the low end is a mint that is still a visible tint on the
 // light land and on the dark land, unlike "no data".
 export const STRESS_RAMP: readonly (readonly [stress: number, color: string])[] = [

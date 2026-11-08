@@ -4,7 +4,7 @@ import { Toaster } from "@wattsentry/ui/components/sonner";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 
-import { getQueryClient } from "@/utils/orpc";
+import { getQueryClient } from "@/lib/orpc";
 
 import { ThemeProvider } from "./theme-provider";
 

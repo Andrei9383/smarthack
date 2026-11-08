@@ -1,1 +1,1 @@
-export { ChartTooltip, type ChartTooltipProps } from "./chart-tooltip";
+export { ChartTooltip } from "./chart-tooltip";

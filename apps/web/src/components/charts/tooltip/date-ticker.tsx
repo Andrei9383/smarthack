@@ -160,16 +160,15 @@ function useActiveItemWidth(
   }, [activeIndex, width, reduceMotion]);
 }
 
-export interface DateTickerProps {
+interface DateTickerProps {
   currentIndex: number;
   labels: string[];
-  visible: boolean;
 }
 
 const DateTickerCompact = memo(function DateTickerCompact({
   currentIndex,
   labels,
-}: Omit<DateTickerProps, "visible">) {
+}: DateTickerProps) {
   const reduceMotion = useReducedMotion() === true;
   const label = labels[currentIndex] ?? labels[0] ?? "";
   const labelItems = useMemo(() => [label], [label]);
@@ -200,7 +199,7 @@ const DateTickerCompact = memo(function DateTickerCompact({
 const DateTickerInner = memo(function DateTickerInner({
   currentIndex,
   labels,
-}: Omit<DateTickerProps, "visible">) {
+}: DateTickerProps) {
   const reduceMotion = useReducedMotion() === true;
 
   // Parse labels into month and second-part (day or year) values
@@ -324,8 +323,9 @@ const DateTickerInner = memo(function DateTickerInner({
   );
 });
 
-export function DateTicker({ currentIndex, labels, visible }: DateTickerProps) {
-  if (!visible || labels.length === 0) {
+/** Date pill under the crosshair: month and day stacks that scroll to the hovered label. */
+export function DateTicker({ currentIndex, labels }: DateTickerProps) {
+  if (labels.length === 0) {
     return null;
   }
 
@@ -341,5 +341,4 @@ export function DateTicker({ currentIndex, labels, visible }: DateTickerProps) {
   );
 }
 
-DateTicker.displayName = "DateTicker";
 

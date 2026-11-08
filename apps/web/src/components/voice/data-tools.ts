@@ -1,9 +1,9 @@
 "use client";
 
-import { DAYS, dayWindow, STEPS_PER_DAY, stepToDate, stepToTs } from "@/demo/replay";
-import { client } from "@/utils/orpc";
+import { DAYS, dayWindow, STEPS_PER_DAY, stepToDate, stepToTs } from "@/lib/replay";
+import { client } from "@/lib/orpc";
 
-// What "Ask WattSentry" can look up (card #207). The agent runs in ElevenLabs' cloud; these run in
+// What "Ask WattSentry" can look up. The agent runs in ElevenLabs' cloud; these run in
 // the browser as client tools and read the same API the screens use, so a spoken answer matches
 // what is on screen. Each returns a short plain-text block the agent can read out.
 
@@ -23,7 +23,7 @@ const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "satur
  * The replay week is Monday 2 – Sunday 8 June 2025. Accepts "today", "yesterday", "tomorrow", a weekday,
  * "2025-06-04", "4 June", "June 4" or "day 3" (1 = Monday); anything else means the replay's current day.
  */
-export function parseDay(input: unknown, currentDay: number): { day: number } | { error: string } {
+function parseDay(input: unknown, currentDay: number): { day: number } | { error: string } {
   const text = String(input ?? "").trim().toLowerCase();
   if (!text || text === "today" || text === "now") return { day: currentDay };
   const clamp = (day: number) =>

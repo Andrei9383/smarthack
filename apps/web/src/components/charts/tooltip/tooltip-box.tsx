@@ -8,7 +8,6 @@ import {
   domAnimation,
   frame,
   LazyMotion,
-  type MotionValue,
   m,
   type Process,
   useReducedMotion,
@@ -18,84 +17,32 @@ import {
 import type { RefObject } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { cn } from "@wattsentry/ui/lib/utils";
-import { type SpringConfig, useChartConfig } from "../chart-config-context";
-import { chartCssVars, useChartPortalContainer } from "../chart-context";
 
-export interface TooltipBoxProps {
-  /** X position in pixels (relative to container) */
+import { useChartPortalContainer } from "../chart-context";
+
+interface TooltipBoxProps {
+  /** Cursor x in container px. The panel opens right of it, or left near the right edge. */
   x: number;
-  /** Y position in pixels (relative to container) */
-  y: number;
-  /** Whether the tooltip is visible */
+  /** Panel top in container px. */
+  top: number;
   visible: boolean;
-  /** Container ref for portal rendering */
   containerRef: RefObject<HTMLDivElement | null>;
-  /** Container width for flip detection */
   containerWidth: number;
-  /** Container height for bounds clamping */
   containerHeight: number;
-  /** Offset from the target position */
-  offset?: number;
-  /** Custom class name */
-  className?: string;
-  /** Tooltip content */
   children: React.ReactNode;
-  /** Override left position (bypasses internal calculation) */
-  left?: number | ReturnType<typeof useSpring>;
-  /** Override top position (bypasses internal calculation) */
-  top?: number | ReturnType<typeof useSpring>;
-  /** Force flip direction (for custom positioning) */
-  flipped?: boolean;
-  /**
-   * X (container px) that decides which side the panel opens on. Default: `x`.
-   * Nearest-point hover passes the column x so every point in a column opens
-   * on the same side (no flip — and entrance replay — between nearby points).
-   */
-  flipX?: number;
-  /** Per-chart override; falls back to `ChartConfigProvider.tooltipBoxSpring`. */
-  springConfig?: SpringConfig;
-  /** Animate panel position with a spring. Default: true */
-  animate?: boolean;
-  /** Fade/scale the panel on show. Default: true */
-  entrance?: boolean;
-  /**
-   * Fade the panel out when `visible` turns false (via `AnimatePresence`).
-   * Requires `entrance`. Keep the box mounted and toggle `visible` (rather
-   * than unmounting it) so the exit can play. Default: true
-   */
-  exit?: boolean;
-  /**
-   * Replay the panel entrance when it flips sides. `false` springs the panel
-   * across instead (used by nearest-point hover, where neighbouring points
-   * can sit on either side of the flip line). Default: true
-   */
-  replayOnFlip?: boolean;
-  /**
-   * Tween the panel to its new size when the content grows or shrinks (e.g.
-   * longer values, marker content). Off under reduced motion and when
-   * `animate` or `entrance` is false. Default: true
-   */
-  animateSize?: boolean;
-  /** Inline styles for the inner tooltip panel. */
-  panelStyle?: React.CSSProperties;
-  /**
-   * Tooltip panel background color (CSS variable or color value).
-   * Default: `var(--chart-tooltip-background)`.
-   */
-  backgroundColor?: string;
 }
 
-/**
- * Popover-style panel (Cockpit): 4px radius, a 1px --border-strong edge and the
- * overlay shadow, using only theme tokens.
- */
-export const TOOLTIP_PANEL_CLASS_NAME =
-  "relative min-w-[160px] rounded-md border border-border-strong bg-clip-padding text-[12px] text-chart-tooltip-foreground shadow-overlay";
+/** Popover-style panel: a 1px --border-strong edge and the overlay shadow, theme tokens only. */
+const PANEL_CLASS_NAME =
+  "relative min-w-[160px] rounded-md border border-border-strong bg-clip-padding text-[12px] text-chart-tooltip-foreground shadow-overlay bg-chart-tooltip-background backdrop-blur-md";
 
 /** Clips content to the panel's inner radius without clipping the edge highlight. */
-export const TOOLTIP_PANEL_INNER_CLASS_NAME =
-  "overflow-hidden rounded-[calc(var(--radius-md)-1px)]";
+const PANEL_INNER_CLASS_NAME = "overflow-hidden rounded-[calc(var(--radius-md)-1px)]";
+
+/** Follow spring of the floating panel. */
+const BOX_SPRING = { stiffness: 100, damping: 20 };
+/** Gap between the cursor and the panel. */
+const OFFSET = 16;
 
 /** Panel scale/fade-in on show. */
 const PANEL_ENTRANCE_SPRING = {
@@ -247,25 +194,10 @@ function drawPanelTween(
 }
 
 /**
- * Tooltip panel size tween: the same FLIP scale Motion's `layout="size"`
- * produced, without the layout/projection feature bundle (so charts can use
- * `m` + `domAnimation`).
- *
- * When the panel's layout size changes, it is drawn at its previous size and
- * scaled to the new one with `PANEL_SIZE_SPRING` — a 0 → 1000 progress with
- * velocity 0 that starts on the next frame, like Motion's layout animation.
- * The clip box follows the panel (kept at its unscaled border offset) and the
- * content is counter-scaled, so it is drawn at its final size and revealed by
- * the clip — text never stretches. Radii are corrected per axis so the
- * corners stay round. A change mid-tween restarts from the size drawn now.
- *
- * Sizes are layout sizes (computed `width` / `height`, unaffected by
- * transforms), so the layout box (and the `offsetWidth` / `offsetHeight`
- * callers use for flip and clamp) is always the final size and a scaled
- * ancestor (entrance, Studio zoom) does not skew the tween. They are checked
- * after every render (before paint, where Motion measured) and by a
- * `ResizeObserver` (size changes that don't re-render the panel). The first
- * measurement only records the size: the entrance owns the mount.
+ * Panel size tween when the content grows or shrinks (FLIP, like Motion's `layout="size"` without the
+ * layout bundle): the panel is drawn at its previous size and sprung to the new one, the clip box
+ * follows and the content is counter-scaled, so text never stretches. Sizes are layout sizes, so
+ * the flip / clamp measurements always see the final size. The first measurement only records it.
  */
 function usePanelSizeTween(
   panelRef: RefObject<HTMLDivElement | null>,
@@ -372,25 +304,8 @@ function usePanelSizeTween(
 
 const ORIGIN_TOP_LEFT: React.CSSProperties = { transformOrigin: "0 0" };
 
-/**
- * The tooltip panel: an entrance wrapper (scale/slide pivoting on
- * `transformOrigin`) around the styled panel (fade + size), its clip box and
- * the content.
- *
- * `animateSize` tweens the panel to its new size when the content changes
- * (`usePanelSizeTween`). That is a transform, so the panel's layout box (and
- * the `offsetWidth` / `offsetHeight` used for flip and clamp) is always the
- * final size, and position stays with the caller's springs. The clip box
- * follows the panel, and the content is scale-corrected (drawn at its final
- * size and revealed by the clip), so text never stretches. All three are
- * anchored top-left, so the tween has no translate. The entrance lives on the
- * wrapper so its pivot can differ.
- *
- * No size tween on mount (the entrance owns that) or under `MotionConfig`
- * reduced motion. Callers pass `false` under reduced motion and when the
- * position is not animated.
- */
-export function TooltipPanel({
+/** Entrance wrapper (scale / slide around `transformOrigin`) around the panel, its clip box and content. */
+function TooltipPanel({
   animateSize,
   entrance,
   transformOrigin,
@@ -434,7 +349,7 @@ export function TooltipPanel({
         transition={PANEL_ENTRANCE_SPRING}
       >
         <div
-          className={TOOLTIP_PANEL_INNER_CLASS_NAME}
+          className={PANEL_INNER_CLASS_NAME}
           ref={clipRef}
           style={ORIGIN_TOP_LEFT}
         >
@@ -447,274 +362,83 @@ export function TooltipPanel({
   );
 }
 
-/** Spring to `value`, or jump there (no animation) when `snap`. */
-function moveTo(
-  spring: MotionValue<number>,
-  value: number,
-  snap: boolean
-): void {
-  if (snap) {
-    spring.jump(value);
-  } else {
-    spring.set(value);
-  }
-}
-
 const DEFAULT_TOOLTIP_WIDTH = 180;
-const DEFAULT_TOOLTIP_HEIGHT = 80;
 
-/** Panel position beside the cursor: flips left near the right edge and is
- * clamped vertically inside the container. */
-function resolveTooltipTarget({
-  x,
-  flipX = x,
-  y,
-  width,
-  height,
-  offset,
-  containerWidth,
-  containerHeight,
-}: {
-  x: number;
-  flipX?: number;
-  y: number;
-  width: number;
-  height: number;
-  offset: number;
-  containerWidth: number;
-  containerHeight: number;
-}) {
-  const flipped = flipX + width + offset > containerWidth;
-  return {
-    flipped,
-    left: flipped ? x - offset - width : x + offset,
-    top: Math.max(
-      offset,
-      Math.min(y - height / 2, containerHeight - height - offset)
-    ),
-  };
+/** Panel left beside the cursor: flips left near the right edge. */
+function resolveLeft(x: number, width: number, containerWidth: number) {
+  const flipped = x + width + OFFSET > containerWidth;
+  return { flipped, left: flipped ? x - OFFSET - width : x + OFFSET };
 }
 
-// Inner-only-on-visible so `useSpring` initializes at the cursor's actual x/y
-// instead of (0, 0) on first hover.
+// Inner only while visible, so the spring starts at the cursor instead of (0, 0) on first hover.
 export function TooltipBox(props: TooltipBoxProps) {
   const container = useChartPortalContainer(props.containerRef);
-  if (!container) {
-    return null;
-  }
-  const inner = props.visible ? (
-    <TooltipBoxInner {...props} container={container} key="tooltip-box" />
-  ) : null;
-  // Own feature scope: the box also renders outside chart roots.
+  if (!container) return null;
+  // Own feature scope: the box renders outside the chart's svg tree.
   return (
     <LazyMotion features={domAnimation}>
-      {props.exit !== false && props.entrance !== false ? (
-        <AnimatePresence>{inner}</AnimatePresence>
-      ) : (
-        inner
-      )}
+      <AnimatePresence>
+        {props.visible ? <TooltipBoxInner {...props} container={container} key="tooltip-box" /> : null}
+      </AnimatePresence>
     </LazyMotion>
   );
 }
 
 function TooltipBoxInner({
   x,
-  y,
+  top,
   containerWidth,
-  containerHeight,
-  offset = 16,
-  className = "",
   children,
-  left: leftOverride,
-  top: topOverride,
-  flipped: flippedOverride,
-  flipX,
-  springConfig,
-  animate = true,
-  entrance = true,
-  exit: _exit,
-  replayOnFlip = true,
-  animateSize = true,
-  panelStyle,
-  backgroundColor = chartCssVars.tooltipBackground,
   container,
-}: Omit<TooltipBoxProps, "visible" | "containerRef"> & {
-  container: HTMLElement;
-}) {
-  const { tooltipBoxSpring } = useChartConfig();
-  // Reduced motion: position jumps instead of springing and the panel skips
-  // its scale/slide; opacity fades are kept.
+}: Omit<TooltipBoxProps, "visible" | "containerRef"> & { container: HTMLElement }) {
+  // Reduced motion: position jumps instead of springing and the panel skips its scale / slide.
   const reducedMotion = useReducedMotion() === true;
-  const effectiveSpring = springConfig ?? tooltipBoxSpring;
-
   const tooltipRef = useRef<HTMLDivElement>(null);
-  // Last measured panel size — only read in the layout effect below.
-  const tooltipWidthRef = useRef(DEFAULT_TOOLTIP_WIDTH);
-  const tooltipHeightRef = useRef(DEFAULT_TOOLTIP_HEIGHT);
-  // Non-animated position: React only renders the mount position; the layout
-  // effect below writes later positions straight to the element, so each
-  // pointer move costs one render instead of render + sync re-render.
-  const [staticPosition] = useState(() => ({ left: x, top: y }));
-  // First measured position jumps (no spring from the estimated size).
+  const widthRef = useRef(DEFAULT_TOOLTIP_WIDTH);
   const hasPositionedRef = useRef(false);
 
-  // Flip side + replay key for the panel entrance. Seeded from the default
-  // size (the inner box mounts fresh on every show); refined from the measured
-  // width in the layout effect, which only re-renders when the side changes.
+  // Flip side + replay key for the panel entrance, seeded from the default width and refined from
+  // the measured one (a re-render only when the side changes).
   const [flip, setFlip] = useState(() => ({
-    flipped: (flipX ?? x) + DEFAULT_TOOLTIP_WIDTH + offset > containerWidth,
+    flipped: resolveLeft(x, DEFAULT_TOOLTIP_WIDTH, containerWidth).flipped,
     key: 0,
   }));
-  const shouldFlipX = flip.flipped;
-
-  const [initialTarget] = useState(() =>
-    resolveTooltipTarget({
-      x,
-      flipX,
-      y,
-      width: DEFAULT_TOOLTIP_WIDTH,
-      height: DEFAULT_TOOLTIP_HEIGHT,
-      offset,
-      containerWidth,
-      containerHeight,
-    })
-  );
-  const animatedLeft = useSpring(initialTarget.left, effectiveSpring);
-  const animatedTop = useSpring(initialTarget.top, effectiveSpring);
+  const [initialLeft] = useState(() => resolveLeft(x, DEFAULT_TOOLTIP_WIDTH, containerWidth).left);
+  const animatedLeft = useSpring(initialLeft, BOX_SPRING);
 
   useLayoutEffect(() => {
-    if (!tooltipRef.current) {
-      return;
-    }
     const el = tooltipRef.current;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    if (w > 0) {
-      tooltipWidthRef.current = w;
-    }
-    if (h > 0) {
-      tooltipHeightRef.current = h;
-    }
-    const target = resolveTooltipTarget({
-      x,
-      flipX,
-      y,
-      width: tooltipWidthRef.current,
-      height: tooltipHeightRef.current,
-      offset,
-      containerWidth,
-      containerHeight,
-    });
-    setFlip((prev) =>
-      prev.flipped === target.flipped
-        ? prev
-        : { flipped: target.flipped, key: prev.key + 1 }
-    );
-    const tx = target.left;
-    const ty = target.top;
-    if (!animate) {
-      const left = `${tx}px`;
-      const top = `${ty}px`;
-      if (el.style.left !== left) {
-        el.style.left = left;
-      }
-      if (el.style.top !== top) {
-        el.style.top = top;
-      }
-      return;
-    }
-    const snap = reducedMotion || !hasPositionedRef.current;
+    if (!el) return;
+    if (el.offsetWidth > 0) widthRef.current = el.offsetWidth;
+    const target = resolveLeft(x, widthRef.current, containerWidth);
+    setFlip((prev) => (prev.flipped === target.flipped ? prev : { flipped: target.flipped, key: prev.key + 1 }));
+    // The first measured position jumps (no spring from the estimated width).
+    if (reducedMotion || !hasPositionedRef.current) animatedLeft.jump(target.left);
+    else animatedLeft.set(target.left);
     hasPositionedRef.current = true;
-    if (leftOverride === undefined) {
-      moveTo(animatedLeft, tx, snap);
-    }
-    if (topOverride === undefined) {
-      moveTo(animatedTop, ty, snap);
-    }
-  }, [
-    x,
-    flipX,
-    y,
-    containerWidth,
-    containerHeight,
-    offset,
-    leftOverride,
-    topOverride,
-    animate,
-    animatedLeft,
-    animatedTop,
-    reducedMotion,
-  ]);
-
-  const flipKey = replayOnFlip ? flip.key : 0;
-
-  const finalLeft = animate
-    ? (leftOverride ?? animatedLeft)
-    : staticPosition.left;
-  const finalTop = animate ? (topOverride ?? animatedTop) : staticPosition.top;
-  const isFlipped = flippedOverride ?? shouldFlipX;
-  const transformOrigin = isFlipped ? "right top" : "left top";
-
-  // Internal classes only (no caller className): no tailwind-merge needed.
-  const panelClassName = `${TOOLTIP_PANEL_CLASS_NAME}${
-    panelStyle?.backgroundColor === undefined &&
-    backgroundColor === chartCssVars.tooltipBackground
-      ? " bg-chart-tooltip-background"
-      : ""
-  }${panelStyle?.backdropFilter === undefined ? " backdrop-blur-md" : ""}`;
-  const panelStyleResolved = {
-    ...(panelStyle?.backgroundColor === undefined && {
-      backgroundColor,
-    }),
-    ...panelStyle,
-  };
-
-  if (!entrance) {
-    return createPortal(
-      <div
-        className={cn("pointer-events-none absolute z-50", className)}
-        ref={tooltipRef}
-        style={{ left: staticPosition.left, top: staticPosition.top }}
-      >
-        <div
-          className={panelClassName}
-          style={{ transformOrigin, ...panelStyleResolved }}
-        >
-          <div className={TOOLTIP_PANEL_INNER_CLASS_NAME}>{children}</div>
-        </div>
-      </div>,
-      container
-    );
-  }
+  }, [x, containerWidth, animatedLeft, reducedMotion]);
 
   return createPortal(
     <m.div
       animate={{ opacity: 1 }}
-      className={cn("pointer-events-none absolute z-50", className)}
+      className="pointer-events-none absolute z-50"
       exit={{ opacity: 0 }}
       initial={{ opacity: 0 }}
       ref={tooltipRef}
-      style={{ left: finalLeft, top: finalTop }}
+      style={{ left: animatedLeft, top }}
       transition={{ duration: 0.1 }}
     >
       <TooltipPanel
-        // Positions jump in the static path (a re-render mid-commit), which a
-        // layout animation would read as a move, and "no motion" means none.
-        animateSize={animateSize && animate && !reducedMotion}
-        className={panelClassName}
-        entrance={
-          reducedMotion ? false : { scale: 0.85, x: isFlipped ? 20 : -20 }
-        }
-        key={flipKey}
-        style={panelStyleResolved}
-        transformOrigin={transformOrigin}
+        animateSize={!reducedMotion}
+        className={PANEL_CLASS_NAME}
+        entrance={reducedMotion ? false : { scale: 0.85, x: flip.flipped ? 20 : -20 }}
+        key={flip.key}
+        style={{ backgroundColor: "var(--chart-tooltip-background)" }}
+        transformOrigin={flip.flipped ? "right top" : "left top"}
       >
         {children}
       </TooltipPanel>
     </m.div>,
-    container
+    container,
   );
 }
-
-TooltipBox.displayName = "TooltipBox";
-

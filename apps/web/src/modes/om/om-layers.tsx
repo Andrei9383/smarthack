@@ -4,19 +4,19 @@ import { useMap } from "@wattsentry/ui/components/map";
 import type { GeoJSONSource, MapLayerMouseEvent } from "maplibre-gl";
 import { useEffect, useMemo, useRef } from "react";
 
-import { useSelectedSite } from "@/panels/site/use-site";
+import { useSelectedSite } from "@/components/panels/site/use-site";
 
 import { setPaint, useCameraFocus, useFrameLoop, useMotionAllowed } from "../feeders/map-motion";
-import { useMapRightPadding } from "../use-map-right-padding";
+import { useMapRightPadding } from "../map-hooks";
+import { PANEL_PADDING_PX } from "@/lib/utils";
 import { OM_COLORS } from "./colors";
 import { addStatusIcons, statusIcon } from "./status-icons";
 import { useOmAssets, useWorkOrders } from "./use-om-data";
 import { useFocusedPark, useSelectedTurbine } from "./use-om-state";
 
-const PANEL_PADDING_PX = 452; // OmPanel width + gutter
 const SOURCE = "om-assets";
 const LAYERS = {
-  // slow red ring on a stopped turbine or one with an open work order (#115)
+  // slow red ring on a stopped turbine or one with an open work order
   pulse: "om-pulse",
   halo: "om-halo",
   clusterRing: "om-cluster-ring",
@@ -45,7 +45,7 @@ type AssetProps = {
 };
 
 // A turbine that is out of service is stopped (red diamond); an excluded home is a grey ring.
-// Points are the shape-coded status marks the legend shows (status-icons.ts, ui-style §7).
+// Points are the shape-coded status marks the legend shows (status-icons.ts).
 
 /** Sites and turbines coloured by status; clustered when zoomed out, a halo on turbines at risk. */
 export function OmLayers() {
@@ -297,7 +297,7 @@ export function OmLayers() {
   }, [map, isLoaded, geojson]);
 
   // Fly to a picked turbine, or to a focused park (demo jump 5, ?park=WP01) so its turbines are
-  // separate, not one cluster; with neither, ease back to the country view (#115).
+  // separate, not one cluster; with neither, ease back to the country view.
   const [turbine] = useSelectedTurbine();
   const focusTarget = useMemo(() => {
     if (turbine) {

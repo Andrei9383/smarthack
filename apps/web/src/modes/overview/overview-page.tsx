@@ -31,7 +31,7 @@ import {
 } from "@/components/shell/agent-actions";
 import { KIND_STYLE } from "@/components/shell/agent-toast";
 import { useStoryNarration } from "@/components/voice/story-narration";
-import { setPlaying, useReplayPlaying } from "@/demo/replay-bar";
+import { setPlaying, useReplayPlaying } from "@/lib/replay-playing";
 import {
   clampStep,
   dayOfStep,
@@ -40,15 +40,16 @@ import {
   STEPS_PER_DAY,
   stepToTs,
   timeLabel,
-} from "@/demo/replay";
-import { usePolicy, useReplayStep } from "@/demo/use-replay";
+} from "@/lib/replay";
+import { usePolicy, useReplayStep } from "@/lib/use-replay";
 import type { ModePageProps } from "@/modes/registry";
-import type { Delta } from "@/panels/disclosure";
-import { wallClock } from "@/panels/site/time";
-import { orpc } from "@/utils/orpc";
+import type { Delta } from "@/components/panels/disclosure";
+import { wallClock } from "@/lib/time";
+import { orpc } from "@/lib/orpc";
 
 import { useOmAssets } from "@/modes/om/use-om-data";
 
+import { FOREVER } from "@/lib/utils";
 import { MiniMap } from "./mini-map";
 import { useOverviewData } from "./use-overview-data";
 
@@ -59,7 +60,6 @@ import { useOverviewData } from "./use-overview-data";
 // 3. The day's bought-vs-used chart and this month's imbalance cost with and without WattSentry.
 
 const CARD = "rounded-xl bg-card shadow-card";
-const FOREVER = Number.POSITIVE_INFINITY;
 const LINK =
   "inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-dense font-medium whitespace-nowrap text-foreground underline-offset-2 transition-colors duration-150 hover:bg-surface-raised hover:underline focus-visible:outline-2 focus-visible:outline-ring";
 
@@ -100,16 +100,12 @@ const BOUGHT_PROFILE = "Bought, standard profile";
 const BOUGHT_SENTINEL = "Bought, WattSentry";
 const ACTUAL = "Actually used";
 
-/** Today's imbalance for the day on the replay clock, plus the full-year totals per policy. */
+/** Today's imbalance for the day on the replay clock. */
 function useImbalance() {
   const [step] = useReplayStep();
   const window = dayWindow(step);
   const day = useQuery({
     ...orpc.imbalance.getImbalanceDay.queryOptions({ input: window }),
-    staleTime: FOREVER,
-  });
-  const year = useQuery({
-    ...orpc.imbalance.getPolicyComparison.queryOptions({ input: {} }),
     staleTime: FOREVER,
   });
 
@@ -142,20 +138,12 @@ function useImbalance() {
 
   const today = (policy: string) =>
     day.data?.totals.find((t) => t.policy === policy);
-  const ofYear = (policy: string) =>
-    year.data?.find((r) => r.policy === policy);
   return {
     dayName: DAY.format(new Date(Date.parse(window.from) + 3_600_000)),
     rows,
     shortMwh,
     profile: today("profile"),
     sentinel: today("sentinel"),
-    year: {
-      profile: ofYear("profile"),
-      forecast: ofYear("forecast_only"),
-      sentinel: ofYear("sentinel"),
-      corrected: ofYear("sentinel_id"),
-    },
     loading: day.isPending,
   };
 }
@@ -170,7 +158,7 @@ function usePlayDemo() {
   const [, setPolicy] = usePolicy();
   const playing = useReplayPlaying();
   const started = useRef(false);
-  // #207: each fresh start from 06:00 is a new narrated run (voice only, when the server has a key).
+  // Each fresh start from 06:00 is a new narrated run (voice only, when the server has a key).
   const [storyRun, setStoryRun] = useState(0);
   useStoryNarration(storyRun);
   const step = clampStep(rawStep);
@@ -704,31 +692,31 @@ function GapChart() {
             data={rows}
             aspectRatio="5 / 1.6"
             margin={{ left: 40, right: 8, top: 22, bottom: 24 }}
-            animationDuration={0}
+           
           >
             <Grid
               numTicksRows={4}
-              fadeHorizontal={false}
+             
               strokeDasharray="none"
             />
             <Line
               dataKey={BOUGHT_PROFILE}
               stroke="var(--chart-baseline)"
               curve={curveStepAfter}
-              fadeEdges={false}
+             
             />
             <Line
               dataKey={BOUGHT_SENTINEL}
               stroke="var(--sentinel)"
               curve={curveStepAfter}
-              fadeEdges={false}
+             
             />
             <Line
               dataKey={ACTUAL}
               stroke="var(--status-actual)"
               strokeWidth={1.75}
               curve={curveMonotoneX}
-              fadeEdges={false}
+             
             />
             <EveningWindow />
             <Axes />
@@ -839,11 +827,11 @@ function MonthSoFar() {
             data={m.rows}
             aspectRatio="5 / 2"
             margin={{ left: 4, right: 4, top: 8, bottom: 4 }}
-            animationDuration={0}
+           
           >
-            <Grid numTicksRows={3} fadeHorizontal={false} strokeDasharray="none" />
-            <Line dataKey={WITHOUT} stroke="var(--chart-baseline)" fadeEdges={false} />
-            <Line dataKey={WITH} stroke="var(--sentinel)" strokeWidth={1.75} fadeEdges={false} />
+            <Grid numTicksRows={3} strokeDasharray="none" />
+            <Line dataKey={WITHOUT} stroke="var(--chart-baseline)" />
+            <Line dataKey={WITH} stroke="var(--sentinel)" strokeWidth={1.75} />
             <ChartTooltip />
           </LineChart>
         ) : (

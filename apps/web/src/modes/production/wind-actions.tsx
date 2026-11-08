@@ -1,6 +1,6 @@
 "use client";
 
-// W7 (#170): the last 24 h as settled: P10–P90 band, what WattSentry sold day-ahead (W3) and what the park
+// The last 24 h as settled: P10–P90 band, what WattSentry sold day-ahead (W3) and what the park
 // made, with marks where W2 took turbines out of the sale; then the park battery (W5) on the same hours.
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -13,16 +13,16 @@ import { useChartPortalContainer, useChartStable } from "@/components/charts/cha
 import { Grid } from "@/components/charts/grid";
 import { Line, LineChart } from "@/components/charts/line-chart";
 import { ChartTooltip } from "@/components/charts/tooltip";
-import { Metric, MetricRow } from "@/panels/disclosure";
-import { orpc } from "@/utils/orpc";
+import { Metric, MetricRow } from "@/components/panels/disclosure";
+import { orpc } from "@/lib/orpc";
 
+import { lei } from "@/lib/utils";
 import { FanHourTicks, FanYAxis } from "./fan-chart-overlays";
 
 const SECTION_LABEL = "section-title";
 const MARGIN = { left: 32, right: 8, top: 26, bottom: 24 };
 const HOUR_MS = 3_600_000;
 const BATTERY_VARIANTS = ["lp", "rule"];
-const lei = (v: number) => Math.round(v).toLocaleString("en-GB");
 const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
 
 type Hour = { date: Date; ts: string; p10: number; p90: number; sold: number; actual: number; removed: number };
@@ -119,11 +119,11 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
               </li>
             </ul>
           </div>
-          <LineChart data={hours} aspectRatio="5 / 2" margin={MARGIN} animationDuration={0}>
-            <Grid numTicksRows={4} fadeHorizontal={false} strokeDasharray="none" />
+          <LineChart data={hours} aspectRatio="5 / 2" margin={MARGIN}>
+            <Grid numTicksRows={4} strokeDasharray="none" />
             <Band upperKey="p90" lowerKey="p10" label="P10–P90" fill="var(--brand-500)" fillOpacity={0.12} strokeOpacity={0.4} curve={curveMonotoneX} />
-            <Line dataKey="sold" stroke="var(--sentinel)" curve={curveStepAfter} fadeEdges={false} />
-            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} fadeEdges={false} />
+            <Line dataKey="sold" stroke="var(--sentinel)" curve={curveStepAfter} />
+            <Line dataKey="actual" stroke="var(--status-actual)" strokeWidth={1.5} curve={curveMonotoneX} />
             <FanYAxis numTicks={4} unit="MWh" />
             <FanHourTicks everyHours={6} />
             <RemovedMarks hours={hours} />
@@ -145,9 +145,9 @@ export function WindActions({ parkId, clock, wallClock }: { parkId?: string; clo
             <Metric label="Covered" value={Math.round(bat.coveredMwh)} unit="MWh" sub="forecast error" />
             <Metric label="Discharged" value={Math.round(bat.cycledMwh)} unit="MWh" />
           </MetricRow>
-          <LineChart data={bat.soc} aspectRatio="5 / 1.6" margin={MARGIN} animationDuration={0}>
-            <Grid numTicksRows={3} fadeHorizontal={false} strokeDasharray="none" />
-            <Line dataKey="soc" stroke="var(--status-soc)" curve={curveMonotoneX} fadeEdges={false} />
+          <LineChart data={bat.soc} aspectRatio="5 / 1.6" margin={MARGIN}>
+            <Grid numTicksRows={3} strokeDasharray="none" />
+            <Line dataKey="soc" stroke="var(--status-soc)" curve={curveMonotoneX} />
             <FanYAxis numTicks={3} unit="SoC MWh" />
             <FanHourTicks everyHours={6} />
             <ChartTooltip />

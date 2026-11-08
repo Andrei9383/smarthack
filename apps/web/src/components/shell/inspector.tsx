@@ -5,13 +5,11 @@ import type { ReactNode } from "react";
 
 import { MODES, type ModeId } from "@/modes/registry";
 
-import { InspectorEmbedded } from "./inspector-embedded";
-
 // Lifts a mode panel's own floating <aside> into the inspector: no second card, no own position.
 const PANEL_IN_INSPECTOR =
   "[&>aside]:static [&>aside]:inset-auto [&>aside]:z-auto [&>aside]:h-auto [&>aside]:w-full [&>aside]:max-w-none [&>aside]:overflow-visible [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:shadow-none";
 
-/** The one floating right inspector every mode renders into (prototype .insp). */
+/** The one floating right inspector every mode renders into. */
 export function Inspector({ mode, children, className }: { mode: ModeId; children: ReactNode; className?: string }) {
   return (
     <aside
@@ -28,7 +26,7 @@ export function Inspector({ mode, children, className }: { mode: ModeId; childre
       >
         {/* The panel starts with the mode's own content: no title, "About this view" or agent loop. */}
         <div className={PANEL_IN_INSPECTOR}>
-          <InspectorEmbedded>{children}</InspectorEmbedded>
+          {children}
         </div>
       </div>
     </aside>

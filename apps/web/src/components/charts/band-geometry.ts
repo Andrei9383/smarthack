@@ -23,7 +23,7 @@ function finiteNumber(value: unknown): value is number {
 
 /**
  * Pixel band segments. Rows where either edge is null / undefined / NaN end
- * the current segment (e.g. Bollinger warm-up rows).
+ * the current segment.
  */
 export function computeBandSegments(
   data: Record<string, unknown>[],
@@ -104,23 +104,8 @@ export function bandEdgePath(
     .join("");
 }
 
-/** Vertical pixel extent covered by both edges (top < bottom in SVG space). */
-export function bandPixelExtent(
-  segments: BandSegment[]
-): { top: number; bottom: number } | null {
-  let top = Number.POSITIVE_INFINITY;
-  let bottom = Number.NEGATIVE_INFINITY;
-  for (const segment of segments) {
-    for (const point of segment) {
-      top = Math.min(top, point.upper, point.lower);
-      bottom = Math.max(bottom, point.upper, point.lower);
-    }
-  }
-  return Number.isFinite(top) ? { top, bottom } : null;
-}
-
 /** Dense polylines of both edges, all segments concatenated and sorted by x. */
-export interface BandEdgePolylines {
+interface BandEdgePolylines {
   upper: SeriesPathPoint[];
   lower: SeriesPathPoint[];
 }
@@ -230,67 +215,4 @@ export function bandDataSignature(
       return `${xAccessor(datum).getTime()}:${finiteNumber(upper) ? upper : ""}:${finiteNumber(lower) ? lower : ""}`;
     })
     .join(",");
-}
-
-export type BandFadeEdges =
-  | boolean
-  | "left"
-  | "right"
-  | { top?: boolean; right?: boolean; bottom?: boolean; left?: boolean };
-
-export interface BandFadeSides {
-  top: boolean;
-  right: boolean;
-  bottom: boolean;
-  left: boolean;
-  horizontal: boolean;
-  vertical: boolean;
-}
-
-export function resolveBandFadeSides(
-  fade: BandFadeEdges | undefined
-): BandFadeSides {
-  let sides = { top: false, right: false, bottom: false, left: false };
-  if (fade === true) {
-    sides = { top: true, right: true, bottom: true, left: true };
-  } else if (fade === "left") {
-    sides.left = true;
-  } else if (fade === "right") {
-    sides.right = true;
-  } else if (fade && typeof fade === "object") {
-    sides = {
-      top: fade.top === true,
-      right: fade.right === true,
-      bottom: fade.bottom === true,
-      left: fade.left === true,
-    };
-  }
-  return {
-    ...sides,
-    horizontal: sides.left || sides.right,
-    vertical: sides.top || sides.bottom,
-  };
-}
-
-export interface BandFadeStop {
-  offset: number;
-  opacity: number;
-}
-
-/**
- * Mask stops along one axis: transparent at faded ends, opaque in between.
- * `size` is the fraction (0–0.5) of the axis each fade occupies.
- */
-export function bandFadeStops(
-  startFaded: boolean,
-  endFaded: boolean,
-  size: number
-): BandFadeStop[] {
-  const span = Math.min(0.5, Math.max(0, size));
-  return [
-    { offset: 0, opacity: startFaded ? 0 : 1 },
-    { offset: span, opacity: 1 },
-    { offset: 1 - span, opacity: 1 },
-    { offset: 1, opacity: endFaded ? 0 : 1 },
-  ];
 }

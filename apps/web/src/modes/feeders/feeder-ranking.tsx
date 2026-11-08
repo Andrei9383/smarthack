@@ -3,11 +3,11 @@
 import { cn } from "@wattsentry/ui/lib/utils";
 import { useMemo, useState } from "react";
 
-import { DetailsLink, DetailsSheet, SectionHeader, SheetSection } from "@/panels/disclosure";
+import { DetailsLink, DetailsSheet, SectionHeader, SheetSection } from "@/components/panels/disclosure";
 
 import { useFeederList, useOverLimit } from "./use-feeder-data";
 
-// The Feeders glance list (Calm, #198): the five feeders with the most time over their limit today
+// The Feeders glance list: the five feeders with the most time over their limit today
 // without WattSentry, and what WattSentry left of it. Same getOverLimit / list queries as the panel;
 // a row selects the feeder (the `feeder` URL param), "See all" opens every feeder in a sheet.
 

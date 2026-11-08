@@ -1,6 +1,6 @@
 "use client";
 
-// Congestion notices (#120): the agent's day-ahead congestion level for this feeder and the household
+// Congestion notices: the agent's day-ahead congestion level for this feeder and the household
 // emails it sends through Resend. Server side: packages/api/src/routers/notify.ts.
 import type { CongestionLevelValue, HouseholdItem } from "@wattsentry/api/contract/notify";
 import { Button } from "@wattsentry/ui/components/button";
@@ -16,19 +16,13 @@ import { BatteryCharging, Car, Mail, MailCheck, Send, ShieldCheck } from "lucide
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { StatusMark, type StatusKind } from "@/components/brand/status-mark";
-import { DetailsSheet, RowButton, SheetSection } from "@/panels/disclosure";
-import { orpc } from "@/utils/orpc";
+import { StatusMark, type StatusKind } from "@/components/status-mark";
+import { DetailsSheet, RowButton, SheetSection } from "@/components/panels/disclosure";
+import { orpc } from "@/lib/orpc";
 
+import { hm } from "@/lib/time";
 import { EmptyNote } from "./ui";
 
-const HM = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "Europe/Bucharest",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-const hm = (ts: string) => HM.format(new Date(ts));
 const DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Bucharest" }); // YYYY-MM-DD, as the server logs it
 
 // Status = shape-coded mark + word in rows; the inspector header shows the same word as a StatusPill.
@@ -82,7 +76,7 @@ function HomeRow({ home, onPreview }: { home: HouseholdItem; onPreview: () => vo
 
 /**
  * One hairline row in the feeder inspector: the day-ahead congestion level and its window. The
- * reason, the homes and the email button open in a sheet (card #125: details one click away).
+ * reason, the homes and the email button open in a sheet.
  */
 export function NoticeRow({
   feederId,
@@ -132,7 +126,7 @@ export function NoticeRow({
   );
 }
 
-export function NoticeSection({ feederId, from, to }: { feederId: string; from: string; to: string }) {
+function NoticeSection({ feederId, from, to }: { feederId: string; from: string; to: string }) {
   const input = { feederId, from, to };
   const queryClient = useQueryClient();
   const [previewId, setPreviewId] = useState<string | null>(null);

@@ -3,13 +3,13 @@ import type { MapMouseEvent, Map as MapLibreMap } from "maplibre-gl";
 import { useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
-// Map motion shared by the mode layers (card #115). Every animation here only writes
+// Map motion shared by the mode layers. Every animation here only writes
 // non-data-driven paint values (one constant per layer per frame), so MapLibre repaints
 // without re-tiling the GeoJSON sources. No React state changes per frame.
 
 // The app shell's opening view of the whole country.
-export const ROMANIA_HOME = { center: [25, 45.9] as [number, number], zoom: 5.8 };
-export const FLY_MS = 600;
+const ROMANIA_HOME = { center: [25, 45.9] as [number, number], zoom: 5.8 };
+const FLY_MS = 600;
 const FRAME_MS = 1000 / 30; // 30 fps is plenty for a pulse and keeps the map's GPU work low
 
 export function useMotionAllowed() {
@@ -61,7 +61,7 @@ export function setPaint(map: MapLibreMap, layer: string, values: Record<string,
   for (const [key, value] of Object.entries(values)) map.setPaintProperty(layer, key as never, value as never);
 }
 
-export type CameraTarget =
+type CameraTarget =
   | { center: [number, number]; zoom: number }
   | { bounds: [[number, number], [number, number]]; maxZoom: number };
 
@@ -156,7 +156,7 @@ export function boundsOf(points: [number, number][]): [[number, number], [number
   ];
 }
 
-export type PaintTween = { layer: string; property: string; from: number; to: number };
+type PaintTween = { layer: string; property: string; from: number; to: number };
 
 /**
  * One-shot tween of constant paint values (eased out), e.g. a fade-in. Returns a cancel function.

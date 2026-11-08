@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CHARGE_RIPPLE, FEEDER_OVER, FLOW_DASH, FLOW_GAP } from "./colors";
 import { breatheOf, phaseOf, setPaint, useFrameLoop, useMotionAllowed } from "./map-motion";
 
-// Over-limit pulse and battery-charging ripples on the feeders map (#115). All of it is driven by
+// Over-limit pulse and battery-charging ripples on the feeders map. All of it is driven by
 // the replay clock through props; the frame loop only moves constant paint values.
 
 const PULSE_MS = 1200; // over-limit breathe

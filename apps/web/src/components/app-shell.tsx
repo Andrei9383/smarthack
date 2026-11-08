@@ -5,7 +5,7 @@ import { cn } from "@wattsentry/ui/lib/utils";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import { useCallback, useEffect, useState } from "react";
 
-import { defaultTourSteps, Tour, useTour } from "@/components/help";
+import { Tour, useTour } from "@/components/help";
 import { AgentToast } from "@/components/shell/agent-toast";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { Inspector } from "@/components/shell/inspector";
@@ -15,19 +15,19 @@ import { Rail } from "@/components/shell/rail";
 import { TimelineDock } from "@/components/shell/timeline-dock";
 import { TopBar } from "@/components/shell/top-bar";
 import { VoiceAssistantProvider, VoicePanel } from "@/components/voice/voice-assistant";
-import { SummaryCard } from "@/demo/summary-card";
-import { useBasemapStyles, useRomaniaFocus } from "@/demo/use-basemap";
+import { SummaryCard } from "@/components/shell/summary-card";
+import { useBasemapStyles, useRomaniaFocus } from "@/lib/use-basemap";
 import { useMapTheme } from "@/lib/palette";
 import { TurbineSheet } from "@/modes/om/turbine-sheet";
 import { MODE_IDS, MODES, type ModeId } from "@/modes/registry";
-import { FlexDock, useFlexOpen } from "@/panels/flex/flex-panel";
-import { SiteSheet } from "@/panels/site/site-sheet";
+import { FlexDock, useFlexOpen } from "@/components/panels/flex/flex-panel";
+import { SiteSheet } from "@/components/panels/site/site-sheet";
 
 const ROMANIA_CENTER: [number, number] = [25, 45.9];
-const RAIL_KEY = "sentinel.rail";
+const RAIL_KEY = "wattsentry.rail";
 
 // Feeders and Demand draw their own legend inside their layers; the shell moves it into the
-// prototype's legend slot (top-left, under the top bar). The other modes use the shell's LegendCard.
+// legend slot (top-left, under the top bar). The other modes use the shell's LegendCard.
 const OWN_LEGEND = new Set<ModeId>(["feeders", "demand"]);
 // Written out in full: Tailwind only generates classes it can read literally in the source.
 const MOVE_MODE_LEGEND =
@@ -117,7 +117,7 @@ export function AppShell() {
       >
         {Page ? (
           <>
-            {/* #124: Overview is a page. The rail, top bar and a compact dock stay; the map and
+            {/* Overview is a page. The rail, top bar and a compact dock stay; the map and
                 inspector give way to the briefing, the mini map and the glance sections. */}
             <div
               key={mode}
@@ -151,7 +151,7 @@ export function AppShell() {
               <LegendCard mode={mode} className="absolute top-[80px] left-4 z-[15]" />
             ) : null}
 
-            {/* #31/#32: the flexibility panel opens from Feeders and O&M. Closed, its button sits beside
+            {/* The flexibility panel opens from Feeders and O&M. Closed, its button sits beside
                 the inspector; open, the panel takes the legend's column on the left. */}
             {hasFlex ? (
               flexShown ? (
@@ -184,7 +184,7 @@ export function AppShell() {
         {/* One instance each across modes: the dock owns the replay ticker (unmounting it pauses). */}
         <TopBar mode={mode} onSearch={() => setPaletteOpen(true)} className="absolute inset-x-4 top-3 z-30 h-14" />
         <AgentToast className={cn("absolute left-4 z-[25]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
-        {/* #207: the "Ask WattSentry" conversation sits in the toast's slot, above it. */}
+        {/* The "Ask WattSentry" conversation sits in the toast's slot, above it. */}
         <VoicePanel className={cn("absolute left-4 z-[26]", Page ? "bottom-[92px]" : "bottom-[116px]")} />
         <TimelineDock
           compact={Boolean(Page)}
@@ -194,7 +194,7 @@ export function AppShell() {
       </main>
       <SiteSheet />
       <TurbineSheet />
-      <Tour steps={defaultTourSteps} open={tour.open} onOpenChange={tour.onOpenChange} />
+      <Tour open={tour.open} onOpenChange={tour.onOpenChange} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onTour={tour.start} />
     </div>
     </VoiceAssistantProvider>
